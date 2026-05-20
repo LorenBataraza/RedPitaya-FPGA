@@ -1,0 +1,4 @@
+# Quito reportes automáticos de Vivado
+synReport.*
+*.log
+*.jou

@@ -1,0 +1,15 @@
+#-----------------------------------------------------------
+# Vivado v2021.2 (64-bit)
+# SW Build 3367213 on Tue Oct 19 02:47:39 MDT 2021
+# IP Build 3369179 on Thu Oct 21 08:25:16 MDT 2021
+# Start of session at: Wed May 13 10:32:36 2026
+# Process ID: 200851
+# Current directory: /home/lorenzo/PI/RedPitaya-FPGA/prj/v0.94/project/redpitaya.runs/system_processing_system7_0_synth_1
+# Command line: vivado -log system_processing_system7_0.vds -product Vivado -mode batch -messageDb vivado.pb -notrace -source system_processing_system7_0.tcl
+# Log file: /home/lorenzo/PI/RedPitaya-FPGA/prj/v0.94/project/redpitaya.runs/system_processing_system7_0_synth_1/system_processing_system7_0.vds
+# Journal file: /home/lorenzo/PI/RedPitaya-FPGA/prj/v0.94/project/redpitaya.runs/system_processing_system7_0_synth_1/vivado.jou
+# Running On: LoloVictus, OS: Linux, CPU Frequency: 2691.959 MHz, CPU Physical cores: 8, Host memory: 16415 MB
+#-----------------------------------------------------------
+source system_processing_system7_0.tcl -notrace
+INFO: [IP_Flow 19-4838] Using cached IP synthesis design for IP system_processing_system7_0, cache-ID = 9169c2de1d4de6eb.
+INFO: [Common 17-206] Exiting Vivado at Wed May 13 10:32:44 2026...

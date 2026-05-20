@@ -1,0 +1,15 @@
+#-----------------------------------------------------------
+# Vivado v2021.2 (64-bit)
+# SW Build 3367213 on Tue Oct 19 02:47:39 MDT 2021
+# IP Build 3369179 on Thu Oct 21 08:25:16 MDT 2021
+# Start of session at: Wed May 13 09:38:26 2026
+# Process ID: 10692
+# Current directory: /home/lorenzo/PI/RedPitaya-FPGA/prj/v0.94/project/redpitaya.runs/sync_fifo_synth_1
+# Command line: vivado -log sync_fifo.vds -product Vivado -mode batch -messageDb vivado.pb -notrace -source sync_fifo.tcl
+# Log file: /home/lorenzo/PI/RedPitaya-FPGA/prj/v0.94/project/redpitaya.runs/sync_fifo_synth_1/sync_fifo.vds
+# Journal file: /home/lorenzo/PI/RedPitaya-FPGA/prj/v0.94/project/redpitaya.runs/sync_fifo_synth_1/vivado.jou
+# Running On: LoloVictus, OS: Linux, CPU Frequency: 4100.000 MHz, CPU Physical cores: 8, Host memory: 16415 MB
+#-----------------------------------------------------------
+source sync_fifo.tcl -notrace
+INFO: [IP_Flow 19-4838] Using cached IP synthesis design for IP sync_fifo, cache-ID = 7d2677a18a5f0496.
+INFO: [Common 17-206] Exiting Vivado at Wed May 13 09:38:34 2026...

@@ -1,0 +1,1292 @@
+/*
+
+Xilinx Vivado v2021.2 (64-bit) [Major: 2021, Minor: 2]
+SW Build: 3367213 on Tue Oct 19 02:47:39 MDT 2021
+IP Build: 3369179 on Thu Oct 21 08:25:16 MDT 2021
+
+Process ID (PID): 7598
+License: Customer
+Mode: GUI Mode
+
+Current time: 	Wed May 13 07:26:15 CDT 2026
+Time zone: 	Central Standard Time (US/Central)
+
+OS: Ubuntu
+OS Version: 6.1.0-44-amd64
+OS Architecture: amd64
+Available processors (cores): 12
+
+Display: 1
+Screen size: 1920x1080
+Screen resolution (DPI): 100
+Available screens: 2
+Default font: family=Dialog,name=Dialog,style=plain,size=12
+Scale size: 12
+
+Java version: 	11.0.11 64-bit
+Java home: 	/tools/Xilinx/Vivado/2021.2/tps/lnx64/jre11.0.11_9
+Java executable: 	/tools/Xilinx/Vivado/2021.2/tps/lnx64/jre11.0.11_9/bin/java
+Java arguments: 	[-Dsun.java2d.pmoffscreen=false, -Dhttps.protocols=TLSv1,TLSv1.1,TLSv1.2, -Dsun.java2d.xrender=false, -Djdk.gtk.version=2, -Dsun.java2d.uiScale.enabled=false, -Xverify:none, -Dswing.aatext=true, -XX:-UsePerfData, -Djdk.map.althashing.threshold=512, -XX:StringTableSize=4072, --add-opens=java.base/java.nio=ALL-UNNAMED, --add-opens=java.desktop/sun.swing=ALL-UNNAMED, --add-opens=java.desktop/javax.swing=ALL-UNNAMED, --add-opens=java.desktop/javax.swing.tree=ALL-UNNAMED, --add-opens=java.desktop/javax.swing.plaf.basic=ALL-UNNAMED, --add-opens=java.desktop/javax.swing.plaf.synth=ALL-UNNAMED, --add-opens=java.desktop/com.sun.awt=ALL-UNNAMED, --add-opens=java.desktop/sun.awt.X11=ALL-UNNAMED, -XX:NewSize=60m, -XX:MaxNewSize=60m, -Xms256m, -Xmx3072m, -Xss5m, -Xrs]
+Java initial memory (-Xms): 	256 MB
+Java maximum memory (-Xmx):	 3 GB
+
+
+User name: 	lorenzo
+User home directory: /home/lorenzo
+User working directory: /home/lorenzo/PI/RedPitaya-FPGA/prj/v0.94/project
+User country: 	US
+User language: 	en
+User locale: 	en_US
+
+RDI_BASEROOT: /tools/Xilinx/Vivado
+HDI_APPROOT: /tools/Xilinx/Vivado/2021.2
+RDI_DATADIR: /tools/Xilinx/Vivado/2021.2/data
+RDI_BINDIR: /tools/Xilinx/Vivado/2021.2/bin
+
+Vivado preferences file: /home/lorenzo/.Xilinx/Vivado/2021.2/vivado.xml
+Vivado preferences directory: /home/lorenzo/.Xilinx/Vivado/2021.2/
+Vivado layouts directory: /home/lorenzo/.Xilinx/Vivado/2021.2/data/layouts
+PlanAhead jar file: 	/tools/Xilinx/Vivado/2021.2/lib/classes/planAhead.jar
+Vivado log file: 	/home/lorenzo/PI/RedPitaya-FPGA/prj/v0.94/project/vivado.log
+Vivado journal file: 	/home/lorenzo/PI/RedPitaya-FPGA/prj/v0.94/project/vivado.jou
+Engine tmp dir: 	./.Xil/Vivado-7598-LoloVictus
+
+Xilinx Environment Variables
+----------------------------
+XILINX: /tools/Xilinx/Vivado/2021.2/ids_lite/ISE
+XILINX_DSP: /tools/Xilinx/Vivado/2021.2/ids_lite/ISE
+XILINX_HLS: /tools/Xilinx/Vitis_HLS/2021.2
+XILINX_PLANAHEAD: /tools/Xilinx/Vivado/2021.2
+XILINX_SDK: /tools/Xilinx/Vitis/2021.2
+XILINX_VITIS: /tools/Xilinx/Vitis/2021.2
+XILINX_VIVADO: /tools/Xilinx/Vivado/2021.2
+XILINX_VIVADO_HLS: /tools/Xilinx/Vivado/2021.2
+
+
+GUI allocated memory:	370 MB
+GUI max memory:		3,072 MB
+Engine allocated memory: 2,034 MB
+
+Copyright 1986-2021 Xilinx, Inc. All Rights Reserved.
+
+*/
+
+// TclEventType: START_GUI
+// TclEventType: PROJECT_OPEN_DIALOG
+// Tcl Message: start_gui 
+// TclEventType: PROJECT_OPEN_DIALOG
+// Opening Vivado Project: redpitaya.xpr. Version: Vivado v2021.2 
+// TclEventType: DEBUG_PROBE_SET_CHANGE
+// TclEventType: FLOW_ADDED
+// Tcl Message: open_project redpitaya.xpr 
+// TclEventType: MSGMGR_MOVEMSG
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: FILE_SET_NEW
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_CURRENT
+// TclEventType: PROJECT_DASHBOARD_NEW
+// TclEventType: PROJECT_DASHBOARD_GADGET_NEW
+// TclEventType: PROJECT_DASHBOARD_GADGET_CHANGE
+// TclEventType: PROJECT_DASHBOARD_GADGET_NEW
+// TclEventType: PROJECT_DASHBOARD_GADGET_CHANGE
+// TclEventType: PROJECT_DASHBOARD_GADGET_NEW
+// TclEventType: PROJECT_DASHBOARD_GADGET_CHANGE
+// TclEventType: PROJECT_DASHBOARD_GADGET_NEW
+// TclEventType: PROJECT_DASHBOARD_GADGET_CHANGE
+// TclEventType: PROJECT_DASHBOARD_GADGET_NEW
+// TclEventType: PROJECT_DASHBOARD_GADGET_CHANGE
+// TclEventType: PROJECT_DASHBOARD_GADGET_NEW
+// TclEventType: PROJECT_DASHBOARD_GADGET_CHANGE
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: PROJECT_NEW
+// [GUI Memory]: 113 MB (+115733kb) [00:00:07]
+// [Engine Memory]: 1,899 MB (+1839458kb) [00:00:07]
+// [Engine Memory]: 2,032 MB (+39719kb) [00:00:08]
+// WARNING: HEventQueue.dispatchEvent() is taking  1907 ms.
+// Tcl Message: open_project redpitaya.xpr 
+// Tcl Message: Scanning sources... Finished scanning sources 
+// Tcl Message: INFO: [IP_Flow 19-234] Refreshing IP repositories INFO: [IP_Flow 19-1704] No user IP repositories specified INFO: [IP_Flow 19-2313] Loaded Vivado IP repository '/tools/Xilinx/Vivado/2021.2/data/ip'. 
+// [GUI Memory]: 126 MB (+8467kb) [00:00:09]
+// HMemoryUtils.trashcanNow. Engine heap size: 1,924 MB. GUI used memory: 68 MB. Current time: 5/13/26, 7:26:16 AM CDT
+// Tcl Message: open_project: Time (s): cpu = 00:00:14 ; elapsed = 00:00:05 . Memory (MB): peak = 7699.203 ; gain = 116.898 ; free physical = 4996 ; free virtual = 11104 
+// Project name: redpitaya; location: /home/lorenzo/PI/RedPitaya-FPGA/prj/v0.94/project; part: xc7z020clg400-1
+dismissDialog("Open Project"); // bA
+// [Engine Memory]: 2,210 MB (+80870kb) [00:00:13]
+expandTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Constraints]", 0); // D
+// [GUI Memory]: 136 MB (+3227kb) [00:00:14]
+// Tcl Message: update_compile_order -fileset sources_1 
+// PAPropertyPanels.initPanels (red_pitaya_top.sv) elapsed time: 0.2s
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top (red_pitaya_top.sv)]", 1, true); // D - Node
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top (red_pitaya_top.sv), pll : red_pitaya_pll (red_pitaya_pll.sv)]", 2, false, false, false, false, false, true); // D - Double Click
+// WARNING: HEventQueue.dispatchEvent() is taking  1222 ms.
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top (red_pitaya_top.sv)]", 1, true); // D - Node
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top (red_pitaya_top.sv)]", 1, true, false, false, false, false, true); // D - Double Click - Node
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, osc (osc.sv)]", 8, true); // D - Node
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, osc (osc.sv)]", 8, true, false, false, false, false, true); // D - Double Click - Node
+// WARNING: HEventQueue.dispatchEvent() is taking  1069 ms.
+// [GUI Memory]: 144 MB (+1551kb) [00:00:21]
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, osc (osc.sv), osc_trg (osc_trg.sv)]", 11, true); // D - Node
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, osc (osc.sv), osc_trg (osc_trg.sv)]", 11, true, false, false, false, false, true); // D - Double Click - Node
+// WARNING: HEventQueue.dispatchEvent() is taking  1068 ms.
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, osc (osc.sv), acq (acq.sv)]", 13, false); // D
+collapseTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, osc (osc.sv)]", 8); // D
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, osc (osc.sv)]", 8, true); // D - Node
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, osc (osc.sv), osc_trg (osc_trg.sv)]", 11, true, false, false, false, false, true); // D - Double Click - Node
+dismissDialog("Opening Editor"); // bA
+// HMemoryUtils.trashcanNow. Engine heap size: 2,069 MB. GUI used memory: 85 MB. Current time: 5/13/26, 7:26:45 AM CDT
+// Elapsed time: 11 seconds
+expandTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top (red_pitaya_top.sv)]", 1); // D
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top (red_pitaya_top.sv), i_scope : rp_scope_com (rp_scope_com.v)]", 8, true); // D - Node
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top (red_pitaya_top.sv), i_scope : rp_scope_com (rp_scope_com.v), genblk1[0].i_trig_src : rp_trig_src (rp_trig_src.v)]", 16, false, false, false, false, false, true); // D - Double Click
+// WARNING: HEventQueue.dispatchEvent() is taking  1065 ms.
+dismissDialog("Opening Editor"); // bA
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top (red_pitaya_top.sv), i_scope : rp_scope_com (rp_scope_com.v), genblk1[0].i_axi_sm : rp_axi_sm (rp_axi_sm.v)]", 19, true); // D - Node
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top (red_pitaya_top.sv), i_scope : rp_scope_com (rp_scope_com.v), genblk1[1].i_dfilt1_ch : osc_filter (osc_filter.v)]", 21, false); // D
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top (red_pitaya_top.sv), i_scope : rp_scope_com (rp_scope_com.v), genblk1[1].i_calib_ch : rp_scope_calib (rp_scope_calib.v)]", 20, false); // D
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top (red_pitaya_top.sv), i_scope : rp_scope_com (rp_scope_com.v), genblk1[0].i_adc_trig : rp_adc_trig (rp_adc_trig.v)]", 15, false); // D
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top (red_pitaya_top.sv), i_scope : rp_scope_com (rp_scope_com.v), genblk1[1].i_trig_src : rp_trig_src (rp_trig_src.v)]", 25, false); // D
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top (red_pitaya_top.sv), i_scope : rp_scope_com (rp_scope_com.v), genblk1[1].i_trig_src : rp_trig_src (rp_trig_src.v)]", 25, false, false, false, false, false, true); // D - Double Click
+// WARNING: HEventQueue.dispatchEvent() is taking  1050 ms.
+dismissDialog("Opening Editor"); // bA
+// Elapsed time: 15 seconds
+selectCodeEditor("rp_trig_src.v", 436, 349); // be
+selectCodeEditor("rp_trig_src.v", 436, 348, false, false, false, false, true); // be - Double Click
+// Elapsed time: 13 seconds
+collapseTree(PAResourceEtoH.FlowNavigatorTreePanel_FLOW_NAVIGATOR_TREE, "[, Program and Debug, Open Hardware Manager]", 21); // n
+expandTree(PAResourceEtoH.FlowNavigatorTreePanel_FLOW_NAVIGATOR_TREE, "[, Program and Debug, Open Hardware Manager]", 21); // n
+expandTree(PAResourceEtoH.FlowNavigatorTreePanel_FLOW_NAVIGATOR_TREE, "[, Program and Debug, Open Hardware Manager]", 21); // n
+collapseTree(PAResourceEtoH.FlowNavigatorTreePanel_FLOW_NAVIGATOR_TREE, "[, Program and Debug, Open Hardware Manager]", 21); // n
+selectTree(PAResourceEtoH.FlowNavigatorTreePanel_FLOW_NAVIGATOR_TREE, "[, Program and Debug, Generate Bitstream]", 20, false, false, false, false, true, false); // n - Popup Trigger
+selectTree(PAResourceEtoH.FlowNavigatorTreePanel_FLOW_NAVIGATOR_TREE, "[, Project Manager]", 0, true); // n - Node
+selectTree(PAResourceEtoH.FlowNavigatorTreePanel_FLOW_NAVIGATOR_TREE, "[, Project Manager]", 0, true); // n - Node
+selectTree(PAResourceEtoH.FlowNavigatorTreePanel_FLOW_NAVIGATOR_TREE, "[, Project Manager, Settings]", 1, false); // n
+// Run Command: RDIResourceCommand.RDICommands_SETTINGS
+// Tcl Command: 'rdi::info_commands {device::*}'
+// Tcl Command: 'rdi::info_commands {debug::*}'
+// Tcl Command: 'rdi::info_commands {*}'
+// WARNING: HEventQueue.dispatchEvent() is taking  1145 ms.
+// [GUI Memory]: 162 MB (+10896kb) [00:01:51]
+// Elapsed time: 12 seconds
+selectButton(PAResourceQtoS.SettingsProjectGeneralPage_CHOOSE_DEVICE_FOR_YOUR_PROJECT, (String) null); // s
+// Elapsed time: 15 seconds
+selectTable(PAResourceEtoH.FPGAChooser_FPGA_TABLE, "xc7z010clg400-1 ; 400 ; 100 ; 17600 ; 35200 ; 60 ; 0 ; 80 ; 0 ; 0 ; 0 ; 0 ; 0 ; 0 ; 0 ; 0 ; 0 ; 0 ; 0 ; 0 ; 0 ; 0 ; 2 ;  ;  ;  ;  ; 0 ;  ;  ;  ;  ;  ;  ; 0.95 ; 0.95 ; 1.05", 282, "xc7z010clg400-1", 0); // r
+selectButton(RDIResource.BaseDialog_OK, "OK"); // a
+dismissDialog("Select Device"); // c
+// [GUI Memory]: 175 MB (+4893kb) [00:02:19]
+selectButton(RDIResource.BaseDialog_OK, "OK"); // a
+selectButton(RDIResource.BaseDialog_YES, "Yes"); // a
+dismissDialog("Create New Run"); // A
+selectButton(RDIResource.BaseDialog_OK, "OK"); // a
+// Tcl Command: 'copy_run -name synth_1_copy_1 [get_runs synth_1] '
+// TclEventType: RUN_ADD
+// TclEventType: RUN_OPTIONS_MODIFIED
+// TclEventType: RUN_MODIFY
+// TclEventType: REPORT_CREATED
+// TclEventType: REPORT_MODIFY
+// Tcl Message: copy_run -name synth_1_copy_1 [get_runs synth_1]  
+// Tcl Message: synth_1_copy_1 
+dismissDialog("Copy Run"); // bA
+// TclEventType: RUN_MODIFY
+// Tcl Message: set_property part xc7z010clg400-1 [current_project] 
+// TclEventType: RUN_MODIFY
+// [GUI Memory]: 184 MB (+290kb) [00:02:30]
+// TclEventType: RUN_MODIFY
+// TclEventType: CREATE_IP_CATALOG
+// TclEventType: RSB_NOC_COMPILE
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: BDCELL_LOCK_CHANGE
+// TclEventType: IP_LOCK_CHANGE
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: BDCELL_LOCK_CHANGE
+// TclEventType: IP_LOCK_CHANGE
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: BDCELL_LOCK_CHANGE
+// TclEventType: IP_LOCK_CHANGE
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: BDCELL_LOCK_CHANGE
+// TclEventType: IP_LOCK_CHANGE
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: BDCELL_LOCK_CHANGE
+// TclEventType: IP_LOCK_CHANGE
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: BDCELL_LOCK_CHANGE
+// TclEventType: IP_LOCK_CHANGE
+// TclEventType: DG_GRAPH_STALE
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: IP_LOCK_CHANGE
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: IP_LOCK_CHANGE
+// TclEventType: PART_MODIFIED
+// [GUI Memory]: 204 MB (+11510kb) [00:02:31]
+// WARNING: HEventQueue.dispatchEvent() is taking  3847 ms.
+dismissDialog("Change Settings"); // bA
+dismissDialog("Settings"); // d
+// HMemoryUtils.trashcanNow. Engine heap size: 2,150 MB. GUI used memory: 111 MB. Current time: 5/13/26, 7:29:40 AM CDT
+// Elapsed time: 555 seconds
+selectTree(PAResourceEtoH.FlowNavigatorTreePanel_FLOW_NAVIGATOR_TREE, "[, Program and Debug, Generate Bitstream]", 20, false); // n
+// Run Command: PAResourceCommand.PACommandNames_RUN_BITGEN
+selectButton(RDIResource.BaseDialog_YES, "Yes"); // a
+dismissDialog("Synthesis is Out-of-date"); // A
+// TclEventType: RUN_MODIFY
+// TclEventType: RUN_RESET
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_RESET
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_RESET
+// TclEventType: RUN_MODIFY
+// Tcl Message: reset_run synth_1 
+// TclEventType: RUN_MODIFY
+// TclEventType: RUN_RESET
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_RESET
+// TclEventType: RUN_MODIFY
+// Tcl Message: reset_run system_axi_protocol_converter_0_0_synth_1 
+// TclEventType: RUN_MODIFY
+// TclEventType: RUN_RESET
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_RESET
+// TclEventType: RUN_MODIFY
+// Tcl Message: reset_run system_xadc_0_synth_1 
+// TclEventType: RUN_MODIFY
+// TclEventType: RUN_RESET
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_RESET
+// TclEventType: RUN_MODIFY
+// Tcl Message: reset_run system_axi_register_slice_0_0_synth_1 
+// TclEventType: RUN_MODIFY
+// TclEventType: RUN_RESET
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_RESET
+// TclEventType: RUN_MODIFY
+// Tcl Message: reset_run system_proc_sys_reset_0_synth_1 
+// TclEventType: RUN_MODIFY
+// TclEventType: RUN_RESET
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_RESET
+// TclEventType: RUN_MODIFY
+// Tcl Message: reset_run system_processing_system7_0_synth_1 
+// TclEventType: RUN_MODIFY
+// TclEventType: RUN_RESET
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_RESET
+// TclEventType: RUN_MODIFY
+// Tcl Message: reset_run asg_dat_fifo_synth_1 
+// TclEventType: RUN_MODIFY
+// TclEventType: RUN_RESET
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_RESET
+// TclEventType: RUN_MODIFY
+// Tcl Message: reset_run sync_fifo_synth_1 
+selectButton(RDIResource.BaseDialog_OK, "OK"); // a
+// 'cR' command handler elapsed time: 4 seconds
+dismissDialog("Launch Runs"); // cU
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: RUN_LAUNCH
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: RUN_LAUNCH
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: RUN_LAUNCH
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: RUN_LAUNCH
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: RUN_LAUNCH
+// TclEventType: DG_GRAPH_STALE
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: RUN_LAUNCH
+// TclEventType: DG_GRAPH_STALE
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: RUN_LAUNCH
+// Tcl Message: launch_runs impl_1 -to_step write_bitstream -jobs 4 
+// Tcl Message: INFO: [IP_Flow 19-4993] Using cached IP synthesis design for IP system_axi_protocol_converter_0_0, cache-ID = 19b0f8a58b53ab0f; cache size = 4.712 MB. INFO: [IP_Flow 19-4993] Using cached IP synthesis design for IP system_axi_register_slice_0_0, cache-ID = 3cf8398bd7925ded; cache size = 4.712 MB. INFO: [IP_Flow 19-4993] Using cached IP synthesis design for IP system_proc_sys_reset_0, cache-ID = 317f206e90ed4afb; cache size = 4.712 MB. INFO: [IP_Flow 19-4993] Using cached IP synthesis design for IP system_processing_system7_0, cache-ID = 9169c2de1d4de6eb; cache size = 4.712 MB. INFO: [IP_Flow 19-4993] Using cached IP synthesis design for IP system_xadc_0, cache-ID = 511492f54bf0520c; cache size = 4.712 MB. 
+// TclEventType: RUN_LAUNCH
+// TclEventType: RUN_MODIFY
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_MODIFY
+// Tcl Message: [Wed May 13 09:38:05 2026] Launched impl_1... Run output will be captured here: /home/lorenzo/PI/RedPitaya-FPGA/prj/v0.94/project/redpitaya.runs/impl_1/runme.log 
+dismissDialog("Generate Bitstream"); // bA
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_STEP_COMPLETED
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_STEP_COMPLETED
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_STEP_COMPLETED
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_STEP_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_STEP_COMPLETED
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_STEP_COMPLETED
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_STEP_COMPLETED
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_STEP_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_STEP_COMPLETED
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: DG_GRAPH_STALE
+// TclEventType: FILE_SET_CHANGE
+// HMemoryUtils.trashcanNow. Engine heap size: 2,247 MB. GUI used memory: 121 MB. Current time: 5/13/26, 7:52:35 AM CDT
+// Elapsed time: 960 seconds
+selectButton(RDIResource.BaseDialog_CANCEL, "Cancel"); // a
+dismissDialog("Bitstream Generation Completed"); // ag
+// Elapsed time: 603 seconds
+selectCodeEditor("rp_trig_src.v", 122, 98); // be
+selectCodeEditor("rp_trig_src.v", 122, 99, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 65, 352); // be
+selectCodeEditor("rp_trig_src.v", 68, 351); // be
+selectCodeEditor("rp_trig_src.v", 68, 351, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 69, 296); // be
+selectCodeEditor("rp_trig_src.v", 69, 296, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 85, 357); // be
+selectCodeEditor("rp_trig_src.v", 78, 355); // be
+selectCodeEditor("rp_trig_src.v", 78, 355, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 117, 398); // be
+selectCodeEditor("rp_trig_src.v", 117, 398, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 662, 370); // be
+selectCodeEditor("rp_trig_src.v", 247, 347); // be
+selectCodeEditor("rp_trig_src.v", 247, 347, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 348, 349); // be
+selectCodeEditor("rp_trig_src.v", 348, 349, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 641, 278); // be
+selectCodeEditor("rp_trig_src.v", 641, 278, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 622, 276); // be
+selectCodeEditor("rp_trig_src.v", 622, 276, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 627, 280); // be
+selectCodeEditor("rp_trig_src.v", 627, 280, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 224, 254); // be
+selectCodeEditor("rp_trig_src.v", 224, 254, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 235, 139); // be
+selectCodeEditor("rp_trig_src.v", 235, 139, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 217, 128); // be
+selectCodeEditor("rp_trig_src.v", 217, 128, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 200, 111); // be
+selectCodeEditor("rp_trig_src.v", 200, 111, false, false, false, false, true); // be - Double Click
+typeControlKey((HResource) null, "rp_trig_src.v", 'c'); // be
+selectCodeEditor("rp_trig_src.v", 242, 351); // be
+selectCodeEditor("rp_trig_src.v", 242, 351, false, false, false, false, true); // be - Double Click
+typeControlKey((HResource) null, "rp_trig_src.v", 'v'); // be
+selectCodeEditor("rp_trig_src.v", 233, 122); // be
+selectCodeEditor("rp_trig_src.v", 233, 122, false, false, false, false, true); // be - Double Click
+typeControlKey((HResource) null, "rp_trig_src.v", 'c'); // be
+selectCodeEditor("rp_trig_src.v", 330, 328); // be
+selectCodeEditor("rp_trig_src.v", 330, 328, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 223, 362); // be
+selectCodeEditor("rp_trig_src.v", 223, 362, false, false, false, false, true); // be - Double Click
+typeControlKey((HResource) null, "rp_trig_src.v", 'v'); // be
+selectCodeEditor("rp_trig_src.v", 216, 152); // be
+selectCodeEditor("rp_trig_src.v", 216, 152, false, false, false, false, true); // be - Double Click
+typeControlKey((HResource) null, "rp_trig_src.v", 'c'); // be
+selectCodeEditor("rp_trig_src.v", 327, 347); // be
+selectCodeEditor("rp_trig_src.v", 327, 347, false, false, false, false, true); // be - Double Click
+typeControlKey((HResource) null, "rp_trig_src.v", 'v'); // be
+selectCodeEditor("rp_trig_src.v", 211, 160); // be
+selectCodeEditor("rp_trig_src.v", 211, 160, false, false, false, false, true); // be - Double Click
+typeControlKey((HResource) null, "rp_trig_src.v", 'c'); // be
+selectCodeEditor("rp_trig_src.v", 322, 364); // be
+selectCodeEditor("rp_trig_src.v", 322, 364, false, false, false, false, true); // be - Double Click
+typeControlKey((HResource) null, "rp_trig_src.v", 'v'); // be
+// TclEventType: DG_GRAPH_STALE
+// TclEventType: FILE_SET_CHANGE
+selectCodeEditor("rp_trig_src.v", 304, 408); // be
+selectCodeEditor("rp_trig_src.v", 45, 299); // be
+typeControlKey((HResource) null, "rp_trig_src.v", 'c'); // be
+selectCodeEditor("rp_trig_src.v", 124, 218); // be
+selectCodeEditor("rp_trig_src.v", 74, 185); // be
+selectCodeEditor("rp_trig_src.v", 46, 205); // be
+typeControlKey((HResource) null, "rp_trig_src.v", 'v'); // be
+// TclEventType: DG_GRAPH_STALE
+// TclEventType: FILE_SET_CHANGE
+selectTree(PAResourceEtoH.FlowNavigatorTreePanel_FLOW_NAVIGATOR_TREE, "[, Program and Debug, Generate Bitstream]", 20, false); // n
+// Run Command: PAResourceCommand.PACommandNames_RUN_BITGEN
+selectButton(RDIResource.BaseDialog_YES, "Yes"); // a
+// TclEventType: RUN_MODIFY
+dismissDialog("Synthesis is Out-of-date"); // A
+// [Engine Memory]: 2,345 MB (+25330kb) [00:39:04]
+// TclEventType: RUN_RESET
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_RESET
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_RESET
+// TclEventType: RUN_MODIFY
+// Tcl Message: reset_run synth_1 
+selectButton(RDIResource.BaseDialog_OK, "OK"); // a
+dismissDialog("Launch Runs"); // cU
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: RUN_LAUNCH
+// TclEventType: RUN_MODIFY
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_MODIFY
+// Tcl Message: launch_runs impl_1 -to_step write_bitstream -jobs 4 
+// Tcl Message: INFO: [IP_Flow 19-4993] Using cached IP synthesis design for IP system_axi_protocol_converter_0_0, cache-ID = 19b0f8a58b53ab0f; cache size = 4.712 MB. INFO: [IP_Flow 19-4993] Using cached IP synthesis design for IP system_axi_register_slice_0_0, cache-ID = 3cf8398bd7925ded; cache size = 4.712 MB. INFO: [IP_Flow 19-4993] Using cached IP synthesis design for IP system_proc_sys_reset_0, cache-ID = 317f206e90ed4afb; cache size = 4.712 MB. INFO: [IP_Flow 19-4993] Using cached IP synthesis design for IP system_processing_system7_0, cache-ID = 9169c2de1d4de6eb; cache size = 4.712 MB. INFO: [IP_Flow 19-4993] Using cached IP synthesis design for IP system_xadc_0, cache-ID = 511492f54bf0520c; cache size = 4.712 MB. 
+// Tcl Message: [Wed May 13 10:05:13 2026] Launched synth_1... Run output will be captured here: /home/lorenzo/PI/RedPitaya-FPGA/prj/v0.94/project/redpitaya.runs/synth_1/runme.log [Wed May 13 10:05:13 2026] Launched impl_1... Run output will be captured here: /home/lorenzo/PI/RedPitaya-FPGA/prj/v0.94/project/redpitaya.runs/impl_1/runme.log 
+selectCodeEditor("rp_trig_src.v", 591, 349, false, false, true, false, false); // be - Alt Key
+// TclEventType: RUN_STATUS_CHANGE
+// Elapsed time: 26 seconds
+selectCodeEditor("rp_trig_src.v", 423, 358); // be
+selectCodeEditor("rp_trig_src.v", 423, 358, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 423, 358); // be
+selectCodeEditor("rp_trig_src.v", 423, 358); // be
+selectCodeEditor("rp_trig_src.v", 122, 191); // be
+selectCodeEditor("rp_trig_src.v", 241, 345); // be
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_STEP_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_STEP_COMPLETED
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// Elapsed time: 345 seconds
+selectButton(RDIResource.BaseDialog_OK, "OK"); // a
+// Run Command: PAResourceCommand.PACommandNames_GOTO_IMPLEMENTED_DESIGN
+// Tcl Message: open_run impl_1 
+// TclEventType: SDC_CONSTRAINT_ADD
+// TclEventType: POWER_CNS_STALE
+// TclEventType: SDC_CONSTRAINT_ADD
+// TclEventType: POWER_REPORT_STALE
+// TclEventType: SDC_CONSTRAINT_ADD
+// TclEventType: POWER_REPORT_STALE
+// TclEventType: SDC_CONSTRAINT_ADD
+// TclEventType: POWER_REPORT_STALE
+// TclEventType: SDC_CONSTRAINT_ADD
+// TclEventType: POWER_REPORT_STALE
+// TclEventType: SDC_CONSTRAINT_ADD
+// TclEventType: POWER_REPORT_STALE
+// TclEventType: SDC_CONSTRAINT_ADD
+// TclEventType: PLACEDB_MODIFIY_PRE
+// TclEventType: SDC_CONSTRAINT_ADD
+// TclEventType: FLOORPLAN_MODIFY
+// TclEventType: DESIGN_NEW
+// HMemoryUtils.trashcanNow. Engine heap size: 2,551 MB. GUI used memory: 122 MB. Current time: 5/13/26, 8:11:38 AM CDT
+// [Engine Memory]: 2,551 MB (+92729kb) [00:45:31]
+// TclEventType: DESIGN_NEW
+// [Engine Memory]: 2,729 MB (+53583kb) [00:45:32]
+// TclEventType: HFED_INIT_ROUTE_STORAGE_COMPLETED
+// RouteApi::loadEngineXgdAndInitRouteStorage elapsed time: 1.2s
+// DeviceView Instantiated
+// WARNING: HEventQueue.dispatchEvent() is taking  1606 ms.
+// TclEventType: CURR_DESIGN_SET
+// Tcl Message: INFO: [Device 21-403] Loading part xc7z010clg400-1 
+// Tcl Message: Netlist sorting complete. Time (s): cpu = 00:00:00.13 ; elapsed = 00:00:00.12 . Memory (MB): peak = 8154.309 ; gain = 0.000 ; free physical = 1960 ; free virtual = 6319 
+// Tcl Message: INFO: [Netlist 29-17] Analyzing 965 Unisim elements for replacement INFO: [Netlist 29-28] Unisim Transformation completed in 0 CPU seconds INFO: [Project 1-479] Netlist was created with Vivado 2021.2 INFO: [Project 1-570] Preparing netlist for logic optimization INFO: [Timing 38-478] Restoring timing data from binary archive. INFO: [Timing 38-479] Binary timing data restore complete. INFO: [Project 1-856] Restoring constraints from binary archive. INFO: [Project 1-853] Binary constraint restore complete. 
+// Tcl Message: Reading XDEF placement. Reading placer database... Reading XDEF routing. 
+// Tcl Message: Read XDEF File: Time (s): cpu = 00:00:00.66 ; elapsed = 00:00:00.66 . Memory (MB): peak = 8246.234 ; gain = 5.000 ; free physical = 1229 ; free virtual = 5587 
+// Tcl Message: Restored from archive | CPU: 0.680000 secs | Memory: 22.106354 MB | 
+// Tcl Message: Finished XDEF File Restore: Time (s): cpu = 00:00:00.66 ; elapsed = 00:00:00.66 . Memory (MB): peak = 8246.234 ; gain = 5.000 ; free physical = 1229 ; free virtual = 5587 Netlist sorting complete. Time (s): cpu = 00:00:00 ; elapsed = 00:00:00 . Memory (MB): peak = 8246.234 ; gain = 0.000 ; free physical = 1225 ; free virtual = 5583 
+// Tcl Message: INFO: [Project 1-111] Unisim Transformation Summary:   A total of 80 instances were transformed.   IOBUF => IOBUF (IBUF, OBUFT): 16 instances   OBUFDS => OBUFDS_DUAL_BUF (INV, OBUFDS(x2)): 2 instances   RAM32M => RAM32M (RAMD32(x6), RAMS32(x2)): 58 instances   RAM32X1D => RAM32X1D (RAMD32(x2)): 4 instances  
+// Device view-level: 0.0
+// RouteApi: Init Delay Mediator Swing Worker Finished
+// Tcl Message: open_run: Time (s): cpu = 00:00:18 ; elapsed = 00:00:11 . Memory (MB): peak = 8470.480 ; gain = 316.172 ; free physical = 1033 ; free virtual = 5438 
+// TclEventType: DRC_ADDED
+// TclEventType: METHODOLOGY_ADDED
+// TclEventType: POWER_UPDATED
+// [GUI Memory]: 217 MB (+3595kb) [00:45:35]
+// [GUI Memory]: 229 MB (+265kb) [00:45:36]
+// [Engine Memory]: 2,911 MB (+47624kb) [00:45:36]
+// [GUI Memory]: 241 MB (+492kb) [00:45:36]
+// WARNING: HEventQueue.dispatchEvent() is taking  1998 ms.
+// TclEventType: TIMING_SUMMARY_UPDATED
+// [GUI Memory]: 260 MB (+7997kb) [00:45:38]
+// [Engine Memory]: 3,199 MB (+149338kb) [00:45:38]
+// 'el' command handler elapsed time: 15 seconds
+// Elapsed time: 15 seconds
+dismissDialog("Open Implemented Design"); // bA
+selectButton(PAResourceAtoD.CmdMsgDialog_OK, "OK"); // f
+dismissDialog("Critical Messages"); // W
+selectButton(PAResourceTtoZ.TimingSumResultsTab_SHOW_ONLY_FAILING_CHECKS, "Timing_failingonly"); // w: TRUE
+selectTree(PAResourceItoN.NavigableTimingReportTab_TIMING_REPORT_NAVIGATION_TREE, "[Root, Intra-Clock Paths, clk_fpga_0, Setup -0.534 ns]", 6, false); // a
+// HMemoryUtils.trashcanNow. Engine heap size: 3,141 MB. GUI used memory: 194 MB. Current time: 5/13/26, 8:11:56 AM CDT
+// PAPropertyPanels.initPanels (Path 1) elapsed time: 0.2s
+selectTable(PAResourceTtoZ.TimingItemFlatTablePanel_TABLE, "Path 1 ; -0.5344578 ; 5 ; 33 ; ps/axi_slave_gp0/wr_awaddr_reg[21]/C ; ps/axi_slave_gp0/ack_cnt_reg[1]/R ; 7.8573575 ; 1.3060001 ; 6.551356 ; 8.0 ; clk_fpga_0 ; clk_fpga_0 ;  ; 0.12509996", 0, "ps/axi_slave_gp0/wr_awaddr_reg[21]/C", 4); // h
+selectTab("PlanAheadTabBaseWorkspace_JideTabbedPane", (HResource) null, "Project Summary", 0); // m
+selectTable(PAResourceTtoZ.TimingItemFlatTablePanel_TABLE, "Path 1 ; -0.5344578 ; 5 ; 33 ; ps/axi_slave_gp0/wr_awaddr_reg[21]/C ; ps/axi_slave_gp0/ack_cnt_reg[1]/R ; 7.8573575 ; 1.3060001 ; 6.551356 ; 8.0 ; clk_fpga_0 ; clk_fpga_0 ;  ; 0.12509996", 0, "Path 1", 0); // h
+selectTable(PAResourceTtoZ.TimingItemFlatTablePanel_TABLE, "Path 1 ; -0.5344578 ; 5 ; 33 ; ps/axi_slave_gp0/wr_awaddr_reg[21]/C ; ps/axi_slave_gp0/ack_cnt_reg[1]/R ; 7.8573575 ; 1.3060001 ; 6.551356 ; 8.0 ; clk_fpga_0 ; clk_fpga_0 ;  ; 0.12509996", 0, "Path 1", 0, false, false, false, false, true); // h - Double Click
+selectTable(PAResourceTtoZ.TimingItemFlatTablePanel_TABLE, "Path 2 ; -0.5344578 ; 5 ; 33 ; ps/axi_slave_gp0/wr_awaddr_reg[21]/C ; ps/axi_slave_gp0/ack_cnt_reg[2]/R ; 7.8573575 ; 1.3060001 ; 6.551356 ; 8.0 ; clk_fpga_0 ; clk_fpga_0 ;  ; 0.12509996", 1, "ps/axi_slave_gp0/wr_awaddr_reg[21]/C", 4); // h
+selectTable(PAResourceTtoZ.TimingItemFlatTablePanel_TABLE, "Path 2 ; -0.5344578 ; 5 ; 33 ; ps/axi_slave_gp0/wr_awaddr_reg[21]/C ; ps/axi_slave_gp0/ack_cnt_reg[2]/R ; 7.8573575 ; 1.3060001 ; 6.551356 ; 8.0 ; clk_fpga_0 ; clk_fpga_0 ;  ; 0.12509996", 1, "ps/axi_slave_gp0/wr_awaddr_reg[21]/C", 4, false, false, false, false, true); // h - Double Click
+selectTable(PAResourceTtoZ.TimingItemFlatTablePanel_TABLE, "Path 1 ; -0.5344578 ; 5 ; 33 ; ps/axi_slave_gp0/wr_awaddr_reg[21]/C ; ps/axi_slave_gp0/ack_cnt_reg[1]/R ; 7.8573575 ; 1.3060001 ; 6.551356 ; 8.0 ; clk_fpga_0 ; clk_fpga_0 ;  ; 0.12509996", 0, "ps/axi_slave_gp0/wr_awaddr_reg[21]/C", 4); // h
+selectTable(PAResourceTtoZ.TimingItemFlatTablePanel_TABLE, "Path 1 ; -0.5344578 ; 5 ; 33 ; ps/axi_slave_gp0/wr_awaddr_reg[21]/C ; ps/axi_slave_gp0/ack_cnt_reg[1]/R ; 7.8573575 ; 1.3060001 ; 6.551356 ; 8.0 ; clk_fpga_0 ; clk_fpga_0 ;  ; 0.12509996", 0, "ps/axi_slave_gp0/wr_awaddr_reg[21]/C", 4, false, false, false, false, true); // h - Double Click
+selectTableHeader(PAResourceTtoZ.TimingItemFlatTablePanel_TABLE, "From", 4); // h
+// HMemoryUtils.trashcanNow. Engine heap size: 3,138 MB. GUI used memory: 193 MB. Current time: 5/13/26, 8:12:15 AM CDT
+selectTableHeader(PAResourceTtoZ.TimingItemFlatTablePanel_TABLE, "From", 4); // h
+// Elapsed time: 18 seconds
+expandTree(PAResourceEtoH.FlowNavigatorTreePanel_FLOW_NAVIGATOR_TREE, "[, Implementation, Open Implemented Design]", 18); // n
+collapseTree(PAResourceEtoH.FlowNavigatorTreePanel_FLOW_NAVIGATOR_TREE, "[, Implementation, Open Implemented Design]", 18); // n
+// Elapsed time: 126 seconds
+selectTab("PlanAheadTabBaseWorkspace_JideTabbedPane", (HResource) null, "rp_scope_com.v", 5); // m
+// Elapsed time: 282 seconds
+selectTab("PlanAheadTabBaseWorkspace_JideTabbedPane", (HResource) null, "Path 1 - red_pitaya_top_timing_summary_routed", 7); // m
+closeView(PAResourceOtoP.PAViews_PATH_TABLE, "Path Table"); // j
+selectCodeEditor("rp_trig_src.v", 157, 283); // be
+selectCodeEditor("rp_trig_src.v", 157, 283, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 226, 271); // be
+selectCodeEditor("rp_trig_src.v", 226, 271, false, false, false, false, true); // be - Double Click
+// Elapsed time: 18 seconds
+selectCodeEditor("rp_trig_src.v", 200, 312); // be
+selectCodeEditor("rp_trig_src.v", 200, 312, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 249, 82); // be
+selectCodeEditor("rp_trig_src.v", 249, 82, false, false, false, false, true); // be - Double Click
+typeControlKey((HResource) null, "rp_trig_src.v", 'c'); // be
+selectCodeEditor("rp_trig_src.v", 225, 302); // be
+selectCodeEditor("rp_trig_src.v", 225, 302, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 230, 306); // be
+selectCodeEditor("rp_trig_src.v", 235, 313); // be
+selectCodeEditor("rp_trig_src.v", 235, 313, false, false, false, false, true); // be - Double Click
+typeControlKey((HResource) null, "rp_trig_src.v", 'v'); // be
+selectCodeEditor("rp_trig_src.v", 232, 95); // be
+selectCodeEditor("rp_trig_src.v", 232, 95, false, false, false, false, true); // be - Double Click
+typeControlKey((HResource) null, "rp_trig_src.v", 'c'); // be
+selectCodeEditor("rp_trig_src.v", 218, 327); // be
+selectCodeEditor("rp_trig_src.v", 218, 327, false, false, false, false, true); // be - Double Click
+typeControlKey((HResource) null, "rp_trig_src.v", 'v'); // be
+selectCodeEditor("rp_trig_src.v", 241, 100); // be
+selectCodeEditor("rp_trig_src.v", 241, 100, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 239, 119); // be
+selectCodeEditor("rp_trig_src.v", 239, 119, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 230, 114); // be
+selectCodeEditor("rp_trig_src.v", 230, 114, false, false, false, false, true); // be - Double Click
+typeControlKey((HResource) null, "rp_trig_src.v", 'c'); // be
+selectCodeEditor("rp_trig_src.v", 330, 324); // be
+selectCodeEditor("rp_trig_src.v", 330, 324, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 331, 302); // be
+selectCodeEditor("rp_trig_src.v", 331, 301, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 335, 304); // be
+selectCodeEditor("rp_trig_src.v", 336, 307, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 336, 307); // be
+selectCodeEditor("rp_trig_src.v", 335, 318); // be
+selectCodeEditor("rp_trig_src.v", 335, 318, false, false, false, false, true); // be - Double Click
+typeControlKey((HResource) null, "rp_trig_src.v", 'v'); // be
+selectCodeEditor("rp_trig_src.v", 219, 119); // be
+selectCodeEditor("rp_trig_src.v", 219, 119, false, false, false, false, true); // be - Double Click
+typeControlKey((HResource) null, "rp_trig_src.v", 'c'); // be
+selectCodeEditor("rp_trig_src.v", 346, 323); // be
+selectCodeEditor("rp_trig_src.v", 346, 323, false, false, false, false, true); // be - Double Click
+typeControlKey((HResource) null, "rp_trig_src.v", 'v'); // be
+selectCodeEditor("rp_trig_src.v", 388, 268, false, true, false, false, false); // be - Control Key
+// TclEventType: DG_GRAPH_STALE
+// TclEventType: FILE_SET_CHANGE
+selectTree(PAResourceEtoH.FlowNavigatorTreePanel_FLOW_NAVIGATOR_TREE, "[, Program and Debug, Generate Bitstream]", 18, false); // n
+// Run Command: PAResourceCommand.PACommandNames_RUN_BITGEN
+selectButton(RDIResource.BaseDialog_YES, "Yes"); // a
+// TclEventType: RUN_MODIFY
+dismissDialog("Synthesis is Out-of-date"); // A
+// TclEventType: RUN_RESET
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_RESET
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_RESET
+// TclEventType: RUN_MODIFY
+// Tcl Message: reset_run synth_1 
+// TclEventType: RUN_MODIFY
+// TclEventType: RUN_RESET
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_RESET
+// TclEventType: RUN_MODIFY
+// Tcl Message: reset_run system_axi_protocol_converter_0_0_synth_1 
+// TclEventType: RUN_MODIFY
+// TclEventType: RUN_RESET
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_RESET
+// TclEventType: RUN_MODIFY
+// Tcl Message: reset_run system_xadc_0_synth_1 
+// TclEventType: RUN_MODIFY
+// TclEventType: RUN_RESET
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_RESET
+// TclEventType: RUN_MODIFY
+// Tcl Message: reset_run system_axi_register_slice_0_0_synth_1 
+// TclEventType: RUN_MODIFY
+// TclEventType: RUN_RESET
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_RESET
+// TclEventType: RUN_MODIFY
+// Tcl Message: reset_run system_proc_sys_reset_0_synth_1 
+// TclEventType: RUN_MODIFY
+// TclEventType: RUN_RESET
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_RESET
+// TclEventType: RUN_MODIFY
+// Tcl Message: reset_run system_processing_system7_0_synth_1 
+selectButton(RDIResource.BaseDialog_OK, "OK"); // a
+// 'cR' command handler elapsed time: 4 seconds
+dismissDialog("Launch Runs"); // cU
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: RUN_LAUNCH
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: RUN_LAUNCH
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: RUN_LAUNCH
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: RUN_LAUNCH
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: RUN_LAUNCH
+// Tcl Message: launch_runs impl_1 -to_step write_bitstream -jobs 4 
+// Tcl Message: INFO: [IP_Flow 19-4993] Using cached IP synthesis design for IP system_axi_protocol_converter_0_0, cache-ID = 19b0f8a58b53ab0f; cache size = 4.712 MB. INFO: [IP_Flow 19-4993] Using cached IP synthesis design for IP system_axi_register_slice_0_0, cache-ID = 3cf8398bd7925ded; cache size = 4.712 MB. INFO: [IP_Flow 19-4993] Using cached IP synthesis design for IP system_proc_sys_reset_0, cache-ID = 317f206e90ed4afb; cache size = 4.712 MB. INFO: [IP_Flow 19-4993] Using cached IP synthesis design for IP system_processing_system7_0, cache-ID = 9169c2de1d4de6eb; cache size = 4.712 MB. INFO: [IP_Flow 19-4993] Using cached IP synthesis design for IP system_xadc_0, cache-ID = 511492f54bf0520c; cache size = 4.712 MB. 
+// TclEventType: RUN_LAUNCH
+// TclEventType: DESIGN_STALE
+// TclEventType: RUN_LAUNCH
+// TclEventType: RUN_MODIFY
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_MODIFY
+dismissDialog("Generate Bitstream"); // bA
+// TclEventType: RUN_STATUS_CHANGE
+selectButton(PAResourceOtoP.ProjectTab_CLOSE_DESIGN, "Close Design"); // g
+// TclEventType: DESIGN_CLOSE
+// HMemoryUtils.trashcanNow. Engine heap size: 3,026 MB. GUI used memory: 144 MB. Current time: 5/13/26, 8:20:27 AM CDT
+// TclEventType: TIMING_RESULTS_UNLOAD
+// Engine heap size: 3,026 MB. GUI used memory: 145 MB. Current time: 5/13/26, 8:20:27 AM CDT
+// TclEventType: CURR_DESIGN_SET
+// Tcl Message: close_design 
+// TclEventType: DESIGN_CLOSE
+dismissDialog("Closing"); // bA
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_STEP_COMPLETED
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_STEP_COMPLETED
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_STEP_COMPLETED
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_STEP_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_STEP_COMPLETED
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_STEP_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_STEP_COMPLETED
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// Elapsed time: 270 seconds
+selectButton(RDIResource.BaseDialog_OK, "OK"); // a
+// Run Command: PAResourceCommand.PACommandNames_GOTO_IMPLEMENTED_DESIGN
+// Tcl Message: open_run impl_1 
+// TclEventType: SDC_CONSTRAINT_ADD
+// TclEventType: POWER_CNS_STALE
+// TclEventType: SDC_CONSTRAINT_ADD
+// TclEventType: POWER_REPORT_STALE
+// TclEventType: SDC_CONSTRAINT_ADD
+// TclEventType: POWER_REPORT_STALE
+// TclEventType: SDC_CONSTRAINT_ADD
+// TclEventType: POWER_REPORT_STALE
+// TclEventType: SDC_CONSTRAINT_ADD
+// TclEventType: POWER_REPORT_STALE
+// TclEventType: SDC_CONSTRAINT_ADD
+// TclEventType: POWER_REPORT_STALE
+// TclEventType: SDC_CONSTRAINT_ADD
+// TclEventType: PLACEDB_MODIFIY_PRE
+// TclEventType: SDC_CONSTRAINT_ADD
+// TclEventType: FLOORPLAN_MODIFY
+// TclEventType: DESIGN_NEW
+// HMemoryUtils.trashcanNow. Engine heap size: 2,913 MB. GUI used memory: 121 MB. Current time: 5/13/26, 8:25:01 AM CDT
+// TclEventType: DESIGN_NEW
+// DeviceView Instantiated
+// TclEventType: CURR_DESIGN_SET
+// Tcl Message: Netlist sorting complete. Time (s): cpu = 00:00:00.13 ; elapsed = 00:00:00.13 . Memory (MB): peak = 8582.812 ; gain = 0.000 ; free physical = 2224 ; free virtual = 5440 
+// Tcl Message: INFO: [Netlist 29-17] Analyzing 967 Unisim elements for replacement INFO: [Netlist 29-28] Unisim Transformation completed in 0 CPU seconds INFO: [Project 1-479] Netlist was created with Vivado 2021.2 INFO: [Project 1-570] Preparing netlist for logic optimization INFO: [Timing 38-478] Restoring timing data from binary archive. INFO: [Timing 38-479] Binary timing data restore complete. INFO: [Project 1-856] Restoring constraints from binary archive. INFO: [Project 1-853] Binary constraint restore complete. 
+// Tcl Message: Reading XDEF placement. Reading placer database... Reading XDEF routing. 
+// Tcl Message: Read XDEF File: Time (s): cpu = 00:00:00.71 ; elapsed = 00:00:00.71 . Memory (MB): peak = 8582.812 ; gain = 0.000 ; free physical = 2009 ; free virtual = 5248 
+// Tcl Message: Restored from archive | CPU: 0.740000 secs | Memory: 22.052246 MB | 
+// Tcl Message: Finished XDEF File Restore: Time (s): cpu = 00:00:00.72 ; elapsed = 00:00:00.71 . Memory (MB): peak = 8582.812 ; gain = 0.000 ; free physical = 2009 ; free virtual = 5248 Netlist sorting complete. Time (s): cpu = 00:00:00 ; elapsed = 00:00:00.01 . Memory (MB): peak = 8582.812 ; gain = 0.000 ; free physical = 2008 ; free virtual = 5248 
+// Tcl Message: INFO: [Project 1-111] Unisim Transformation Summary:   A total of 80 instances were transformed.   IOBUF => IOBUF (IBUF, OBUFT): 16 instances   OBUFDS => OBUFDS_DUAL_BUF (INV, OBUFDS(x2)): 2 instances   RAM32M => RAM32M (RAMD32(x6), RAMS32(x2)): 58 instances   RAM32X1D => RAM32X1D (RAMD32(x2)): 4 instances  
+// TclEventType: HFED_INIT_ROUTE_STORAGE_COMPLETED
+// RouteApi::loadEngineXgdAndInitRouteStorage elapsed time: 1s
+// Device view-level: 0.0
+// RouteApi: Init Delay Mediator Swing Worker Finished
+// TclEventType: DRC_ADDED
+// TclEventType: METHODOLOGY_ADDED
+// TclEventType: POWER_UPDATED
+// [Engine Memory]: 3,370 MB (+10924kb) [00:58:58]
+// WARNING: HEventQueue.dispatchEvent() is taking  2212 ms.
+// TclEventType: TIMING_SUMMARY_UPDATED
+// [Engine Memory]: 3,645 MB (+112402kb) [00:58:59]
+// 'el' command handler elapsed time: 8 seconds
+dismissDialog("Open Implemented Design"); // bA
+selectButton(PAResourceAtoD.CmdMsgDialog_OK, "OK"); // f
+dismissDialog("Critical Messages"); // W
+// Elapsed time: 232 seconds
+closeView(PAResourceOtoP.PAViews_DEVICE, "Device"); // U
+selectTab("PlanAheadTabBaseWorkspace_JideTabbedPane", (HResource) null, "rp_scope_com.v", 4); // m
+selectTab("PlanAheadTabBaseWorkspace_JideTabbedPane", (HResource) null, "rp_trig_src.v", 5); // m
+selectCodeEditor("rp_trig_src.v", 239, 320); // be
+selectCodeEditor("rp_trig_src.v", 239, 320, false, false, false, false, true); // be - Double Click
+// Elapsed time: 15 seconds
+selectCodeEditor("rp_trig_src.v", 257, 397); // be
+selectCodeEditor("rp_trig_src.v", 175, 185); // be
+selectCodeEditor("rp_trig_src.v", 175, 185, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 223, 191); // be
+selectCodeEditor("rp_trig_src.v", 223, 192, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 81, 327); // be
+selectCodeEditor("rp_trig_src.v", 81, 327, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 74, 318); // be
+selectCodeEditor("rp_trig_src.v", 74, 318, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 251, 326); // be
+selectCodeEditor("rp_trig_src.v", 251, 326, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 240, 319); // be
+selectCodeEditor("rp_trig_src.v", 240, 319, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 394, 326); // be
+selectCodeEditor("rp_trig_src.v", 368, 318); // be
+selectCodeEditor("rp_trig_src.v", 368, 318, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 299, 314); // be
+// Elapsed time: 10 seconds
+typeControlKey(null, null, 'z');
+typeControlKey(null, null, 'z');
+typeControlKey(null, null, 'z');
+selectCodeEditor("rp_trig_src.v", 372, 237); // be
+typeControlKey(null, null, 'z');
+typeControlKey(null, null, 'z');
+typeControlKey(null, null, 'z');
+typeControlKey(null, null, 'z');
+selectCodeEditor("rp_trig_src.v", 310, 279); // be
+selectCodeEditor("rp_trig_src.v", 305, 307); // be
+selectCodeEditor("rp_trig_src.v", 332, 318); // be
+selectCodeEditor("rp_trig_src.v", 333, 318, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 332, 317); // be
+// Elapsed time: 33 seconds
+selectCodeEditor("rp_trig_src.v", 297, 324); // be
+// TclEventType: DG_GRAPH_STALE
+// [GUI Memory]: 276 MB (+3163kb) [01:04:27]
+// TclEventType: DG_GRAPH_STALE
+// TclEventType: FILE_SET_CHANGE
+typeControlKey((HResource) null, "rp_trig_src.v", 'c'); // be
+// HMemoryUtils.trashcanNow. Engine heap size: 3,378 MB. GUI used memory: 192 MB. Current time: 5/13/26, 8:30:35 AM CDT
+selectCodeEditor("rp_trig_src.v", 285, 249); // be
+typeControlKey((HResource) null, "rp_trig_src.v", 'v'); // be
+typeControlKey((HResource) null, "rp_trig_src.v", 'v'); // be
+// TclEventType: DG_GRAPH_STALE
+// TclEventType: FILE_SET_CHANGE
+selectTree(PAResourceEtoH.FlowNavigatorTreePanel_FLOW_NAVIGATOR_TREE, "[, Program and Debug, Generate Bitstream]", 29, false); // n
+// Run Command: PAResourceCommand.PACommandNames_RUN_BITGEN
+selectButton(RDIResource.BaseDialog_YES, "Yes"); // a
+// TclEventType: RUN_MODIFY
+dismissDialog("Synthesis is Out-of-date"); // A
+// TclEventType: RUN_RESET
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_RESET
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_RESET
+// TclEventType: RUN_MODIFY
+// Tcl Message: reset_run synth_1 
+selectButton(RDIResource.BaseDialog_OK, "OK"); // a
+dismissDialog("Launch Runs"); // cU
+// Tcl Message: launch_runs impl_1 -to_step write_bitstream -jobs 4 
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: RUN_LAUNCH
+// TclEventType: DESIGN_STALE
+// TclEventType: RUN_LAUNCH
+// TclEventType: RUN_MODIFY
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_MODIFY
+// Tcl Message: INFO: [IP_Flow 19-4993] Using cached IP synthesis design for IP system_axi_protocol_converter_0_0, cache-ID = 19b0f8a58b53ab0f; cache size = 4.712 MB. INFO: [IP_Flow 19-4993] Using cached IP synthesis design for IP system_axi_register_slice_0_0, cache-ID = 3cf8398bd7925ded; cache size = 4.712 MB. INFO: [IP_Flow 19-4993] Using cached IP synthesis design for IP system_proc_sys_reset_0, cache-ID = 317f206e90ed4afb; cache size = 4.712 MB. INFO: [IP_Flow 19-4993] Using cached IP synthesis design for IP system_processing_system7_0, cache-ID = 9169c2de1d4de6eb; cache size = 4.712 MB. INFO: [IP_Flow 19-4993] Using cached IP synthesis design for IP system_xadc_0, cache-ID = 511492f54bf0520c; cache size = 4.712 MB. 
+// Tcl Message: [Wed May 13 10:30:42 2026] Launched synth_1... Run output will be captured here: /home/lorenzo/PI/RedPitaya-FPGA/prj/v0.94/project/redpitaya.runs/synth_1/runme.log [Wed May 13 10:30:42 2026] Launched impl_1... Run output will be captured here: /home/lorenzo/PI/RedPitaya-FPGA/prj/v0.94/project/redpitaya.runs/impl_1/runme.log 
+dismissDialog("Generate Bitstream"); // bA
+// TclEventType: RUN_STATUS_CHANGE
+// Elapsed time: 11 seconds
+selectButton(PAResourceOtoP.ProjectTab_CLOSE_DESIGN, "Close Design"); // g
+// TclEventType: DESIGN_CLOSE
+// HMemoryUtils.trashcanNow. Engine heap size: 3,137 MB. GUI used memory: 148 MB. Current time: 5/13/26, 8:30:54 AM CDT
+// TclEventType: TIMING_RESULTS_UNLOAD
+// Engine heap size: 3,137 MB. GUI used memory: 148 MB. Current time: 5/13/26, 8:30:54 AM CDT
+// TclEventType: CURR_DESIGN_SET
+// Tcl Message: close_design 
+// TclEventType: DESIGN_CLOSE
+dismissDialog("Closing"); // bA
+// Elapsed time: 13 seconds
+selectCodeEditor("rp_trig_src.v", 92, 288); // be
+selectCodeEditor("rp_trig_src.v", 109, 281); // be
+selectCodeEditor("rp_trig_src.v", 109, 281, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 221, 260); // be
+selectCodeEditor("rp_trig_src.v", 221, 260, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 338, 370); // be
+selectCodeEditor("rp_trig_src.v", 338, 370, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 257, 393); // be
+selectCodeEditor("rp_trig_src.v", 376, 372); // be
+selectCodeEditor("rp_trig_src.v", 372, 371); // be
+selectButton(PAResourceQtoS.SyntheticaStateMonitor_CANCEL, "Cancel"); // g
+selectButton("OptionPane.button", "Cancel Process"); // JButton
+// TclEventType: RUN_MODIFY
+// TclEventType: RUN_RESET
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_RESET
+// TclEventType: RUN_FAILED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_STEP_COMPLETED
+// Tcl Message: reset_run synth_1 
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_RESET
+// TclEventType: RUN_MODIFY
+dismissDialog("Resetting Runs"); // bA
+selectCodeEditor("rp_trig_src.v", 248, 365); // be
+// Elapsed time: 13 seconds
+typeControlKey(null, null, 'z');
+// TclEventType: DG_GRAPH_STALE
+// TclEventType: FILE_SET_CHANGE
+selectCodeEditor("rp_trig_src.v", 379, 132); // be
+selectCodeEditor("rp_trig_src.v", 385, 153); // be
+selectCodeEditor("rp_trig_src.v", 362, 186); // be
+selectCodeEditor("rp_trig_src.v", 362, 186, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 380, 145); // be
+selectCodeEditor("rp_trig_src.v", 380, 145, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 213, 148); // be
+selectCodeEditor("rp_trig_src.v", 213, 148, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 224, 156); // be
+selectCodeEditor("rp_trig_src.v", 224, 156, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 220, 185); // be
+selectCodeEditor("rp_trig_src.v", 220, 185, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 243, 199); // be
+selectCodeEditor("rp_trig_src.v", 243, 199, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 336, 266); // be
+selectTree(PAResourceEtoH.FlowNavigatorTreePanel_FLOW_NAVIGATOR_TREE, "[, Program and Debug, Generate Bitstream]", 28, false); // n
+// Run Command: PAResourceCommand.PACommandNames_RUN_BITGEN
+selectButton(RDIResource.BaseDialog_YES, "Yes"); // a
+// TclEventType: RUN_MODIFY
+dismissDialog("No Implementation Results Available"); // A
+// TclEventType: RUN_RESET
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_RESET
+// TclEventType: RUN_MODIFY
+// Tcl Message: reset_run system_axi_protocol_converter_0_0_synth_1 
+// TclEventType: RUN_MODIFY
+// TclEventType: RUN_RESET
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_RESET
+// TclEventType: RUN_MODIFY
+// Tcl Message: reset_run system_xadc_0_synth_1 
+// TclEventType: RUN_MODIFY
+// TclEventType: RUN_RESET
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_RESET
+// TclEventType: RUN_MODIFY
+// Tcl Message: reset_run system_axi_register_slice_0_0_synth_1 
+// TclEventType: RUN_MODIFY
+// TclEventType: RUN_RESET
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_RESET
+// TclEventType: RUN_MODIFY
+// Tcl Message: reset_run system_proc_sys_reset_0_synth_1 
+// TclEventType: RUN_MODIFY
+// TclEventType: RUN_RESET
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_RESET
+// TclEventType: RUN_MODIFY
+// Tcl Message: reset_run system_processing_system7_0_synth_1 
+selectButton(RDIResource.BaseDialog_OK, "OK"); // a
+// 'cR' command handler elapsed time: 3 seconds
+dismissDialog("Launch Runs"); // cU
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: RUN_LAUNCH
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: RUN_LAUNCH
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: RUN_LAUNCH
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: RUN_LAUNCH
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: RUN_LAUNCH
+// TclEventType: RUN_MODIFY
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_MODIFY
+// Tcl Message: launch_runs impl_1 -to_step write_bitstream -jobs 4 
+// Tcl Message: INFO: [IP_Flow 19-4993] Using cached IP synthesis design for IP system_axi_protocol_converter_0_0, cache-ID = 19b0f8a58b53ab0f; cache size = 4.712 MB. INFO: [IP_Flow 19-4993] Using cached IP synthesis design for IP system_axi_register_slice_0_0, cache-ID = 3cf8398bd7925ded; cache size = 4.712 MB. INFO: [IP_Flow 19-4993] Using cached IP synthesis design for IP system_proc_sys_reset_0, cache-ID = 317f206e90ed4afb; cache size = 4.712 MB. INFO: [IP_Flow 19-4993] Using cached IP synthesis design for IP system_processing_system7_0, cache-ID = 9169c2de1d4de6eb; cache size = 4.712 MB. INFO: [IP_Flow 19-4993] Using cached IP synthesis design for IP system_xadc_0, cache-ID = 511492f54bf0520c; cache size = 4.712 MB. 
+// TclEventType: RUN_MODIFY
+// TclEventType: RUN_STATUS_CHANGE
+// Tcl Message: [Wed May 13 10:32:14 2026] Launched impl_1... Run output will be captured here: /home/lorenzo/PI/RedPitaya-FPGA/prj/v0.94/project/redpitaya.runs/impl_1/runme.log 
+// TclEventType: RUN_STATUS_CHANGE
+dismissDialog("Generate Bitstream"); // bA
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_STEP_COMPLETED
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_STEP_COMPLETED
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_STEP_COMPLETED
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_STEP_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// Elapsed time: 26 seconds
+selectTreeTable(PAResourceEtoH.ExpRunTreePanel_EXP_RUN_TREE_TABLE, "synth_1 ; constrs_1 ; Queued... ;  ;  ;  ;  ;  ;  ;  ;  ;  ;  ;  ;  ;  ;  ; 00:00:00 ; Vivado Synthesis Defaults (Vivado Synthesis 2020) ; Vivado Synthesis Default Reports (Vivado Synthesis 2020) ; xc7z010clg400-1 ;  ; Vivado Synthesis Defaults", 0, (String) null, 10, true); // az - Node
+closeMainWindow("redpitaya - [/home/lorenzo/PI/RedPitaya-FPGA/prj/v0.94/project/redpitaya.xpr] - Vivado 2021.2"); // bb
+// Run Command: PAResourceCommand.PACommandNames_EXIT
+// TclEventType: FILE_SET_CHANGE
+selectButton(RDIResource.BaseDialog_CANCEL, "Cancel"); // a
+dismissDialog("Exit Vivado"); // A
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_STEP_COMPLETED
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_STEP_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// TclEventType: RUN_STEP_COMPLETED
+// TclEventType: RUN_COMPLETED
+// TclEventType: RUN_STATUS_CHANGE
+// Elapsed time: 1672 seconds
+selectButton(RDIResource.BaseDialog_CANCEL, "Cancel"); // a
+dismissDialog("Bitstream Generation Completed"); // ag
+collapseTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top (red_pitaya_top.sv), i_scope : rp_scope_com (rp_scope_com.v)]", 8); // D
+expandTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top (red_pitaya_top.sv), i_hk : red_pitaya_hk (red_pitaya_hk.v)]", 7); // D
+collapseTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top (red_pitaya_top.sv)]", 1); // D
+collapseTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, osc (osc.sv)]", 8); // D
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top_Z20 (red_pitaya_top_Z20.sv)]", 4, true); // D - Node
+expandTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top_Z20 (red_pitaya_top_Z20.sv)]", 4); // D
+collapseTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top_Z20 (red_pitaya_top_Z20.sv)]", 4); // D
+// HMemoryUtils.trashcanNow. Engine heap size: 2,987 MB. GUI used memory: 127 MB. Current time: 5/13/26, 9:00:55 AM CDT
+// Elapsed time: 11 seconds
+expandTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top (red_pitaya_top.sv)]", 1); // D
+collapseTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top (red_pitaya_top.sv), i_hk : red_pitaya_hk (red_pitaya_hk.v)]", 7); // D
+collapseTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top (red_pitaya_top.sv)]", 1); // D
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top_4ADC (red_pitaya_top_4ADC.sv)]", 2, true); // D - Node
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top_ll (red_pitaya_top_ll.sv)]", 3, true); // D - Node
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top_Z20 (red_pitaya_top_Z20.sv)]", 4, true); // D - Node
+expandTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top (red_pitaya_top.sv)]", 1); // D
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top (red_pitaya_top.sv)]", 1, true); // D - Node
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top (red_pitaya_top.sv)]", 1, true, false, false, false, false, true); // D - Double Click - Node
+dismissDialog("Opening Editor"); // bA
+selectTree(PAResourceEtoH.FlowNavigatorTreePanel_FLOW_NAVIGATOR_TREE, "[, Project Manager, Settings]", 1, false); // n
+// Run Command: RDIResourceCommand.RDICommands_SETTINGS
+// WARNING: HEventQueue.dispatchEvent() is taking  1223 ms.
+selectButton(RDIResource.BaseDialog_CANCEL, "Cancel"); // a
+// WARNING: HEventQueue.dispatchEvent() is taking  2893 ms.
+dismissDialog("Settings"); // d
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top_4ADC (red_pitaya_top_4ADC.sv)]", 2, true); // D - Node
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top_Z20 (red_pitaya_top_Z20.sv)]", 4, true, false, true, false, false, false); // D - Control Key - Node
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top_ll (red_pitaya_top_ll.sv)]", 3, true, false, true, false, false, false); // D - Control Key - Node
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top_ll (red_pitaya_top_ll.sv)]", 3, true, false, false, false, true, false); // D - Popup Trigger - Node
+selectMenu(PAResourceCommand.PACommandNames_AUTO_UPDATE_HIER, "Hierarchy Update"); // al
+selectMenu(PAResourceQtoS.SrcMenu_IP_HIERARCHY, "IP Hierarchy"); // al
+selectMenu(PAResourceQtoS.SrcMenu_IP_HIERARCHY, "IP Hierarchy"); // al
+selectMenu(PAResourceCommand.PACommandNames_AUTO_UPDATE_HIER, "Hierarchy Update"); // al
+selectMenuItem(PAResourceCommand.PACommandNames_SRC_DISABLE, "Disable File"); // ao
+// Run Command: PAResourceCommand.PACommandNames_SRC_DISABLE
+// TclEventType: DG_GRAPH_STALE
+// TclEventType: FILE_SET_CHANGE
+// Tcl Message: set_property is_enabled false [get_files  {/home/lorenzo/PI/RedPitaya-FPGA/prj/v0.94/project/redpitaya.srcs/sources_1/imports/RedPitaya-FPGA/prj/v0.94/rtl/red_pitaya_top_4ADC.sv /home/lorenzo/PI/RedPitaya-FPGA/prj/v0.94/project/redpitaya.srcs/sources_1/imports/RedPitaya-FPGA/prj/v0.94/rtl/red_pitaya_top_Z20.sv /home/lorenzo/PI/RedPitaya-FPGA/prj/v0.94/project/redpitaya.srcs/sources_1/imports/RedPitaya-FPGA/prj/v0.94/rtl/red_pitaya_top_ll.sv}] 
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, la (la.sv)]", 5, true); // D - Node
+selectTab("PlanAheadTabBaseWorkspace_JideTabbedPane", (HResource) null, "rp_trig_src.v", 5); // m
+// TclEventType: FILE_SET_CHANGE
+// TclEventType: DG_GRAPH_STALE
+selectTab("PlanAheadTabBaseWorkspace_JideTabbedPane", (HResource) null, "red_pitaya_top.sv", 1); // m
+selectCodeEditor("red_pitaya_top.sv", 220, 261); // be
+setText(RDIResource.HCodeEditor_SEARCH_TEXT_COMBO_BOX, "rp_trig_s"); // k
+typeControlKey(null, null, 'z');
+selectButton(RDIResourceCommand.RDICommands_UNDO, (String) null); // D
+applyEnter(RDIResource.HCodeEditor_SEARCH_TEXT_COMBO_BOX, "rp_trig_s"); // k
+applyEnter(RDIResource.HCodeEditor_SEARCH_TEXT_COMBO_BOX, "rp_trig_s"); // k
+applyEnter(RDIResource.HCodeEditor_SEARCH_TEXT_COMBO_BOX, "rp_trig_s"); // k
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, la (la.sv)]", 2, true); // D - Node
+expandTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, la (la.sv)]", 2); // D
+collapseTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, la (la.sv)]", 2); // D
+selectCodeEditor("red_pitaya_top.sv", 64, 63); // be
+selectCodeEditor("red_pitaya_top.sv", 64, 63, false, false, false, false, true); // be - Double Click
+typeControlKey((HResource) null, "red_pitaya_top.sv", 'c'); // be
+selectTab("PlanAheadTabBaseWorkspace_JideTabbedPane", (HResource) null, "rp_scope_com.v", 4); // m
+selectCodeEditor("rp_scope_com.v", 453, 78); // be
+setText(RDIResource.HCodeEditor_SEARCH_TEXT_COMBO_BOX, "rp_sr"); // k
+typeControlKey(null, null, 'z');
+typeControlKey(null, null, 'z');
+selectCodeEditor("rp_scope_com.v", 18, 0); // be
+setText(RDIResource.HCodeEditor_SEARCH_TEXT_COMBO_BOX, "rp_trig"); // k
+selectTab("PlanAheadTabBaseWorkspace_JideTabbedPane", (HResource) null, "red_pitaya_top.sv", 1); // m
+selectTab("PlanAheadTabBaseWorkspace_JideTabbedPane", (HResource) null, "rp_scope_com.v", 4); // m
+selectTab("PlanAheadTabBaseWorkspace_JideTabbedPane", (HResource) null, "rp_trig_src.v", 5); // m
+// HMemoryUtils.trashcanNow. Engine heap size: 3,010 MB. GUI used memory: 126 MB. Current time: 5/13/26, 9:30:55 AM CDT
+// WARNING: HEventQueue.dispatchEvent() is taking  1942 ms.
+// Elapsed time: 2329 seconds
+selectCodeEditor("rp_trig_src.v", 728, 337); // be
+selectCodeEditor("rp_trig_src.v", 424, 333); // be
+selectCodeEditor("rp_trig_src.v", 208, 222); // be
+selectCodeEditor("rp_trig_src.v", 208, 222, false, false, false, false, true); // be - Double Click
+typeControlKey((HResource) null, "rp_trig_src.v", 'c'); // be
+selectCodeEditor("rp_trig_src.v", 416, 397); // be
+selectCodeEditor("rp_trig_src.v", 309, 387); // be
+selectCodeEditor("rp_trig_src.v", 415, 396); // be
+typeControlKey((HResource) null, "rp_trig_src.v", 'v'); // be
+selectCodeEditor("rp_trig_src.v", 261, 282); // be
+selectCodeEditor("rp_trig_src.v", 271, 284); // be
+typeControlKey((HResource) null, "rp_trig_src.v", 'c'); // be
+selectCodeEditor("rp_trig_src.v", 505, 382); // be
+typeControlKey((HResource) null, "rp_trig_src.v", 'v'); // be
+selectCodeEditor("rp_trig_src.v", 420, 391); // be
+selectCodeEditor("rp_trig_src.v", 457, 386); // be
+selectCodeEditor("rp_trig_src.v", 420, 377); // be
+typeControlKey((HResource) null, "rp_trig_src.v", 'c'); // be
+typeControlKey((HResource) null, "rp_trig_src.v", 'v'); // be
+selectCodeEditor("rp_trig_src.v", 486, 380); // be
+// Elapsed time: 60 seconds
+selectTab("PlanAheadTabBaseWorkspace_JideTabbedPane", (HResource) null, "rp_scope_com.v", 4); // m
+// Elapsed time: 16 seconds
+selectCodeEditor("rp_scope_com.v", 401, 350); // be
+selectCodeEditor("rp_scope_com.v", 401, 350); // be
+selectCodeEditor("rp_scope_com.v", 401, 350, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_scope_com.v", 401, 350); // be
+selectCodeEditor("rp_scope_com.v", 272, 468); // be
+selectTab("PlanAheadTabBaseWorkspace_JideTabbedPane", (HResource) null, "osc_trg.sv", 3); // m
+selectTab("PlanAheadTabBaseWorkspace_JideTabbedPane", (HResource) null, "rp_trig_src.v", 5); // m
+selectCodeEditor("rp_trig_src.v", 373, 317); // be
+// TclEventType: DG_GRAPH_STALE
+// TclEventType: FILE_SET_CHANGE
+// Elapsed time: 10 seconds
+selectCodeEditor("rp_trig_src.v", 262, 369); // be
+selectCodeEditor("rp_trig_src.v", 262, 368, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 332, 385); // be
+selectCodeEditor("rp_trig_src.v", 332, 385, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 420, 387); // be
+selectCodeEditor("rp_trig_src.v", 416, 368); // be
+selectCodeEditor("rp_trig_src.v", 636, 372); // be
+// Elapsed time: 87 seconds
+selectCodeEditor("rp_trig_src.v", 560, 421); // be
+selectCodeEditor("rp_trig_src.v", 217, 485); // be
+selectCodeEditor("rp_trig_src.v", 416, 368); // be
+selectCodeEditor("rp_trig_src.v", 532, 365); // be
+selectCodeEditor("rp_trig_src.v", 526, 367); // be
+typeControlKey((HResource) null, "rp_trig_src.v", 'c'); // be
+typeControlKey((HResource) null, "rp_trig_src.v", 'v'); // be
+typeControlKey((HResource) null, "rp_trig_src.v", 'v'); // be
+selectCodeEditor("rp_trig_src.v", 407, 359); // be
+// Elapsed time: 25 seconds
+selectCodeEditor("rp_trig_src.v", 300, 366); // be
+selectCodeEditor("rp_trig_src.v", 290, 366); // be
+selectCodeEditor("rp_trig_src.v", 290, 366, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 282, 365); // be
+selectCodeEditor("rp_trig_src.v", 331, 267); // be
+selectCodeEditor("rp_trig_src.v", 626, 341); // be
+selectCodeEditor("rp_trig_src.v", 624, 335); // be
+selectCodeEditor("rp_trig_src.v", 505, 311); // be
+// TclEventType: DG_GRAPH_STALE
+selectCodeEditor("rp_trig_src.v", 454, 364); // be
+// TclEventType: FILE_SET_CHANGE
+expandTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, la (la.sv)]", 2); // D
+collapseTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, la (la.sv)]", 2); // D
+// WARNING: HEventQueue.dispatchEvent() is taking  1082 ms.
+dismissDialog("Opening Editor"); // bA
+expandTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top (red_pitaya_top.sv)]", 1); // D
+selectTab("PlanAheadTabBaseWorkspace_JideTabbedPane", (HResource) null, "red_pitaya_top.sv", 1); // m
+selectCodeEditor("red_pitaya_top.sv", 167, 295); // be
+selectTree(PAResourceEtoH.FlowNavigatorTreePanel_FLOW_NAVIGATOR_TREE, "[, Program and Debug, Generate Bitstream]", 28, false); // n
+// Run Command: PAResourceCommand.PACommandNames_RUN_BITGEN
+selectButton(RDIResource.BaseDialog_NO, "No"); // a
+dismissDialog("Synthesis is Out-of-date"); // A
+selectButton(RDIResource.BaseDialog_CANCEL, "Cancel"); // a
+// 'cR' command handler elapsed time: 4 seconds
+dismissDialog("Launch Runs"); // cU
+selectTree(PAResourceEtoH.FlowNavigatorTreePanel_FLOW_NAVIGATOR_TREE, "[, Synthesis, Run Synthesis]", 14, false); // n
+// Run Command: PAResourceCommand.PACommandNames_RUN_SYNTHESIS
+selectButton(RDIResource.BaseDialog_CANCEL, "Cancel"); // a
+dismissDialog("Run Synthesis"); // A
+selectTree(PAResourceEtoH.FlowNavigatorTreePanel_FLOW_NAVIGATOR_TREE, "[, Synthesis, Run Synthesis]", 14, false); // n
+expandTree(PAResourceEtoH.FlowNavigatorTreePanel_FLOW_NAVIGATOR_TREE, "[, Implementation]", 5); // n
+// Run Command: PAResourceCommand.PACommandNames_RUN_SYNTHESIS
+selectButton(RDIResource.BaseDialog_CANCEL, "Cancel"); // a
+dismissDialog("Run Synthesis"); // A
+selectTree(PAResourceEtoH.FlowNavigatorTreePanel_FLOW_NAVIGATOR_TREE, "[, Synthesis]", 13, true, false, false, false, true, false); // n - Popup Trigger - Node
+selectMenuItem(PAResourceCommand.PACommandNames_SYNTH_SETTINGS, "Synthesis Settings..."); // ao
+// Run Command: PAResourceCommand.PACommandNames_SYNTH_SETTINGS
+// Elapsed time: 10 seconds
+selectTree(PAResourceQtoS.SettingsDialog_PROJECT_TREE, "[projectRoot, Implementation]", 4, false); // B
+selectTree(PAResourceQtoS.SettingsDialog_PROJECT_TREE, "[projectRoot, General]", 0, false); // B
+selectTree(PAResourceQtoS.SettingsDialog_PROJECT_TREE, "[projectRoot, Simulation]", 1, false); // B
+selectTree(PAResourceQtoS.SettingsDialog_PROJECT_TREE, "[projectRoot, Elaboration]", 2, false); // B
+selectTree(PAResourceQtoS.SettingsDialog_PROJECT_TREE, "[projectRoot, Implementation]", 4, false); // B
+selectTree(PAResourceQtoS.SettingsDialog_PROJECT_TREE, "[projectRoot, Synthesis]", 3, false); // B
+selectTree(PAResourceQtoS.SettingsDialog_PROJECT_TREE, "[projectRoot, IP]", 6, true); // B - Node
+selectButton(RDIResource.BaseDialog_CANCEL, "Cancel"); // a
+// WARNING: HEventQueue.dispatchEvent() is taking  2906 ms.
+dismissDialog("Settings"); // d
+// Elapsed time: 10 seconds
+selectTab("PlanAheadTabBaseWorkspace_JideTabbedPane", (HResource) null, "rp_scope_com.v", 4); // m
+selectTab("PlanAheadTabBaseWorkspace_JideTabbedPane", (HResource) null, "rp_trig_src.v", 5); // m
+// Elapsed time: 95 seconds
+selectTab("PlanAheadTabBaseWorkspace_JideTabbedPane", (HResource) null, "rp_scope_com.v", 4); // m
+selectCodeEditor("rp_scope_com.v", 354, 429); // be
+selectTab("PlanAheadTabBaseWorkspace_JideTabbedPane", (HResource) null, "red_pitaya_top.sv", 1); // m
+setText(RDIResource.HCodeEditor_SEARCH_TEXT_COMBO_BOX, "trig", true); // k
+applyEnter(RDIResource.HCodeEditor_SEARCH_TEXT_COMBO_BOX, "trig"); // k
+applyEnter(RDIResource.HCodeEditor_SEARCH_TEXT_COMBO_BOX, "trig"); // k
+selectCodeEditor("red_pitaya_top.sv", 64, 139); // be
+selectCodeEditor("red_pitaya_top.sv", 51, 120); // be
+selectCodeEditor("red_pitaya_top.sv", 51, 120, false, false, false, false, true); // be - Double Click
+selectCodeEditor("red_pitaya_top.sv", 205, 380); // be
+selectCodeEditor("red_pitaya_top.sv", 205, 380, false, false, false, false, true); // be - Double Click
+selectCodeEditor("red_pitaya_top.sv", 187, 375); // be
+selectCodeEditor("red_pitaya_top.sv", 187, 375, false, false, false, false, true); // be - Double Click
+selectCodeEditor("red_pitaya_top.sv", 166, 377); // be
+selectCodeEditor("red_pitaya_top.sv", 166, 377, false, false, false, false, true); // be - Double Click
+selectCodeEditor("red_pitaya_top.sv", 163, 375); // be
+selectCodeEditor("red_pitaya_top.sv", 163, 375); // be
+selectCodeEditor("red_pitaya_top.sv", 161, 372); // be
+selectCodeEditor("red_pitaya_top.sv", 163, 369, false, false, false, false, true); // be - Double Click
+selectCodeEditor("red_pitaya_top.sv", 163, 369); // be
+selectCodeEditor("red_pitaya_top.sv", 163, 369); // be
+selectCodeEditor("red_pitaya_top.sv", 163, 369); // be
+selectCodeEditor("red_pitaya_top.sv", 163, 369); // be
+selectCodeEditor("red_pitaya_top.sv", 156, 359); // be
+selectCodeEditor("red_pitaya_top.sv", 156, 359, false, false, false, false, true); // be - Double Click
+selectCodeEditor("red_pitaya_top.sv", 279, 75); // be
+selectCodeEditor("red_pitaya_top.sv", 313, 52); // be
+selectCodeEditor("red_pitaya_top.sv", 138, 121); // be
+selectCodeEditor("red_pitaya_top.sv", 182, 84); // be
+selectCodeEditor("red_pitaya_top.sv", 182, 84, false, false, false, false, true); // be - Double Click
+selectCodeEditor("red_pitaya_top.sv", 113, 85); // be
+selectCodeEditor("red_pitaya_top.sv", 132, 80); // be
+selectCodeEditor("red_pitaya_top.sv", 132, 80, false, false, false, false, true); // be - Double Click
+selectCodeEditor("red_pitaya_top.sv", 243, 75); // be
+selectCodeEditor("red_pitaya_top.sv", 163, 81); // be
+selectCodeEditor("red_pitaya_top.sv", 163, 81, false, false, false, false, true); // be - Double Click
+selectCodeEditor("red_pitaya_top.sv", 238, 81); // be
+selectTab("PlanAheadTabBaseWorkspace_JideTabbedPane", (HResource) null, "rp_scope_com.v", 4); // m
+selectTab("PlanAheadTabBaseWorkspace_JideTabbedPane", (HResource) null, "rp_trig_src.v", 5); // m
+selectCodeEditor("rp_trig_src.v", 411, 226); // be
+selectCodeEditor("rp_trig_src.v", 513, 234); // be
+typeControlKey(null, null, 'z');
+typeControlKey(null, null, 'z');
+typeControlKey(null, null, 'z');
+selectCodeEditor("rp_trig_src.v", 487, 259); // be
+selectCodeEditor("rp_trig_src.v", 418, 243); // be
+selectCodeEditor("rp_trig_src.v", 600, 268); // be
+selectCodeEditor("rp_trig_src.v", 600, 268, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 591, 282); // be
+selectCodeEditor("rp_trig_src.v", 590, 282, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 595, 315); // be
+selectCodeEditor("rp_trig_src.v", 595, 315, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 571, 431); // be
+selectCodeEditor("rp_trig_src.v", 629, 393); // be
+selectCodeEditor("rp_trig_src.v", 629, 393, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 765, 384); // be
+selectCodeEditor("rp_trig_src.v", 812, 378); // be
+selectCodeEditor("rp_trig_src.v", 810, 380); // be
+// Elapsed time: 11 seconds
+selectCodeEditor("rp_trig_src.v", 724, 398); // be
+selectCodeEditor("rp_trig_src.v", 821, 400); // be
+selectCodeEditor("rp_trig_src.v", 823, 400, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 823, 400); // be
+selectCodeEditor("rp_trig_src.v", 731, 397); // be
+selectCodeEditor("rp_trig_src.v", 816, 405); // be
+selectCodeEditor("rp_trig_src.v", 816, 405, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 676, 403); // be
+selectCodeEditor("rp_trig_src.v", 670, 401); // be
+// Elapsed time: 10 seconds
+selectCodeEditor("rp_trig_src.v", 662, 334); // be
+selectCodeEditor("rp_trig_src.v", 691, 403); // be
+selectCodeEditor("rp_trig_src.v", 691, 403, false, false, false, false, true); // be - Double Click
+typeControlKey((HResource) null, "rp_trig_src.v", 'c'); // be
+selectCodeEditor("rp_trig_src.v", 642, 95); // be
+typeControlKey((HResource) null, "rp_trig_src.v", 'c'); // be
+selectCodeEditor("rp_trig_src.v", 736, 350); // be
+selectCodeEditor("rp_trig_src.v", 786, 105); // be
+selectCodeEditor("rp_trig_src.v", 750, 96); // be
+selectCodeEditor("rp_trig_src.v", 775, 88); // be
+typeControlKey((HResource) null, "rp_trig_src.v", 'c'); // be
+selectCodeEditor("rp_trig_src.v", 643, 539); // be
+selectCodeEditor("rp_trig_src.v", 493, 479); // be
+selectCodeEditor("rp_trig_src.v", 413, 275); // be
+selectCodeEditor("rp_trig_src.v", 413, 275, false, false, false, false, true); // be - Double Click
+expandTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top (red_pitaya_top.sv), i_scope : rp_scope_com (rp_scope_com.v)]", 8); // D
+collapseTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top (red_pitaya_top.sv), i_scope : rp_scope_com (rp_scope_com.v)]", 8); // D
+selectCodeEditor("rp_trig_src.v", 447, 305); // be
+selectCodeEditor("rp_trig_src.v", 376, 376); // be
+selectCodeEditor("rp_trig_src.v", 420, 228); // be
+typeControlKey((HResource) null, "rp_trig_src.v", 'c'); // be
+selectCodeEditor("rp_trig_src.v", 359, 468); // be
+selectCodeEditor("rp_trig_src.v", 326, 467); // be
+selectCodeEditor("rp_trig_src.v", 326, 467, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 240, 374); // be
+selectCodeEditor("rp_trig_src.v", 240, 374, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 223, 367); // be
+selectCodeEditor("rp_trig_src.v", 223, 367, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 372, 470); // be
+typeControlKey((HResource) null, "rp_trig_src.v", 'v'); // be
+selectCodeEditor("rp_trig_src.v", 215, 366); // be
+selectCodeEditor("rp_trig_src.v", 215, 366, false, false, false, false, true); // be - Double Click
+typeControlKey((HResource) null, "rp_trig_src.v", 'c'); // be
+selectCodeEditor("rp_trig_src.v", 402, 464); // be
+selectCodeEditor("rp_trig_src.v", 402, 464, false, false, false, false, true); // be - Double Click
+typeControlKey((HResource) null, "rp_trig_src.v", 'v'); // be
+selectCodeEditor("rp_trig_src.v", 541, 477); // be
+selectCodeEditor("rp_trig_src.v", 540, 470); // be
+selectCodeEditor("rp_trig_src.v", 540, 470, false, false, false, false, true); // be - Double Click
+typeControlKey((HResource) null, "rp_trig_src.v", 'v'); // be
+selectCodeEditor("rp_trig_src.v", 294, 482); // be
+selectCodeEditor("rp_trig_src.v", 471, 469); // be
+// TclEventType: DG_GRAPH_STALE
+// TclEventType: FILE_SET_CHANGE
+// Elapsed time: 11 seconds
+selectCodeEditor("rp_trig_src.v", 842, 475); // be
+selectCodeEditor("rp_trig_src.v", 842, 475, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 666, 469); // be
+selectCodeEditor("rp_trig_src.v", 666, 469, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 715, 462); // be
+selectCodeEditor("rp_trig_src.v", 871, 466); // be
+// Elapsed time: 12 seconds
+selectCodeEditor("rp_trig_src.v", 695, 477); // be
+selectCodeEditor("rp_trig_src.v", 674, 167); // be
+selectCodeEditor("rp_trig_src.v", 674, 167, false, false, false, false, true); // be - Double Click
+selectCodeEditor("rp_trig_src.v", 693, 178); // be
+selectCodeEditor("rp_trig_src.v", 693, 178, false, false, false, false, true); // be - Double Click
+typeControlKey((HResource) null, "rp_trig_src.v", 'c'); // be
+selectCodeEditor("rp_trig_src.v", 702, 468); // be
+typeControlKey((HResource) null, "rp_trig_src.v", 'v'); // be
+selectCodeEditor("rp_trig_src.v", 644, 464); // be
+selectCodeEditor("rp_trig_src.v", 628, 466); // be
+typeControlKey((HResource) null, "rp_trig_src.v", 'c'); // be
+typeControlKey((HResource) null, "rp_trig_src.v", 'v'); // be
+// TclEventType: DG_GRAPH_STALE
+// TclEventType: FILE_SET_CHANGE
+// Elapsed time: 96 seconds
+setText(RDIResource.CommandsInput_TYPE_TCL_COMMAND_HERE, "echo all:{ red_pitaya_top.bit } > nombre.bif", true); // l
+// Tcl Command: 'echo all:{ red_pitaya_top.bit } > nombre.bif'
+// Tcl Command: 'echo all:{ red_pitaya_top.bit } > nombre.bif'
+// Tcl Message: echo all:{ red_pitaya_top.bit } > nombre.bif 
+setText(RDIResource.CommandsInput_TYPE_TCL_COMMAND_HERE, (String) null); // l
+setText(RDIResource.CommandsInput_TYPE_TCL_COMMAND_HERE, (String) null); // l
+// Tcl Command: 'rdi::match_options {bootgen} {w}'
+setText(RDIResource.CommandsInput_TYPE_TCL_COMMAND_HERE, "bootgen -image nombre.bif -arch zynq -process_bitstream bin -o nombre_final.bit.bin -w", true); // l
+// Tcl Command: 'bootgen -image nombre.bif -arch zynq -process_bitstream bin -o nombre_final.bit.bin -w'
+// Tcl Command: 'bootgen -image nombre.bif -arch zynq -process_bitstream bin -o nombre_final.bit.bin -w'
+// Tcl Message: bootgen -image nombre.bif -arch zynq -process_bitstream bin -o nombre_final.bit.bin -w 
+// Tcl Message:   ****** Xilinx Bootgen v2021.2   **** Build date : Oct 19 2021-03:13:00     ** Copyright 1986-2021 Xilinx, Inc. All Rights Reserved.  [ERROR]  : Cannot read BIT file - red_pitaya_top.bit  
+// Elapsed time: 15 seconds
+selectTree(PAResourceEtoH.FileSetPanel_FILE_SET_PANEL_TREE, "[root, Design Sources, red_pitaya_top (red_pitaya_top.sv), i_pid : red_pitaya_pid (red_pitaya_pid.v)]", 10, true); // D - Node
+// HMemoryUtils.trashcanNow. Engine heap size: 3,101 MB. GUI used memory: 128 MB. Current time: 5/13/26, 10:00:55 AM CDT
+// HMemoryUtils.trashcanNow. Engine heap size: 3,085 MB. GUI used memory: 127 MB. Current time: 5/13/26, 10:30:55 AM CDT

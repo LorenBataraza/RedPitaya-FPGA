@@ -12,10 +12,10 @@
 
 PRJ   ?= v0.94
 #PRJ   ?= stream_app
-MODEL ?= Z20_G2
+MODEL ?= Z20
 HWID  ?= ""
 DEFINES ?= ""
-DTS_VER ?= 2022.1
+DTS_VER ?= 2020.1
 VIVADO_OPTS ?= 
 
 # build artefacts
