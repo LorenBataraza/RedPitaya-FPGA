@@ -20,6 +20,7 @@ module multitrigger_event_logic #(
   input  [        4-1: 0]        adc_rst_do_i     ,
   input                          adc_dly_do_i     ,
   input  [        4-1: 0]        sw_trig_dis_clr_i,  // clear de SW (reg 0x94)
+  input  [        4-1: 0]        adc_we_keep_i    ,  // modo continuo por canal (0x00 bit3)
   input  [ N_CH*SRC_W-1: 0]      set_trg_src_i    ,  // máscara de fuentes por canal
   input  [        4-1: 0]        set_trg_new_i    ,
   input  [        4-1: 0]        dly_valp_i       ,
@@ -34,19 +35,20 @@ module multitrigger_event_logic #(
   input                          asg_trig_n_i     ,
   input  [        4-1: 0]        trig_ch_i        ,  // cadena desde el otro scope
 
-  // Shield config
+  // Shield config - Control Signals
   input  [ SHIELD_N-1: 0]        shield_src_i     ,
   input  [ SHIELD_N-1: 0]        shield_dst_i     ,
   input  [DURATION_W-1: 0]       shield_dur_i     ,
 
   // Salidas
   output [        4-1: 0]        trig_ch_o        ,  // cadena hacia el otro scope
-  output [N_CH*(SRC_W+1)-1: 0]   trg_state_o      ,
+  output [N_CH*SRC_W-1: 0]       trg_state_o      ,  // máscara activa por canal (32 b/ch)
+  output [        4-1: 0]        adc_trg_dis_o    ,  // bit de disable por canal (padded)
   output                         daisy_trig_o     ,
   output                         event_arm_o      ,
   output                         trigger_event_o  ,  // evento conjunto -> bram_sm/axi_sm
 
-  // Debug
+  // State
   output [DURATION_W-1: 0]       shield_cnt_o     ,  // contador del shield
   output                         shield_active_o  ,  // shield en holdoff
   output [       17-1: 0]        trig_snapshot_o     // sticky: qué disparó el último evento
@@ -86,6 +88,7 @@ multitrigger_trig_src #(
   .adc_rst_do_i   ( adc_rst_do_i[GV]                           ),
   .adc_dly_do_i   ( adc_dly_do_i                               ),
   .trig_dis_clr_i ( trig_dis_clr[GV]                           ),
+  .adc_we_keep_i  ( adc_we_keep_i[GV]                          ),
 
   .set_trg_src_i  ( set_trg_src_i[(GV+1)*SRC_W-1:GV*SRC_W]     ),
   .set_trg_new_i  ( set_trg_new_i[GV]                          ),
@@ -100,7 +103,8 @@ multitrigger_trig_src #(
   .asg_trig_n_i   ( asg_trig_n_i                               ),
   .trig_ch_i      ( trig_ch_i                                  ),
 
-  .trg_state_o    ( trg_state_o[(GV+1)*(SRC_W+1)-1:GV*(SRC_W+1)] ),
+  .trg_state_o    ( trg_state_o[(GV+1)*SRC_W-1:GV*SRC_W]       ),
+  .adc_trg_dis_o  ( adc_trg_dis_o[GV]                          ),
   .adc_trig_o     ( adc_trig[GV]                               )
 );
 end
@@ -110,7 +114,8 @@ endgenerate
 genvar GM;
 generate
 for (GM = N_CH; GM < 4; GM = GM + 1) begin : g_pad
-   assign adc_trig[GM] = 1'b0;
+   assign adc_trig[GM]       = 1'b0;
+   assign adc_trg_dis_o[GM]  = 1'b0;
 end
 endgenerate
 

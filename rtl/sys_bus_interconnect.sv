@@ -6,6 +6,8 @@
 //`define BUS_NAME_M bus_m
 //`define BUS_NAME_S bus_inter
 
+// Define fuera del módulo, qué hacen?
+
 `define BUS_NAME_M bus_m
 `define BUS_NAME_I1 bus_int_i
 `define BUS_NAME_I2 bus_int_o
@@ -45,6 +47,8 @@ logic [SN-1:0]         bus_s_ack  ;
 logic [SN-1:0]         bus_s_sync_cs;
 logic [SN-1:0]         bus_s_sync_adr;
 
+// Definimos las interfaces como un array unpacked de busses (tiene sentido)
+// 
 sys_bus_if             bus_int_i[SN-1:0](.clk (bus_m.clk), .rstn (bus_m.rstn)); //@FCLK0
 sys_bus_if             bus_int_o[SN-1:0]();
 
@@ -64,6 +68,11 @@ assign bus_s_sync_cs = {SN{bus_s_cs[SYNC_IN_BUS]}} & {syncd_cs};
 generate
 for (genvar i=0; i<SN; i++) begin: for_bus
 
+// Tenemos un sync por cada bit dentro del bus? 
+// Me parece que no si vemos la definición en el inicio del módulo tenemos que es SYNC_IN_BUS     =  0
+// Entiendo que si SYNC_IN_BUS=N vamos a tener 
+// SYNC_OUT_BUS1 != -1 , SYNC_REG_OFS1 != -1, ... 
+
 assign bus_s_sync_adr[i] = bus_s_sync_cs[i] &&
                              ((`BUS_NAME_I2[SYNC_IN_BUS].addr[SW-1:0] == SYNC_REG_OFS1) || 
                               (`BUS_NAME_I2[SYNC_IN_BUS].addr[SW-1:0] == SYNC_REG_OFS2) || 
@@ -72,6 +81,7 @@ assign bus_s_sync_adr[i] = bus_s_sync_cs[i] &&
                               (`BUS_NAME_I2[SYNC_IN_BUS].addr[SW-1:0] == SYNC_REG_OFS5) ||
                               (`BUS_NAME_I2[SYNC_IN_BUS].addr[SW-1:0] == SYNC_REG_OFS6));      
 
+// Tenemsos un or de sincronización
 assign syncd_cs[i]    =  (i == SYNC_OUT_BUS1) || 
                          (i == SYNC_OUT_BUS2) || 
                          (i == SYNC_OUT_BUS3) || 
@@ -80,7 +90,7 @@ assign syncd_cs[i]    =  (i == SYNC_OUT_BUS1) ||
                          (i == SYNC_OUT_BUS6);
 
   
-
+// 
 assign `BUS_NAME_I1[i].addr  = `BUS_NAME_M.addr ;
 assign `BUS_NAME_I1[i].wdata = `BUS_NAME_M.wdata;
 assign `BUS_NAME_I1[i].wen   =  bus_s_cs[i] & `BUS_NAME_M.wen;

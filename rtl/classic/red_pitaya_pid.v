@@ -169,6 +169,7 @@ reg  [ 14-1: 0] set_22_ki    ;
 reg  [ 14-1: 0] set_22_kd    ;
 reg             set_22_irst  ;
 
+// No entiendo el uso tdv 
 red_pitaya_pid_block #(
   .PSR (  PSR   ),
   .ISR (  ISR   ),

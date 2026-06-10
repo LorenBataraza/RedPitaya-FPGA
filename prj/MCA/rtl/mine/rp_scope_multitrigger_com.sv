@@ -131,15 +131,19 @@ wire [      16-1: 0] shield_dur        ;
 // adc_dly_do a nivel módulo (cada rp_bram_sm maneja su bit por canal)
 wire [       4-1: 0] adc_dly_do        ;
 
-// estado de trigger del event_logic: {adc_trg_dis, set_trig_src[31:0]} x N_CH
-wire [N_CH*(32+1)-1: 0] ev_trg_state   ;
+// estado de trigger del event_logic: solo la máscara activa set_trig_src[31:0]
+// por canal (32 b cada uno). El bit adc_trg_dis sale por puerto aparte.
+wire [N_CH*32-1: 0]  ev_trg_state      ;
+wire [      4-1: 0]  ev_adc_trg_dis    ; // dis por canal (padded por el event_logic)
 
-// debug: máscara activa y adc_trg_dis desempacados, estado del shield, snapshot
-wire [   4*32-1: 0]  trg_src_act       ;
+// debug: adc_trg_dis_act, estado del shield, snapshot (la máscara configurada
+// se lee desde el cfg-stored, no de aquí)
 wire [      4-1: 0]  adc_trg_dis_act   ;
 wire [     16-1: 0]  shield_cnt        ;
 wire                 shield_active     ;
 wire [     17-1: 0]  trig_snapshot     ;
+
+assign adc_trg_dis_act = ev_adc_trg_dis;
 
 wire [       4-1: 0] axi_en_pulse      ;
 wire [       4-1: 0] new_trg_src       ; // Indica cuando el trig_src actualiza la entrada 
@@ -222,6 +226,7 @@ multitrigger_event_logic #(
   .adc_rst_do_i     ( adc_rst_do          ),
   .adc_dly_do_i     ( |adc_dly_do         ),
   .sw_trig_dis_clr_i( trig_dis_clr        ),
+  .adc_we_keep_i    ( adc_we_keep         ),
 
   .set_trg_src_i    ( trg_src[N_CH*32-1:0] ),
   .set_trg_new_i    ( new_trg_src         ),
@@ -242,6 +247,7 @@ multitrigger_event_logic #(
 
   .trig_ch_o        ( trig_ch_o           ),
   .trg_state_o      ( ev_trg_state        ),
+  .adc_trg_dis_o    ( ev_adc_trg_dis      ),
   .daisy_trig_o     ( daisy_trig_o        ),
   .event_arm_o      (                     ),  // redundante con trigger_event_o
   .trigger_event_o  ( trigger_event       ),
@@ -252,20 +258,14 @@ multitrigger_event_logic #(
   .trig_snapshot_o  ( trig_snapshot       )
 );
 
-// Empaqueta el estado por canal en el bus trg_state de 8b/canal: solo los 8
-// bits bajos de la máscara de 32b (campo de 33b: {dis, set_trig_src[31:0]}).
-// El readback 0x04 ve únicamente esos 8 bits (limitación documentada).
+// Empaqueta el estado por canal en el bus trg_state de 8 b/canal: los 8 bits
+// bajos de la máscara activa (set_trig_src). El bit adc_trg_dis sale por su
+// propia vía (ev_adc_trg_dis → adc_trg_dis_act @0x21C). La máscara completa
+// configurada se lee desde el cfg-stored en 0x240+4*GA, no de aquí.
 genvar GS;
 generate
 for (GS = 0 ; GS < N_CH ; GS = GS + 1) begin : g_trg_state
-  assign trg_state[(GS+1)*8-1:GS*8] = ev_trg_state[GS*33 +: 8];
-  // debug: máscara completa (32b) y bit de disable por canal, sin truncar
-  assign trg_src_act[GS*32 +: 32]   = ev_trg_state[GS*33 +: 32];
-  assign adc_trg_dis_act[GS]        = ev_trg_state[GS*33 + 32];
-end
-for (GS = N_CH ; GS < 4 ; GS = GS + 1) begin : g_trg_state_pad
-  assign trg_src_act[GS*32 +: 32]   = 32'h0;
-  assign adc_trg_dis_act[GS]        = 1'b0;
+  assign trg_state[(GS+1)*8-1:GS*8] = ev_trg_state[GS*32 +: 8];
 end
 endgenerate
 
@@ -626,7 +626,6 @@ multitrigger_rp_scope_cfg #(
   .shield_dur_o       ( shield_dur      ),
 
   // Debug readbacks
-  .trg_src_act_i      ( trg_src_act     ),
   .adc_trg_dis_act_i  ( adc_trg_dis_act ),
   .shield_cnt_i       ( shield_cnt      ),
   .shield_active_i    ( shield_active   ),

@@ -45,9 +45,9 @@ module rp_bram_sm #(
   output                adc_we_o
 );
 
-reg   [  32-1: 0] adc_dly_cnt   ;
-reg               adc_dly_do    ;
-reg               adc_dly_end_reg;
+reg   [  32-1: 0] adc_dly_cnt   ;     // continuous mode? 
+reg               adc_dly_do    ;     // Bandera que indica cuando nos pasamos del delay 
+reg               adc_dly_end_reg;    // 
 reg               adc_trg_rd    ;
 reg               adc_trg_rd_reg;
 
@@ -119,13 +119,14 @@ always @(posedge adc_clk_i) begin
     adc_dly_end_reg <= 1'b0   ;
   end else begin
     if (adc_trig_i)
-      adc_dly_do  <= 1'b1;
+      adc_dly_do  <= 1'b1;            // Arranca en 1 cuando inicia la transacción ?
+
     else if ((adc_dly_do && (adc_dly_cnt <= 32'h1)) || adc_rst_do_i || adc_arm_do_i) //delayed reached or reset; delay is shortened by 1
-      adc_dly_do  <= 1'b0;
+      adc_dly_do  <= 1'b0;          // Hace crear si tenemos rst, arm?. Al parecer arm detiene transferencia?
     
     adc_dly_end_reg <= adc_dly_do; 
       
-    if (adc_rst_do_i || adc_arm_do_i)
+    if (adc_rst_do_i || adc_arm_do_i) // Si tenemos reset o arm pongo el valor final de dly en 0?
       adc_dly_end <= 1'b0;
     else if (adc_dly_end_reg && ~adc_dly_do) //check if delay is over
       adc_dly_end <= 1'b1; //register remains 1 until next arm or reset
@@ -137,6 +138,6 @@ always @(posedge adc_clk_i) begin
   end
 end
 assign adc_we_o     = adc_we;
-assign adc_dly_do_o = adc_dly_do;
+assign adc_dly_do_o = adc_dly_do; 
 
 endmodule

@@ -1,9 +1,12 @@
 ////////////////////////////////////////////////////////////////////////////////
-// system bus interface
+// system bus interface (bus propio de pitaya)
 // Authors: Matej Oblak, Iztok Jeras
 // (c) Red Pitaya  http://www.redpitaya.com
 ////////////////////////////////////////////////////////////////////////////////
 
+
+// Qué tipo de bus es 
+// Push/Pull
 interface sys_bus_if #(
   int unsigned DW = 32  ,  // data width (8,16,...,1024)
   int unsigned AW = 32  ,  // address width
@@ -14,6 +17,9 @@ interface sys_bus_if #(
 );
 
 // bus protocol signals
+// Parece que tenemos un canal de tipo inout estilo half-duplex, tenemos únicamente un ack.
+// No hay req
+
 logic          wen  ;  // write enable
 logic          ren  ;  // read enable
 logic [AW-1:0] addr ;  // read/write address
@@ -25,9 +31,9 @@ logic          err  ;  // error indicator
 // master
 modport m (
   input  clk  ,
-  input  rstn ,
-  output wen  ,
-  output ren  ,
+  input  rstn ,   // El bus tiene reset
+  output wen  , 
+  output ren  ,    
   output addr ,
   output wdata,
   input  rdata,

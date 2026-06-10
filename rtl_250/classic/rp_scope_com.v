@@ -336,7 +336,7 @@ rp_bram_sm #(
   .adc_we_cnt_o   ( adc_we_cnt[(GV+1)*32-1:GV*32]     ),
   .adc_state_o    ( adc_state[(GV+1)*8-1:GV*8]        ),
   .adc_we_o       ( adc_we[GV]                        ),
-  .adc_dly_do_o   ( adc_dly_do                        )
+  .adc_dly_do_o   ( adc_dly_do                        )   
 );
 
 rp_acq_bram #(

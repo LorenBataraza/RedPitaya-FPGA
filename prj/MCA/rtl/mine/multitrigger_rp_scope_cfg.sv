@@ -97,7 +97,6 @@ module multitrigger_rp_scope_cfg #(
    output     [      16-1: 0] shield_dur_o        ,
 
    // Debug readbacks (entradas: estado interno expuesto por scope_com)
-   input      [   4*32 -1: 0] trg_src_act_i        , // máscara activa por canal (32b)
    input      [       4-1: 0] adc_trg_dis_act_i    , // disable flag por canal
    input      [      16-1: 0] shield_cnt_i         , // contador del shield
    input                      shield_active_i      , // shield en holdoff
@@ -145,6 +144,12 @@ reg  [ 4*32-1: 0] set_axi_stop  ;
 reg  [ 4*32-1: 0] set_axi_dly   ;
 reg  [    4-1: 0] set_axi_en    ;
 
+// Copia almacenada de la máscara de fuentes (1 reg por canal, 32 b cada uno).
+// Es lo que devuelve el readback en 0x240+4*GA: SIEMPRE refleja el último write
+// del SW, independientemente del lifecycle del set_trig_src en multitrigger_trig_src.
+// Se almacena para 4 canales (independiente de N_CH) para que el test cubra ch0..ch3.
+reg  [ 4*32-1: 0] trg_src_stored ;
+
 // trigger_shield config (global, registro 0x210)
 reg  [    4-1: 0] shield_src    ;
 reg  [    4-1: 0] shield_dst    ;
@@ -189,7 +194,9 @@ assign axi_en_pulse[GV]         = sys_wen && axi_en_addr[GV] && sys_wdata[0];
 // word-aligned, separadas del SW-trigger / trg_state de 0x04. Cada
 // escritura lleva la máscara completa de 32 b en sys_wdata[31:0]. La
 // máscara activa se lee (8 b bajos) en trg_state @0x04.
-assign new_trg_src[GV]              = (sys_addr[19:0] == (20'h240 + GV*4)) && sys_wen && |sys_wdata;
+// El pulso new_trg_src se emite en CUALQUIER escritura a esta dirección
+// (incluso wdata=0) para permitir limpiar la máscara explícitamente.
+assign new_trg_src[GV]              = (sys_addr[19:0] == (20'h240 + GV*4)) && sys_wen;
 assign set_dec1[GV]                 = (set_dec[(GV+1)*17-1:GV*17] == 17'h1);
 assign filt_rstn[GV]                = (adc_rstn_i == 1'b1) && filt_coef_wr;
 assign trg_src[(GV+1)*32-1:GV*32]   = sys_wdata[32-1:0];
@@ -223,6 +230,21 @@ always @(posedge adc_clk_i) begin
   end
 end
 
+end
+endgenerate
+
+
+// Store de la máscara de fuentes por canal (4 canales, independiente de N_CH).
+// Cada write a 0x240 + 4*GA almacena sys_wdata en trg_src_stored[GA]. Readback
+// en el casez devuelve este valor → cubre ch0..ch3 aunque N_CH<4.
+genvar GA;
+generate
+for (GA = 0 ; GA < 4 ; GA = GA + 1) begin : g_trg_src_store
+always @(posedge adc_clk_i)
+if (adc_rstn_i == 1'b0)
+   trg_src_stored[(GA+1)*32-1:GA*32] <= 32'h0 ;
+else if (sys_wen && (sys_addr[19:0] == (20'h240 + GA*4)))
+   trg_src_stored[(GA+1)*32-1:GA*32] <= sys_wdata[31:0] ;
 end
 endgenerate
 
@@ -459,11 +481,11 @@ end else begin
     // multitrigger debug: shield runtime / snapshot / disable flags / máscara activa
     20'h00214 : begin sys_ack <= sys_en;          sys_rdata <= {{32-17{1'b0}}, shield_active_i, shield_cnt_i}    ; end
     20'h00218 : begin sys_ack <= sys_en;          sys_rdata <= {{32-17{1'b0}}, trig_snapshot_i}                  ; end
-    20'h0021C : begin sys_ack <= sys_en;          sys_rdata <= {{32- 4{1'b0}}, adc_trg_dis_act_i}                ; end
-    20'h00240 : begin sys_ack <= sys_en;          sys_rdata <=                  trg_src_act_i[0*32 +: 32]        ; end
-    20'h00244 : begin sys_ack <= sys_en;          sys_rdata <=                  trg_src_act_i[1*32 +: 32]        ; end
-    20'h00248 : begin sys_ack <= sys_en;          sys_rdata <=                  trg_src_act_i[2*32 +: 32]        ; end
-    20'h0024C : begin sys_ack <= sys_en;          sys_rdata <=                  trg_src_act_i[3*32 +: 32]        ; end
+    20'h0021C : begin sys_ack <= sys_en;          sys_rdata <= {24'h0, adc_we_keep[3:0], adc_trg_dis_act_i[3:0]} ; end
+    20'h00240 : begin sys_ack <= sys_en;          sys_rdata <=                  trg_src_stored[0*32 +: 32]       ; end
+    20'h00244 : begin sys_ack <= sys_en;          sys_rdata <=                  trg_src_stored[1*32 +: 32]       ; end
+    20'h00248 : begin sys_ack <= sys_en;          sys_rdata <=                  trg_src_stored[2*32 +: 32]       ; end
+    20'h0024C : begin sys_ack <= sys_en;          sys_rdata <=                  trg_src_stored[3*32 +: 32]       ; end
     // removed because for 4ADC channels are mirrored on main address
     //20'h00210 : begin sys_ack <= sys_en;          sys_rdata <= {{32-16{1'b0}},  set_calib_offset[16*3-1:16*2]}  ; end
     //20'h00214 : begin sys_ack <= sys_en;          sys_rdata <= {{32-16{1'b0}},  set_calib_gain[16*3-1:16*2]}    ; end

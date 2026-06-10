@@ -55,11 +55,11 @@ module red_pitaya_top #(
   // module numbers
   parameter MNA = 2,  // number of acquisition modules
   parameter MNG = 2,  // number of generator   modules
-  parameter ADW_125 = 14,
-  parameter ADW_122 = 16,
+  parameter ADW_125 = 14, // códigos para el modelo? 
+  parameter ADW_122 = 16, 
   parameter DWE_Z20 = 11,
   parameter DWE_Z10 = 8,
-  parameter DDW     = 14,
+  parameter DDW     = 14, // Data 
 `ifdef Z20_122
   parameter ADW=ADW_122,
   parameter ADC_DW=ADW_122,
@@ -224,7 +224,7 @@ logic [2-1:0]            digital_loop;
 
 // system bus
 sys_bus_if   ps_sys      (.clk (fclk[0]), .rstn (frstn[0]));
-sys_bus_if   sys [8-1:0] (.clk (adc_clk), .rstn (adc_rstn));
+sys_bus_if   sys [8-1:0] (.clk (adc_clk), .rstn (adc_rstn)); // Define 8 system bus. Cómo se relacionan entre sí?
 
 // GPIO interface
 gpio_if #(.DW (3*GDW)) gpio ();
@@ -359,8 +359,8 @@ red_pitaya_ps ps (
 ////////////////////////////////////////////////////////////////////////////////
 
 sys_bus_interconnect #(
-  .SN (8),                  // Slave number
-  .SW (20)                  // (address bus width)
+  .SN (8),
+  .SW (20)
 ) sys_bus_interconnect (
   .pll_locked_i(pll_locked),
   .bus_m (ps_sys),
@@ -456,32 +456,6 @@ begin // Loopback is for demonstration only. We avoid constraining for timing op
 end
 
 // DDR outputs
-
-// Estas son compuertas disponibles dentro del sistema
-// aparecen en la tabla 
-/*
-8. Primitives
--------------
-
-+-----------+-------+----------------------+
-|  Ref Name |  Used |  Functional Category |
-+-----------+-------+----------------------+
-| FDRE      | 10215 |         Flop & Latch |
-| LUT6      |  2478 |                  LUT |
-| LUT2      |  2318 |                  LUT |
-| LUT3      |  1795 |                  LUT |
-| LUT4      |  1414 |                  LUT |
-| DSP48E1   |    28 |     Block Arithmetic |
-| ODDR      |    21 |                   IO |
-| LDCE      |    17 |         Flop & Latch |
-| FDCE      |    17 |         Flop & Latch |
-| OBUFT     |    16 |                   IO |
-| MUXF7     |    12 |                MuxFx |
-| BUFG      |     9 |                Clock |
-| OBUFDS    |     4 |                   IO |
-| IBUFDS    |     3 |                   IO |
-etc...
-*/
 ODDR oddr_dac_clk          (.Q(dac_clk_o), .D1(1'b0     ), .D2(1'b1     ), .C(dac_clk_2p), .CE(1'b1), .R(1'b0   ), .S(1'b0));
 ODDR oddr_dac_wrt          (.Q(dac_wrt_o), .D1(1'b0     ), .D2(1'b1     ), .C(dac_clk_2x), .CE(1'b1), .R(1'b0   ), .S(1'b0));
 ODDR oddr_dac_sel          (.Q(dac_sel_o), .D1(1'b1     ), .D2(1'b0     ), .C(dac_clk_1x), .CE(1'b1), .R(dac_rst), .S(1'b0));
@@ -501,6 +475,7 @@ logic [DWE-1: 0] exp_p_alt,  exp_n_alt;
 logic [DWE-1: 0] exp_p_altr, exp_n_altr;
 logic [DWE-1: 0] exp_p_altd, exp_n_altd;
 
+// hk tiene bus 0
 red_pitaya_hk #(.DWE(DWE)) i_hk (
   // system signals
   .clk_i           (adc_clk    ),  // clock
@@ -575,25 +550,27 @@ assign CAN1_rx = can_on & exp_p_in[6];
 // oscilloscope
 ////////////////////////////////////////////////////////////////////////////////
 
-wire [ 4-1:0] trig_ch_0_1;
-wire [ 4-1:0] trig_ch_2_3 = 4'h0;
-wire [16-1:0] trg_state_ch_0_1;
+wire [ 4-1:0] trig_ch_0_1;                // Que es esto
+wire [ 4-1:0] trig_ch_2_3 = 4'h0;        // Que es esto
+wire [16-1:0] trg_state_ch_0_1;          // Que es esto
 wire [16-1:0] trg_state_ch_2_3 = 16'h0;
 wire [16-1:0] adc_state_ch_0_1;
 wire [16-1:0] adc_state_ch_2_3 = 16'h0;
 wire [16-1:0] axi_state_ch_0_1;
 wire [16-1:0] axi_state_ch_2_3 = 16'h0;
 
-rp_scope_com #(
+// Defino con la misma interface que el scope original
+
+rp_scope_multitrigger_com#(
   .CHN(0),
   .N_CH(2),
   .DW(14),
-  .RSZ(14)) 
-  i_scope (
+  .RSZ(14)) i_scope (
   // ADC
   .adc_dat_i     ({adc_dat[1], adc_dat[0]}  ),
   .adc_clk_i     ({2{adc_clk}}  ),  // clock
   .adc_rstn_i    ({2{adc_rstn}} ),  // reset - active low
+
   .trig_ext_i    (trig_ext    ),  // external trigger
   .trig_asg_i    (trig_asg_out),  // ASG trigger
   .trig_ch_o     (trig_ch_0_1 ),  // output trigger to ADC for other 2 channels
@@ -601,12 +578,14 @@ rp_scope_com #(
   .trig_ext_asg_o(trig_ext_asg01),
   .trig_ext_asg_i(trig_ext_asg01),
   .daisy_trig_o  (scope_trigo ),
+
   .adc_state_o   (adc_state_ch_0_1),
   .adc_state_i   (adc_state_ch_2_3),
   .axi_state_o   (axi_state_ch_0_1),
   .axi_state_i   (axi_state_ch_2_3),
   .trg_state_o   (trg_state_ch_0_1),
   .trg_state_i   (trg_state_ch_2_3),
+
   // AXI0 master                 // AXI1 master
   .axi_waddr_o  ({axi1_sys.waddr,  axi0_sys.waddr} ),
   .axi_wdata_o  ({axi1_sys.wdata,  axi0_sys.wdata} ),
@@ -625,38 +604,10 @@ rp_scope_com #(
   .sys_err       (sys[1].err  ),
   .sys_ack       (sys[1].ack  )
 );
-/*
-red_pitaya_scope (
-i_scope (
-  // ADC
-  .adc_a_i       (adc_dat[0]  ),  // CH 1
-  .adc_b_i       (adc_dat[1]  ),  // CH 2
-  .adc_clk_i     (adc_clk     ),  // clock
-  .adc_rstn_i    (adc_rstn    ),  // reset - active low
-  .trig_ext_i    (trig_ext    ),  // external trigger
-  .trig_asg_i    (trig_asg_out),  // ASG trigger
-  .trig_ext_asg_o(trig_ext_asg01),
-  .trig_ext_asg_i(trig_ext_asg01),
-  .daisy_trig_o  (scope_trigo ),
-  // AXI0 master                 // AXI1 master
-  .axi0_waddr_o  (axi0_sys.waddr ),  .axi1_waddr_o  (axi1_sys.waddr ),
-  .axi0_wdata_o  (axi0_sys.wdata ),  .axi1_wdata_o  (axi1_sys.wdata ),
-  .axi0_wsel_o   (axi0_sys.wsel  ),  .axi1_wsel_o   (axi1_sys.wsel  ),
-  .axi0_wvalid_o (axi0_sys.wvalid),  .axi1_wvalid_o (axi1_sys.wvalid),
-  .axi0_wlen_o   (axi0_sys.wlen  ),  .axi1_wlen_o   (axi1_sys.wlen  ),
-  .axi0_wfixed_o (axi0_sys.wfixed),  .axi1_wfixed_o (axi1_sys.wfixed),
-  .axi0_werr_i   (axi0_sys.werr  ),  .axi1_werr_i   (axi1_sys.werr  ),
-  .axi0_wrdy_i   (axi0_sys.wrdy  ),  .axi1_wrdy_i   (axi1_sys.wrdy  ),
-  // System bus
-  .sys_addr      (sys[1].addr ),
-  .sys_wdata     (sys[1].wdata),
-  .sys_wen       (sys[1].wen  ),
-  .sys_ren       (sys[1].ren  ),
-  .sys_rdata     (sys[1].rdata),
-  .sys_err       (sys[1].err  ),
-  .sys_ack       (sys[1].ack  )
-);
-*/
+
+// (bloque rp_scope_com clásico eliminado; se usa i_scope multitrigger)
+
+
 ////////////////////////////////////////////////////////////////////////////////
 //  DAC arbitrary signal generator
 ////////////////////////////////////////////////////////////////////////////////
@@ -688,9 +639,6 @@ red_pitaya_asg i_asg (
 //  MIMO PID controller
 ////////////////////////////////////////////////////////////////////////////////
 
-// No entiendo es un redireccionador interno?
-// Para qué hacer esto cuando tenemos dos entradas y dos salidas.
-// A menos de hacer alguna permutacion no le veo el sentido.
 red_pitaya_pid i_pid (
    // signals
   .clk_i           (adc_clk   ),  // clock
@@ -804,7 +752,6 @@ red_pitaya_daisy  #(
   sys_bus_stub sys_bus_stub_7 (sys[7]);
 
 `else
-// Compuerta final en e lcaso de tener que conectar un IO
 IOBUF i_iobuf (.O(trig_ext), .IO(exp_p_io[0]), .I(1'b0), .T(1'b1) );
 
 logic [2-1:0] [ADW-1:0] adc_dat_raw;
@@ -880,7 +827,6 @@ assign dac_dat_a = 14'h0;
 assign dac_dat_b = 14'h0;
 
 // DDR outputs
-
 ODDR oddr_dac_clk          (.Q(dac_clk_o), .D1(1'b0     ), .D2(1'b1     ), .C(dac_clk_2p), .CE(1'b1), .R(1'b0   ), .S(1'b0));
 ODDR oddr_dac_wrt          (.Q(dac_wrt_o), .D1(1'b0     ), .D2(1'b1     ), .C(dac_clk_2x), .CE(1'b1), .R(1'b0   ), .S(1'b0));
 ODDR oddr_dac_sel          (.Q(dac_sel_o), .D1(1'b1     ), .D2(1'b0     ), .C(dac_clk_1x), .CE(1'b1), .R(dac_rst), .S(1'b0));
@@ -889,8 +835,6 @@ ODDR oddr_dac_dat [14-1:0] (.Q(dac_dat_o), .D1(dac_dat_b), .D2(dac_dat_a), .C(da
 
 ODDR i_adc_clk_p ( .Q(adc_clk_o[0]), .D1(1'b1), .D2(1'b0), .C(1'b0), .CE(1'b1), .R(1'b0), .S(1'b0));
 ODDR i_adc_clk_n ( .Q(adc_clk_o[1]), .D1(1'b0), .D2(1'b1), .C(1'b0), .CE(1'b1), .R(1'b0), .S(1'b0));
-
-// Celdas particulares para daisy
 
 logic rxs_clk, rxs_dat;
 IBUFDS #(.IOSTANDARD ("DIFF_HSTL_I_18")) i_IBUFGDS_clk

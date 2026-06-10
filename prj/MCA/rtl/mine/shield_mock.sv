@@ -1,15 +1,10 @@
+// Era para implementar una versión de pruevba del shield, 
+// Quedó en desuso (stale)
+
 // Módulo que toma configuración como parámetros.
 // La salida se la conecta al trig_dis_clr_i del multitrigger_trig_src.
 //
-//   Cantidad de canales:  parameter integer N          = 4
-//   Duración del holdoff: parameter integer DURATION_W = 16
-//   Shield src  vector de N  (qué canales actúan de fuente)
-//   Shield dest vector de N  (qué canales son escudados)
-//
-// Holdoff src->dest: cuando un canal "src" dispara, los canales "dest" quedan
-// deshabilitados durante DURATION ciclos de ADC; al expirar se emite un pulso
-// de trig_dis_clr que los re-arma. Los canales no escudados siguen de forma
-// transparente al clear de SW.
+
 
 module trigger_shield #(
   parameter integer N          = 4,    // canales

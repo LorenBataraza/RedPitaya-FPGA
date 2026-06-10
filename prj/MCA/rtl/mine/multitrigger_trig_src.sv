@@ -20,6 +20,7 @@ module multitrigger_trig_src #(
   input                 adc_rst_do_i    , //
   input                 adc_dly_do_i    , // Delay asociado al arm_do?
   input                 trig_dis_clr_i  , // Trigger disable clear
+  input                 adc_we_keep_i   , // modo continuo: 1 = ARM se mantiene tras trigger
 
   //  Fuentes de trigger
   input  [ SRC_W-1: 0]  set_trg_src_i   , // Máscara de fuentes a tener en cuenta
@@ -39,7 +40,8 @@ module multitrigger_trig_src #(
   input  [ 4-1: 0]      trig_ch_i       , // Triggers de la cadena (otro par)
 
    // Salidas
-  output [ SRC_W: 0]    trg_state_o     , // {adc_trg_dis, set_trig_src}
+  output [ SRC_W-1: 0]  trg_state_o     , // máscara activa (set_trig_src), 32 b
+  output                adc_trg_dis_o   , // bit de disable (separado)
   output                adc_trig_o        // trigger en sí (registrado)
 );
 
@@ -59,7 +61,10 @@ if (adc_rstn_i == 1'b0) begin
 end else begin
    if (set_trg_new_i)
       set_trig_src <= set_trg_src_i ;                 // Máscara de fuentes
-   else if (adc_dly_do_i || adc_trig || adc_rst_do_i) // delay reached or reset
+   // En modo continuo (adc_we_keep_i=1) NO se limpia por dly_do/adc_trig:
+   // la máscara persiste para que el FSM pueda re-disparar sin que el SW
+   // tenga que re-escribirla. El reset de SW (adc_rst_do_i) siempre limpia.
+   else if (adc_rst_do_i || (!adc_we_keep_i && (adc_dly_do_i || adc_trig)))
       set_trig_src <= {SRC_W{1'b0}} ;
 
    // trig_dis_clr_i: clear del disable
@@ -107,7 +112,8 @@ if (adc_rstn_i == 1'b0)
 else
    adc_trig <= trig_comb ;
 
-assign adc_trig_o  = adc_trig;                      // trigger registrado
-assign trg_state_o = {adc_trg_dis, set_trig_src};   // {dis, máscara}
+assign adc_trig_o    = adc_trig;       // trigger registrado
+assign trg_state_o   = set_trig_src;   // máscara activa (32 b)
+assign adc_trg_dis_o = adc_trg_dis;    // bit de disable
 
 endmodule
