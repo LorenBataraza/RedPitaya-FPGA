@@ -36,6 +36,9 @@ SCOPE_SIZE = 0x30000
 N_BUF      = 16384
 FS         = 125e6                # Hz, sampling rate con decim=1
 
+ADC_CNT_PER_V = 8192              # escala LV (±1 V): cuentas por volt
+DEC_LEGAL     = (1, 8, 64, 1024, 8192, 65536)
+
 
 # ---------- bits de la OR_MASK (matchean trg_src_bits de multitrigger_trig_src.sv) ----------
 
@@ -145,15 +148,24 @@ class MultiTriggerScope:
     # ---------- configuración acq ----------
 
     def acq_base(self, thr=0.5, delay=0, decim=1):
-        """Reset + decim/threshold/delay básicos vía la rp API."""
-        rp.rp_AcqReset()
-        if   decim == 1:    rp.rp_AcqSetDecimation(rp.RP_DEC_1)
-        elif decim == 8:    rp.rp_AcqSetDecimation(rp.RP_DEC_8)
-        elif decim == 64:   rp.rp_AcqSetDecimation(rp.RP_DEC_64)
-        elif decim == 1024: rp.rp_AcqSetDecimation(rp.RP_DEC_1024)
-        rp.rp_AcqSetTriggerLevel(rp.RP_T_CH_1, thr)
-        rp.rp_AcqSetTriggerLevel(rp.RP_T_CH_2, thr)
-        rp.rp_AcqSetTriggerDelay(delay)
+        """Reset + decim/threshold/delay por escritura directa de registros.
+
+        Reemplaza la rp API (rp_AcqReset / SetDecimation / SetTriggerLevel /
+        SetTriggerDelay) por writes a /dev/mem ya verificados en
+        multitrigger_test_cfg.ipynb (tabla TESTS).
+
+        NOTA: thr se convierte a cuentas con escala fija ADC_CNT_PER_V
+        (8192 cuentas/V, rango LV ±1 V). A diferencia de
+        rp_AcqSetTriggerLevel, NO aplica la calibración de EEPROM; para
+        triggering por flanco la diferencia es despreciable.
+        """
+        if decim not in DEC_LEGAL:
+            raise ValueError(f'decim {decim} no legal; usar {DEC_LEGAL}')
+        self.w32(0x00, 0x0000_0202)                  # adc_rst_do ch0+ch1 (reset FSM)
+        self.w32(0x14,  decim); self.w32(0x114, decim)   # set_dec ch0/ch1 (factor crudo)
+        thr_cnt = int(round(thr * ADC_CNT_PER_V)) & 0x3FFF
+        self.w32(0x08, thr_cnt); self.w32(0x0C, thr_cnt) # set_tresh ch0/ch1 (14b signed)
+        self.w32(0x10, delay);  self.w32(0x110, delay)   # set_dly ch0/ch1
 
     def set_or_mask(self, mask_ch0=OR_MASK_ALL, mask_ch1=None):
         """Escribe la máscara en 0x240/0x244 con assert de readback."""
@@ -212,11 +224,9 @@ class MultiTriggerScope:
         auto_rearm=False: comportamiento legacy. El SW tiene que pulsar
             0x94 entre triggers (tradicional, más alto dead-time).
 
-        OJO: setea we_keep DESPUÉS de rp_AcqStart porque la API rescribe
-        byte0 de 0x00 con 0x01 (arm bit), lo que en la cfg satisface el
-        ``if (sys_addr==0x0 && |sys_dats)`` y sobrescribe we_keep con 0.
-        Reescribiendo we_keep después del arm restaura el bit sin afectar
-        el estado armado (el arm ya pulsó).
+        El arm se hace por escritura directa a 0x00 con bit0 (arm) y bit3
+        (we_keep) a la vez, así que no hay carrera con rp_AcqStart (que
+        rescribía byte0 con 0x01 y borraba we_keep como side-effect).
         """
         self.acq_base(thr=thr, delay=delay)
         # hyst en counts (14 b signed escala = 8192)
@@ -229,9 +239,9 @@ class MultiTriggerScope:
         else:
             self.disable_shield()
         self.set_or_mask(mask_ch0, mask_ch1)
-        rp.rp_AcqStart()                # ← borra we_keep como side-effect
-        cfg = 0x0000_0008 | (0x0000_0800 if we_keep_both else 0)
-        self.w32(0x00, cfg)             # ← restaurar we_keep
+        # arm (bit0) + we_keep (bit3) en una sola escritura, ch0 byte0 + ch1 byte1.
+        b = 0x09 if we_keep_both else 0x01
+        self.w32(0x00, (b << 8) | b)
 
     def disarm(self):
         """Apaga we_keep, limpia el shield, limpia adc_trg_dis y resetea el
@@ -270,6 +280,41 @@ class MultiTriggerScope:
         d2 = np.fromiter((fb2[i] for i in range(n_buf)), dtype=float, count=n_buf)
         return d1, d2
 
+    @staticmethod
+    def capture_window_np(channels=None, pre=0, post=N_BUF, at_trigger=True):
+        """Copia una ventana [ref-pre, ref+post) del buffer ADC a arrays
+        NumPy con rp_AcqGetDataPosVNP (copia directa, más rápida que el loop
+        fBuffer + np.fromiter de read_buffers). Si rp_AcqGetDataPosVNP no
+        existe en el rp instalado (RP OS viejo), cae a rp_AcqGetDataPosV.
+
+        ref = rp_AcqGetWritePointerAtTrig() si at_trigger (puntero al sample
+        del trigger), si no rp_AcqGetWritePointer() (puntero actual). La RTL
+        de adquisición (rp_bram_sm) es stock, así que estas funciones del rp
+        reflejan el HW real (equivalen a leer 0x1C / 0x18).
+
+        Requiere rp.rp_Init() previo (mmap/calibración del rp). Devuelve
+        (data, ref) con data = {channel: np.ndarray(float32)}.
+        """
+        if channels is None:
+            channels = (rp.RP_CH_1, rp.RP_CH_2)
+        ref = (rp.rp_AcqGetWritePointerAtTrig() if at_trigger
+               else rp.rp_AcqGetWritePointer())[1]
+        n     = pre + post
+        start = (ref - pre)  % N_BUF
+        end   = (ref + post) % N_BUF          # semántica [start, end)
+        data  = {}
+        for ch in channels:
+            buf = np.zeros(n, dtype=np.float32)
+            if hasattr(rp, 'rp_AcqGetDataPosVNP'):
+                rp.rp_AcqGetDataPosVNP(ch, start, end, buf)
+            else:                              # fallback confirmado disponible
+                fb = rp.fBuffer(n)
+                rp.rp_AcqGetDataPosV(ch, start, end, fb, n)
+                buf[:] = np.fromiter((fb[i] for i in range(n)),
+                                     dtype=np.float32, count=n)
+            data[ch] = buf
+        return data, ref
+
     # ---------- captura ----------
 
     def acq_capture_sw(self, thr=0.5, delay=None, timeout_ms=500):
@@ -284,7 +329,7 @@ class MultiTriggerScope:
         # src_mask = set_trig_src & {!adc_trg_dis} = 0 y el SW pulse no firma.
         self.w32(0x94, 0x0000_0101)
         self.set_or_mask(BIT_SW, BIT_SW)
-        rp.rp_AcqStart()
+        self.w32(0x00, 0x0000_0101)     # arm ch0+ch1 (single-shot, sin we_keep)
         time.sleep(0.01)
         self.w32(0x04, 0x0000_0101)     # pulso adc_trig_sw[0] y [1]
         self.wait_fill(timeout_ms=timeout_ms)
