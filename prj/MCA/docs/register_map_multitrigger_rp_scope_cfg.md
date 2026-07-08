@@ -1,18 +1,14 @@
 # Mapa de registros — `multitrigger_rp_scope_cfg`
 
-Módulo: [`prj/MCA/rtl/mine/multitrigger_rp_scope_cfg.sv`](../rtl/mine/multitrigger_rp_scope_cfg.sv)
+Módulo: [`prj/MCA/rtl/mine/multitrigger_rp_scope_cfg.sv`](multitrigger_rp_scope_cfg.sv)
 
 Da acceso a los registros y buffers internos del scope a través del *system
-bus* simplificado. Las direcciones son `sys_addr[19:0]` (offset dentro del
+bus* de la Pitaya. Las direcciones son `sys_addr[19:0]` (offset dentro del
 bloque del scope), siempre *word-aligned* (múltiplos de 4).
 
 Base física del bloque: `0x4010_0000`, tamaño `0x30000` (ver
 [`multitrigger_utils.py`](../software/multitrigger_utils.py), `SCOPE_PHYS` /
 `SCOPE_SIZE`).
-
-**Nomenclatura de canales:** el RTL nombra `set_tresh ch1/ch2`,
-`set_hyst ch1/ch2`, etc. (1-indexed). El driver Python usa `ch0/ch1`
-(0-indexed). Son los **mismos** registros: `chN(python) == ch(N+1)(RTL)`.
 
 Parámetros relevantes: `CHN` (0/1, selecciona qué mitad del estado se
 expone), `N_CH` (canales activos), `DW=14` (ancho de dato ADC), `RSZ=14`
@@ -162,29 +158,6 @@ driver):
 | `0x4xxxx` | `bram_rd_dat_i` ch4 |
 
 ---
-
-## Verificación contra `multitrigger_utils.py`
-
-Cruce de cada offset usado por
-[`multitrigger_utils.py`](../software/multitrigger_utils.py) contra este mapa.
-**Todos coinciden.**
-
-| Offset | Uso en el driver | RTL | OK |
-|--------|------------------|-----|----|
-| `0x00` | `0x08`/`0x0808` we_keep, `0x0202` reset, `0x00` disarm | ARM/RST/WE_KEEP/INDEP | ✅ |
-| `0x04` | `0x0101` pulso SW trigger | `adc_trig_sw` (`[3:0]==1`) | ✅ |
-| `0x08`/`0x0C` | readback `set_tresh` | `set_tresh` ch1/ch2 | ✅ |
-| `0x10`/`0x110` | `set_raw_delay` escribe `set_dly` | `set_dly` ch1/ch2 | ✅ |
-| `0x18`/`0x118` | readback `wp_cur` | `adc_wp_cur_i` ch1/ch2 | ✅ |
-| `0x1C`/`0x11C` | poll `wp_trig` (detección de eventos) | `adc_wp_trig_i` ch1/ch2 | ✅ |
-| `0x20`/`0x24` | escribe/lee `set_hyst` (counts) | `set_hyst` ch1/ch2 | ✅ |
-| `0x90` | readback `set_deb_len` | `set_deb_len` | ✅ |
-| `0x94` | `0x0101` clear `adc_trg_dis` | `trig_dis_clr` | ✅ |
-| `0x210` | shield cfg, layout `{dur<<16, dst<<8, src}` | `shield_src/dst/dur` | ✅ |
-| `0x214` | runtime `{active, cnt[15:0]}` | `{…, shield_active_i, shield_cnt_i}` | ✅ |
-| `0x218` | snapshot → `decode_snap` | `trig_snapshot_i[16:0]` | ✅ |
-| `0x21C` | `dis_act=&0xF`, `we_keep=>>4 &0xF` | `{…, we_keep[3:0], dis_act[3:0]}` | ✅ |
-| `0x240`/`0x244` | OR_MASK ch0/ch1 + assert readback | `trg_src_stored` / `new_trg_src` | ✅ |
 
 ### Observaciones (no son errores del mapa)
 

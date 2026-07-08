@@ -158,10 +158,17 @@ class MultiTriggerScope:
         (8192 cuentas/V, rango LV ±1 V). A diferencia de
         rp_AcqSetTriggerLevel, NO aplica la calibración de EEPROM; para
         triggering por flanco la diferencia es despreciable.
+
+        Limpia adc_trg_dis (0x94): tras un trigger single-shot el HW deja el
+        trigger BLOQUEADO (adc_trg_dis latcheado) y la máscara efectiva queda
+        en 0. rp_AcqReset lo reseteaba implícitamente; el reset directo
+        (adc_rst_do) NO, así que lo desbloqueamos explícitamente acá para que
+        cada re-config pueda volver a disparar.
         """
         if decim not in DEC_LEGAL:
             raise ValueError(f'decim {decim} no legal; usar {DEC_LEGAL}')
         self.w32(0x00, 0x0000_0202)                  # adc_rst_do ch0+ch1 (reset FSM)
+        self.w32(0x94, 0x0000_0101)                  # trig_dis_clr: desbloquea el trigger
         self.w32(0x14,  decim); self.w32(0x114, decim)   # set_dec ch0/ch1 (factor crudo)
         thr_cnt = int(round(thr * ADC_CNT_PER_V)) & 0x3FFF
         self.w32(0x08, thr_cnt); self.w32(0x0C, thr_cnt) # set_tresh ch0/ch1 (14b signed)
