@@ -1,15 +1,18 @@
 """
 Driver mínimo para Rigol DG4162 (y resto de la serie DG4000), sin
-dependencias externas (no requiere pyvisa). Soporta dos transportes:
+dependencias externas (no requiere pyvisa). Soporta cuatro transportes:
 
-  - USB-TMC vía /dev/usbtmcN (driver del kernel Linux, default).
+  - USB-TMC vía /dev/usbtmcN (driver del kernel Linux).
+  - USB crudo vía pyusb/libusb (`RigolDG4162.usb()`), para cuando el kernel
+    no trae el módulo usbtmc — es el caso de la RedPitaya (5.15.0-xilinx).
   - TCP vía socket al puerto SCPI 5555.
+  - VXI-11 sobre LAN.
 
 Uso típico desde el notebook:
 
     from rigol_dg4162 import RigolDG4162
 
-    rg = RigolDG4162.usbtmc('/dev/usbtmc0')
+    rg = RigolDG4162.usb()          # o .usbtmc('/dev/usbtmc0') / .tcp(ip)
     print(rg.id)
     rg.reset()
     rg.set_pulse_periodic(ch=1, period_s=100e-6, width_s=200e-9,
@@ -48,6 +51,287 @@ class _TransportVXI11:
 
     def close(self):
         self.instr.close()
+
+class _TransportUSBRaw:
+    """Transporte USBTMC en espacio de usuario vía pyusb/libusb, sin depender
+    del driver de kernel /dev/usbtmcN (que en la RedPitaya no está compilado:
+    `modprobe usbtmc` → "Module usbtmc not found"). Implementa el protocolo
+    USBTMC/USB488 mínimo sobre los endpoints bulk directamente.
+
+    Notas de implementación (razón de cada una: el DG4162 stallea el bulk-OUT
+    — [Errno 32] Pipe error — si no se respetan):
+
+      - NO se llama `set_configuration()` si el device ya está configurado;
+        libusb avisa que re-configurar hace perder estado al dispositivo.
+      - Se reclama la interfaz explícitamente y se corre la secuencia de
+        inicialización USBTMC (INITIATE_CLEAR/CHECK_CLEAR_STATUS), que deja
+        los buffers del instrumento limpios aunque haya quedado a mitad de
+        una transacción de una sesión anterior.
+      - Todo stall se recupera con CLEAR_FEATURE(ENDPOINT_HALT) + reintento.
+    """
+
+    # --- USBTMC bulk message IDs ---
+    MSG_ID_DEV_DEP_MSG_OUT = 1
+    MSG_ID_REQUEST_DEV_DEP_MSG_IN = 2
+    MSG_ID_DEV_DEP_MSG_IN = 2
+
+    # --- USBTMC control requests (bmRequestType = 0xA1 iface / 0xA2 endpoint) ---
+    INITIATE_ABORT_BULK_IN = 3
+    CHECK_ABORT_BULK_IN_STATUS = 4
+    INITIATE_CLEAR = 5
+    CHECK_CLEAR_STATUS = 6
+    GET_CAPABILITIES = 7
+
+    STATUS_SUCCESS = 0x01
+    STATUS_PENDING = 0x81
+
+    USBTMC_CLASS = 0xFE      # Application Specific Interface
+    USBTMC_SUBCLASS = 0x03   # Test and Measurement Class
+
+    def __init__(self, vid=0x1ab1, pid=0x0641, serial=None):
+        # Import diferido: así el módulo sigue importándose en máquinas sin
+        # pyusb (la PC de desarrollo), donde solo se usan TCP/VXI-11.
+        import usb.core
+        import usb.util
+        self._usb = usb
+
+        # Si hay más de un instrumento con el mismo VID:PID, filtrar por serial.
+        devs = list(usb.core.find(idVendor=vid, idProduct=pid, find_all=True))
+        if not devs:
+            raise IOError(f'No se encontró dispositivo USB {vid:04x}:{pid:04x}')
+        if serial is not None:
+            devs = [d for d in devs
+                    if usb.util.get_string(d, d.iSerialNumber) == serial]
+            if not devs:
+                raise IOError(f'Ningún dispositivo {vid:04x}:{pid:04x} con serial {serial}')
+        self.dev = devs[0]
+
+        # Configuración activa. Solo se setea si el device NO está configurado:
+        # `get_active_configuration()` tira USBError en ese caso.
+        try:
+            cfg = self.dev.get_active_configuration()
+        except usb.core.USBError:
+            self.dev.set_configuration()
+            cfg = self.dev.get_active_configuration()
+
+        # Buscar la interfaz USBTMC por clase (0xFE/0x03) en vez de asumir (0,0).
+        intf = None
+        for i in cfg:
+            if (i.bInterfaceClass == self.USBTMC_CLASS
+                    and i.bInterfaceSubClass == self.USBTMC_SUBCLASS):
+                intf = i
+                break
+        if intf is None:
+            raise IOError('El dispositivo no expone una interfaz USBTMC (0xFE/0x03)')
+        self.iface_num = intf.bInterfaceNumber
+
+        # En esta Pitaya no hay driver usbtmc en el kernel, pero por robustez
+        # se desacopla igual antes de reclamar la interfaz.
+        try:
+            if self.dev.is_kernel_driver_active(self.iface_num):
+                self.dev.detach_kernel_driver(self.iface_num)
+        except (NotImplementedError, usb.core.USBError):
+            pass
+
+        try:
+            usb.util.claim_interface(self.dev, self.iface_num)
+        except usb.core.USBError as e:
+            if e.errno == 16:  # EBUSY: otro proceso tiene la interfaz tomada
+                raise IOError(
+                    'La interfaz USBTMC está tomada por otro proceso (típicamente un '
+                    'kernel de Jupyter que abrió el instrumento y no llamó a close()). '
+                    'Reiniciá ese kernel, o mirá quién la tiene con: '
+                    'fuser -v /dev/bus/usb/001/*') from e
+            raise
+
+        self.ep_out = usb.util.find_descriptor(
+            intf, custom_match=lambda e:
+            usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_OUT
+            and usb.util.endpoint_type(e.bmAttributes) == usb.util.ENDPOINT_TYPE_BULK)
+        self.ep_in = usb.util.find_descriptor(
+            intf, custom_match=lambda e:
+            usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_IN
+            and usb.util.endpoint_type(e.bmAttributes) == usb.util.ENDPOINT_TYPE_BULK)
+        if self.ep_out is None or self.ep_in is None:
+            raise IOError('No se encontraron endpoints bulk IN/OUT en la interfaz USBTMC')
+        self._mps_in = self.ep_in.wMaxPacketSize or 64
+
+        self._btag = 0
+
+        # Inicialización USBTMC: capabilities (informativo, algunos firmwares
+        # lo esperan antes del primer bulk) + clear de los buffers.
+        self.capabilities = self._get_capabilities()
+        self.clear()
+
+    # ---------- helpers de bajo nivel ----------
+
+    def _next_btag(self):
+        # bTag cicla 1..255, nunca 0 (0 está reservado por el spec USBTMC).
+        self._btag = (self._btag % 255) + 1
+        return self._btag
+
+    def _clear_halt(self, ep):
+        try:
+            self.dev.clear_halt(ep.bEndpointAddress)
+        except self._usb.core.USBError:
+            pass
+
+    def _get_capabilities(self):
+        """GET_CAPABILITIES (0xA1, bRequest=7). Devuelve los 24 bytes crudos o
+        None si el instrumento no lo soporta (no es fatal)."""
+        try:
+            return bytes(self.dev.ctrl_transfer(0xA1, self.GET_CAPABILITIES,
+                                                0, self.iface_num, 0x18,
+                                                timeout=1000))
+        except self._usb.core.USBError:
+            return None
+
+    def clear(self):
+        """INITIATE_CLEAR + CHECK_CLEAR_STATUS: descarta los buffers de entrada
+        y salida del instrumento y deja los endpoints en estado conocido. Es la
+        recuperación estándar de un stall (Pipe error)."""
+        try:
+            r = self.dev.ctrl_transfer(0xA1, self.INITIATE_CLEAR, 0,
+                                       self.iface_num, 1, timeout=1000)
+        except self._usb.core.USBError:
+            self._clear_halt(self.ep_out)
+            return False
+        if not len(r) or r[0] != self.STATUS_SUCCESS:
+            self._clear_halt(self.ep_out)
+            return False
+
+        for _ in range(100):
+            try:
+                r = self.dev.ctrl_transfer(0xA1, self.CHECK_CLEAR_STATUS, 0,
+                                           self.iface_num, 2, timeout=1000)
+            except self._usb.core.USBError:
+                break
+            if r[0] != self.STATUS_PENDING:
+                break
+            # bmClear bit0 = quedan datos en el bulk-IN: hay que drenarlos.
+            if len(r) > 1 and (r[1] & 0x01):
+                try:
+                    self.ep_in.read(self._mps_in, 100)
+                except self._usb.core.USBError:
+                    pass
+            time.sleep(0.01)
+
+        # El spec exige limpiar el halt del bulk-OUT al terminar el CLEAR.
+        self._clear_halt(self.ep_out)
+        return True
+
+    def _abort_bulk_in(self, btag):
+        """INITIATE_ABORT_BULK_IN: cancela una transferencia IN que quedó
+        pendiente (típico tras un timeout). Sin esto, el próximo query lee la
+        respuesta vieja y todo queda corrido un mensaje."""
+        try:
+            r = self.dev.ctrl_transfer(0xA2, self.INITIATE_ABORT_BULK_IN, btag,
+                                       self.ep_in.bEndpointAddress, 2, timeout=1000)
+        except self._usb.core.USBError:
+            self._clear_halt(self.ep_in)
+            return
+        if not len(r) or r[0] != self.STATUS_SUCCESS:
+            self._clear_halt(self.ep_in)
+            return
+        for _ in range(100):
+            try:
+                self.ep_in.read(self._mps_in, 100)
+            except self._usb.core.USBError:
+                pass
+            try:
+                r = self.dev.ctrl_transfer(0xA2, self.CHECK_ABORT_BULK_IN_STATUS, 0,
+                                           self.ep_in.bEndpointAddress, 8, timeout=1000)
+            except self._usb.core.USBError:
+                break
+            if r[0] != self.STATUS_PENDING:
+                break
+
+    def _bulk_out(self, packet, tmo_ms):
+        """Escribe en el bulk-OUT recuperándose de un stall (errno 32) una vez."""
+        try:
+            return self.ep_out.write(packet, tmo_ms)
+        except self._usb.core.USBError as e:
+            if e.errno != 32:  # EPIPE == stall; cualquier otra cosa se propaga
+                raise
+            self._clear_halt(self.ep_out)
+            self.clear()
+            return self.ep_out.write(packet, tmo_ms)
+
+    def _bulk_in(self, nbytes, tmo_ms):
+        try:
+            return bytes(self.ep_in.read(nbytes, tmo_ms))
+        except self._usb.core.USBError as e:
+            if e.errno == 32:
+                self._clear_halt(self.ep_in)
+            raise
+
+    # ---------- API de transporte ----------
+
+    def write(self, data, timeout=None):
+        tmo_ms = 5000 if timeout is None else max(1, int(timeout * 1000))
+        btag = self._next_btag()
+        header = bytes([
+            self.MSG_ID_DEV_DEP_MSG_OUT,
+            btag,
+            (~btag) & 0xFF,
+            0x00,
+        ]) + len(data).to_bytes(4, 'little') + bytes([0x01, 0x00, 0x00, 0x00])
+        # EOM=1 (bit0 de bmTransferAttributes): este mensaje termina acá.
+        packet = header + data
+        packet += b'\x00' * ((-len(packet)) % 4)  # alineación a 4 bytes (spec)
+        self._bulk_out(packet, tmo_ms)
+
+    def read(self, n=4096, timeout=None):
+        tmo_ms = 5000 if timeout is None else max(1, int(timeout * 1000))
+        # Buffer múltiplo de wMaxPacketSize: si libusb recibe más de lo que le
+        # pedimos, el transfer falla con overflow.
+        bufsize = ((n + 12 + self._mps_in - 1) // self._mps_in) * self._mps_in
+
+        out = b''
+        while True:
+            btag = self._next_btag()
+            # REQUEST_DEV_DEP_MSG_IN va por el mismo endpoint bulk OUT.
+            req = bytes([
+                self.MSG_ID_REQUEST_DEV_DEP_MSG_IN,
+                btag,
+                (~btag) & 0xFF,
+                0x00,
+            ]) + n.to_bytes(4, 'little') + bytes([0x00, 0x00, 0x00, 0x00])
+            self._bulk_out(req, tmo_ms)
+
+            try:
+                resp = self._bulk_in(bufsize, tmo_ms)
+            except self._usb.core.USBError as e:
+                self._abort_bulk_in(btag)
+                raise TimeoutError(f'USBTMC (pyusb) sin respuesta: {e}') from e
+
+            if len(resp) < 12 or resp[0] != self.MSG_ID_DEV_DEP_MSG_IN:
+                self.clear()
+                raise IOError(f'Respuesta USBTMC inválida ({len(resp)} bytes): {resp[:12]!r}')
+
+            size = int.from_bytes(resp[4:8], 'little')
+            eom = bool(resp[8] & 0x01)
+            payload = resp[12:12 + size]
+            # El mensaje puede venir partido en varios transfers bulk.
+            while len(payload) < size:
+                try:
+                    payload += self._bulk_in(bufsize, tmo_ms)
+                except self._usb.core.USBError as e:
+                    self._abort_bulk_in(btag)
+                    raise TimeoutError(f'USBTMC: mensaje incompleto ({len(payload)}/{size}): {e}') from e
+            out += payload[:size]
+
+            if eom or len(out) >= n:
+                return out
+
+    def close(self):
+        try:
+            self._usb.util.release_interface(self.dev, self.iface_num)
+        except Exception:
+            pass
+        self._usb.util.dispose_resources(self.dev)
+
+
 
 class _TransportUSBTMC:
     def __init__(self, device='/dev/usbtmc0'):
@@ -103,7 +387,12 @@ class RigolDG4162:
         self.id = self.query('*IDN?')
 
     # ---------- factory methods ----------
-
+    @classmethod
+    def usb(cls, vid=0x1ab1, pid=0x0641, serial=None):
+        """Conexión USB directa vía pyusb/libusb (sin driver de kernel usbtmc).
+        Usar cuando /dev/usbtmcN no está disponible."""
+        return cls(_TransportUSBRaw(vid=vid, pid=pid, serial=serial))
+        
     @classmethod
     def usbtmc(cls, device='/dev/usbtmc0'):
         """Conexión por USB. Probá `ls /dev/usbtmc*` para ver el device disponible."""
@@ -134,20 +423,52 @@ class RigolDG4162:
         time.sleep(delay)
         return self._t.read(timeout=timeout).decode().strip()
 
+    def clear(self):
+        """Vacía los buffers de E/S del instrumento y limpia cualquier stall.
+        Solo tiene efecto en el transporte USB crudo; en el resto es no-op."""
+        clear = getattr(self._t, 'clear', None)
+        return clear() if clear is not None else None
+
     def close(self):
         self._t.close()
 
     # ---------- alto nivel ----------
 
-    def reset(self):
-        """*RST + *CLS + *OPC? para esperar a que el reset termine. El sleep
-        anterior era arbitrario y a veces se quedaba corto (Rigol DG4000
-        puede tardar >1 s en resetear); *OPC? bloquea hasta que todos los
-        comandos pendientes terminaron."""
+    def reset(self, settle_s=1.0, timeout=15.0):
+        """*CLS + *RST, esperando a que el instrumento vuelva a responder.
+
+        No se usa *OPC?: sobre USBTMC el DG4000 no lo contesta mientras está
+        reseteando (y hay firmwares que directamente no lo implementan), así
+        que el read se queda esperando una respuesta que nunca llega. En vez
+        de eso se sondea con *IDN?, que responde apenas el reset termina.
+
+        Sobre USBTMC un query sin respuesta es un timeout duro, no una espera:
+        cada intento fallido aborta su transferencia bulk-IN pendiente antes
+        de reintentar, para no leer una respuesta corrida en el próximo query.
+        """
         self.write('*CLS')                     # vacía cola de errores primero
         self.write('*RST')
-        # *OPC? devuelve "1" cuando el reset completó. Damos timeout generoso.
-        self.query('*OPC?', timeout=5.0)
+        time.sleep(settle_s)
+
+        deadline = time.time() + timeout
+        last = None
+        while True:
+            try:
+                idn = self.query('*IDN?', timeout=1.0)
+                if idn:
+                    return idn
+            except OSError as e:              # TimeoutError y USBError son OSError
+                last = e
+                if getattr(e, 'errno', None) == 19:   # ENODEV: se re-enumeró
+                    raise IOError(
+                        'El instrumento desapareció del bus USB durante el *RST; '
+                        'hay que reabrir la conexión con RigolDG4162.usb()') from e
+            if time.time() >= deadline:
+                raise TimeoutError(
+                    f'El Rigol no volvió a responder {timeout:g}s después de *RST'
+                    + (f' (último error: {last})' if last else ''))
+            self.clear()
+            time.sleep(0.3)
 
     def output(self, ch, on, check_errors=False):
         """Enciende/apaga la salida del canal (ch=1 o 2).

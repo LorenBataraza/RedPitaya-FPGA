@@ -1,0 +1,31 @@
+# vsim -c -quiet tb_trig_capture -do "run -all; quit -f" 
+# Start time: 15:50:38 on Aug 05,2026
+# ** Note: (vsim-3812) Design is being optimized...
+# //  Questa Sim-64
+# //  Version 10.7c linux_x86_64 Aug 17 2018
+# //
+# //  Copyright 1991-2018 Mentor Graphics Corporation
+# //  All Rights Reserved.
+# //
+# //  QuestaSim and its associated documentation contain trade
+# //  secrets and commercial or financial information that are the property of
+# //  Mentor Graphics Corporation and are privileged, confidential,
+# //  and exempt from disclosure under the Freedom of Information Act,
+# //  5 U.S.C. Section 552. Furthermore, this information
+# //  is prohibited from disclosure under the Trade Secrets Act,
+# //  18 U.S.C. Section 1905.
+# //
+# run -all
+# === tb_trig_capture ===
+#   PASS: A: mascara auto-limpiada por flanco pre-arm (trg_state==0)
+#   PASS: A: DEADLOCK reproducido (wp_trig==0 && adc_trg_rd==0)
+#   PASS: B: captura OK (wp_trig!=0 && adc_trg_rd==1)
+#   PASS: B: buffer congelado (adc_we==0 tras el delay)
+#   PASS: C: SW trigger inmune al orden (wp_trig!=0 && adc_trg_rd==1)
+# ---------------------------------------------
+# tb_trig_capture: 5 PASS, 0 FAIL
+# RESULT: PASS
+# ** Note: $finish    : tb_trig_capture.sv(222)
+#    Time: 1450 ns  Iteration: 1  Instance: /tb_trig_capture
+# End time: 15:50:39 on Aug 05,2026, Elapsed time: 0:00:01
+# Errors: 0, Warnings: 0

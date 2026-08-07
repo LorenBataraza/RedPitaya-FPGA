@@ -3,11 +3,13 @@ synReport.*
 *.log
 *.jou
 *.str
+*.npz
 
 # Quito cualquier sintesis actual
 prj/MCA/project/redpitaya.runs
 prj/MCA/project/redpitaya.hw
 prj/MCA/project/redpitaya.cache
 prj/MCA/.Xil/
+
 # Clade
 .claude

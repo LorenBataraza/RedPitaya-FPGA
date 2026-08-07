@@ -1,0 +1,34 @@
+$date
+	Wed Aug  5 15:50:39 2026
+$end
+$version
+	QuestaSim Version 10.7c
+$end
+$timescale
+	1ps
+$end
+
+$scope module tb_trig_capture $end
+
+$scope task check $end
+$upscope $end
+
+$scope task init_idle $end
+$upscope $end
+
+$scope task arm $end
+$upscope $end
+
+$scope task load_mask $end
+$upscope $end
+
+$scope task inject_edge $end
+$upscope $end
+
+$scope task sw_pulse $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+$end

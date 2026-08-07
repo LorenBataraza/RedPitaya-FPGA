@@ -1,0 +1,231 @@
+m255
+K4
+z2
+13
+!s112 1.1
+!i10d 8192
+!i10e 25
+!i10f 100
+cModel Technology
+Z0 d/home/lorenzo/PI/RedPitaya-FPGA/prj/MCA/sim
+T_opt
+!s110 1785955838
+VKdNLo?=goYOAbPB>KaVz70
+04 15 4 work tb_trig_capture fast 0
+=1-000ae431a4f1-6a7385fe-e7b4b-315e
+Z1 o-quiet -auto_acc_if_foreign -work work
+Z2 tCvgOpt 0
+n@_opt
+Z3 OL;O;10.7c;67
+T_opt1
+!s110 1785955835
+VQ^`M_ONSL_MbaF2m?a:9<1
+04 17 4 work tb_trigger_shield fast 0
+=1-000ae431a4f1-6a7385fb-645bd-311d
+R1
+R2
+n@_opt1
+R3
+R0
+T_opt2
+!s110 1785955837
+VF5220HNF>HPM6Li5l]QYd0
+04 27 4 work tb_multitrigger_event_logic fast 0
+=1-000ae431a4f1-6a7385fd-25715-3138
+R1
+R2
+n@_opt2
+R3
+R0
+vmultitrigger_event_logic
+Z4 DXx6 sv_std 3 std 0 22 d=_JfHTnXCN[H5FjiaJJc0
+Z5 !s110 1785955832
+!i10b 1
+!s100 ng8_DMB8L<YeGMUiZaE=40
+IW<;I2MYQ6:`]Pcn4TBV2a3
+Z6 VDg1SIo80bB@j0V0VzS_@n1
+!s105 multitrigger_event_logic_v_unit
+S1
+R0
+w1779802358
+8../rtl/mine/multitrigger_event_logic.v
+F../rtl/mine/multitrigger_event_logic.v
+L0 8
+Z7 OL;L;10.7c;67
+r1
+!s85 0
+31
+Z8 !s108 1785955832.000000
+Z9 !s107 tb_trig_capture.sv|tb_multitrigger_event_logic.sv|tb_trigger_shield.sv|tb_multitrigger_trig_src.sv|../../../rtl_250/classic/rp_bram_sm.v|../rtl/mine/multitrigger_event_logic.v|../rtl/mine/trigger_shield.sv|../rtl/mine/multitrigger_trig_src.sv|
+Z10 !s90 -sv|-quiet|../rtl/mine/multitrigger_trig_src.sv|../rtl/mine/trigger_shield.sv|../rtl/mine/multitrigger_event_logic.v|../../../rtl_250/classic/rp_bram_sm.v|tb_multitrigger_trig_src.sv|tb_trigger_shield.sv|tb_multitrigger_event_logic.sv|tb_trig_capture.sv|
+!i113 0
+Z11 o-quiet -sv -L mtiAvm -L mtiRnm -L mtiOvm -L mtiUvm -L mtiUPF -L infact
+R2
+vmultitrigger_trig_src
+R4
+R5
+!i10b 1
+!s100 <igjf[ID<Oh9HEcU8Fb]=2
+IPVoRhkOngHFG@L4LM2;id3
+R6
+!s105 multitrigger_trig_src_sv_unit
+S1
+R0
+w1779802321
+8../rtl/mine/multitrigger_trig_src.sv
+F../rtl/mine/multitrigger_trig_src.sv
+L0 12
+R7
+r1
+!s85 0
+31
+R8
+R9
+R10
+!i113 0
+R11
+R2
+vrp_bram_sm
+R4
+R5
+!i10b 1
+!s100 fk49@2AXh2DfG[KRfTbjF1
+I@`jz02QZi>aad_NBmjz;L0
+R6
+!s105 rp_bram_sm_v_unit
+S1
+R0
+w1779294909
+8../../../rtl_250/classic/rp_bram_sm.v
+F../../../rtl_250/classic/rp_bram_sm.v
+Z12 L0 22
+R7
+r1
+!s85 0
+31
+R8
+R9
+R10
+!i113 0
+R11
+R2
+vtb_multitrigger_event_logic
+R4
+R5
+!i10b 1
+!s100 O7C^g=Od88o;KB7IF;4O=2
+IIH?[YPmVJ`CIfJ239?B@60
+R6
+!s105 tb_multitrigger_event_logic_sv_unit
+S1
+R0
+w1785955426
+8tb_multitrigger_event_logic.sv
+Ftb_multitrigger_event_logic.sv
+L0 9
+R7
+r1
+!s85 0
+31
+R8
+R9
+R10
+!i113 0
+R11
+R2
+vtb_multitrigger_trig_src
+R4
+R5
+!i10b 1
+!s100 5njDh5]`?X0@[F@_:jH2Y0
+IY1zNeoGP9SQHK2USSe?g:3
+R6
+!s105 tb_multitrigger_trig_src_sv_unit
+S1
+R0
+w1785955344
+8tb_multitrigger_trig_src.sv
+Ftb_multitrigger_trig_src.sv
+L0 11
+R7
+r1
+!s85 0
+31
+R8
+R9
+R10
+!i113 0
+R11
+R2
+vtb_trig_capture
+R4
+R5
+!i10b 1
+!s100 BeXFjC;dRAi1^iX:[?2;=1
+IYl`V9lS:mNNKEe2N7bU6a3
+R6
+!s105 tb_trig_capture_sv_unit
+S1
+R0
+w1785955808
+8tb_trig_capture.sv
+Ftb_trig_capture.sv
+R12
+R7
+r1
+!s85 0
+31
+R8
+R9
+R10
+!i113 0
+R11
+R2
+vtb_trigger_shield
+R4
+R5
+!i10b 1
+!s100 8KBXlS`j=01fiHMlhlo1P0
+Ie5dFeTSA0Q9Nm;6`L7Kih1
+R6
+!s105 tb_trigger_shield_sv_unit
+S1
+R0
+w1785955386
+8tb_trigger_shield.sv
+Ftb_trigger_shield.sv
+L0 8
+R7
+r1
+!s85 0
+31
+R8
+R9
+R10
+!i113 0
+R11
+R2
+vtrigger_shield
+R4
+R5
+!i10b 1
+!s100 zEL:L8XLQanYbAaTFTLVB2
+Ij^N7gM<TFiP=4mUW0KmZO1
+R6
+!s105 trigger_shield_sv_unit
+S1
+R0
+w1779285180
+8../rtl/mine/trigger_shield.sv
+F../rtl/mine/trigger_shield.sv
+L0 14
+R7
+r1
+!s85 0
+31
+R8
+R9
+R10
+!i113 0
+R11
+R2

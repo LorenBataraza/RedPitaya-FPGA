@@ -1,0 +1,25 @@
+$date
+	Wed Aug  5 15:50:35 2026
+$end
+$version
+	QuestaSim Version 10.7c
+$end
+$timescale
+	1ps
+$end
+
+$scope module tb_trigger_shield $end
+
+$scope task check $end
+$upscope $end
+
+$scope task reset_dut $end
+$upscope $end
+
+$scope task fire_src0 $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+$end

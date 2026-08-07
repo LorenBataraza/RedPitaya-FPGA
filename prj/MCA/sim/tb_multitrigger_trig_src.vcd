@@ -1,0 +1,28 @@
+$date
+	Wed Aug  5 15:50:34 2026
+$end
+$version
+	QuestaSim Version 10.7c
+$end
+$timescale
+	1ps
+$end
+
+$scope module tb_multitrigger_trig_src $end
+
+$scope task check $end
+$upscope $end
+
+$scope task reset_dut $end
+$upscope $end
+
+$scope task load_mask $end
+$upscope $end
+
+$scope task pulse_p0 $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+$end
