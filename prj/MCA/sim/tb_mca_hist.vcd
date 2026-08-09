@@ -1,0 +1,40 @@
+$date
+	Sun Aug  9 01:52:02 2026
+$end
+$version
+	QuestaSim Version 10.7c
+$end
+$timescale
+	1ps
+$end
+
+$scope module tb_mca_hist $end
+
+$scope task check $end
+$upscope $end
+
+$scope task bus_rd $end
+$upscope $end
+
+$scope task inc1 $end
+$upscope $end
+
+$scope task inc_burst $end
+$upscope $end
+
+$scope task inc_alt $end
+$upscope $end
+
+$scope task flush $end
+$upscope $end
+
+$scope task do_clear $end
+$upscope $end
+
+$scope task reset_dut $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+$end

@@ -59,15 +59,42 @@
 module rp_scope_multitrigger_com #(
   // En estos valores se encuentra el modelo de Pitaya empleado
   // 
-  parameter CHN  = 0 , // Channel Number 
+  parameter CHN  = 0 , // Channel Number
   parameter N_CH = 2 , // Number of Channels
-  parameter DW   = 14, // Data Width 
-  parameter RSZ  = 14  // RAM size 2^RSZ 
+  parameter DW   = 14, // Data Width
+  parameter RSZ  = 14, // RAM size 2^RSZ
+  // EN_FILT=0 saca el ecualizador osc_filter del camino de datos.
+  //
+  // El lazo IIR de osc_filter no cierra timing a 125 MHz en el -1: es
+  // registro -> multiplicacion -> suma de 48 bits -> registro en UN ciclo,
+  // 9.421 ns contra 8 ns de periodo, y son 137 de los 221 endpoints en falla
+  // del diseno (con toda la severidad: -1.820 ns contra <=0.2 ns del resto).
+  // Se probaron dos reescrituras equivalentes bit a bit y ninguna mejoro:
+  // plegar el termino al coeficiente lo lleva a 27 bits y Vivado parte el
+  // multiplicador en dos DSP en cascada dentro del lazo (-3.514 ns); y
+  // reasociar en dos pasos deja igual un sumador en el lazo (-1.957 ns).
+  // Es una limitacion estructural, no de codificacion.
+  //
+  // El default es 1: red_pitaya_top NO cambia en nada. Solo el top del MCA
+  // usa 0, porque para espectroscopia el ecualizador no hace falta (ademas
+  // con los coeficientes de reset es un pass-through) y asi ese bitstream
+  // queda libre del camino critico.
+  parameter EN_FILT = 1
 )(
    // ADC
    input      [N_CH   -1: 0] adc_clk_i      ,  // ADC clock
    input      [N_CH   -1: 0] adc_rstn_i     ,  // ADC reset - active low
    input      [N_CH*DW-1: 0] adc_dat_i      ,  // ADC data CHA - Hace mal uso de las dimensiones packed?
+
+   // Muestra acondicionada hacia el MCA: post-calibracion, post-ecualizador
+   // (si EN_FILT=1) y PRE-decimacion, a 125 MSPS. Es el mismo nodo que
+   // alimenta a rp_decim, asi que los umbrales del MCA y del scope son
+   // comparables, pero el MCA lleva su propia decimacion y queda desacoplado
+   // del set_dec del scope.
+   // En red_pitaya_top estos puertos quedan sin conectar (es legal para
+   // salidas) y se podan: el netlist del scope no cambia.
+   output     [N_CH*DW-1: 0] mca_dat_o      ,
+   output     [N_CH   -1: 0] mca_val_o      ,
    
    // trigger sources - Chain Topology
    input                     trig_ext_i     ,  // external trigger
@@ -270,6 +297,14 @@ end
 endgenerate
 
 
+// Vectores empaquetados hacia el MCA. Cada iteracion del generate maneja su
+// propia rebanada, asi que hay un unico driver por bit (mismo patron que los
+// lazos generate de trg_state y del relleno de canales).
+wire [N_CH*DW-1:0] mca_dat;
+wire [N_CH   -1:0] mca_val;
+assign mca_dat_o = mca_dat;
+assign mca_val_o = mca_val;
+
 genvar GV;
 generate
 for(GV = 0 ; GV < N_CH ; GV = GV + 1) begin
@@ -317,8 +352,10 @@ rp_scope_calib #(
 //assign adc_filt_in = adc_calib_out[16-1:2];
 assign adc_filt_in = adc_calib_out;
 
+if (EN_FILT != 0) begin : g_filt
+
 osc_filter #(
-    .DW     ( DW ) 
+    .DW     ( DW )
 ) i_dfilt1_ch (
    // ADC
   .clk         ( adc_clk_i[GV] ),  // ADC clock
@@ -334,7 +371,21 @@ osc_filter #(
   .cfg_coeff_pp( set_filt_pp[(GV+1)*25-1:GV*25] )   // config PP coefficient
 );
 
+end else begin : g_nofilt
+  // Sin ecualizador: la señal calibrada pasa directo. Se elimina el lazo IIR
+  // que no cierra timing (ver el comentario de EN_FILT en la cabecera).
+  // Ojo: tambien desaparecen los ~5 ciclos de latencia del filtro, pero el
+  // corrimiento es comun al trigger y al buffer, asi que siguen alineados.
+  assign adc_filtered = adc_filt_in;
+end
+
 assign adc_dec_in = set_filt_byp[GV] ? adc_filt_in : adc_filtered;
+
+// Toma para el MCA: mismo nodo que alimenta a rp_decim y a rp_adc_trig, y
+// respeta set_filt_byp. Es un alias de una señal que ya existe, asi que no
+// agrega logica; con los puertos sin conectar en red_pitaya_top se poda todo.
+assign mca_dat[(GV+1)*DW-1:GV*DW] = adc_dec_in;
+assign mca_val[GV]                = adc_rstn_i[GV];
 
 rp_decim #(
   .DW  (  DW    )

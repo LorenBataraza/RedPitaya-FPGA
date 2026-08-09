@@ -572,7 +572,68 @@ class RigolDG4162:
         if check_errors:
             self.assert_ok(f'disable_burst(ch={ch})')
 
-    # ---------- helpers ----------
+    # ================================================================
+    # Forma de onda ARBITRARIA
+    #
+    # Hace falta para caracterizar el MCA: con pulso rectangular no se puede
+    # ni sintetizar un pulso de detector realista, ni generar dos poblaciones
+    # con colas distintas (sin las cuales no hay FOM que medir), ni hacer el
+    # sliding pulser que mide la DNL.
+    #
+    # AVISO: estos métodos siguen la guía de programación de la serie DG4000
+    # pero NO pudieron probarse contra el instrumento. Verificar con
+    # assert_ok() la primera vez que se usen.
+    # ================================================================
+
+    ARB_MAX_POINTS = 16384        # memoria de forma arbitraria por canal
+
+    def load_arb(self, samples, ch=1, chunk=512, check_errors=True):
+        """Carga una forma de onda normalizada en la memoria volátil del canal.
+
+        `samples` es cualquier secuencia numérica; se re-escala automáticamente
+        al rango [-1, 1] que espera el instrumento (la amplitud real la fija
+        `set_arb` con amp_vpp). Se manda en trozos porque una sola línea SCPI
+        con 16384 números supera el largo de comando admitido.
+        """
+        import numpy as _np
+        v = _np.asarray(samples, dtype=float).ravel()
+        if v.size == 0:
+            raise ValueError('la forma de onda está vacía')
+        if v.size > self.ARB_MAX_POINTS:
+            raise ValueError(f'{v.size} puntos > {self.ARB_MAX_POINTS} '
+                             'de memoria arbitraria')
+        peak = _np.abs(v).max()
+        if peak > 0:
+            v = v / peak
+        v = _np.clip(v, -1.0, 1.0)
+
+        # El primer bloque abre VOLATILE; los siguientes concatenan con
+        # :DATA:CATenate para no rearmar el comando entero.
+        head = ','.join(f'{x:.5f}' for x in v[:chunk])
+        self.write(f':SOURce{ch}:DATA VOLATILE,{head}')
+        for i in range(chunk, v.size, chunk):
+            blk = ','.join(f'{x:.5f}' for x in v[i:i + chunk])
+            self.write(f':SOURce{ch}:DATA:CATenate VOLATILE,{blk}')
+        if check_errors:
+            self.assert_ok(f'load_arb(ch={ch}, n={v.size})')
+        return v.size
+
+    def set_arb(self, ch=1, freq_hz=1e3, amp_vpp=1.0, offset_v=0.0,
+                phase_deg=0.0, check_errors=False):
+        """Aplica la forma de onda cargada en VOLATILE.
+
+        `freq_hz` es la frecuencia de REPETICIÓN de la forma completa. Si la
+        forma contiene N pulsos, la tasa de pulsos es N*freq_hz — es así como
+        se llega a tasas altas sin quedarse sin memoria.
+        """
+        self.write(f':SOURce{ch}:BURSt:STATe OFF')
+        self.write(f':SOURce{ch}:APPLy:USER {freq_hz:g},{amp_vpp:g},'
+                   f'{offset_v:g},{phase_deg:g}')
+        if check_errors:
+            self.assert_ok(f'set_arb(ch={ch}, f={freq_hz})')
+
+
+# ---------- helpers ----------
 
     def check_error(self):
         """Devuelve el último error SCPI (o '0,\"No error\"' si OK).
@@ -591,3 +652,64 @@ class RigolDG4162:
 
     def __repr__(self):
         return f'<RigolDG4162 {self.id!r}>'
+
+
+# ================================================================
+# Constructores de forma de onda (numpy puro, sin instrumento)
+#
+# Se dejan fuera de la clase a propósito: son funciones puras, así que se
+# pueden graficar y validar sin tener el Rigol conectado.
+# ================================================================
+
+def detector_pulse(n_pts=64, t_rise=4.0, tau=16.0, amplitude=1.0, t0=2.0):
+    """Pulso de detector: subida suave y cola exponencial.
+
+    Es la forma que hace falta para que el MCA vea algo parecido a un evento
+    real; un rectángulo no ejercita ni el tiempo de subida ni la relación
+    Q_cola/Q_total, que es el observable del eje de forma.
+
+    `tau` controla la cola: es el parámetro que separa las dos poblaciones en
+    una medición de PSD.
+    """
+    import numpy as _np
+    t = _np.arange(n_pts, dtype=float) - t0
+    y = _np.where(t < 0, 0.0,
+                  (1.0 - _np.exp(-t / max(t_rise, 1e-6))) * _np.exp(-t / max(tau, 1e-6)))
+    peak = y.max()
+    return (amplitude * y / peak) if peak > 0 else y
+
+
+def two_population_wave(n_pulses=64, pts_per_pulse=128, tau_a=12.0, tau_b=40.0,
+                        frac_b=0.5, amplitude=1.0, t_rise=4.0, seed=0):
+    """Forma con dos poblaciones de pulsos que difieren SÓLO en la cola.
+
+    Misma amplitud, distinto `tau`: es exactamente el estímulo que separa dos
+    grupos en el eje de factor de forma sin moverlos en el eje de amplitud, o
+    sea el caso que permite medir la FOM de forma limpia.
+    """
+    import numpy as _np
+    rng = _np.random.default_rng(seed)
+    out = _np.zeros(n_pulses * pts_per_pulse)
+    for k in range(n_pulses):
+        tau = tau_b if rng.random() < frac_b else tau_a
+        out[k * pts_per_pulse:(k + 1) * pts_per_pulse] = detector_pulse(
+            pts_per_pulse, t_rise=t_rise, tau=tau, amplitude=amplitude)
+    return out
+
+
+def sliding_pulser_wave(n_pulses=128, pts_per_pulse=128, tau=16.0,
+                        t_rise=4.0, amp_min=0.1, amp_max=1.0, seed=0):
+    """Forma con pulsos de amplitud UNIFORMEMENTE aleatoria (sliding pulser).
+
+    Es el estímulo canónico para medir la DNL: si todos los canales tienen el
+    mismo ancho, un barrido uniforme de amplitud tiene que llenarlos a todos
+    por igual, y la desviación relativa respecto de esa media ES la DNL.
+    """
+    import numpy as _np
+    rng = _np.random.default_rng(seed)
+    out = _np.zeros(n_pulses * pts_per_pulse)
+    amps = rng.uniform(amp_min, amp_max, n_pulses)
+    for k, a in enumerate(amps):
+        out[k * pts_per_pulse:(k + 1) * pts_per_pulse] = detector_pulse(
+            pts_per_pulse, t_rise=t_rise, tau=tau, amplitude=a)
+    return out

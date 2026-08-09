@@ -380,12 +380,18 @@ def _save(save, label, meta=None, **arrays):
 
 def sweep_periods(sc, rg, periods_s, ch=1, n_events=300, timeout_ms=2000,
                   thr=0.5, hyst=0.01, settle_s=0.1, auto_rearm=True,
-                  raw=True, dwell_s=0.05, save=None, verbose=True):
+                  raw=True, dwell_s=0.05, width_s=None, save=None, verbose=True):
     """Barrido de distancia entre pulsos (el test de dead-time clásico).
 
     Por cada período: reconfigura el generador, verifica qué quedó puesto,
     mira la señal cruda que llega al ADC, arma, comprueba si el FPGA dispara y
     recién ahí cuenta eventos desde Python.
+
+    `width_s` **importa**: el DG4000 mantiene el duty al cambiar la frecuencia,
+    así que si no se lo fija explícitamente el ancho del pulso se achica junto
+    con el período. Pasarlo (p. ej. `width_s=200e-9`) mantiene el estímulo
+    constante y evita medir el ancho de banda de la entrada creyendo que se
+    mide dead-time. `None` deja lo que haya (comportamiento viejo).
 
     Además de la eficiencia SW de siempre, cada punto reporta:
 
@@ -403,6 +409,12 @@ def sweep_periods(sc, rg, periods_s, ch=1, n_events=300, timeout_ms=2000,
         f = 1.0 / p
         period_us = p * 1e6
         rg.set_pulse_period(ch=ch, period_s=p)
+        # El DG4000 conserva el DUTY al cambiar la frecuencia: si no se reescribe
+        # el ancho después, el pulso se achica con el período (medido: quedaba
+        # clavado en 1 % del período, y por debajo de ~30 ns ya no cruza el
+        # umbral y el trigger deja de disparar — que era el falso "dead-time").
+        if width_s is not None:
+            rg.set_pulse_width(ch=ch, width_s=width_s)
         time.sleep(settle_s)
         rst = rigol_state(rg, ch)
 
@@ -514,9 +526,11 @@ def diagnose_point(sc, rg, p, ch=1, width_s=None, thr=0.5, hyst=0.01,
     """
     from multitrigger_utils import BIT_ADC_P0, decode_snap, efficiency
 
+    # período PRIMERO y ancho DESPUÉS: al cambiar la frecuencia el DG4000
+    # reescala el ancho para conservar el duty.
+    rg.set_pulse_period(ch=ch, period_s=p)
     if width_s is not None:
         rg.set_pulse_width(ch=ch, width_s=width_s)
-    rg.set_pulse_period(ch=ch, period_s=p)
     time.sleep(settle_s)
     rst = rigol_state(rg, ch)
 
@@ -562,8 +576,12 @@ def diagnose_point(sc, rg, p, ch=1, width_s=None, thr=0.5, hyst=0.01,
               f'outp={rst["outp"]:.0f}  err={rst["err"]}')
         print(f'  2. Señal IN1  : n_pulsos={pm["n_pulsos"]}  v_max={pm["v_max"]:.3f} V  '
               f'ancho={pm["ancho_med_ns"]:.0f} ns  período={pm["periodo_med_us"]:.3f} µs')
+        # dt_hw es el hueco entre OBSERVACIONES: si el polling se saltea
+        # disparos da un múltiplo del período, no el período.
+        k = alive['dt_hw_med_us'] / (p * 1e6) if p else float('nan')
         print(f'  3. FPGA       : alive={alive["alive"]}  cambios de wp_trig={alive["n_cambios"]}'
-              f'  dt_hw={alive["dt_hw_med_us"]:.3f} µs  '
+              f'  dt_hw={alive["dt_hw_med_us"]:.3f} µs = {k:.1f}x el periodo'
+              f'{" (el polling se saltea disparos, el FPGA no)" if k > 1.5 else ""}  '
               f'dis_act={alive["dis_act"]:#x}  we_keep={alive["we_keep"]:#x}  '
               f'mask={alive["mask_ch0"]:#010x}  snap={decode_snap(alive["snapshot"])}')
         print(f'  4. SW         : n={len(events)}  eff={eff*100:.1f}%  '
@@ -584,7 +602,7 @@ def diagnose_point(sc, rg, p, ch=1, width_s=None, thr=0.5, hyst=0.01,
 
 def sweep_pulse_width(sc, rg, widths_s, ch=1, period_s=1e-3, thr=0.3,
                       hyst=0.01, settle_s=0.2, n_events=50, timeout_ms=500,
-                      raw_period_s=20e-6, save=None, verbose=True):
+                      n_votos=11, save=None, verbose=True):
     """**Resolución par-pulso del camino de trigger** — sin Python en el lazo.
 
     Un pulso de ancho W genera un flanco de subida y uno de bajada separados
@@ -607,10 +625,14 @@ def sweep_pulse_width(sc, rg, widths_s, ch=1, period_s=1e-3, thr=0.3,
 
     OJO con el umbral: a W chico el pulso no llega a amplitud plena (BW ~50 MHz
     de la entrada), por eso el default baja a thr=0.3 V. `amp_pp`/`v_max` de
-    cada punto dicen si el codo es dead-time real o el pulso que se apagó. Esa
-    medición de forma se hace a `raw_period_s` (20 µs) y no a `period_s`: en la
-    ventana del buffer (131 µs) tienen que entrar varios pulsos para poder
-    medirlos.
+    cada punto dicen si el codo es dead-time real o el pulso que se apagó.
+
+    **El DG4000 conserva el DUTY, no el ancho**: cada vez que cambia la
+    frecuencia reescala el ancho para mantener el ciclo de trabajo (medido: al
+    barrer períodos, el ancho quedó clavado en 1 % del período). Por eso acá se
+    setea SIEMPRE el período primero y el ancho después, no se cambia el período
+    entre medio, y se verifica el readback: `width_ok=False` marca los puntos
+    donde el instrumento no obedeció y que hay que descartar.
     """
     from multitrigger_utils import BIT_ADC_P0 as _P0, BIT_ADC_N0 as _N0, decode_snap
 
@@ -618,27 +640,41 @@ def sweep_pulse_width(sc, rg, widths_s, ch=1, period_s=1e-3, thr=0.3,
     period_us = period_s * 1e6
     results = []
     for w in widths_s:
-        rg.set_pulse_width(ch=ch, width_s=w)
-
-        # La forma del pulso se mide a una tasa en la que ENTREN varios en el
-        # buffer: la ventana es de N_BUF samples (131 µs con decim=1), así que a
-        # 1 kHz normalmente no hay ningún pulso adentro y v_max no diría nada.
-        rg.set_pulse_period(ch=ch, period_s=raw_period_s)
-        time.sleep(settle_s)
-        d1, d2, _ = sc.acq_capture_sw(thr=thr)
-        pm = pulse_metrics(d1, thr=thr)
-
-        # ...y la medición de trigger, a la tasa cómoda (el SW no participa)
+        # ORDEN: primero el período, después el ancho (al revés, el cambio de
+        # frecuencia reescala el ancho por duty y se pierde lo pedido).
         rg.set_pulse_period(ch=ch, period_s=period_s)
+        rg.set_pulse_width(ch=ch, width_s=w)
         time.sleep(settle_s)
         rst = rigol_state(rg, ch)
+        width_ok = (np.isfinite(rst['width']) and w > 0
+                    and abs(rst['width'] - w) <= 0.2 * w)
+
+        # Forma del pulso: captura SINGLE-SHOT disparada por el propio flanco y
+        # centrada en él (delay = N_BUF/2). Así no hace falta tocar el período
+        # para que entre un pulso en la ventana — que es justo lo que arruinaba
+        # el ancho.
+        sc.arm_for_adc_trigger(mask_ch0=_P0, mask_ch1=_P0, thr=thr, hyst=hyst,
+                               delay=N_BUF // 2, we_keep_both=False,
+                               auto_rearm=True)
+        sc.wait_fill(timeout_ms=timeout_ms)
+        win, _ref = sc.capture_window_np(pre=N_BUF // 4, post=N_BUF // 4)
+        d1 = np.asarray(list(win.values())[0])
+        pm = pulse_metrics(d1, thr=thr)
+        sc.disarm()
 
         sc.arm_for_adc_trigger(mask_ch0=mask, mask_ch1=mask, thr=thr,
                                hyst=hyst, auto_rearm=True)
-        # dejar pasar varios pulsos y leer el snapshot SIN carrera de polling:
-        # así el último evento registrado es el del último pulso completo.
-        time.sleep(max(0.05, 20 * period_s))
-        snap = sc.r32(OFF_SNAPSHOT)
+        # Veredicto por MAYORÍA sobre n_votos lecturas separadas por más de un
+        # período. Una sola lectura no alcanza: si cae en la ventana de W entre
+        # el flanco de subida y el de bajada ve `adc_p0` aunque los dos flancos
+        # se estén aceptando (falso negativo, tanto más probable cuanto más
+        # grande es W). Medido: con W=2 µs el 13 % de las lecturas caen ahí.
+        votos = []
+        for _ in range(n_votos):
+            time.sleep(max(0.005, 3 * period_s))
+            votos.append(sc.r32(OFF_SNAPSHOT))
+        n_si = sum(1 for v in votos if v & SNAP_ADC_N0)
+        snap = votos[-1]
         events, dur_s = sc.capture_n_events(n=n_events, timeout_ms=timeout_ms,
                                             read_snap=True)
         sc.disarm()
@@ -655,7 +691,9 @@ def sweep_pulse_width(sc, rg, widths_s, ch=1, period_s=1e-3, thr=0.3,
         r = dict(
             width_s      = w,
             width_real_s = rst['width'],
-            resuelto     = bool(snap & SNAP_ADC_N0),
+            width_ok     = bool(width_ok),
+            resuelto     = bool(n_si * 2 > n_votos),   # mayoría de los votos
+            votos_n0     = f'{n_si}/{n_votos}',
             snapshot     = int(snap),
             snap_txt     = decode_snap(snap),
             frac_n0      = frac_n,
@@ -680,15 +718,18 @@ def sweep_pulse_width(sc, rg, widths_s, ch=1, period_s=1e-3, thr=0.3,
               snap=snaps, dt_hw_us=dt_hw, resid_us=resid)
 
         if verbose:
-            print(f'W={w*1e9:>8.1f} ns (real {rst["width"]*1e9:>8.1f})  '
-                  f'snap={decode_snap(snap)}  resuelto={"SI" if r["resuelto"] else "no"}  '
+            print(f'W={w*1e9:>8.1f} ns (Rigol {rst["width"]*1e9:>9.1f}'
+                  f'{"" if width_ok else "  <-- NO OBEDECIO, punto invalido"})  '
+                  f'medido en el ADC={pm["ancho_med_ns"]:>7.1f} ns  '
+                  f'resuelto={"SI" if r["resuelto"] else "no"} ({r["votos_n0"]})  '
                   f'frac_n0={frac_n:>5.2f}  resid={r["resid_med_ns"]:>7.1f} ns  '
-                  f'v_max={pm["v_max"]:.3f} V  ancho_medido={pm["ancho_med_ns"]:.0f} ns')
+                  f'v_max={pm["v_max"]:.3f} V')
 
     if save is not None and results:
         _save(save, 'dt_width_summary', meta={'period_s': period_s, 'thr': thr},
               width_s=np.array([r['width_s'] for r in results], dtype=float),
               width_real_s=np.array([r['width_real_s'] for r in results], dtype=float),
+              width_ok=np.array([r['width_ok'] for r in results], dtype=bool),
               resuelto=np.array([r['resuelto'] for r in results], dtype=bool),
               frac_n0=np.array([r['frac_n0'] for r in results], dtype=float),
               resid_med_ns=np.array([r['resid_med_ns'] for r in results], dtype=float),
@@ -696,12 +737,19 @@ def sweep_pulse_width(sc, rg, widths_s, ch=1, period_s=1e-3, thr=0.3,
               amp_pp=np.array([r['amp_pp'] for r in results], dtype=float),
               ancho_med_ns=np.array([r['ancho_med_ns'] for r in results], dtype=float))
 
-    res_ok = [r['width_s'] for r in results if r['resuelto']]
-    if verbose and res_ok:
-        print(f'\nAncho mínimo con los dos flancos resueltos: {min(res_ok)*1e9:.1f} ns '
-              f'=> resolución par-pulso ≈ {min(res_ok)*1e9:.1f} ns')
-    elif verbose:
-        print('\nNingún ancho resolvió los dos flancos (revisar umbral/amplitud).')
+    # sólo cuentan los puntos donde el generador realmente puso el ancho pedido
+    res_ok = [r['width_s'] for r in results if r['resuelto'] and r['width_ok']]
+    n_malos = sum(1 for r in results if not r['width_ok'])
+    if verbose:
+        if n_malos:
+            print(f'\n{n_malos}/{len(results)} puntos DESCARTADOS: el generador no '
+                  f'aplicó el ancho pedido (mirá la columna "Rigol").')
+        if res_ok:
+            print(f'Ancho mínimo con los dos flancos resueltos: {min(res_ok)*1e9:.1f} ns '
+                  f'=> resolución par-pulso ≈ {min(res_ok)*1e9:.1f} ns')
+        else:
+            print('Ningún ancho válido resolvió los dos flancos '
+                  '(revisar umbral/amplitud, o que el generador obedezca).')
     return results
 
 
@@ -766,8 +814,13 @@ def plot_width_curve(results):
     ok    = np.array([r['resuelto'] for r in results], dtype=float)
     fr    = np.array([r['frac_n0'] for r in results], dtype=float)
     vmax  = np.array([r['v_max'] for r in results], dtype=float)
+    wok   = np.array([r.get('width_ok', True) for r in results], dtype=bool)
 
     fig, ax = plt.subplots(figsize=(9, 4))
+    if (~wok).any():
+        # puntos donde el generador no aplicó el ancho pedido: no miden nada
+        ax.semilogx(w_ns[~wok], ok[~wok], 'x', color='red', ms=12, mew=2,
+                    label='generador no obedeció (descartar)')
     ax.semilogx(w_ns, ok, 'o-', label='snapshot = adc_n0 (resuelto)')
     ax.semilogx(w_ns, fr, 's--', alpha=0.7, label='fracción de eventos con adc_n0')
     ax.set_xlabel('ancho del pulso W (ns)  = separación entre los dos flancos')

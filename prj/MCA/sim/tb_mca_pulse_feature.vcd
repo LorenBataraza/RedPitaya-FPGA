@@ -1,0 +1,37 @@
+$date
+	Sun Aug  9 01:52:03 2026
+$end
+$version
+	QuestaSim Version 10.7c
+$end
+$timescale
+	1ps
+$end
+
+$scope module tb_mca_pulse_feature $end
+
+$scope task check $end
+$upscope $end
+
+$scope task checkv $end
+$upscope $end
+
+$scope task push $end
+$upscope $end
+
+$scope task pulse_rect $end
+$upscope $end
+
+$scope task settle $end
+$upscope $end
+
+$scope task reset_dut $end
+$upscope $end
+
+$scope module dut $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+$end

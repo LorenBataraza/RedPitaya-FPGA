@@ -14,16 +14,18 @@ VSIM ?= vsim
 WORK ?= work
 
 # Fuentes RTL (ver filelist.f) + testbenches
-RTL_SRCS := \
-  ../rtl/mine/multitrigger_trig_src.sv \
-  ../rtl/mine/trigger_shield.sv \
-  ../rtl/mine/multitrigger_event_logic.v \
-  ../../../rtl_250/classic/rp_bram_sm.v
+# Fuentes RTL: se leen de filelist.f para que no se desincronicen.
+RTL_SRCS := $(shell grep -v '^\#' filelist.f | grep -v '^$$')
 
 TBS := tb_multitrigger_trig_src \
        tb_trigger_shield \
        tb_multitrigger_event_logic \
-       tb_trig_capture
+       tb_trig_capture \
+       tb_mca_div_restore \
+       tb_mca_hist \
+       tb_mca_pulse_feature \
+       tb_mca_top \
+       tb_osc_filter
 
 TB_SRCS := $(addsuffix .sv,$(TBS))
 
