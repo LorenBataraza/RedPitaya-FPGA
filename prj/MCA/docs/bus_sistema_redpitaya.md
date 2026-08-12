@@ -316,7 +316,31 @@ Ráfaga (`LEN != 0`) o transferencia que no sea de 4 o 2 bytes → error inmedia
 sin llegar al esclavo. Por eso **desde Python hay que escribir de a 32 bits
 alineados**.
 
-### 7.3 `struct.pack_into` sobre `/dev/mem`
+### 7.3 Lecturas MASIVAS: reinician la placa
+
+**Verificado en hardware.** Un `np.frombuffer(mem, ...).copy()` de 16384
+palabras sobre una apertura de la PL **reinicia la Red Pitaya**. Las mismas
+16384 direcciones leídas de a una funcionan perfecto.
+
+| Patrón | Resultado |
+|---|---|
+| 16384 lecturas de 32 b, de a una | OK, 6.7 us cada una (110 ms en total) |
+| `np.frombuffer(...).copy()` del mismo rango | **REINICIA la placa** |
+| 646 lecturas sueltas, incluidas direcciones no mapeadas | OK |
+
+La causa es §7.2: el `memcpy` que hay detrás de la copia emite accesos anchos
+(LDRD/NEON) o en ráfaga, y `axi4_slave` los rechaza. El error de AXI se propaga
+como *external abort* y en esta placa **no da SIGBUS: reinicia el sistema**, sin
+dejar nada en dmesg (sólo se nota porque `/proc/uptime` se resetea).
+
+Reproducible con `prj/MCA/software/tests/diag_mca_hw.py`, pasos `bulk` y `word`.
+
+> **Ojo con el código existente.** `tests/bench_reader_budget.py` usa el mismo
+> patrón (`np.frombuffer` + slicing) sobre las aperturas del scope. Que no haya
+> dado problemas puede deberse a que las rebanadas son chicas y el memcpy no
+> llega a usar instrucciones anchas — conviene revisarlo.
+
+### 7.4 `struct.pack_into` sobre `/dev/mem`
 
 No es del bus, pero se manifiesta acá y cuesta caro. `pack_into` hace un
 `memset` previo que sobre memoria de dispositivo sale como **stores de a byte**;

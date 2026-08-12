@@ -587,7 +587,7 @@ class RigolDG4162:
 
     ARB_MAX_POINTS = 16384        # memoria de forma arbitraria por canal
 
-    def load_arb(self, samples, ch=1, chunk=512, check_errors=True):
+    def load_arb(self, samples, ch=1, check_errors=True):
         """Carga una forma de onda normalizada en la memoria volátil del canal.
 
         `samples` es cualquier secuencia numérica; se re-escala automáticamente
@@ -607,13 +607,18 @@ class RigolDG4162:
             v = v / peak
         v = _np.clip(v, -1.0, 1.0)
 
-        # El primer bloque abre VOLATILE; los siguientes concatenan con
-        # :DATA:CATenate para no rearmar el comando entero.
-        head = ','.join(f'{x:.5f}' for x in v[:chunk])
-        self.write(f':SOURce{ch}:DATA VOLATILE,{head}')
-        for i in range(chunk, v.size, chunk):
-            blk = ','.join(f'{x:.5f}' for x in v[i:i + chunk])
-            self.write(f':SOURce{ch}:DATA:CATenate VOLATILE,{blk}')
+        # UN solo comando con todos los puntos.
+        #
+        # El troceado con `:DATA:CATenate` NO sirve: este firmware (00.01.05)
+        # responde -113 "Undefined header; command cannot be found". Verificado
+        # contra el instrumento. La forma soportada es mandar la lista completa
+        # en un `:DATA VOLATILE,...`, que con 16384 puntos son ~130 KB de
+        # comando — el DG4000 los acepta por USBTMC.
+        #
+        # Se usan 4 decimales en vez de 5 para acortar el comando sin perder
+        # resolución útil: el DAC del instrumento es de 14 bits (~6e-5).
+        cuerpo = ','.join(f'{x:.4f}' for x in v)
+        self.write(f':SOURce{ch}:DATA VOLATILE,{cuerpo}')
         if check_errors:
             self.assert_ok(f'load_arb(ch={ch}, n={v.size})')
         return v.size
@@ -625,12 +630,49 @@ class RigolDG4162:
         `freq_hz` es la frecuencia de REPETICIÓN de la forma completa. Si la
         forma contiene N pulsos, la tasa de pulsos es N*freq_hz — es así como
         se llega a tasas altas sin quedarse sin memoria.
+
+        OJO: el instrumento estira la forma COMPLETA sobre 1/freq_hz, así que el
+        ancho de cada pulso no es un parámetro sino una consecuencia de cuántos
+        puntos ocupa dentro de la forma. Para fijar el ancho en segundos, armar
+        la forma con `pulse_train_wave()`, que despeja la frecuencia.
         """
         self.write(f':SOURce{ch}:BURSt:STATe OFF')
         self.write(f':SOURce{ch}:APPLy:USER {freq_hz:g},{amp_vpp:g},'
                    f'{offset_v:g},{phase_deg:g}')
         if check_errors:
             self.assert_ok(f'set_arb(ch={ch}, f={freq_hz})')
+
+    # ================================================================
+    # Modulación
+    # ================================================================
+
+    def set_am_noise(self, ch=1, depth_pct=100.0, check_errors=True):
+        """Modulación AM con la fuente de RUIDO interna.
+
+        Es el camino canónico para el *sliding pulser* de la DNL: hace que la
+        amplitud varíe de forma CONTINUA en el tiempo, en vez de repetir un
+        conjunto finito de valores como hace una forma arbitraria cíclica (que
+        produce líneas discretas en el espectro y una DNL sin sentido).
+
+        `check_errors=True` por default y a propósito: estos comandos NO se
+        pudieron probar contra el instrumento, y hay precedente de que la guía
+        de programación no coincide con el firmware (`:DATA:CATenate` responde
+        -113 "Undefined header"). Si el firmware los rechaza, esto levanta
+        RuntimeError y el llamador puede caer a la vía alternativa.
+        """
+        self.write(f':SOURce{ch}:MOD:STATe ON')
+        self.write(f':SOURce{ch}:MOD:TYPE AM')
+        self.write(f':SOURce{ch}:AM:SOURce INTernal')
+        self.write(f':SOURce{ch}:AM:INTernal:FUNCtion NOISe')
+        self.write(f':SOURce{ch}:AM:DEPTh {depth_pct:g}')
+        if check_errors:
+            self.assert_ok(f'set_am_noise(ch={ch}, depth={depth_pct})')
+
+    def set_mod_off(self, ch=1, check_errors=False):
+        """Apaga cualquier modulación del canal."""
+        self.write(f':SOURce{ch}:MOD:STATe OFF')
+        if check_errors:
+            self.assert_ok(f'set_mod_off(ch={ch})')
 
 
 # ---------- helpers ----------
@@ -639,6 +681,27 @@ class RigolDG4162:
         """Devuelve el último error SCPI (o '0,\"No error\"' si OK).
         Usa timeout corto: si no responde es síntoma de hang, no demora."""
         return self.query(':SYSTem:ERRor?', timeout=1.0)
+
+    def clear_errors(self, max_n=32):
+        """Vacía la COLA de errores SCPI y devuelve los que había.
+
+        Hace falta después de un comando rechazado: la cola es FIFO y guarda
+        varios errores, pero `assert_ok` saca uno solo. Si un método escribe 5
+        comandos y el firmware rechaza los 5 (p. ej. `set_am_noise` en este
+        DG4162, que no soporta modulación por SCPI), quedan 4 errores viejos y
+        el PRÓXIMO `assert_ok` los atribuye a un comando que en realidad
+        funcionó — medido: `load_arb` fallaba con el -113 de la modulación.
+        """
+        vistos = []
+        for _ in range(max_n):
+            try:
+                e = self.check_error()
+            except Exception:
+                break
+            if e.strip().startswith('0,'):
+                break
+            vistos.append(e.strip())
+        return vistos
 
     def drain(self):
         """Vacía cualquier respuesta pendiente en la cola del transporte (sin
@@ -713,3 +776,224 @@ def sliding_pulser_wave(n_pulses=128, pts_per_pulse=128, tau=16.0,
         out[k * pts_per_pulse:(k + 1) * pts_per_pulse] = detector_pulse(
             pts_per_pulse, t_rise=t_rise, tau=tau, amplitude=a)
     return out
+
+
+# ================================================================
+# Tren de pulsos con el ancho fijado EN SEGUNDOS
+#
+# Los constructores de arriba trabajan en PUNTOS, y el ancho real que sale
+# depende de a qué frecuencia se aplique la forma: `set_arb` estira la forma
+# completa sobre 1/freq. Con 128 puntos a 2 kHz cada punto dura 3.9 us y un
+# pulso de 64 puntos termina durando ~240 us — cuatro ordenes de magnitud mas
+# que un pulso de detector. Eso contamina tiempo muerto, apilamiento, `maxlen`
+# y par-pulso a la vez.
+#
+# `pulse_train_wave` invierte la relacion: se le pide el ancho en segundos y la
+# tasa en Hz, y devuelve la forma JUNTO CON la frecuencia a la que hay que
+# aplicarla.
+# ================================================================
+
+ARB_MAX_POINTS = 16384         # memoria de forma arbitraria por canal
+ARB_MAX_SRATE  = 500e6         # Sa/s, tasa de muestreo maxima del ARB (DG4000)
+
+
+def _fwhm_pts(y):
+    """Ancho a media altura en puntos, con interpolacion lineal en los cruces."""
+    import numpy as _np
+    y = _np.asarray(y, dtype=float)
+    pk = y.max()
+    if pk <= 0:
+        return 0.0
+    half = 0.5 * pk
+    above = _np.flatnonzero(y >= half)
+    if above.size == 0:
+        return 0.0
+    i0, i1 = above[0], above[-1]
+    # cruce de subida entre i0-1 e i0
+    if i0 > 0 and y[i0] != y[i0 - 1]:
+        x0 = i0 - 1 + (half - y[i0 - 1]) / (y[i0] - y[i0 - 1])
+    else:
+        x0 = float(i0)
+    # cruce de bajada entre i1 e i1+1
+    if i1 + 1 < y.size and y[i1] != y[i1 + 1]:
+        x1 = i1 + (y[i1] - half) / (y[i1] - y[i1 + 1])
+    else:
+        x1 = float(i1)
+    return float(x1 - x0)
+
+
+def _shape_scale_for_fwhm(fwhm_pts, t_rise_frac, tau_frac, tau_mult=1.0):
+    """Escala de la forma que da el FWHM pedido.
+
+    El FWHM es lineal en la escala, asi que alcanza con medirlo UNA vez sobre
+    una version sobre-muestreada y despejar. Se hace numericamente en vez de
+    con la formula cerrada porque `detector_pulse` normaliza al pico y la
+    relacion FWHM/escala depende de t_rise_frac y tau_frac.
+    """
+    probe_scale = 256.0
+    probe = detector_pulse(4096,
+                           t_rise=max(t_rise_frac * probe_scale, 1e-6),
+                           tau=max(tau_frac * tau_mult * probe_scale, 1e-6),
+                           amplitude=1.0, t0=0.0)
+    k = _fwhm_pts(probe) / probe_scale
+    if k <= 0:
+        raise ValueError('forma degenerada: revisá t_rise_frac / tau_frac')
+    return fwhm_pts / k
+
+
+MIN_RISE_PTS = 4               # menos que esto y el flanco queda cuantizado
+
+
+def pulse_train_wave(width_s, rate_hz, n_pts_max=ARB_MAX_POINTS,
+                     t_rise_frac=0.25, tau_frac=0.6, amplitude=1.0,
+                     amp_range=None, tau_choices=None, n_pulses=None,
+                     pts_per_fwhm=64, srate_max=ARB_MAX_SRATE, seed=0,
+                     tail_tol=0.02):
+    """Tren de pulsos con FWHM = `width_s` y tasa = `rate_hz`.
+
+    (Con `tau_choices`, `width_s` es el FWHM de la población de referencia: las
+    otras comparten el flanco de subida y sólo cambian la cola.)
+
+    Devuelve `(wave, freq_hz, info)`:
+
+      wave    : forma normalizada, lista para `load_arb`
+      freq_hz : frecuencia de REPETICIÓN a pasarle a `set_arb`
+      info    : dict con la geometría elegida (ver abajo)
+
+    La geometría sale de una sola identidad: el ciclo de trabajo del tren es
+    `duty = width_s * rate_hz`, y no depende de cómo se reparta la memoria. Lo
+    que sí se elige es `slot_pts`, los puntos que ocupa UN período de
+    repetición, porque de ahí salen las tres cosas que limitan:
+
+      tasa de muestreo = slot_pts * rate_hz   <= srate_max
+      puntos por pulso = duty * slot_pts      >= los que pida el flanco
+      pulsos por forma = n_pts_max // slot_pts
+
+    El reparto por default apunta a `pts_per_fwhm` puntos a lo ancho del pulso y
+    mete tantos pulsos como entren con eso, porque **más pulsos por forma es más
+    variedad de amplitudes por ciclo** (que es lo que necesitan la DNL y la FOM)
+    y la resolución temporal por encima de ~64 puntos no aporta nada. La
+    frecuencia de repetición es `rate_hz / n_pulses`.
+
+    El número de pulsos que entran depende del duty, o sea de la tasa: a 2 kHz
+    con pulsos de 2 µs el duty es 0.4 % y **entra uno solo**; a 100 kHz entran
+    decenas. Si se piden amplitudes o colas variables y sólo entra un pulso,
+    esto levanta ValueError en vez de devolver una forma degenerada.
+
+    Parámetros de forma:
+      t_rise_frac, tau_frac : subida y cola, en fracciones de la escala del
+                              pulso (la escala se despeja para que el FWHM dé
+                              `width_s`).
+      amplitude             : amplitud de todos los pulsos (normalizada).
+      amp_range=(lo,hi)     : si se pasa, cada pulso toma una amplitud uniforme
+                              en ese rango — es el *sliding pulser* de la DNL.
+      tau_choices=(a,b,...) : si se pasa, cada pulso toma al azar uno de esos
+                              multiplicadores de cola — dos poblaciones para la
+                              FOM. Combinado con `amp_range` da poblaciones que
+                              además se reparten sobre el eje de amplitud, que
+                              es lo que hace falta para la FOM vs energía.
+      n_pulses              : forzar cuántos pulsos entran en la forma.
+      pts_per_fwhm          : puntos objetivo a lo ancho del pulso (default 64).
+                              Bajarlo mete más pulsos a costa de resolución.
+
+    Levanta ValueError con un mensaje que dice qué ajustar cuando la
+    combinación pedida no entra: es preferible a devolver una forma que en la
+    placa se traduce en pulsos de otro ancho.
+    """
+    import numpy as _np
+
+    if width_s <= 0 or rate_hz <= 0:
+        raise ValueError('width_s y rate_hz tienen que ser positivos')
+    duty = float(width_s) * float(rate_hz)
+    if duty >= 0.5:
+        raise ValueError(
+            f'duty = width_s*rate_hz = {duty:.3f} >= 0.5: los pulsos se '
+            f'solapan. Bajá el ancho o la tasa.')
+
+    # --- geometría ---
+    # Cota dura: el flanco necesita MIN_RISE_PTS puntos.
+    slot_min = int(_np.ceil(MIN_RISE_PTS / max(t_rise_frac, 1e-9) / duty))
+    # Cota superior: memoria y tasa de muestreo del instrumento.
+    slot_cap = int(min(n_pts_max, _np.floor(srate_max / rate_hz)))
+    if slot_min > slot_cap:
+        raise ValueError(
+            f'el flanco de subida entraría en {MIN_RISE_PTS * slot_cap / slot_min:.1f} '
+            f'puntos (mínimo {MIN_RISE_PTS}): con {width_s*1e6:g} us a '
+            f'{rate_hz:g} Hz harían falta {slot_min} puntos por período y el '
+            f'instrumento admite {slot_cap} ({srate_max:g} Sa/s, '
+            f'{n_pts_max} pts). Subí width_s o bajá rate_hz.')
+
+    if n_pulses is None:
+        # Apuntar a pts_per_fwhm puntos por pulso y meter todos los que entren:
+        # más pulsos = más variedad de amplitudes por ciclo.
+        slot_want = int(_np.ceil(pts_per_fwhm / duty))
+        slot_pts  = int(min(max(slot_want, slot_min), slot_cap))
+        n_pulses  = max(1, n_pts_max // slot_pts)
+    else:
+        n_pulses = int(n_pulses)
+        if n_pulses < 1:
+            raise ValueError('n_pulses tiene que ser >= 1')
+        slot_pts = int(min(n_pts_max // n_pulses, slot_cap))
+        if slot_pts < slot_min:
+            raise ValueError(
+                f'con n_pulses={n_pulses} quedan {slot_pts} puntos por período '
+                f'y hacen falta {slot_min}. Bajá n_pulses a '
+                f'{max(1, n_pts_max // slot_min)} o menos.')
+
+    n_total  = slot_pts * n_pulses
+    freq_hz  = rate_hz / n_pulses
+    srate    = slot_pts * rate_hz                 # = n_total * freq_hz
+    dt_s     = 1.0 / srate
+    fwhm_pts = duty * slot_pts                    # = width_s / dt_s
+    n_rise   = fwhm_pts * t_rise_frac
+
+    # Pedir variedad con un solo pulso por forma da una forma degenerada: la
+    # misma amplitud (o la misma cola) repetida para siempre. Es exactamente el
+    # modo de falla que invalidó la DNL de la campaña, así que se rechaza.
+    if n_pulses < 2 and (amp_range is not None or tau_choices is not None):
+        rate_min = pts_per_fwhm / (width_s * n_pts_max) * 2
+        raise ValueError(
+            f'sólo entra {n_pulses} pulso por forma, así que amp_range/'
+            f'tau_choices darían un valor único repetido (duty={duty:.4f}). '
+            f'Subí rate_hz por encima de ~{rate_min:.0f} Hz, subí width_s, o '
+            f'bajá pts_per_fwhm.')
+
+    # --- forma ---
+    rng   = _np.random.default_rng(seed)
+    amps  = (rng.uniform(amp_range[0], amp_range[1], n_pulses)
+             if amp_range is not None else _np.full(n_pulses, float(amplitude)))
+    taus  = (rng.choice(_np.asarray(tau_choices, dtype=float), n_pulses)
+             if tau_choices is not None else _np.ones(n_pulses))
+
+    # La escala se calibra UNA vez, con la cola de referencia (tau_mult=1), y se
+    # usa igual para todos los pulsos. O sea: todas las poblaciones comparten el
+    # flanco de subida y difieren SÓLO en la cola, que es el caso físico (y el
+    # que separa en el eje de forma). Recalibrar por pulso mantendría el FWHM
+    # constante encogiendo el resto del pulso, lo que cancela buena parte de la
+    # diferencia de cola: medido con tau_choices=(1,3), la separación en
+    # Q_cola/Q_total pasaba de 0.36 a 0.05. `width_s` es entonces el FWHM de la
+    # población de referencia (tau_mult=1).
+    scale = _shape_scale_for_fwhm(fwhm_pts, t_rise_frac, tau_frac, 1.0)
+
+    out = _np.zeros(n_total)
+    residual = 0.0
+    for k in range(n_pulses):
+        p = detector_pulse(slot_pts,
+                           t_rise=max(t_rise_frac * scale, 1e-6),
+                           tau=max(tau_frac * taus[k] * scale, 1e-6),
+                           amplitude=amps[k], t0=0.0)
+        residual = max(residual, float(p[-1]) / max(float(p.max()), 1e-12))
+        out[k * slot_pts:(k + 1) * slot_pts] = p
+
+    if residual > tail_tol:
+        raise ValueError(
+            f'la cola todavía vale el {100*residual:.1f}% del pico al terminar '
+            f'el período: los pulsos se pisarían. Bajá tau_frac o el duty '
+            f'(duty={duty:.3f}).')
+
+    info = dict(n_pts=n_total, n_pulses=n_pulses, slot_pts=slot_pts,
+                freq_hz=freq_hz, srate_sa_s=srate, dt_s=dt_s,
+                fwhm_pts=fwhm_pts, duty=duty,
+                width_s=width_s, rate_hz=rate_hz,
+                n_rise_pts=n_rise, tail_residual=residual)
+    return out, freq_hz, info

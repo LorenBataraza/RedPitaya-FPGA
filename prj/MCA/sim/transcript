@@ -1,6 +1,6 @@
 # vsim -c -quiet tb_osc_filter -do "run -all; quit -f" 
-# Start time: 01:52:06 on Aug 09,2026
-# ** Note: (vsim-3812) Design is being optimized...
+# Start time: 15:06:42 on Aug 11,2026
+# ** Note: (vsim-8009) Loading existing optimized design _opt2
 # //  Questa Sim-64
 # //  Version 10.7c linux_x86_64 Aug 17 2018
 # //
@@ -21,5 +21,5 @@
 # RESULT: PASS
 # ** Note: $finish    : tb_osc_filter.sv(232)
 #    Time: 159376 ns  Iteration: 1  Instance: /tb_osc_filter
-# End time: 01:52:07 on Aug 09,2026, Elapsed time: 0:00:01
+# End time: 15:06:42 on Aug 11,2026, Elapsed time: 0:00:00
 # Errors: 0, Warnings: 0

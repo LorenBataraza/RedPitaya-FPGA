@@ -62,6 +62,7 @@ class ReaderThread(threading.Thread):
         wait_event  = src.wait_event
         read_into   = src.read_into
         snapshot    = src.snapshot
+        rearm       = src.rearm
         pc          = time.perf_counter_ns
         timeout_ns  = self.poll_timeout_ns
 
@@ -87,10 +88,13 @@ class ReaderThread(threading.Thread):
                     batch = free_q.get_nowait()
                 except queue.Empty:
                     # Sin destino: se cuenta y se SIGUE poleando. No se lee la
-                    # ventana (lo caro), pero no se pierde de vista el stream,
-                    # asi que el conteo de descartes es exacto por evento.
+                    # ventana (lo caro), pero SI se re-arma: sin eso el buffer
+                    # queda congelado, `wait_event` vuelve a disparar con el
+                    # MISMO evento y el contador de descartes se dispara con
+                    # fantasmas (medido: 14996 "eventos" contra 10251 reales).
                     pending += 1
                     stats['n_dropped'] += 1
+                    rearm()
                     continue
                 batch.reset()
 
@@ -104,6 +108,10 @@ class ReaderThread(threading.Thread):
             batch.wp[i]   = wp
             batch.snap[i] = snapshot()
             read_into(batch, i, wp)
+            # Re-armar apenas la ventana esta copiada: entre el trigger y esta
+            # linea el scope esta ciego, y ese hueco es el dead-time del metodo.
+            # Los annotators van DESPUES, con el HW ya adquiriendo de nuevo.
+            rearm()
             for a in annotators:
                 a.sample_into(batch, i)
 

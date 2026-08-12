@@ -5,11 +5,22 @@ synReport.*
 *.str
 *.npz
 
+
+
 # Quito cualquier sintesis actual
 prj/MCA/project/redpitaya.runs
 prj/MCA/project/redpitaya.hw
 prj/MCA/project/redpitaya.cache
 prj/MCA/.Xil/
 
+# Quito work de sim
+prj/MCA/sim/work/*
+prj/MCA/software/__pycache__/*
+prj/MCA/sim/*.vcd
+
+# Quito datos medidos. 
+prj/MCA/software/datos/
+
 # Clade
 .claude
+

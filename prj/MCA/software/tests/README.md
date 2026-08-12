@@ -3,6 +3,15 @@
 Tests para los métodos de lectura del buffer ADC del Red Pitaya y para el fix de
 `capture_window_np` (que usa `rp_AcqGetDataPosV`).
 
+> Este README cubre sólo los tests de **lectura del buffer**. Los otros dos
+> grupos de este directorio están documentados aparte:
+>
+> - `test_mca_hw.py`, `test_mca_datapath.py`, `diag_mca_hw.py` →
+>   [`../../docs/testbenches_software_mca.md`](../../docs/testbenches_software_mca.md)
+> - `test_mca_pipeline.py` y los bloques de escritor/GIL de
+>   `bench_reader_budget.py` →
+>   [`../../docs/testbenches_escritura_archivos.md`](../../docs/testbenches_escritura_archivos.md)
+
 **Corren en la Pitaya** (necesitan el módulo `rp` y el bitstream multitrigger
 cargado). **No necesitan el Rigol**: congelan el buffer con un SW trigger, así
 que funcionan con cualquier señal (o sin señal, leyendo el ruido del ADC).

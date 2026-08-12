@@ -5,8 +5,18 @@ Documento de por qué el MCA quedó como quedó. El **qué** está en
 acá va el **por qué**, incluidas las alternativas que se descartaron y las que
 se probaron y fallaron.
 
-Estado: bitstream `prj/MCA/out/mca_red_pitaya.bit` construido y simulado;
-**sin validar en hardware todavía**.
+Estado: **validado en hardware** (ver §13). Bitstream
+`prj/MCA/out/mca_red_pitaya.bit.bin`, simulación con 9 testbenches / 163 checks,
+smoke test en placa con 29 PASS / 0 FAIL y dos campañas de caracterización.
+
+Documentos hermanos, para no duplicar:
+
+| Documento | Qué contiene |
+|---|---|
+| [`register_map_mca.md`](register_map_mca.md) | el **qué**: offsets y bits |
+| [`resultados_validacion_hw.md`](resultados_validacion_hw.md) | los **números medidos** y sus salvedades |
+| [`testbenches_software_mca.md`](testbenches_software_mca.md) | el **método** de cada medición |
+| [`bus_sistema_redpitaya.md`](bus_sistema_redpitaya.md) | el bus sobre el que cuelga |
 
 ---
 
@@ -28,59 +38,257 @@ de formas de onda. Acumula dos indicadores:
 
 ## 2. Qué parámetros hay que caracterizar en un MCA
 
-Esta tabla es la que determinó qué contadores expone el hardware. Sin ellos, la
-mitad de las mediciones no se puede hacer.
+Esta sección es la que determinó **qué contadores expone el hardware**: sin
+ellos, la mitad de las mediciones no se puede hacer. Por cada parámetro va qué
+significa, qué implica para la medición, qué quiere decir que salga alto o bajo,
+y —lo más útil en la práctica— **si se puede compensar o no**.
 
-### Eje de amplitud
+Los valores medidos y sus salvedades están en
+[`resultados_validacion_hw.md`](resultados_validacion_hw.md); acá se citan sólo
+para dar escala. El método de cada test está en
+[`testbenches_software_mca.md`](testbenches_software_mca.md).
 
-| Parámetro | Qué es | Cómo se mide |
-|---|---|---|
-| **Ganancia de conversión** | Canales por volt (o por keV). | Barrido de amplitud; ajuste lineal del centroide. |
-| **No linealidad integral (INL)** | Desviación del centroide respecto de la recta ideal, en % de fondo de escala. Buenos MCA: <±0.05% FS. | Residuo del ajuste lineal. |
-| **No linealidad diferencial (DNL)** | Variación del *ancho* de canal. Un canal más ancho acumula más cuentas y deforma los picos. Spec típica <±1%. | *Sliding pulser*: amplitud uniformemente aleatoria, que debería llenar todos los canales por igual. |
-| **Offset de cero** | Canal donde cae energía cero. | Extrapolación del ajuste. |
-| **Deriva** | Corrimiento del centroide con tiempo y temperatura. | Adquisiciones repetidas durante horas. |
+> ### La confusión que conviene evitar de entrada
+>
+> Las tres métricas del eje de amplitud son **independientes** y arruinan cosas
+> distintas. Se mezclan todo el tiempo:
+>
+> | Métrica | Qué arruina | Analogía |
+> |---|---|---|
+> | **INL** | dónde cae el pico (exactitud) | la regla está mal graduada |
+> | **DNL** | cuántas cuentas hay en cada canal (forma) | las marcas de la regla están desparejas |
+> | **FWHM** | cuán ancho es el pico (resolución) | la regla está borrosa |
+>
+> Un espectro con INL alta se ve **perfectamente limpio** y aun así miente la
+> energía. Uno con DNL alta tiene picos deformados aunque la energía esté bien.
 
-> La DNL del *binning digital* es exactamente cero por construcción: el bin es un
-> desplazamiento a la derecha de un entero, así que todos los canales tienen
-> idéntico ancho. Lo que la medición de DNL caracteriza es el **ADC y el
+### 2.1 Eje de amplitud
+
+#### Ganancia de conversión y offset de cero
+
+La recta que convierte amplitud en canal, `canal = a·E + b`. Medido: **3927
+canales/Vpp** y **−28 canales** de offset.
+
+La ganancia no es "buena" ni "mala" — la elegís con `cfg_h_shift` según cuántos
+canales querés por keV. Lo que importa es que **no derive** con el tiempo ni la
+temperatura. El offset sí importa conceptualmente: que no sea cero significa que
+el espectro **no es proporcional** a la energía y hace falta calibrar con dos
+puntos como mínimo. Con −28 canales sobre 3938 (0.7 %), suponer proporcionalidad
+te erra 0.7 % arriba y muchísimo más cerca de cero.
+
+**Compensable:** sí, trivialmente — *es* la calibración. Sólo molesta si deriva,
+y ahí se re-calibra periódicamente contra una fuente conocida.
+
+#### INL — no linealidad integral
+
+**Qué es.** Cuánto se aparta la relación real amplitud→canal de la **recta
+ideal**: el residuo del ajuste lineal, en % del fondo de escala. En
+`mca_utils.energy_calibration()` el fondo de escala es **el rango barrido**, no
+los 16384 canales:
+
+```
+INL = max|residuo| / (canal_max − canal_min)
+```
+
+Medido: **1.13 % FS**, o sea **40 canales** de desvío máximo sobre un rango de
+3547.
+
+**Qué implica.** Que si calibrás con dos puntos e **interpolás**, las energías
+intermedias salen corridas hasta 40 canales — unos 10 mV, ~1 % de un pulso de
+1 V. En espectroscopía eso es **identificar mal un isótopo**: buscás una línea en
+662 keV y el pico aparece en 655. La INL **no ensancha** el pico: lo *mueve*.
+
+**Alto/bajo.** Un MCA comercial decente está por debajo de ±0.05 % FS. Nuestro
+1.13 % es ~20 veces peor, pero la comparación no es justa: **incluye al
+generador** y no se pudieron separar.
+
+**Compensable: sí, y es el caso más compensable de todos**, precisamente porque
+es **sistemático** — la pasada de ida y vuelta dio correlación **+1.00** entre
+residuos, con dispersión entre pasadas 150× menor que el residuo. Un desvío que
+se repite se puede tabular: se calibra con muchos puntos y se ajusta un polinomio
+o un spline en vez de una recta, o se guarda la curva de residuos como tabla de
+corrección.
+
+> **La salvedad que importa:** sólo se puede compensar la parte que es *del MCA*.
+> Como el 1.13 % es generador + ADC mezclados, aplicar la corrección a ciegas
+> **inyectaría** el error del DG4162 al medir un detector real.
+
+#### DNL — no linealidad diferencial
+
+**Qué es.** La variación del **ancho de cada canal** respecto del promedio. Se
+mide llenando el espectro con amplitud uniformemente distribuida: si todos los
+canales fueran iguales recibirían la misma cuenta, así que la desviación relativa
+*es* la DNL.
+
+**Qué implica.** Un canal más ancho junta más cuentas y **crea estructura que no
+está en la señal**: deforma los picos, sesga área y centroide, y en el peor caso
+genera picos falsos. Cuando es periódica (típico de los ADC, en los límites de
+bit) produce un rizado regular en todo el espectro.
+
+**Alto/bajo.** La spec típica es <±1 %.
+
+> **Dato de diseño:** la DNL del *binado digital* es **exactamente cero por
+> construcción** — el bin es un desplazamiento a la derecha de un entero, así que
+> todos los canales miden lo mismo. Toda la DNL que midas viene del **ADC y del
 > estimador de amplitud**, que es justamente lo interesante.
 
-### Resolución
+**Compensable:** parcialmente, con *flat-field*: se divide el espectro por el
+mapa de anchos de canal medido, igual que en imagen. Cuesta estadística (el mapa
+tiene su propio ruido) y hay que rehacerlo si cambia la ganancia. La alternativa
+preventiva es **dithering**: sumar un ruido pequeño y conocido para repartir los
+eventos entre canales vecinos.
 
-| Parámetro | Qué es |
-|---|---|
-| **Contribución de ruido electrónico** | El FWHM del pico de un pulser ideal *es* el ensanchamiento que agrega la cadena. Se resta en cuadratura del FWHM total para separar detector de electrónica. |
-| **Ensanchamiento por jitter de muestreo** | Ver §5. Se mide comparando los dos estimadores de amplitud sobre el mismo estímulo. |
+#### Deriva
 
-### Comportamiento con la tasa
+Corrimiento de ganancia y offset con el tiempo y la temperatura. Se mide con
+adquisiciones repetidas del mismo pico durante horas. **No medida todavía.**
 
-| Parámetro | Registro que lo habilita |
-|---|---|
-| Tiempo muerto por evento | `deadtime` / `cnt_total` |
-| Modelo (paralizable vs no paralizable) | curva `cnt_accepted` vs tasa incidente |
-| Curva de throughput | ídem |
-| Resolución par-pulso | `cnt_pileup` + barrido del gap |
-| Exactitud del live time | `livetime` vs `realtime` |
-| Corrimiento del pico con la tasa | centroide vs frecuencia |
+### 2.2 Resolución
 
-### Umbral
+#### FWHM y resolución en %
 
-| Parámetro | Qué es |
-|---|---|
-| **LLD y piso de ruido** | Umbral mínimo utilizable sin disparar con ruido. |
-| **Curva S de eficiencia** | Fracción detectada vs amplitud; el 50% define el umbral efectivo. |
+**Qué es.** El ancho a media altura del pico, en % del centroide. Con un **pulser
+de amplitud fija** no hay ensanchamiento estadístico del detector, así que lo que
+se mide es puramente instrumental: ruido electrónico + digitización + jitter del
+estimador. Medido: **6.56 canales sobre 1920 = 0.342 %**.
 
-### Discriminación por forma
+**Qué implica.** Es el **piso** del sistema. Los anchos se suman en cuadratura:
 
-| Parámetro | Qué es |
-|---|---|
-| **Figure of Merit** | `FOM = \|c₁ − c₂\| / (FWHM₁ + FWHM₂)` sobre la proyección del eje de forma. FOM > 1.27 es buena separación. |
-| **FOM vs energía** | La separación se degrada a baja amplitud; se calcula por rebanadas del eje de amplitud. |
+```
+FWHM_total² = FWHM_detector² + FWHM_electrónica²
+```
 
-**Consecuencia de diseño:** el hardware expone `cnt_total`, `cnt_accepted`,
-`cnt_rej_amp`, `cnt_rej_psd`, `cnt_pileup`, `cnt_dropped` y tres relojes de
-64 bits (`realtime`, `livetime`, `deadtime`).
+así que ese 0.342 % se resta en cuadratura del ancho total para aislar al
+detector. Para un NaI(Tl) (~7 % a 662 keV) es despreciable; para un HPGe (~0.2 %)
+es del mismo orden y ahí sí molesta.
+
+**Alto/bajo.** Alto = picos cercanos se solapan y no se pueden separar dos líneas
+de energías próximas. Es *la* métrica que define para qué sirve un espectrómetro.
+
+**Compensable: NO.** Es la única de la lista sin arreglo por software: la
+resolución perdida está perdida, no hay post-proceso que desensanche un pico sin
+inventar información. Sólo se mejora **antes** del histograma — filtrando,
+conformando (§5) o integrando más muestras.
+
+#### Ensanchamiento por jitter de muestreo
+
+Se mide comparando los dos estimadores de amplitud sobre el mismo estímulo; ver
+§5, donde está también el resultado medido, **que contradijo la expectativa**.
+
+### 2.3 Comportamiento con la tasa
+
+#### Tiempo muerto y live time
+
+**Qué es.** El tiempo después de cada evento en que el sistema no puede aceptar
+otro. Hay dos modelos y la diferencia importa:
+
+- **No paralizable:** cada evento aceptado bloquea un τ fijo; la salida **satura**
+  en 1/τ.
+- **Paralizable:** cada llegada extiende el período muerto aunque no se cuente;
+  la curva **tiene un máximo y después baja**. Es el modo peligroso: a tasa muy
+  alta contás *menos*, y una fuente intensa parece débil.
+
+Medido: **τ ≈ 0.4 µs/evento**, con live time de 99.5 % a **59.9 %** en 794 kcps.
+
+**Compensable:** la *tasa*, sí, y gratis — para tiempo muerto no paralizable
+`tasa_verdadera = cuentas / livetime` es exacta, y por eso el reloj de tiempo
+vivo existe en el hardware. Lo que **no** se corrige con un escalar es la
+**distorsión del espectro**: apilamiento y corrimiento de línea de base deforman
+los picos.
+
+#### Curva de throughput
+
+Tasa registrada vs incidente. Dice a qué actividad de fuente podés trabajar.
+Medido: **sigue al generador exacto hasta 794 kcps** sin perder un evento; el
+techo no se alcanzó porque se acabó el rango del generador.
+
+#### Resolución par-pulso
+
+**Qué es.** La separación mínima entre dos pulsos para contarlos como dos.
+Medido: **≤ 0.5 µs**.
+
+**Qué implica.** Fija el umbral de **apilamiento**. Dos pulsos más cerca se
+funden en un evento con amplitud *sumada*: perdés una cuenta y ensuciás el
+espectro con un "pico suma" que no corresponde a ninguna energía real.
+
+**Compensable:** no se corrige a posteriori, pero se **detecta y descarta** —
+es lo que hace `cnt_pileup` cerrando por `cfg_maxlen`. Descartar es lo correcto:
+mejor perder la cuenta que meter una energía falsa.
+
+#### Corrimiento del pico con la tasa
+
+**Qué es.** Cuánto se mueve el centroide entre la tasa mínima y la máxima.
+Medido: **+6.45 %**.
+
+**Qué implica.** Es serio: la **calibración de energía depende de la actividad de
+la fuente**. Medís una muestra intensa y otra débil y el mismo isótopo aparece en
+canales distintos. La causa es el corrimiento de línea de base a alta densidad de
+pulsos, más apilamiento.
+
+**Compensable:** sí — restaurador de línea de base (`cfg_bl_auto`), cancelación
+polo-cero, o calibrar a la tasa de trabajo. Un 6.45 % es alto y vale la pena
+atacarlo con el detector real.
+
+### 2.4 Umbral
+
+**Qué es.** La curva S es la fracción de pulsos detectados vs umbral; el punto
+del 50 % define el umbral efectivo (LLD). El **piso de ruido** es el umbral
+mínimo que se puede poner sin que dispare solo con la entrada terminada.
+
+Medido: corte abrupto en **777 cuentas** y piso de ruido en **57 cuentas**. El
+primero es la amplitud del pulso de prueba, así que mide **lo abrupta que es la
+curva** (meseta hasta 739, cero en 777: discriminador limpio), no un límite del
+MCA. El número intrínseco es el 57.
+
+**Qué implica.** Todo lo que esté por debajo del umbral es invisible. Y ponerlo
+demasiado bajo es peor que inútil: con `cfg_thr = 20` se midieron **262 kcps de
+puro ruido**, y esos disparos **consumen tiempo muerto** — el MCA se pasa ocupado
+sin medir nada.
+
+**Compensable: no**, es un piso físico. Lo que da es el **rango dinámico por
+abajo**: entre 57 cuentas y la amplitud de la señal más chica que quieras ver.
+
+### 2.5 Discriminación por forma
+
+**Qué es.** La figura de mérito, sobre la proyección del eje de forma:
+
+```
+FOM = |c₁ − c₂| / (FWHM₁ + FWHM₂)
+```
+
+Es una separación medida en unidades de ancho. El umbral convencional de **1.27**
+no es arbitrario: corresponde a picos separados ~6σ, o sea cada población a 3σ
+del punto de corte, con ~0.1 % de clasificación errónea.
+
+Medido: **1.532** global, y por rebanadas de amplitud **1.306 → 1.497 → 1.579**.
+
+**Qué implica.** Que se puede clasificar **evento por evento qué tipo de
+partícula** lo produjo, no sólo su energía. Es lo que convierte al MCA en un
+discriminador n/γ.
+
+**Alto/bajo.** Por debajo de ~1 las poblaciones se mezclan y la clasificación
+deja de ser confiable. La degradación a baja energía que se midió es el
+comportamiento esperado: menos fotones en la cola, peor estadística relativa
+sobre `Q_cola / Q_total`.
+
+**Compensable:** no se "compensa", se **usa bien**. Como la FOM depende de la
+energía, el corte de discriminación no debería ser un umbral único sino una
+**línea que dependa de la amplitud** en el mapa 2D — y la medición por rebanadas
+es exactamente el insumo para trazarla. Del lado del hardware se mejora ajustando
+`cfg_tail_dly` y la ventana de cola.
+
+### 2.6 Una que no es métrica pero rompe todo
+
+La **constante del seguidor de línea de base** (`cfg_bl_k`): si 2^k·8 ns es
+comparable a la duración del pulso, el seguidor **persigue la señal y la borra**
+— nunca cruza el umbral y no se cuenta nada. No da un número malo: da **cero**,
+en silencio. Por eso hay que barrerlo cada vez que cambia la duración del pulso.
+
+---
+
+**Consecuencia de diseño:** para que todo lo anterior sea medible, el hardware
+expone `cnt_total`, `cnt_accepted`, `cnt_rej_amp`, `cnt_rej_psd`, `cnt_pileup`,
+`cnt_dropped` y tres relojes de 64 bits (`realtime`, `livetime`, `deadtime`).
 
 ---
 
@@ -179,13 +387,44 @@ la amplitud, y por eso el registro `cfg_amp_src` existe.
 
 Poder alternar entre los dos **en el mismo bitstream** no es un lujo: *es* el
 experimento que mide la contribución de jitter de muestreo
-(`compare_estimators()` en `testbench_mca.py` lo barre contra el tiempo de
-subida).
+(`compare_estimators()` en `testbench_mca.py` lo barre contra el ancho del
+pulso).
+
+### Lo que dijo la medición: con este estímulo, la integral es PEOR
+
+Con `cfg_q_shift` auto-escalado para que los dos estimadores caigan en la misma
+escala de canales — sin eso la comparación no significa nada, porque un shift
+grande comprime el pico en pocos canales y el FWHM se cuantiza:
+
+| Ancho de pulso | Resolución con pico | Resolución con integral |
+|---|---|---|
+| 0.5 µs | **0.44 %** | 0.54 % |
+| 1 µs | **0.37 %** | 0.53 % |
+| 2 µs | **0.34 %** | 0.53 % |
+| 4 µs | **0.33 %** | 1.15 % |
+
+**Es lo contrario de lo que decía la tesis de arriba**, y la razón es que la
+integral gana cuando el estimador de pico sufre jitter de muestreo — y acá no lo
+sufre. Un pulso de 2 µs son **250 muestras a 125 MSPS**: la muestra de pico cae
+prácticamente en el máximo verdadero, no hay error que corregir. La integral, en
+cambio, acumula el error de línea de base sobre toda la ventana y hereda el
+jitter del cierre de la ventana.
+
+La tendencia confirma el mecanismo y salva la tesis para el caso que importa: al
+acortar el pulso de 4 µs a 0.5 µs la resolución con pico **empeora** (0.33 →
+0.44 %) mientras la de la integral se mantiene plana. Se cruzarían por debajo de
+~0.2 µs, que es donde el ARB del DG4162 ya no llega. **Con pulsos de detector
+rápidos la integral debería ganar; con este estímulo sintético, no.**
+
+Conclusión de diseño: `cfg_amp_src` sigue justificándose —es el registro que
+permite decidirlo **midiendo** en vez de suponiendo—, pero el default razonable
+es **muestra de pico** hasta tener pulsos reales que digan otra cosa.
 
 > **Fuera de alcance, pero es el paso siguiente natural:** el conformado
 > trapezoidal (Jordanov-Knoll) es el estándar real para espectroscopía de alta
 > resolución — corrige el déficit balístico y el corrimiento de línea de base a
-> alta tasa. Conviene medir primero cuánto rinde la integral simple.
+> alta tasa, que es justamente el +6.45 % de corrimiento del centroide que se
+> midió (§2.3).
 
 ---
 
@@ -524,14 +763,26 @@ Misma separación que ya existía entre `multitrigger_utils.py` (driver) y
   (`gauss_fit_peak`, `energy_calibration`, `dnl`, `fom`, `deadtime_fit`). Los
   helpers no tocan hardware a propósito: se validan contra `.npz` guardados, sin
   la placa. Están verificados contra datos sintéticos de parámetros conocidos.
-- [`testbench_mca.py`](../software/testbench_mca.py) — nueve tests, uno por fila
-  de la tabla de §2, con CLI y graficado.
+- [`testbench_mca.py`](../software/testbench_mca.py) — un test por parámetro de
+  §2, con CLI y graficado. **Qué mide cada uno y qué resultados son creíbles está
+  en [`testbenches_software_mca.md`](testbenches_software_mca.md)**; acá van sólo
+  las decisiones que condicionan el diseño.
 - `rigol_dg4162.py` — se le agregó soporte de **forma de onda arbitraria**, sin
   el cual no se puede sintetizar un pulso de detector realista, ni las dos
   poblaciones con colas distintas que hacen falta para medir la FOM, ni el
-  sliding pulser de la DNL. **Sigue la guía de programación de la serie DG4000
-  pero no se pudo probar contra el instrumento**: usar con `check_errors=True`
-  la primera vez.
+  sliding pulser de la DNL.
+
+  De la guía de programación de la serie DG4000, **dos cosas no existen en este
+  firmware** (00.01.05) y se descubrieron contra el instrumento: `:DATA:CATenate`
+  para trocear la forma (hay que mandar los 16384 puntos en un solo comando) y
+  **toda la modulación** (`:SOURce1:MOD:STATe ON` responde `-113, "Undefined
+  header"`). Lo segundo es lo que deja la DNL sin poder medirse: hace falta
+  amplitud continua y sólo se puede conseguir desde el panel frontal.
+
+  Corolario del driver: la cola de errores SCPI es **FIFO** y `assert_ok()` saca
+  uno solo, así que un método que manda 5 comandos rechazados deja 4 errores que
+  el próximo `assert_ok()` le achaca a un comando que funcionó bien. Para eso
+  está `clear_errors()`.
 
 Dos detalles heredados del driver del scope que hay que respetar:
 
@@ -544,19 +795,104 @@ Dos detalles heredados del driver del scope que hay que respetar:
 
 ---
 
-## 13. Lo que queda abierto
+## 13. Validación en hardware
 
-1. **Validación en hardware.** Nada de esto se probó en la placa. Orden
-   sugerido: verificar el magic → `single_peak` → `cross_check` (si el conteo
-   cuadra con la tasa del generador, el camino de datos completo está validado).
-2. **El soporte ARB del Rigol** no está probado contra el instrumento.
-3. **El timing del bitstream del scope** sigue en −1.820 ns, con el filtro como
+Hecha sobre la placa (10.73.28.27) con el DG4162 en IN1, en dos campañas. **Los
+números completos, con sus salvedades y con las correcciones de la segunda
+campaña sobre la primera, están en
+[`resultados_validacion_hw.md`](resultados_validacion_hw.md)** — acá va sólo lo
+que valida el *diseño*:
+
+| Lo que valida | Resultado |
+|---|---|
+| El esclavo de bus y su ack de latencia fija (§7) | barrido de 646 direcciones, **ninguna cuelga el bus**, 6.1 µs c/u |
+| El barrido de borrado sin frenar el ack | 16384 canales en **0.2 ms** |
+| Los tres relojes | `livetime + deadtime = realtime` exacto; 1.0014 s medidos contra 1.0 s |
+| **El camino de datos completo** | conteo **10010 contra 10010 esperados, error 0.00 %** |
+| El segmentador a alta tasa | sigue al generador **exacto hasta 794 kcps**, sin perder un evento |
+| El divisor y el mapa 2D (§6) | **FOM 1.532**, y 1.31→1.58 por rebanadas de amplitud |
+
+El smoke test (`tests/test_mca_hw.py`) da **29 PASS / 0 FAIL**, y la simulación
+9 testbenches / 163 checks.
+
+La medición de conteo es la que cierra el lazo: segmentador, contadores y
+relojes. La de throughput valida que el ack de latencia fija y el CDC aguantan la
+tasa real. Y la FOM valida de punta a punta la cadena de forma —acumuladores
+`Q_total`/`Q_cola`, divisor restaurador y mapa 2D—, que era la parte del diseño
+sin precedente en el repo.
+
+> La comparación pico vs integral **refutó** la expectativa de §5. El resultado y
+> su explicación están ahí, no acá.
+
+### Cuatro cosas que sólo aparecieron en la placa
+
+**1. Las lecturas masivas reinician la Pitaya.** `np.frombuffer(...).copy()` de
+16384 palabras sobre una apertura **reinicia el sistema**; las mismas
+direcciones leídas de a una funcionan. El `memcpy` emite accesos anchos o en
+ráfaga que `axi4_slave` rechaza, y el *external abort* resultante no da SIGBUS
+sino reinicio. `mca_utils._read_words()` lee de a 32 bits por eso: cuesta
+~110 ms por espectro, irrelevante para un MCA. Detalle en
+[`bus_sistema_redpitaya.md`](bus_sistema_redpitaya.md) §7.3.
+
+**2. El seguidor de línea de base puede comerse el pulso.** Si su constante de
+tiempo (2^`cfg_bl_k` muestras) es comparable a la duración del pulso, lo persigue
+y lo borra: la señal nunca cruza el umbral y **no se detecta nada**. Con pulsos
+largos (~62 µs de la primera campaña) `bl_k = 6` daba **0 eventos** y `bl_k ≥ 9`
+funcionaba.
+
+Con pulsos de 2 µs el barrido salió **plano de `bl_k` 3 a 18** (~2002 eventos en
+todos), porque el seguidor se **congela durante el pulso** y no llega a
+perseguirlo. O sea que el modo de falla es real pero depende por completo de la
+duración del pulso: **hay que rebarrer `bl_k` cada vez que cambia el estímulo**,
+y por eso `run_campana.py` lo corre primero y propaga el resultado.
+
+Regla conservadora: `tau_base` ≥ 100× la duración del pulso, o base fija
+(`cfg_bl_auto = 0`), que es inmune.
+
+**3. `fpgautil` no acepta el `.bit` de Vivado**: falla con
+`write init error: 0xffffffea` y deja la PL en estado de error. Necesita el
+`.bit.bin` de `bootgen`, que ahora genera el propio script de build.
+
+**4. El generador puede informar una frecuencia y emitir otra.** No es del MCA,
+pero condiciona toda medición de tasa: tras ciertas secuencias de comandos el
+DG4162 acepta `APPLy:PULSe`, contesta la frecuencia nueva en `:FREQuency?` y
+**sigue emitiendo la anterior**. Así se generó una tabla entera de throughput
+falsa. `sweep_rate` ahora lo detecta con un criterio físico —si el MCA no perdió
+ni un evento, `cnt_total/realtime` **es** la tasa de entrada— y marca los puntos
+inválidos. Ver [`resultados_validacion_hw.md`](resultados_validacion_hw.md)
+§13.8.
+
+---
+
+## 14. Lo que queda abierto
+
+### Del hardware
+
+1. **Conformado trapezoidal** como estimador de amplitud (§5). Es el candidato
+   más claro después de haber medido el **+6.45 % de corrimiento del centroide
+   con la tasa** (§2.3), que es justo lo que corrige.
+2. **Los dos motores apagados**: amplitud × tiempo de subida, y mapa de
+   persistencia. El RTL ya los contempla.
+3. **Acumulación en DDR** por AXI-HP si 40/60 RAMB36 llegara a quedar corto.
+4. **El timing del bitstream del scope** sigue en −1.820 ns, con el filtro como
    causa. El MCA no lo arregla ni lo empeora de forma significativa.
-4. **El build del scope no quedó bit-idéntico**: envolver `osc_filter` en un
+5. **El build del scope no quedó bit-idéntico**: envolver `osc_filter` en un
    `generate if` agrega un nivel de jerarquía y con `-flatten_hierarchy none`
    eso mueve los límites de optimización (+22 LUT, WNS de −1.820 a −1.874).
    Funcionalmente idéntico.
-5. **Conformado trapezoidal** como estimador de amplitud (§5).
-6. **Los dos motores apagados**: amplitud × tiempo de subida, y mapa de
-   persistencia. El RTL ya los contempla.
-7. **Acumulación en DDR** por AXI-HP si 40/60 RAMB36 llegara a quedar corto.
+
+### De la caracterización
+
+6. **La DNL no se puede medir con este generador.** Pide amplitud continua y la
+   modulación no existe por SCPI en este firmware (§12); queda hacerla desde el
+   panel frontal. Lo medido es una cota superior impuesta por el estímulo.
+7. **La INL no está separada del generador.** Se demostró que es sistemática
+   (correlación +1.00 entre pasadas), o sea compensable, pero no de quién es.
+   Pide una referencia de tensión trazable.
+8. **El techo de throughput no se alcanzó**: a 794 kcps el MCA seguía sin perder
+   un evento y el que se quedó sin rango fue el generador.
+9. **Deriva de ganancia y offset** con tiempo y temperatura: sin medir.
+10. **Todo con pulsos de detector reales.** El estímulo ya está en la escala
+    temporal correcta (~2 µs), pero un pulso sintético no tiene el ruido ni la
+    variabilidad de uno real — y §5 depende de eso para saber cuál de los dos
+    estimadores de amplitud conviene.

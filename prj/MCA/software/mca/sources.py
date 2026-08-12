@@ -119,8 +119,15 @@ class BramSource:
 
         self._wp_prev = self._u32.unpack_from(self._mem, self.wp_addr)[0]
 
-    def _rearm(self):
+    def rearm(self):
         """Re-arma para el proximo evento. Tres escrituras, ~6 us.
+
+        Es parte de la INTERFAZ de la fuente, no un detalle de `read_into`: el
+        lector tiene que poder re-armar aunque descarte el evento. Cuando esto
+        vivia adentro de `read_into`, el camino de descarte (cola llena) se lo
+        salteaba, el buffer quedaba congelado y `wait_event` volvia a disparar
+        con el MISMO buffer, contando descartes fantasma a velocidad de
+        polling: 14996 eventos "vistos" contra 10251 realmente generados.
 
         ORDEN CRITICO: primero 0x00 (arma la bram_sm) y RECIEN DESPUES la
         mascara (0x240/0x244). Al reves, un flanco que llegue en el hueco
@@ -196,10 +203,8 @@ class BramSource:
         for k, ch in enumerate(self._chs):
             get(ch, start, end, self._fbufs[k], n)
             dst[k] = self._views[k]
-        if self.single_shot:
-            # Re-armar AL FINAL: entre el trigger y esta linea el scope esta
-            # ciego, y ese hueco es el dead-time real del metodo.
-            self._rearm()
+        # El re-arm NO va aca: lo hace el lector, para poder re-armar tambien
+        # cuando descarta el evento (ver rearm()).
 
     # -- metadatos ----------------------------------------------------------
 
@@ -270,6 +275,9 @@ class FakeSource:
 
     def snapshot(self):
         return 2                                    # BIT_ADC_P0
+
+    def rearm(self):
+        """No-op: la fuente sintetica no tiene FSM que re-armar."""
 
     def read_into(self, batch, i, wp):
         h = self.amplitude * (0.5 + self._rng.random())

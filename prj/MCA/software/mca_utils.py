@@ -115,18 +115,7 @@ class MCA:
         self.h2_aw  = h2_aw
         self.psd_aw = psd_aw
 
-        # Las vistas se crean UNA sola vez: construir un np.frombuffer cuesta
-        # ~200 us, o sea más que la lectura misma si queda dentro del lazo.
-        # count fijo en 2**AW para no caminar sobre el aliasing de la apertura
-        # (el casez del RTL decodifica 64 KB, el histograma ocupa menos).
-        self._view_h = np.frombuffer(mem, dtype='<u4',
-                                     count=1 << h_aw, offset=APERTURE_H)
-        if caps & CAP_HIST_H_PSD:
-            self._view_2d = np.frombuffer(mem, dtype='<u4',
-                                          count=1 << (h2_aw + psd_aw),
-                                          offset=APERTURE_2D)
-        else:
-            self._view_2d = None
+        self._has_2d = bool(caps & CAP_HIST_H_PSD)
 
     # ---------- apertura ----------
 
@@ -164,8 +153,6 @@ class MCA:
         return cls(m, fd, caps, h_aw, h2_aw, psd_aw)
 
     def close(self):
-        self._view_h  = None
-        self._view_2d = None
         try:
             self._mmap.close()
         finally:
@@ -189,6 +176,32 @@ class MCA:
 
     def r32(self, off):
         return _U32.unpack_from(self._mmap, off)[0]
+
+    def _read_words(self, offset, n):
+        """Lee n palabras de 32 bits DE A UNA. Devuelve un np.ndarray uint32.
+
+        **NO usar np.frombuffer(...).copy(), ni slices grandes del mmap, ni
+        struct.unpack_from con un formato largo.** Todos terminan en un memcpy,
+        y sobre esta memoria de dispositivo el memcpy emite accesos anchos
+        (LDRD/NEON) o en ráfaga. rtl/axi4_slave.sv:101-102 RECHAZA toda ráfaga
+        y todo tamaño que no sea 2 o 4 bytes:
+
+            rd_errorw = (ARLEN != 0) | ~((ARSIZE == 3'b010) | (ARSIZE == 3'b001))
+
+        El error de AXI se propaga como *external abort*, y en esta placa no da
+        SIGBUS sino que **REINICIA el sistema**. Verificado con
+        tests/diag_mca_hw.py: el paso `bulk` (copia numpy de 16384 palabras)
+        reinicia la Pitaya; el paso `word` lee exactamente el mismo rango de a
+        una y funciona.
+
+        Costo: ~6.7 us por palabra, o sea ~110 ms por un espectro de 16384
+        canales. Para un MCA es irrelevante — se lee una vez por adquisición,
+        no una vez por evento.
+        """
+        unpack = _U32.unpack_from      # hoisted: es el lazo caliente
+        mem = self._mmap
+        return np.array([unpack(mem, offset + 4 * i)[0] for i in range(n)],
+                        dtype=np.uint32)
 
     def _r64(self, off_lo, off_hi):
         # Leer la palabra BAJA congela la ALTA en un registro sombra del RTL,
@@ -220,7 +233,7 @@ class MCA:
 
     # ---------- configuración ----------
 
-    def configure(self, thr=200, hyst=80, baseline=0, bl_auto=False, bl_k=6,
+    def configure(self, thr=200, hyst=80, baseline=0, bl_auto=False, bl_k=12,
                   bl_holdoff=0, maxlen=1024, tail_dly=8, amp_min=0,
                   amp_max=0xFFFF, amp_src=0, q_shift=0, h_shift=0, h2_shift=0,
                   dec=1, channel=0, verify=True):
@@ -237,6 +250,20 @@ class MCA:
 
         tail_dly tiene que ser >= 1: con 0 la cola integra desde el arranque y
         Q_cola == Q_total, que el RTL rechaza (saturaría el eje de forma).
+
+        **bl_k: la constante del seguidor de base tiene que ser MUCHO más larga
+        que el pulso.** La constante es 2^bl_k muestras (a 125 MSPS, 2^k * 8 ns).
+        Si es comparable al pulso, el seguidor lo persigue y lo borra: la señal
+        nunca cruza el umbral y no se detecta NADA. Medido en la placa con un
+        pulso de 62 us:
+
+            bl_k= 6  ->  tau=0.5 us   ->      0 eventos   <-- se come el pulso
+            bl_k= 9  ->  tau=4.1 us   ->   2002 eventos
+            bl_k=12  ->  tau=32.8 us  ->   2001 eventos
+            bl_k=15  ->  tau=262 us   ->   2002 eventos
+
+        Regla práctica: tau_base >= 100x la duración del pulso. Si hay dudas,
+        usar base FIJA (bl_auto=False), que es inmune a este efecto.
         """
         if tail_dly < 1:
             raise ValueError('tail_dly tiene que ser >= 1 (ver docstring)')
@@ -332,21 +359,22 @@ class MCA:
             'baseline_stale': bool(st & 4),
         }
 
-    def spectrum(self, copy=True):
-        """Espectro 1D como uint32 de 2^H_AW canales.
+    def spectrum(self):
+        """Espectro 1D como uint32 de 2^H_AW canales (~110 ms, ver _read_words).
 
         Los bins son contadores SIN signo: a diferencia del buffer del scope
         no hay que extender el signo de 14 a 16 bits.
         """
-        return self._view_h.copy() if copy else self._view_h
+        return self._read_words(APERTURE_H, 1 << self.h_aw)
 
-    def map2d(self, copy=True):
+    def map2d(self):
         """Mapa 2D con forma (2^H2_AW, 2^PSD_AW): filas = amplitud, columnas = forma."""
-        if self._view_2d is None:
+        if not self._has_2d:
             raise RuntimeError('este bitstream no tiene el motor 2D '
                                '(CAPS sin CAP_HIST_H_PSD)')
-        v = self._view_2d.copy() if copy else self._view_2d
-        return v.reshape(1 << self.h2_aw, 1 << self.psd_aw)
+        n = 1 << (self.h2_aw + self.psd_aw)
+        return self._read_words(APERTURE_2D, n).reshape(
+            1 << self.h2_aw, 1 << self.psd_aw)
 
     def last_event(self):
         """Último evento procesado. Para depurar la configuración de umbrales."""
@@ -366,8 +394,73 @@ class MCA:
         self.start()
         time.sleep(seconds)
         self.stop()
-        m2d = self.map2d() if self._view_2d is not None else None
+        m2d = self.map2d() if self._has_2d else None
         return self.spectrum(), m2d, self.counters()
+
+    def acquire_chunks(self, seconds, chunk_s, on_chunk=None):
+        """Adquirir `seconds` ACUMULANDO en el mismo histograma.
+
+        A diferencia de `acquire`, el borrado se hace una sola vez al principio
+        y el histograma sigue creciendo entre trozos. Entre trozo y trozo llama
+        a `on_chunk(k)`, que es donde el llamador puede cambiar el estímulo —
+        por ejemplo recargar el ARB con una semilla nueva para que la DNL vea
+        amplitudes distintas en vez de las mismas 128 repetidas.
+
+        El MCA queda PARADO durante `on_chunk`, así que el tiempo que tarde el
+        estímulo en recargarse no cuenta como tiempo vivo.
+        """
+        self.stop()
+        self.clear()
+        n = max(1, int(round(seconds / max(chunk_s, 1e-3))))
+        for k in range(n):
+            self.start()
+            time.sleep(chunk_s)
+            self.stop()
+            if on_chunk is not None and k < n - 1:
+                on_chunk(k)
+        m2d = self.map2d() if self._has_2d else None
+        return self.spectrum(), m2d, self.counters()
+
+    # ---------- auto-escalado de los desplazamientos ----------
+
+    def autoscale_q_shift(self, target_channel=8000, seconds=0.5, **cfg):
+        """Elige `q_shift` para que la INTEGRAL caiga cerca de `target_channel`.
+
+        Con un `q_shift` fijo la amplitud por integral (`Q_total >> q_shift`)
+        puede caer en unos pocos canales: ahí el FWHM se cuantiza y el estimador
+        parece mejor de lo que es. Esta rutina mide `Q_total` de un evento real
+        y despeja el desplazamiento, que es la única forma de comparar pico
+        contra integral en la MISMA escala de canales.
+
+        Devuelve el `q_shift` elegido (o None si no se detectaron eventos).
+        """
+        if cfg:
+            self.configure(**cfg)
+        self.acquire(seconds)
+        q = self.last_event()['q_tot']
+        if q <= 0:
+            return None
+        shift = int(round(np.log2(max(q / max(target_channel, 1), 1e-9))))
+        return int(np.clip(shift, 0, 31))
+
+    def autoscale_h2_shift(self, seconds=0.5, margin=1.3, **cfg):
+        """Elige `h2_shift` para que la amplitud entre en las 2^H2_AW rebanadas.
+
+        Sin esto, todos los eventos caen en una sola rebanada del mapa 2D y la
+        FOM por rebanada de energía no se puede calcular (da nan en todas menos
+        una). `margin` deja aire por encima de la amplitud observada.
+
+        Devuelve el `h2_shift` elegido (o None si no se detectaron eventos).
+        """
+        if cfg:
+            self.configure(**cfg)
+        self.acquire(seconds)
+        amp = self.last_event()['amp']
+        if amp <= 0:
+            return None
+        # amp >> h2_shift tiene que entrar en 2^h2_aw bins
+        shift = int(np.ceil(np.log2(max(amp * margin / (1 << self.h2_aw), 1.0))))
+        return int(np.clip(shift, 0, 31))
 
 
 def _sign14(v):
@@ -394,7 +487,12 @@ def gauss_fit_peak(spec, lo=None, hi=None):
     x = np.arange(lo, hi, dtype=float)
     y = spec[lo:hi]
     if y.sum() <= 0:
-        raise ValueError('la ventana no tiene cuentas')
+        # Ventana vacía: es un resultado posible (todo rechazado, umbral mal
+        # puesto, generador apagado). Se devuelve NaN en vez de romper, para que
+        # una campaña de varios puntos no se caiga por uno malo.
+        return {'centroid': float('nan'), 'sigma': float('nan'),
+                'fwhm': float('nan'), 'area': 0.0,
+                'resolution_pct': float('nan'), 'empty': True}
 
     # Semilla por momentos, después refinamiento gaussiano por mínimos
     # cuadrados sobre log(y) (sólo con los bins de estadística suficiente).
@@ -409,6 +507,14 @@ def gauss_fit_peak(spec, lo=None, hi=None):
             s0 = float(np.sqrt(-1.0 / (2.0 * p[0])))
             c0 = float(-p[1] / (2.0 * p[0]))
 
+    # Un pico que cae en UN solo canal es un resultado legítimo, no un error:
+    # pasa cuando el estimador es tan reproducible que no hay dispersión (es el
+    # caso de la integral de carga con un pulser sintético). El ancho se acota
+    # entonces por el propio bin, que es el límite de lo que se puede resolver.
+    n_pobl = int((y > 0).sum())
+    if n_pobl <= 1 or not np.isfinite(s0) or s0 <= 0:
+        s0 = 1.0 / np.sqrt(12.0)        # desvío de una distribución uniforme de 1 bin
+
     fwhm = 2.0 * np.sqrt(2.0 * np.log(2.0)) * s0
     return {
         'centroid': c0,
@@ -416,6 +522,8 @@ def gauss_fit_peak(spec, lo=None, hi=None):
         'fwhm':     fwhm,
         'area':     float(y.sum()),
         'resolution_pct': 100.0 * fwhm / c0 if c0 else float('nan'),
+        'bins_poblados': n_pobl,
+        'empty': False,
     }
 
 
@@ -430,7 +538,7 @@ def energy_calibration(centroids, energies):
     return a, b, resid, inl
 
 
-def dnl(spec, lo=None, hi=None):
+def dnl(spec, lo=None, hi=None, smooth=64, strict=True, max_empty_frac=0.01):
     """No linealidad diferencial a partir de un espectro de *sliding pulser*.
 
     Con amplitud uniformemente aleatoria todos los canales deberían recibir la
@@ -439,18 +547,65 @@ def dnl(spec, lo=None, hi=None):
     Ojo: mide el ADC y el estimador de amplitud, no el binning. La DNL del
     binning digital es exactamente cero por construcción (el bin es un
     desplazamiento a la derecha de un entero, todos los canales igual de anchos).
+
+    `smooth`: ancho (en canales) del promedio móvil contra el que se compara
+    cada canal. La media GLOBAL sólo sirve si el estímulo llena la ventana de
+    forma perfectamente plana; con cualquier estímulo suave pero no plano —el
+    ruido de una modulación AM es gaussiano, no uniforme— la pendiente de la
+    envolvente se cuenta como DNL y el número sale inflado. Comparar contra la
+    envolvente local separa las dos cosas, que es lo que interesa. `smooth=None`
+    vuelve al comportamiento viejo (media global).
+
+    `strict` / `max_empty_frac`: si más de `max_empty_frac` de los canales de la
+    ventana están SIN cuentas, levanta ValueError en vez de devolver un número.
+    Un canal vacío no es DNL: es que el estímulo no lo excitó nunca (el caso de
+    una forma arbitraria cíclica, que produce líneas discretas), y devolver un
+    porcentaje ahí es peor que fallar. El umbral es una FRACCIÓN y no cero
+    porque con un número finito de amplitudes distintas siempre queda algún
+    canal sin visitar por pura estadística: con N amplitudes sobre M canales la
+    probabilidad de que un canal quede vacío es exp(-N/M). Unos pocos vacíos son
+    muestreo; el 19 % que dio la campaña anterior era el estímulo.
     """
     spec = np.asarray(spec, dtype=float)
     lo = 0 if lo is None else int(lo)
     hi = len(spec) if hi is None else int(hi)
     y = spec[lo:hi]
+    if y.size == 0:
+        raise ValueError('la ventana está vacía')
     mean = y.mean()
     if mean <= 0:
         raise ValueError('la ventana no tiene cuentas')
-    d = (y - mean) / mean
-    return {'dnl': d, 'dnl_max_pct': 100.0 * np.abs(d).max(),
-            'dnl_rms_pct': 100.0 * float(np.sqrt((d ** 2).mean())),
-            'mean_counts': mean}
+
+    n_vacios = int((y <= 0).sum())
+    frac_vacios = n_vacios / y.size
+    if strict and frac_vacios > max_empty_frac:
+        raise ValueError(
+            f'{n_vacios} de {y.size} canales de la ventana ({100*frac_vacios:.1f}%) '
+            f'no tienen NINGUNA cuenta: el estímulo no barre la amplitud de '
+            f'forma continua (una forma arbitraria cíclica produce líneas '
+            f'discretas). La DNL que saldría de acá no significa nada. Subí el '
+            f'número de amplitudes distintas (más recargas del ARB) o usá '
+            f'modulación de ruido.')
+
+    if smooth:
+        k = int(smooth)
+        if k % 2 == 0:
+            k += 1                       # impar: el promedio queda centrado
+        if k >= y.size:
+            k = max(3, (y.size // 2) | 1)
+        # Promedio móvil con bordes reflejados, para no hundir los extremos.
+        pad = k // 2
+        yp  = np.pad(y, pad, mode='reflect')
+        env = np.convolve(yp, np.ones(k) / k, mode='valid')
+    else:
+        env = np.full_like(y, mean)
+
+    env = np.where(env > 0, env, np.nan)
+    d = (y - env) / env
+    return {'dnl': d, 'dnl_max_pct': 100.0 * float(np.nanmax(np.abs(d))),
+            'dnl_rms_pct': 100.0 * float(np.sqrt(np.nanmean(d ** 2))),
+            'mean_counts': mean, 'n_empty': n_vacios,
+            'empty_frac': frac_vacios, 'smooth': smooth, 'envelope': env}
 
 
 def fom(map2d, amp_lo=None, amp_hi=None):

@@ -11,6 +11,7 @@
 #   3. write_bitstream .bin  -> $path_out/mca_red_pitaya
 #   4. write_sysdef  -bitfile/-file -> mca_red_pitaya.*
 #   5. add_files del XDC propio del MCA (sdc/red_pitaya_mca.xdc)
+#   6. bootgen para generar el .bit.bin que carga fpgautil
 #
 # Los tres ultimos evitan que este build PISE los artefactos del scope: el
 # original escribe siempre red_pitaya.bit y red_pitaya.sysdef. Con los nombres
@@ -196,6 +197,16 @@ set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]
 
 write_bitstream -force            $path_out/mca_red_pitaya.bit
 write_bitstream -force -bin_file  $path_out/mca_red_pitaya
+
+# 6) .bit.bin para el FPGA manager de la placa.
+#    fpgautil NO acepta el .bit de Vivado (falla con "write init error:
+#    0xffffffea" y deja la PL en estado de error): necesita el formato que
+#    produce bootgen. El Makefile de la raiz hace esto mismo en una regla
+#    aparte; aca se hace en linea para que el build del MCA sea autocontenido.
+set bif [open $path_out/mca_red_pitaya.bif w]
+puts $bif "all:{mca_red_pitaya.bit}"
+close $bif
+exec bootgen -image $path_out/mca_red_pitaya.bif -arch zynq -process_bitstream bin
 
 ################################################################################
 # generate system definition
