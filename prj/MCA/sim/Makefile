@@ -25,7 +25,11 @@ TBS := tb_multitrigger_trig_src \
        tb_mca_hist \
        tb_mca_pulse_feature \
        tb_mca_top \
-       tb_osc_filter
+       tb_osc_filter \
+       tb_event_window_capture \
+       tb_event_stage_fifo \
+       tb_event_slot_writer \
+       tb_event_ring_top
 
 TB_SRCS := $(addsuffix .sv,$(TBS))
 

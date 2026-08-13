@@ -203,10 +203,28 @@ write_bitstream -force -bin_file  $path_out/mca_red_pitaya
 #    0xffffffea" y deja la PL en estado de error): necesita el formato que
 #    produce bootgen. El Makefile de la raiz hace esto mismo en una regla
 #    aparte; aca se hace en linea para que el build del MCA sea autocontenido.
-set bif [open $path_out/mca_red_pitaya.bif w]
-puts $bif "all:{mca_red_pitaya.bit}"
+#    Se sigue la receta documentada por Red Pitaya:
+#      echo -n "all:{ X.bit }" > X.bif
+#      bootgen -image X.bif -arch zynq -process_bitstream bin -o X.bit.bin -w
+#    OJO: bootgen resuelve el nombre del bitstream contra SU directorio de
+#    trabajo, no contra la ubicacion del .bif, asi que hay que ejecutarlo DESDE
+#    out/. Sin eso buscaba ./mca_red_pitaya.bit desde prj/MCA y fallaba con
+#    "Cannot read BIT file" -- y el error de bootgen NO aborta el script, asi
+#    que quedaba el .bit nuevo y el .bit.bin VIEJO. Es el peor sintoma posible:
+#    la placa sigue corriendo el bitstream anterior y nada lo avisa.
+set here [pwd]
+cd $path_out
+set bif [open mca_red_pitaya.bif w]
+puts -nonewline $bif "all:{ mca_red_pitaya.bit }"
 close $bif
-exec bootgen -image $path_out/mca_red_pitaya.bif -arch zynq -process_bitstream bin
+exec bootgen -image mca_red_pitaya.bif -arch zynq -process_bitstream bin \
+             -o mca_red_pitaya.bit.bin -w
+if {[file mtime mca_red_pitaya.bit.bin] < [file mtime mca_red_pitaya.bit]} {
+  cd $here
+  error "bootgen no regenero el .bit.bin: la placa cargaria el bitstream VIEJO"
+}
+puts "bootgen OK: mca_red_pitaya.bit.bin ([file size mca_red_pitaya.bit.bin] bytes)"
+cd $here
 
 ################################################################################
 # generate system definition

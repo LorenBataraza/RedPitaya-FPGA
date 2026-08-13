@@ -56,6 +56,8 @@ R_AMP_SRC      = 0x038          # {q_shift[12:8], amp_src[0]}
 R_H_SHIFT      = 0x03C
 R_H2_SHIFT     = 0x040
 R_DEC          = 0x044
+R_GATE_MODE    = 0x048     # bit0: 0 = ventana por histeresis, 1 = compuertas fijas
+R_GATE_LEN     = 0x04C     # {larga[31:16], corta[15:0]} en muestras
 # --- contadores de eventos ---
 R_CNT_TOTAL    = 0x050
 R_CNT_ACCEPTED = 0x054
@@ -236,7 +238,8 @@ class MCA:
     def configure(self, thr=200, hyst=80, baseline=0, bl_auto=False, bl_k=12,
                   bl_holdoff=0, maxlen=1024, tail_dly=8, amp_min=0,
                   amp_max=0xFFFF, amp_src=0, q_shift=0, h_shift=0, h2_shift=0,
-                  dec=1, channel=0, verify=True):
+                  dec=1, channel=0, gate_mode=0, gate_short=32, gate_long=384,
+                  verify=True):
         """Configurar el MCA.
 
         amp_src: 0 = muestra de pico, 1 = integral de carga (Q_total>>q_shift).
@@ -283,6 +286,8 @@ class MCA:
         self.w32(R_H_SHIFT,  h_shift  & 0x1F)
         self.w32(R_H2_SHIFT, h2_shift & 0x1F)
         self.w32(R_DEC,      dec      & 0xFFFF)
+        self.w32(R_GATE_MODE, 1 if gate_mode else 0)
+        self.w32(R_GATE_LEN, ((gate_long & 0xFFFF) << 16) | (gate_short & 0xFFFF))
         self.w32(R_CTRL,     (1 << 8) if channel else 0)   # run=0, canal
 
         if verify:
@@ -294,6 +299,7 @@ class MCA:
                 ('tail_dly', R_TAIL_DLY, tail_dly, 0xFFFF),
                 ('dec',      R_DEC,      dec,      0xFFFF),
                 ('h_shift',  R_H_SHIFT,  h_shift,  0x1F),
+                ('gate_mode', R_GATE_MODE, 1 if gate_mode else 0, 0x1),
             ):
                 got = self.r32(off) & mask
                 if got != (exp & mask):

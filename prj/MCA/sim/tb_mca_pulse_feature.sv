@@ -30,6 +30,9 @@ module tb_mca_pulse_feature;
   reg        [LEN_W-1:0] cfg_bl_holdoff = 0;
   reg        [LEN_W-1:0] cfg_maxlen   = 1000;
   reg        [LEN_W-1:0] cfg_tail_dly = 1;
+  reg                    cfg_gate_mode  = 1'b0;   // 0 = histeresis (como antes)
+  reg        [LEN_W-1:0] cfg_gate_short = 32;
+  reg        [LEN_W-1:0] cfg_gate_long  = 384;
   reg        [AMP_W-1:0] cfg_amp_min  = 0;
   reg        [AMP_W-1:0] cfg_amp_max  = 16'hFFFF;
   reg                  cfg_amp_src  = 1'b0;
@@ -54,6 +57,8 @@ module tb_mca_pulse_feature;
     .cfg_baseline_i(cfg_baseline), .cfg_bl_auto_i(cfg_bl_auto),
     .cfg_bl_k_i(cfg_bl_k), .cfg_bl_holdoff_i(cfg_bl_holdoff),
     .cfg_maxlen_i(cfg_maxlen), .cfg_tail_dly_i(cfg_tail_dly),
+    .cfg_gate_mode_i(cfg_gate_mode), .cfg_gate_short_i(cfg_gate_short),
+    .cfg_gate_long_i(cfg_gate_long),
     .cfg_amp_min_i(cfg_amp_min), .cfg_amp_max_i(cfg_amp_max),
     .cfg_amp_src_i(cfg_amp_src), .cfg_q_shift_i(cfg_q_shift),
     .ev_valid_o(ev_valid), .ev_amp_o(ev_amp), .ev_psd_o(ev_psd),
@@ -303,6 +308,86 @@ module tb_mca_pulse_feature;
     settle;
     checkv("run=0: no detecta", c_total, 0);
     cfg_run = 1'b1;
+
+    //=======================================================================
+    // 13) COMPUERTAS DE LARGO FIJO (cfg_gate_mode = 1)
+    //
+    // Se sigue usando pulso RECTANGULAR: con la compuerta fija los valores
+    // esperados salen de una multiplicacion y el test no reimplementa el DUT.
+    //=======================================================================
+
+    //-----------------------------------------------------------------------
+    // 13a) La compuerta larga define el largo: mas CORTA que el pulso.
+    //      30 muestras de 500 con gate_long=10 -> q_tot = 10*500
+    //      (10 muestras: la que abre + 9 en S_ACTIVE, igual que en modo 0)
+    //      La senal sigue alta al cerrar -> APILAMIENTO.
+    //-----------------------------------------------------------------------
+    reset_dut;
+    cfg_gate_mode = 1'b1; cfg_gate_short = 4; cfg_gate_long = 10;
+    pulse_rect(500, 30, 0);
+    settle;
+    checkv("compuerta corta que el pulso: q_tot = 10*500", last_qtot, 5000);
+    checkv("compuerta: contado en total",                  c_total,   1);
+    checkv("compuerta: senal alta al cerrar -> apilamiento", c_pileup, 1);
+    checkv("compuerta: apilado NO se acepta",              c_acc,     0);
+
+    //-----------------------------------------------------------------------
+    // 13b) Compuerta MAS LARGA que el pulso: el pulso entra entero y la
+    //      senal ya bajo al cerrar, asi que NO es apilamiento.
+    //      q_tot = 20*500 (las 20 muestras del pulso; el resto suma 0)
+    //      q_tail: desde gate_short=4 hasta el cierre -> 16 muestras de 500
+    //-----------------------------------------------------------------------
+    reset_dut;
+    cfg_gate_mode = 1'b1; cfg_gate_short = 4; cfg_gate_long = 40;
+    pulse_rect(500, 20, 0);
+    for (i=0;i<30;i=i+1) push(0);      // relleno hasta cerrar la compuerta
+    settle;
+    checkv("compuerta larga: q_tot = 20*500",   last_qtot,  10000);
+    checkv("compuerta larga: q_tail = 16*500",  last_qtail, 8000);
+    checkv("compuerta larga: NO es apilamiento", c_pileup,  0);
+    checkv("compuerta larga: aceptado",          c_acc,     1);
+    checkv("compuerta larga: amplitud de pico",  ev_amp_q,  500);
+
+    //-----------------------------------------------------------------------
+    // 13c) El largo NO depende de la senal: dos pulsos de amplitud distinta
+    //      pero misma compuerta dan la MISMA cantidad de muestras integradas.
+    //      Es la propiedad por la que existe este modo.
+    //-----------------------------------------------------------------------
+    reset_dut;
+    cfg_gate_mode = 1'b1; cfg_gate_short = 4; cfg_gate_long = 40;
+    pulse_rect(200, 20, 0);
+    for (i=0;i<30;i=i+1) push(0);
+    settle;
+    checkv("misma compuerta, otra amplitud: q_tot = 20*200", last_qtot, 4000);
+
+    //-----------------------------------------------------------------------
+    // 13d) cfg_maxlen NO actua en modo compuerta: con maxlen mas chico que la
+    //      compuerta el evento igual cierra por compuerta, no por maxlen.
+    //      (Si maxlen actuara, esto contaria como apilamiento.)
+    //-----------------------------------------------------------------------
+    reset_dut;
+    cfg_gate_mode = 1'b1; cfg_gate_short = 4; cfg_gate_long = 40;
+    cfg_maxlen = 5;
+    pulse_rect(500, 20, 0);
+    for (i=0;i<30;i=i+1) push(0);
+    settle;
+    checkv("maxlen no actua en modo compuerta: q_tot completo", last_qtot, 10000);
+    checkv("maxlen no actua en modo compuerta: sin apilamiento", c_pileup, 0);
+    cfg_maxlen = 1000;
+
+    //-----------------------------------------------------------------------
+    // 13e) REGRESION: con gate_mode=0 todo se comporta como antes.
+    //      Mismo escenario que el test 1, con las compuertas configuradas en
+    //      valores que romperian el resultado si el modo 0 las mirara.
+    //-----------------------------------------------------------------------
+    reset_dut;
+    cfg_gate_mode = 1'b0; cfg_gate_short = 2; cfg_gate_long = 3;
+    pulse_rect(500, 20, 0);
+    settle;
+    checkv("modo 0 ignora gate_long: q_tot = 20*500",  last_qtot,  10000);
+    checkv("modo 0 ignora gate_short: q_tail = 19*500", last_qtail, 9500);
+    checkv("modo 0: sin apilamiento",                   c_pileup,   0);
+    cfg_gate_short = 32; cfg_gate_long = 384;
 
     $display("---------------------------------------------");
     $display("tb_mca_pulse_feature: %0d PASS, %0d FAIL", pass_cnt, fail_cnt);

@@ -15,11 +15,23 @@
 // el undershoot de la cola y arrastraría la base hacia el lado equivocado.
 //
 // SEGMENTACIÓN. Schmitt igual que rp_adc_trig.v, para que los umbrales del
-// MCA y del scope sean comparables. Abre al cruzar cfg_thr hacia arriba
-// (con re-armado previo por debajo de cfg_thr-cfg_hyst) y cierra al bajar de
-// ese nivel. Si llega a cfg_maxlen se cierra igual y se marca APILAMIENTO:
-// ese evento se cuenta pero NO se histogramea, porque su integral y su pico
-// están contaminados por el segundo pulso.
+// MCA y del scope sean comparables. Abre al cruzar cfg_thr hacia arriba, con
+// re-armado previo por debajo de cfg_thr-cfg_hyst. Para CERRAR hay dos modos,
+// seleccionables por cfg_gate_mode:
+//
+//   0 = HISTÉRESIS: cierra al bajar de cfg_thr-cfg_hyst, o al llegar a
+//       cfg_maxlen (esto último cuenta como APILAMIENTO).
+//   1 = COMPUERTAS FIJAS: cierra a cfg_gate_long muestras del disparo, y la
+//       cola arranca en cfg_gate_short. Es el método de comparación de carga.
+//
+// El motivo del modo 1: con histéresis el largo de la ventana lo decide dónde
+// la cola cruza el umbral, que es la parte más chata del pulso, así que lo
+// decide el ruido. Medido offline sobre 7054 pulsos reales, la resolución de la
+// integral pasa de 0.528 % (histéresis) a 0.149 % (compuerta fija). Ver
+// software/tests/estimadores/.
+//
+// Los eventos marcados como apilamiento se cuentan pero NO se histogramean,
+// porque su integral y su pico están contaminados por el segundo pulso.
 //
 // AMPLITUD. Seleccionable por cfg_amp_src:
 //   0 = muestra de pico   -> ruido de UNA muestra, y el muestreo casi nunca
@@ -67,6 +79,10 @@ module mca_pulse_feature #(
   input             [LEN_W-1:0] cfg_bl_holdoff_i,
   input             [LEN_W-1:0] cfg_maxlen_i   ,
   input             [LEN_W-1:0] cfg_tail_dly_i ,  // >= 1
+  // --- modo de ventana (ver cabecera, SEGMENTACION) ---
+  input                       cfg_gate_mode_i  ,  // 0=histeresis, 1=compuertas fijas
+  input             [LEN_W-1:0] cfg_gate_short_i, // compuerta corta, en muestras
+  input             [LEN_W-1:0] cfg_gate_long_i ,  // compuerta larga, en muestras
   input             [AMP_W-1:0] cfg_amp_min_i  ,
   input             [AMP_W-1:0] cfg_amp_max_i  ,
   input                       cfg_amp_src_i    ,  // 0=pico, 1=integral
@@ -149,14 +165,39 @@ reg [QW-1:0]     q_tot, q_tail;
 reg [LEN_W-1:0]  bl_hold;        // cuenta atrás del holdoff post-pulso
 
 wire open_pulse  = (st == S_IDLE) && cfg_run_i && armed && (x >= thr_hi);
-wire close_hyst  = (st == S_ACTIVE) && (x < thr_lo);
-wire close_maxl  = (st == S_ACTIVE) && (len >= cfg_maxlen_i);
-wire close_pulse = close_hyst || close_maxl;
 
-// La cola arranca cfg_tail_dly muestras después del pico. Mientras el pulso
-// sube, t_peak == len y la condición es falsa (con tail_dly >= 1); recién
-// cuando el pico queda atrás y se congela, empieza a acumular.
-wire in_tail = (st == S_ACTIVE) && (len >= (t_peak + cfg_tail_dly_i));
+// CIERRE. Dos modos, seleccionables por registro:
+//
+//   modo 0 (histéresis): cierra al bajar de thr_lo. El largo lo decide la
+//     señal... y con una cola exponencial eso significa que lo decide el RUIDO,
+//     porque el cruce cae en la zona más chata del pulso. Medido offline sobre
+//     7054 pulsos: el cruce tiembla ~9 muestras y cada una vale ~60 cuentas de
+//     carga, y la resolución de la integral sale 0.528 %.
+//   modo 1 (compuertas fijas): cierra a cfg_gate_long muestras del disparo,
+//     pase lo que pase. Es el método de comparación de carga (Brooks 1959;
+//     Knoll cap. 17). Medido offline sobre los MISMOS pulsos: 0.149 %, o sea
+//     3.5x mejor que el modo 0 y 1.8x mejor que la muestra de pico.
+//
+// cfg_maxlen sólo actúa en el modo 0: en el modo 1 el largo ya está acotado por
+// la compuerta, así que dejarlo activo sólo agregaría un modo de falla si
+// alguien configura maxlen < gate_long.
+wire close_hyst  = (st == S_ACTIVE) && !cfg_gate_mode_i && (x < thr_lo);
+wire close_maxl  = (st == S_ACTIVE) && !cfg_gate_mode_i && (len >= cfg_maxlen_i);
+wire close_gate  = (st == S_ACTIVE) &&  cfg_gate_mode_i && (len >= cfg_gate_long_i);
+wire close_pulse = close_hyst || close_maxl || close_gate;
+
+// APILAMIENTO en modo compuerta: si al cerrar la señal TODAVÍA está por encima
+// de thr_lo, es que hay otro pulso encima y la carga está contaminada. Cumple
+// el mismo rol que close_maxl en el modo 0.
+wire gate_pileup = close_gate && (x >= thr_lo);
+
+// COLA. En modo 0 arranca cfg_tail_dly muestras después del pico: mientras el
+// pulso sube, t_peak == len y la condición es falsa (con tail_dly >= 1). En
+// modo 1 arranca en la compuerta corta, medida desde el DISPARO — que es lo que
+// la hace inmune al jitter del instante de pico.
+wire in_tail = (st == S_ACTIVE) &&
+               (cfg_gate_mode_i ? (len >= cfg_gate_short_i)
+                                : (len >= (t_peak + cfg_tail_dly_i)));
 
 //-----------------------------------------------------------------------------
 // Amplitud: pico o integral, con saturación a AMP_W bits
@@ -287,8 +328,9 @@ always @(posedge clk_i) begin
             last_qtail_o <= q_tail;
             bl_hold      <= cfg_bl_holdoff_i;
 
-            if (close_maxl) begin
+            if (close_maxl || gate_pileup) begin
               // Apilamiento: el pulso está contaminado, se cuenta y se tira.
+              // En modo compuerta lo delata que la señal siga alta al cerrar.
               cnt_pileup_o <= cnt_pileup_o + 32'h1;
               st <= S_IDLE;
             end else if (!amp_ok) begin

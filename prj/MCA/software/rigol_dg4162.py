@@ -587,13 +587,20 @@ class RigolDG4162:
 
     ARB_MAX_POINTS = 16384        # memoria de forma arbitraria por canal
 
-    def load_arb(self, samples, ch=1, check_errors=True):
+    def load_arb(self, samples, ch=1, check_errors=True, normalize=True):
         """Carga una forma de onda normalizada en la memoria volátil del canal.
 
         `samples` es cualquier secuencia numérica; se re-escala automáticamente
         al rango [-1, 1] que espera el instrumento (la amplitud real la fija
         `set_arb` con amp_vpp). Se manda en trozos porque una sola línea SCPI
         con 16384 números supera el largo de comando admitido.
+
+        `normalize=False` para formas que YA vienen en [-1, 1] con una escala
+        elegida a propósito. Hace falta cuando la escala tiene que ser la MISMA
+        entre formas distintas: con arribos Poisson el máximo depende de cuánto
+        pile-up tocó esa semilla, así que normalizar por el máximo movería la
+        altura del pulso individual —y con ella el pico del espectro— de una
+        realización a la otra. Ver `poisson_train_wave` (headroom).
         """
         import numpy as _np
         v = _np.asarray(samples, dtype=float).ravel()
@@ -602,9 +609,13 @@ class RigolDG4162:
         if v.size > self.ARB_MAX_POINTS:
             raise ValueError(f'{v.size} puntos > {self.ARB_MAX_POINTS} '
                              'de memoria arbitraria')
-        peak = _np.abs(v).max()
-        if peak > 0:
-            v = v / peak
+        if normalize:
+            peak = _np.abs(v).max()
+            if peak > 0:
+                v = v / peak
+        elif _np.abs(v).max() > 1.0 + 1e-9:
+            raise ValueError('con normalize=False la forma tiene que venir en '
+                             f'[-1, 1] (máximo {_np.abs(v).max():.3f})')
         v = _np.clip(v, -1.0, 1.0)
 
         # UN solo comando con todos los puntos.
@@ -997,3 +1008,185 @@ def pulse_train_wave(width_s, rate_hz, n_pts_max=ARB_MAX_POINTS,
                 width_s=width_s, rate_hz=rate_hz,
                 n_rise_pts=n_rise, tail_residual=residual)
     return out, freq_hz, info
+
+
+# ================================================================
+# Arribos POISSON
+#
+# Todo el barrido de throughput se hizo con el modo PULSE, que es un tren
+# PERIODICO. Con arribos deterministas y un solo servidor sin cola (K=1) el
+# sistema no pierde NADA mientras el periodo supere el tiempo de servicio, y
+# recien ahi cae en escalones: la eficiencia de 99% a 2 kHz es un artefacto del
+# estimulo, no una propiedad del equipo. Una fuente radiactiva entrega arribos
+# de Poisson, y ahi la perdida es rho/(1+rho) con rho = lambda*tau -- o sea que
+# se pierde algo a CUALQUIER tasa.
+#
+# Este generador arma la forma arbitraria con arribos exponenciales para poder
+# medir esa curva.
+# ================================================================
+
+
+def poisson_train_wave(rate_hz, width_s, n_events=64, n_pts_max=ARB_MAX_POINTS,
+                       t_rise_frac=0.25, tau_frac=0.6, amplitude=1.0,
+                       amp_range=None, tau_choices=None, headroom=3.0,
+                       fixed_n=False, min_rise_pts=MIN_RISE_PTS,
+                       srate_max=ARB_MAX_SRATE, seed=0, tail_tol=0.01):
+    """Tren de pulsos con arribos de POISSON a tasa `rate_hz` y FWHM `width_s`.
+
+    Devuelve `(wave, freq_hz, info)` igual que `pulse_train_wave`, así se
+    aplica con el mismo par `load_arb` + `set_arb` — pero **con
+    `normalize=False`** (ver `headroom` abajo).
+
+    Cómo se sortean los arribos
+    ---------------------------
+    NO se acumulan intervalos exponenciales. Se usa que un proceso de Poisson
+    condicionado a `N` eventos en `[0, T)` tiene las `N` posiciones **uniformes
+    i.i.d.**: se sortea `N ~ Poisson(rate*T)` y después las posiciones. Es
+    exactamente equivalente, y además arregla la costura: el ARB **repite** la
+    forma cada `1/freq_hz`, y con posiciones uniformes sobre el círculo el
+    empalme no deja un hueco determinista (un `cumsum` de exponenciales sí lo
+    deja, y ese hueco fijo se cuela en toda la estadística de intervalos).
+
+    Los pulsos se **suman** (superposición) y la envoltura es circular, así que
+    el pile-up ocurre como en un detector real y un pulso que arranca cerca del
+    final continúa al principio.
+
+    Geometría y su compromiso
+    -------------------------
+    `T_ciclo = n_events/rate_hz`, `dt = T_ciclo/n_pts`, o sea
+
+        dt = n_events / (rate_hz * n_pts)
+
+    Con 16384 puntos: a 217 kcps y 64 eventos por ciclo, `dt = 18 ns` y un pulso
+    de 2 µs entra holgado. A 400 ev/s el mismo reparto da `dt = 9.8 µs` y el
+    pulso tiene que ser MUCHO más ancho. Es memoria contra tasa y no hay forma
+    de esquivarlo; lo que sí se puede es bajar `n_events` (más recargas para la
+    misma estadística) o subir `width_s`. Para medir *pérdidas* alcanza con que
+    `width_s << tau` del sistema; si además se quiere el espectro, el ancho
+    importa y conviene quedarse en tasas altas.
+
+    Parámetros propios
+    ------------------
+      n_events    : eventos MEDIOS por ciclo. Fija la duración del ciclo y por
+                    lo tanto `dt`. Más eventos = mejor estadística por
+                    realización, peor resolución temporal.
+      fixed_n     : `True` fuerza exactamente `n_events` (proceso binomial, sin
+                    fluctuación de conteo). Default `False` = Poisson de verdad.
+      headroom    : la forma se escala dividiendo por `headroom * amplitud de UN
+                    pulso`, no por el máximo de la forma. Así la altura del
+                    pulso individual es la misma en todas las realizaciones
+                    (`amp_single_rel = 1/headroom`) y el pico del espectro no se
+                    mueve con la semilla. Los apilamientos de más de `headroom`
+                    pulsos se recortan — se reporta en `frac_clip`.
+      min_rise_pts: puntos mínimos del flanco de subida. Bajarlo a 1-2 permite
+                    tasas bajas con pulsos angostos a costa de la forma; es
+                    válido si sólo se mide temporizado/pérdidas.
+
+    `info` trae lo que hace falta para interpretar y para la meta del .npz:
+    `n_events` real, `rate_real`, `dt_s`, `srate_sa_s`, `freq_hz`, `fwhm_pts`,
+    `frac_pileup` (medida) y `frac_pileup_teo` (`1-exp(-2*lambda*width)`),
+    `gap_min_s`, `amp_single_rel`, `frac_clip`, `jitter_dt_s`, `seed`.
+    """
+    import numpy as _np
+
+    if rate_hz <= 0 or width_s <= 0:
+        raise ValueError('rate_hz y width_s tienen que ser positivos')
+    if n_events < 1:
+        raise ValueError('n_events tiene que ser >= 1')
+    if headroom <= 0:
+        raise ValueError('headroom tiene que ser positivo')
+
+    n_pts   = int(n_pts_max)
+    T_ciclo = float(n_events) / float(rate_hz)
+    dt_s    = T_ciclo / n_pts
+    srate   = 1.0 / dt_s
+    freq_hz = 1.0 / T_ciclo                      # = rate_hz / n_events
+
+    if srate > srate_max:
+        raise ValueError(
+            f'harían falta {srate:.3g} Sa/s y el instrumento da {srate_max:.3g}. '
+            f'Subí n_events (ahora {n_events}) o bajá rate_hz.')
+
+    fwhm_pts = width_s / dt_s
+    n_rise   = fwhm_pts * t_rise_frac
+    if n_rise < min_rise_pts:
+        width_min = min_rise_pts * dt_s / t_rise_frac
+        n_ev_max  = int(_np.floor(t_rise_frac * width_s * rate_hz * n_pts
+                                  / min_rise_pts))
+        raise ValueError(
+            f'el flanco entraría en {n_rise:.1f} puntos (mínimo {min_rise_pts}): '
+            f'con {n_events} eventos por ciclo a {rate_hz:g} Hz el paso es '
+            f'{dt_s*1e6:.2f} us. Subí width_s a >= {width_min*1e6:.1f} us, bajá '
+            f'n_events a <= {max(n_ev_max, 1)}, o bajá min_rise_pts si sólo te '
+            f'importa el temporizado.')
+
+    # --- arribos: N ~ Poisson(lambda*T), posiciones uniformes en el circulo ---
+    rng = _np.random.default_rng(seed)
+    n_arr = int(n_events) if fixed_n else int(rng.poisson(rate_hz * T_ciclo))
+    if n_arr < 1:
+        raise ValueError(
+            f'la realización salió con {n_arr} eventos (media {rate_hz*T_ciclo:.1f}). '
+            'Subí n_events o cambiá la semilla.')
+    pos = _np.sort(rng.uniform(0.0, n_pts, n_arr))       # en puntos, float
+    idx = _np.floor(pos).astype(int) % n_pts             # a la grilla del DAC
+
+    amps = (rng.uniform(amp_range[0], amp_range[1], n_arr)
+            if amp_range is not None else _np.full(n_arr, float(amplitude)))
+    taus = (rng.choice(_np.asarray(tau_choices, dtype=float), n_arr)
+            if tau_choices is not None else _np.ones(n_arr))
+
+    # --- forma de UN pulso, con la escala que da el FWHM pedido ---
+    scale = _shape_scale_for_fwhm(fwhm_pts, t_rise_frac, tau_frac, 1.0)
+    tau_max = float(_np.max(taus))
+    # largo hasta que la cola cae por debajo de tail_tol
+    n_pulso = int(min(n_pts, max(int(_np.ceil(tau_frac * tau_max * scale
+                                              * _np.log(1.0 / tail_tol))), 8)))
+
+    out = _np.zeros(n_pts)
+    for k in range(n_arr):
+        p = detector_pulse(n_pulso,
+                           t_rise=max(t_rise_frac * scale, 1e-6),
+                           tau=max(tau_frac * taus[k] * scale, 1e-6),
+                           amplitude=amps[k], t0=0.0)
+        # envoltura circular: lo que se pasa del final entra por el principio
+        j = (idx[k] + _np.arange(n_pulso)) % n_pts
+        _np.add.at(out, j, p)
+
+    # --- escala FIJA (ver headroom): no se normaliza por el maximo ---
+    ref = headroom * float(_np.max(amps))
+    wave = out / ref
+    frac_clip = float(_np.mean(wave > 1.0))
+    wave = _np.clip(wave, -1.0, 1.0)
+
+    # --- estadistica de la realizacion ---
+    gaps = _np.diff(_np.concatenate([pos, [pos[0] + n_pts]])) * dt_s  # circular
+    vecino = _np.minimum(gaps, _np.roll(gaps, 1))          # al vecino mas cercano
+    info = dict(
+        n_pts=n_pts, n_events=n_arr, n_events_medio=float(n_events),
+        rate_hz=float(rate_hz), rate_real=n_arr / T_ciclo,
+        width_s=float(width_s), T_ciclo_s=T_ciclo, freq_hz=freq_hz,
+        dt_s=dt_s, srate_sa_s=srate, fwhm_pts=fwhm_pts, n_rise_pts=n_rise,
+        n_pulso_pts=n_pulso,
+        frac_pileup=float(_np.mean(vecino < width_s)),
+        frac_pileup_teo=float(1.0 - _np.exp(-2.0 * rate_hz * width_s)),
+        gap_min_s=float(gaps.min()), gap_med_s=float(_np.median(gaps)),
+        amp_single_rel=float(amplitude / ref), frac_clip=frac_clip,
+        jitter_dt_s=dt_s,          # cuantizacion del arribo a la grilla del DAC
+        seed=int(seed), fixed_n=bool(fixed_n), headroom=float(headroom),
+    )
+    return wave, freq_hz, info
+
+
+def apply_poisson_train(gen, rate_hz, width_s, ch=1, amp_vpp=0.5,
+                        offset_v=None, seed=0, check_errors=False, **kw):
+    """Arma, sube y aplica un tren Poisson. Devuelve el `info` del generador.
+
+    Es el atajo pensado para el `on_chunk` de `MCA.acquire_chunks`: una semilla
+    distinta por trozo hace que el resultado no dependa de qué realización tocó.
+    """
+    wave, freq_hz, info = poisson_train_wave(rate_hz, width_s, seed=seed, **kw)
+    gen.load_arb(wave, ch=ch, normalize=False, check_errors=check_errors)
+    gen.set_arb(ch=ch, freq_hz=freq_hz, amp_vpp=amp_vpp,
+                offset_v=(amp_vpp / 2 if offset_v is None else offset_v),
+                check_errors=check_errors)
+    return info

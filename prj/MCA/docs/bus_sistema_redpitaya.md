@@ -6,7 +6,7 @@ incluido uno que está latente en el diseño actual.
 
 Referencia para escribir bloques nuevos. El ejemplo trabajado es
 [`mca_top.sv`](../rtl/mine/mca/mca_top.sv); las decisiones de ese bloque están
-en [`decisiones_diseno_mca.md`](decisiones_diseno_mca.md).
+en [`decisiones_diseno_mca.md`](mca/decisiones_diseno_mca.md).
 
 ---
 

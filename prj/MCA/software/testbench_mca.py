@@ -646,16 +646,188 @@ def sweep_rate(mca, gen, ch=1, rates=None, seconds=5.0, amp_vpp=0.5,
         except ValueError as e:
             print(f'  no se pudo ajustar el tiempo muerto: {e}')
 
+    # CORRIMIENTO DEL CENTROIDE: sólo sobre los puntos con el MISMO ancho de
+    # pulso. Comparar el primer punto contra el último mezcla dos variables,
+    # porque `w_s` se achica con el período: la campaña reportó +6.45 % y el
+    # salto grande caía exactamente donde cambiaba el ancho (72->132 kHz,
+    # 2000->1517 ns, +2.52 % de golpe), no donde cambiaba la tasa. Con ancho
+    # constante el corrimiento genuino era +1.28 % sobre x36 de tasa.
     cen = np.array(centroids)
-    ok = ~np.isnan(cen)
-    if ok.sum() >= 2:
-        shift = 100.0 * (cen[ok][-1] - cen[ok][0]) / cen[ok][0]
-        print(f'  corrimiento del centroide de la tasa mínima a la máxima: {shift:+.2f}%')
+    anc = np.array(anchos)
+    shift = float('nan')
+    if cen.size:
+        w_nom = anc.max()
+        mismo = (np.abs(anc - w_nom) < 1e-9) & ~np.isnan(cen)
+        if mismo.sum() >= 2:
+            c0, c1 = cen[mismo][0], cen[mismo][-1]
+            r0, r1 = r_in[mismo][0], r_in[mismo][-1]
+            shift = 100.0 * (c1 - c0) / c0
+            print(f'  corrimiento del centroide con ancho CONSTANTE '
+                  f'({w_nom*1e9:.0f} ns): {shift:+.2f}% '
+                  f'entre {r0:.0f} y {r1:.0f} Hz (x{r1/r0:.0f})')
+        else:
+            print('  no hay 2 puntos con el mismo ancho: el corrimiento del '
+                  'centroide no se puede separar del cambio de ancho')
+        ok = ~np.isnan(cen)
+        if ok.sum() >= 2 and mismo.sum() < ok.sum():
+            todo = 100.0 * (cen[ok][-1] - cen[ok][0]) / cen[ok][0]
+            print(f'  (sobre TODO el barrido daría {todo:+.2f}%, pero mezcla el '
+                  f'cambio de ancho: no citar ese número)')
     _save(outdir, 'sweep_rate', r_in=r_in, r_out=r_out, centroids=cen,
           livetime_frac=np.array(lt_frac), widths=np.array(anchos))
     return {'r_in': r_in, 'r_out': r_out, 'centroids': cen,
             'livetime_frac': np.array(lt_frac), 'deadtime': dt,
-            'techo_cps': techo, 'rate_techo_hz': r_techo, 'saturo': saturo}
+            'techo_cps': techo, 'rate_techo_hz': r_techo, 'saturo': saturo,
+            'centroid_shift_pct': shift, 'widths': anc}
+
+
+# =============================================================================
+# 5b. Barrido de tasa con arribos POISSON
+# =============================================================================
+
+def _n_events_factible(rate_hz, width_s, n_events, t_rise_frac=0.25,
+                       min_rise_pts=rg.MIN_RISE_PTS, n_pts=rg.ARB_MAX_POINTS):
+    """Eventos por ciclo que entran en la memoria del ARB a esa tasa y ancho.
+
+    El paso de muestreo es `dt = n_events/(rate*n_pts)`, así que a tasas bajas
+    pedir muchos eventos por ciclo deja el pulso sin puntos. En vez de reventar
+    a mitad del barrido, cada punto usa los que entren.
+    """
+    n_max = int(np.floor(t_rise_frac * width_s * rate_hz * n_pts / min_rise_pts))
+    return max(0, min(int(n_events), n_max))
+
+
+def sweep_rate_poisson(mca, gen, ch=1, rates=None, rhos=None, tau_s=2.3e-6,
+                       seconds=6.0, chunk_s=0.5, amp_vpp=0.5, width_s=None,
+                       n_events=64, seed0=0, outdir=None, **cfg):
+    """Pérdidas vs ρ con arribos de POISSON — la medición que el tren periódico
+    no puede dar.
+
+    `sweep_rate` usa el modo PULSE, que es un tren **periódico**, y eso adula a
+    la arquitectura: con arribos deterministas y un solo servidor sin cola (K=1)
+    no se pierde NADA mientras el período supere el tiempo de servicio, y recién
+    después cae en escalones (`P_loss = 1 − 1/⌈ρ⌉`). Una fuente radiactiva
+    entrega Poisson, y ahí `P_loss = ρ/(1+ρ)`: se pierde algo a **cualquier**
+    tasa, incluso 9 % con ρ=0.1. Los 99 % de eficiencia medidos a 2 kHz son una
+    propiedad del estímulo, no del equipo.
+
+    Cómo se mide, y por qué no depende del generador: el MCA cuenta por HW los
+    eventos que llegaron con el extractor ocupado (`cnt_dropped`), así que
+
+        P_loss = dropped / (total + dropped)
+
+    sale directo. Y como el FPGA también mide el tiempo muerto,
+    `tau = deadtime_s/total` da el tiempo de servicio **medido**, con lo cual el
+    modelo se contrasta sin asumirlo. El `N` emitido que se deriva del estímulo
+    se usa sólo como control cruzado de la cadena entera.
+
+    Cada trozo de la adquisición recarga una **realización nueva** (semilla
+    distinta) vía `acquire_chunks(on_chunk=...)`, así ninguna realización
+    particular domina el resultado. El MCA queda parado durante la recarga, así
+    que el tiempo del ARB no cuenta como tiempo vivo.
+
+    `rates` en Hz, o `rhos` + `tau_s` para elegir los puntos por ocupación.
+    """
+    print('\n=== barrido de tasa con arribos POISSON ===')
+    c = {**DEFAULT_CFG, **cfg}
+    width_s = PULSE_WIDTH_S if width_s is None else width_s
+    if rates is None:
+        rhos = np.asarray([0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 0.9, 1.5]
+                          if rhos is None else rhos, dtype=float)
+        rates = rhos / float(tau_s)
+    rates = np.asarray(rates, dtype=float)
+
+    filas = []
+    for r in rates:
+        n_ev = _n_events_factible(r, width_s, n_events)
+        if n_ev < 4:
+            print(f'  {r:9.0f} Hz: SALTEADO — con {width_s*1e6:g} us de ancho '
+                  f'entran {n_ev} eventos por ciclo en los {rg.ARB_MAX_POINTS} '
+                  f'puntos del ARB. Subí width_s o la tasa.')
+            continue
+
+        infos = []
+
+        def _cargar(k):
+            infos.append(rg.apply_poisson_train(
+                gen, rate_hz=r, width_s=width_s, ch=ch, amp_vpp=amp_vpp,
+                n_events=n_ev, seed=seed0 + k))
+
+        _cargar(0)
+        gen.output(ch, True)
+        mca.configure(**c)
+        time.sleep(0.3)
+        spec, _, cnt = mca.acquire_chunks(seconds, chunk_s,
+                                          on_chunk=lambda k: _cargar(k + 1))
+
+        rt       = max(cnt['realtime_s'], 1e-9)
+        llegados = cnt['total'] + cnt['dropped']
+        p_loss   = cnt['dropped'] / max(llegados, 1)
+        tau_med  = cnt['deadtime_s'] / max(cnt['total'], 1)
+        # rho con el tau MEDIDO: el modelo se contrasta sin asumir el servicio
+        rho_med  = r * tau_med
+        # control cruzado: lo que el estimulo dice que emitio en el tiempo vivo
+        n_emit = sum(i['n_events'] * i['freq_hz'] for i in infos) / len(infos) * rt
+        filas.append(dict(
+            rate_hz=float(r), n_events=n_ev, n_realizaciones=len(infos),
+            total=int(cnt['total']), dropped=int(cnt['dropped']),
+            pileup=int(cnt['pileup']), accepted=int(cnt['accepted']),
+            realtime_s=rt, livetime_s=cnt['livetime_s'],
+            deadtime_s=cnt['deadtime_s'],
+            p_loss=float(p_loss), tau_med_s=float(tau_med), rho=float(rho_med),
+            p_loss_poisson=float(rho_med / (1.0 + rho_med)),
+            p_loss_periodico=float(1.0 - 1.0 / max(np.ceil(rho_med), 1.0)),
+            r_out=cnt['accepted'] / rt,
+            n_emit_estimulo=float(n_emit), n_llegados_hw=int(llegados),
+            frac_pileup_gen=float(np.mean([i['frac_pileup'] for i in infos])),
+            rate_real_gen=float(np.mean([i['rate_real'] for i in infos])),
+            dt_s=float(infos[0]['dt_s']),
+        ))
+        f = filas[-1]
+        # Si el estimulo y el HW no coinciden en cuantos eventos llegaron, el
+        # punto no mide perdidas: mide que el generador entrego otra cosa.
+        coincide = abs(n_emit - llegados) <= 0.15 * max(llegados, 1)
+        f['valido'] = bool(coincide)
+        print(f'  {r:9.0f} Hz (n_ev={n_ev:3d}, dt={f["dt_s"]*1e9:6.1f} ns) -> '
+              f'rho={f["rho"]:5.3f}  P_loss={100*p_loss:5.1f}%  '
+              f'(Poisson {100*f["p_loss_poisson"]:5.1f}%, '
+              f'periodico {100*f["p_loss_periodico"]:5.1f}%)  '
+              f'tau={tau_med*1e6:6.2f} us  pileup={100*cnt["pileup"]/max(cnt["total"],1):4.1f}%'
+              + ('' if coincide else
+                 f'   <-- INVALIDO: el estimulo dice {n_emit:.0f} y el HW '
+                 f'vio {llegados}'))
+
+    gen.output(ch, False)
+    if not filas:
+        print('  no quedo ningun punto medible.')
+        return {'filas': [], 'validos': 0}
+
+    col = lambda k: np.array([f[k] for f in filas], dtype=float)
+    val = np.array([f['valido'] for f in filas], dtype=bool)
+    if not val.all():
+        print(f'  {int((~val).sum())} de {len(val)} puntos INVALIDOS '
+              '(estimulo != lo que vio el HW): se excluyen del analisis.')
+
+    rho, pl = col('rho')[val], col('p_loss')[val]
+    if rho.size >= 2:
+        err_p = np.abs(pl - rho / (1 + rho))
+        err_d = np.abs(pl - (1 - 1 / np.maximum(np.ceil(rho), 1)))
+        print(f'  |medido - Poisson|   medio = {100*err_p.mean():.2f} pp')
+        print(f'  |medido - periodico| medio = {100*err_d.mean():.2f} pp')
+        print(f'  => los datos se parecen mas al modelo '
+              f'{"POISSON" if err_p.mean() < err_d.mean() else "PERIODICO"}')
+
+    _save(outdir, 'sweep_rate_poisson',
+          rate_hz=col('rate_hz'), rho=col('rho'), p_loss=col('p_loss'),
+          p_loss_poisson=col('p_loss_poisson'),
+          p_loss_periodico=col('p_loss_periodico'),
+          tau_med_s=col('tau_med_s'), r_out=col('r_out'),
+          total=col('total'), dropped=col('dropped'), pileup=col('pileup'),
+          livetime_s=col('livetime_s'), realtime_s=col('realtime_s'),
+          n_emit_estimulo=col('n_emit_estimulo'),
+          n_llegados_hw=col('n_llegados_hw'),
+          frac_pileup_gen=col('frac_pileup_gen'), valido=val)
+    return {'filas': filas, 'validos': int(val.sum())}
 
 
 # =============================================================================
@@ -1031,6 +1203,36 @@ def plot_all(outdir):
         fig.savefig(os.path.join(outdir, 'throughput.png'), dpi=120,
                     bbox_inches='tight'); plt.close(fig)
 
+    d = _load('sweep_rate_poisson')
+    if d is not None:
+        # Las dos curvas de modelo son el punto del grafico: con arribos
+        # deterministas no se pierde nada hasta rho=1 (escalones), con Poisson
+        # se pierde rho/(1+rho) desde el principio. Que los datos caigan sobre
+        # una o la otra es el resultado.
+        rho = d['rho']
+        o = np.argsort(rho)
+        rho_s = rho[o]
+        fino = np.logspace(np.log10(max(rho_s.min(), 1e-3)),
+                           np.log10(max(rho_s.max(), 1e-2)), 200)
+        val = d['valido'].astype(bool) if 'valido' in d.files else np.ones_like(rho, bool)
+        fig, ax = plt.subplots(figsize=(8, 4.5))
+        ax.plot(fino, 100 * fino / (1 + fino), '-', color='tab:blue',
+                label=r'Poisson  $\rho/(1+\rho)$')
+        ax.plot(fino, 100 * (1 - 1 / np.ceil(fino)), '-', color='tab:gray',
+                label=r'periodico  $1-1/\lceil\rho\rceil$')
+        ax.plot(rho[val], 100 * d['p_loss'][val], 'o', color='tab:red',
+                ms=7, label='medido (dropped/llegados)')
+        if (~val).any():
+            ax.plot(rho[~val], 100 * d['p_loss'][~val], 'x', color='k',
+                    ms=9, label='invalido')
+        ax.set_xscale('log')
+        ax.set_xlabel(r'$\rho = \lambda\tau$  ($\tau$ medido por el FPGA)')
+        ax.set_ylabel('eventos perdidos [%]')
+        ax.set_title('Perdidas vs ocupacion — arribos Poisson')
+        ax.grid(True, which='both', alpha=0.3); ax.legend()
+        fig.savefig(os.path.join(outdir, 'poisson_loss.png'), dpi=120,
+                    bbox_inches='tight'); plt.close(fig)
+
     d = _load('pulse_pair')
     if d is not None:
         fig, ax = plt.subplots(figsize=(8, 4))
@@ -1074,8 +1276,94 @@ def plot_all(outdir):
 # CLI
 # =============================================================================
 
+# =============================================================================
+# 10. Compuertas fijas contra ventana por histéresis
+# =============================================================================
+
+def sweep_gate(mca, gen, ch=1, largas=None, corta=32, seconds=4.0,
+               amp_vpp=0.5, rate_hz=2e3, width_s=None, outdir=None, **cfg):
+    """Resolución de la integral: ventana por histéresis vs compuerta fija.
+
+    Es la medición en placa del resultado que salió offline sobre 7054 pulsos
+    (`tests/estimadores/`): con la ventana cerrada por histéresis el largo lo
+    decide dónde la cola cruza `thr − hyst`, que es la parte más chata del
+    pulso, así que lo decide el ruido. Con compuerta fija no.
+
+    Offline dio 0.528 % (histéresis) contra 0.149 % (compuerta de 384). Acá se
+    mide lo mismo con el hardware, barriendo el largo de la compuerta: la curva
+    tiene un mínimo y hay que encontrarlo, porque una compuerta muy corta pierde
+    carga y una muy larga integra ruido y arrastra el error de línea de base.
+    """
+    print('\n=== compuerta fija vs ventana por histéresis ===')
+    largas = np.array([128, 192, 256, 320, 384, 448, 512]) if largas is None \
+        else np.asarray(largas)
+    c = {**DEFAULT_CFG, **cfg, 'amp_src': 1}      # integral de carga
+
+    _pulse_train(gen, ch, rate_hz, amp_vpp, width_s)
+
+    def _res(cfg_extra):
+        """Resolución del pico del espectro con una configuración dada."""
+        qs = mca.autoscale_q_shift(target_channel=8000, **{**c, **cfg_extra,
+                                                           'q_shift': 0})
+        if qs is None:
+            return None, None
+        mca.configure(**{**c, **cfg_extra, 'q_shift': qs})
+        spec, _, cnt = _acquire(mca, seconds)
+        if not spec.any():
+            return None, cnt
+        pk = int(np.argmax(spec))
+        w = max(8, int(0.15 * pk))
+        f = mu.gauss_fit_peak(spec, max(0, pk - w), min(len(spec), pk + w))
+        return f, cnt
+
+    # --- referencia: el modo de siempre ---
+    f_h, cnt_h = _res({'gate_mode': 0})
+    if f_h is None:
+        print('  no se detectan eventos; revisá umbral y amplitud')
+        gen.output(ch, False)
+        return None
+    print(f'  histéresis      -> resolución {f_h["resolution_pct"]:6.3f} %  '
+          f'(FWHM {f_h["fwhm"]:.1f} sobre {f_h["centroid"]:.0f})')
+
+    # --- barrido de compuerta ---
+    res, pileup = [], []
+    for L in largas:
+        f, cnt = _res({'gate_mode': 1, 'gate_short': int(corta),
+                       'gate_long': int(L)})
+        if f is None:
+            res.append(np.nan); pileup.append(np.nan)
+            print(f'  compuerta {L:4d}  -> sin eventos')
+            continue
+        res.append(f['resolution_pct'])
+        pileup.append(100.0 * cnt['pileup'] / max(cnt['total'], 1))
+        print(f'  compuerta {L:4d}  -> resolución {res[-1]:6.3f} %  '
+              f'(FWHM {f["fwhm"]:.1f} sobre {f["centroid"]:.0f})   '
+              f'apilamiento {pileup[-1]:.1f} %')
+    gen.output(ch, False)
+
+    res = np.array(res, dtype=float)
+    ok = np.isfinite(res)
+    mejor = None
+    if ok.any():
+        i = int(np.nanargmin(res))
+        mejor = (int(largas[i]), float(res[i]))
+        gan = f_h['resolution_pct'] / res[i]
+        print(f'  mejor compuerta: {mejor[0]} muestras -> {mejor[1]:.3f} %, '
+              f'x{gan:.2f} sobre la histéresis')
+        if gan < 1.2:
+            print('  AVISO: la mejora es marginal. Con este estímulo la ventana '
+                  'por histéresis\n  no está limitando: revisá que la cola sea '
+                  'larga (es donde el cruce tiembla).')
+    _save(outdir, 'sweep_gate', largas=largas, res=res,
+          pileup=np.array(pileup, dtype=float),
+          res_hyst=np.array([f_h['resolution_pct']]))
+    return {'largas': largas, 'res': res, 'res_hyst': f_h['resolution_pct'],
+            'mejor': mejor}
+
+
 TESTS = {
     'single_peak':        test_single_peak,
+    'sweep_gate':         sweep_gate,
     'sweep_amplitude':    sweep_amplitude,
     'dnl':                test_dnl,
     'compare_estimators': compare_estimators,

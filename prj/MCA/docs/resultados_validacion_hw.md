@@ -19,14 +19,15 @@ medidos y cómo interpretarlos.
 > | FOM vs energía | `nan` en 3 de 4 rebanadas | **1.31 → 1.58 al subir la amplitud** | |
 > | DNL | 467 % (inválida) | **26 % pero es una cota superior** del estímulo | no se puede medir con este generador |
 > | INL | 0.501 % FS | **1.13 % FS, sistemático** (correlación +1.00 entre pasadas) | |
-> | Pico vs integral | "integral ≥60× mejor" | **la integral es 1.3-3.5× PEOR** | la 1ª comparaba escalas distintas |
+> | Pico vs integral | "integral ≥60× mejor" | **la integral es 1.3-3.5× PEOR** — pero por la VENTANA, no por la integral: con compuerta fija da 0.149 %, mejor que todo | la 1ª comparaba escalas distintas |
+> | Corrimiento con la tasa | — | **+1.28 %** en ×36 (el +6.45 % que se reportó primero está confundido con el ancho de pulso) | |
 >
 > Las secciones 1-12 se dejan como estaban, con su fecha, porque documentan el
 > estado del hardware que se validó entonces (bus, registros, relojes) y porque
 > los errores de método son parte del registro.
 
-**Datos crudos:** [`../software/datos/mca_20260811_113136/`](../software/datos/mca_20260811_113136/)
-(1ª campaña) y [`../software/datos/mca_20260528_001034/`](../software/datos/mca_20260528_001034/)
+**Datos crudos:** [`../software/datos/mca_20260811_113136/`](../../software/datos/mca_20260811_113136/)
+(1ª campaña) y [`../software/datos/mca_20260528_001034/`](../../software/datos/mca_20260528_001034/)
 (2ª campaña; el nombre lleva la fecha del reloj de la placa, que está mal — es
 del 2026-08-11 por la noche).
 
@@ -352,7 +353,7 @@ calibrados para 336 µs. `run_campana.py` ya lo hace en ese orden y propaga el
 resultado.
 
 Los cambios están verificados sin hardware por
-[`../software/tests/test_wave_builders.py`](../software/tests/test_wave_builders.py):
+[`../software/tests/test_wave_builders.py`](../../software/tests/test_wave_builders.py):
 que el ancho y la tasa del estímulo son los pedidos, que las combinaciones
 imposibles fallan con un mensaje que dice qué ajustar, y que `dnl()` recupera
 una DNL inyectada del 3 % sobre una envolvente no plana (contra la media global
@@ -419,13 +420,32 @@ que decía la primera campaña.
 > mínimo de ~0.3125 %, así que a 100 Hz entrega pulsos de **31 µs** en vez de los
 > 2 µs pedidos, y todos cierran por `maxlen`. Se ve en la columna de ancho leído.
 
+### Corrimiento del centroide con la tasa: +1.28 %, no +6.45 %
+
+El barrido completo da +6.45 % entre el primer y el último punto, y **ése es el
+número que NO hay que citar**: está confundido con el ancho de pulso. Como
+`set_pulse_periodic` exige `width < T/2`, el barrido escala el ancho a
+`min(2 µs, 0.2·T)`, así que arriba de 72 kHz el estímulo deja de ser el mismo.
+
+| Tramo | Ancho | Corrimiento |
+|---|---|---|
+| barrido completo, 182 Hz → 794 kHz | 17 µs → 252 ns | +6.45 % |
+| **1995 → 72 444 Hz (×36)** | **2000 ns fijo** | **+1.28 %** |
+| 72 → 132 kHz (un solo paso) | 2000 → 1517 ns | **+2.52 %** |
+
+El salto grande cae **exactamente donde cambia el ancho**, no donde cambia la
+tasa. Con estímulo constante el corrimiento genuino es **+1.28 % sobre ×36 de
+tasa**: real, pero cinco veces menor de lo que decía la primera versión de este
+documento. Importa porque es el argumento principal del conformado trapezoidal
+(§13.6).
+
 ## 13.2 Resolución par-pulso: ≤ 0.5 µs
 
 Con ancho y período de burst **fijos** y normalizando contra la medición a gap
 máximo, la fracción detectada da **1.00 en todos los gaps de 0.5 a 100 µs**: los
 dos pulsos del par se cuentan como dos incluso separados 500 ns. Es coherente con
 el tiempo muerto de §13.1 y con la resolución par-pulso del scope (~25 ns, ver
-[`testbenches_software_multitrigger.md`](testbenches_software_multitrigger.md)).
+[`testbenches_software_multitrigger.md`](../multitrigger/testbenches_software_multitrigger.md)).
 
 Por debajo de 9 µs aparecen eventos perdidos por extractor ocupado (~46 % de los
 que llegan) **sin que baje la fracción detectada**: son cruces de umbral extra
@@ -493,7 +513,32 @@ jitter del cierre de la ventana.
 La tendencia confirma el mecanismo: al acortar el pulso de 4 µs a 0.5 µs la
 resolución con pico **empeora** (0.33 → 0.44 %) mientras la de la integral se
 mantiene. Se cruzarían por debajo de ~0.2 µs, que es donde el ARB ya no llega.
-**Con pulsos de detector rápidos la integral puede ganar; con este estímulo, no.**
+
+### …y por qué la integral perdía: era la VENTANA, no la integral
+
+El análisis offline sobre 7054 pulsos crudos
+([`../../software/tests/estimadores/`](../../software/tests/estimadores/))
+cierra la pregunta, calculando todos los estimadores **sobre los mismos pulsos**:
+
+| Estimador | Resolución |
+|---|---|
+| integral, ventana por histéresis | 0.528 % *(medido en placa)* |
+| pico | 0.272 % *(réplica; placa 0.344 %)* |
+| trapecio (k=192, m=160) | 0.212 % |
+| **integral, compuerta FIJA de 384 muestras** | **0.149 %** |
+
+Con compuerta de largo fijo la carga mejora **1.83× sobre el pico** y **3.55×
+sobre la integral con histéresis**. La causa del problema quedó identificada: el
+RTL cierra la ventana donde la cola cruza `thr − hyst`, que es la zona **más
+chata** del pulso — con τ = 186 muestras y σ = 2.8 cuentas de ruido el cruce
+tiembla ~9 muestras, y cada muestra vale ~60 cuentas de carga.
+
+La réplica se valida contra el hardware por la σ **en cuentas**: da 2.78 y la
+placa midió 2.81, 1 % de acuerdo. (La resolución en % difiere sólo porque la
+amplitud de ese conjunto es 2410 cuentas y la de la campaña 1920.)
+
+**El trapecio queda por debajo de la compuerta fija** y costaría la mitad del
+throughput, así que con esta señal no se justifica.
 
 ## 13.7 DNL: no se puede medir con este generador
 

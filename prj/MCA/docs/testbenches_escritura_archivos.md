@@ -6,7 +6,7 @@ escritura atómica. Este documento dice **qué está verificado, con qué test, 
 qué queda sin cubrir**.
 
 El *diseño* del pipeline está en
-[`arquitectura_adquisicion_software.md`](arquitectura_adquisicion_software.md);
+[`arquitectura_adquisicion_software.md`](multitrigger/arquitectura_adquisicion_software.md);
 acá está la **verificación**.
 
 | Archivo | Rol |
@@ -187,8 +187,8 @@ Explícito, para que nadie suponga cobertura que no hay:
 
 ## Ver también
 
-- [`arquitectura_adquisicion_software.md`](arquitectura_adquisicion_software.md)
+- [`arquitectura_adquisicion_software.md`](multitrigger/arquitectura_adquisicion_software.md)
   — el diseño, con los tres niveles de pérdida y el presupuesto de rendimiento.
-- [`testbenches_software_mca.md`](testbenches_software_mca.md) y
-  [`testbenches_software_multitrigger.md`](testbenches_software_multitrigger.md)
+- [`testbenches_software_mca.md`](mca/testbenches_software_mca.md) y
+  [`testbenches_software_multitrigger.md`](multitrigger/testbenches_software_multitrigger.md)
   — las otras dos suites de software.

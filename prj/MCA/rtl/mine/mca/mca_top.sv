@@ -74,6 +74,9 @@ reg        [3:0] cfg_bl_k;
 reg [LEN_W-1:0]  cfg_bl_holdoff;
 reg [LEN_W-1:0]  cfg_maxlen;
 reg [LEN_W-1:0]  cfg_tail_dly;
+reg              cfg_gate_mode;    // 0 = histeresis, 1 = compuertas fijas
+reg [LEN_W-1:0]  cfg_gate_short;
+reg [LEN_W-1:0]  cfg_gate_long;
 reg [AMP_W-1:0]  cfg_amp_min;
 reg [AMP_W-1:0]  cfg_amp_max;
 reg              cfg_amp_src;
@@ -140,6 +143,8 @@ mca_pulse_feature #(
   .cfg_baseline_i(cfg_baseline), .cfg_bl_auto_i(cfg_bl_auto),
   .cfg_bl_k_i(cfg_bl_k), .cfg_bl_holdoff_i(cfg_bl_holdoff),
   .cfg_maxlen_i(cfg_maxlen), .cfg_tail_dly_i(cfg_tail_dly),
+  .cfg_gate_mode_i(cfg_gate_mode), .cfg_gate_short_i(cfg_gate_short),
+  .cfg_gate_long_i(cfg_gate_long),
   .cfg_amp_min_i(cfg_amp_min), .cfg_amp_max_i(cfg_amp_max),
   .cfg_amp_src_i(cfg_amp_src), .cfg_q_shift_i(cfg_q_shift),
   .ev_valid_o(ev_valid), .ev_amp_o(ev_amp), .ev_psd_o(ev_psd),
@@ -243,6 +248,7 @@ always @(posedge adc_clk_i) begin
     cfg_thr <= 100; cfg_hyst <= 50; cfg_baseline <= 0;
     cfg_bl_auto <= 1'b0; cfg_bl_k <= 4'd6; cfg_bl_holdoff <= 16'd0;
     cfg_maxlen <= 16'd1024; cfg_tail_dly <= 16'd4;
+    cfg_gate_mode <= 1'b0; cfg_gate_short <= 16'd32; cfg_gate_long <= 16'd384;
     cfg_amp_min <= 16'd0; cfg_amp_max <= 16'hFFFF;
     cfg_amp_src <= 1'b0; cfg_q_shift <= 5'd0;
     cfg_h_shift <= 5'd0; cfg_h2_shift <= 5'd0;
@@ -276,6 +282,11 @@ always @(posedge adc_clk_i) begin
         20'h0003C : cfg_h_shift    <= sys_wdata[4:0];
         20'h00040 : cfg_h2_shift   <= sys_wdata[4:0];
         20'h00044 : cfg_dec        <= sys_wdata[15:0];
+        20'h00048 : cfg_gate_mode  <= sys_wdata[0];
+        20'h0004C : begin
+          cfg_gate_short <= sys_wdata[LEN_W-1:0];
+          cfg_gate_long  <= sys_wdata[16+LEN_W-1:16];
+        end
         default   : ;
       endcase
     end
@@ -336,6 +347,8 @@ always @(posedge adc_clk_i) begin
       20'h0003C : sys_rdata <= {27'h0, cfg_h_shift};
       20'h00040 : sys_rdata <= {27'h0, cfg_h2_shift};
       20'h00044 : sys_rdata <= {16'h0, cfg_dec};
+      20'h00048 : sys_rdata <= {31'h0, cfg_gate_mode};
+      20'h0004C : sys_rdata <= {cfg_gate_long, cfg_gate_short};
 
       // --- contadores de eventos ---
       20'h00050 : sys_rdata <= c_total;
