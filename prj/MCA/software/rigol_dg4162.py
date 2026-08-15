@@ -855,6 +855,73 @@ def _shape_scale_for_fwhm(fwhm_pts, t_rise_frac, tau_frac, tau_mult=1.0):
 MIN_RISE_PTS = 4               # menos que esto y el flanco queda cuantizado
 
 
+def _geometria_tren(width_s, rate_hz, rise_frac, n_pts_max=ARB_MAX_POINTS,
+                    n_pulses=None, pts_per_fwhm=64, srate_max=ARB_MAX_SRATE):
+    """Reparte la memoria del ARB entre período de repetición y cantidad de pulsos.
+
+    Sale de una sola identidad: el ciclo de trabajo del tren es
+    `duty = width_s * rate_hz` y no depende de cómo se reparta la memoria. Lo
+    que sí se elige es `slot_pts`, los puntos que ocupa UN período, porque de
+    ahí salen las tres cosas que limitan:
+
+        tasa de muestreo = slot_pts * rate_hz   <= srate_max
+        puntos por pulso = duty * slot_pts      >= los que pida el flanco
+        pulsos por forma = n_pts_max // slot_pts
+
+    `rise_frac` es el flanco de subida en unidades de FWHM: sólo se usa para la
+    cota inferior de `slot_pts` (que el flanco no quede cuantizado en menos de
+    MIN_RISE_PTS puntos del ARB).
+
+    Está separado de `pulse_train_wave` porque la geometría es la misma para
+    cualquier familia de forma — `shaped_train_wave` la comparte tal cual.
+    """
+    import numpy as _np
+
+    if width_s <= 0 or rate_hz <= 0:
+        raise ValueError('width_s y rate_hz tienen que ser positivos')
+    duty = float(width_s) * float(rate_hz)
+    if duty >= 0.5:
+        raise ValueError(
+            f'duty = width_s*rate_hz = {duty:.3f} >= 0.5: los pulsos se '
+            f'solapan. Bajá el ancho o la tasa.')
+
+    # Cota dura: el flanco necesita MIN_RISE_PTS puntos.
+    slot_min = int(_np.ceil(MIN_RISE_PTS / max(rise_frac, 1e-9) / duty))
+    # Cota superior: memoria y tasa de muestreo del instrumento.
+    slot_cap = int(min(n_pts_max, _np.floor(srate_max / rate_hz)))
+    if slot_min > slot_cap:
+        raise ValueError(
+            f'el flanco de subida entraría en {MIN_RISE_PTS * slot_cap / slot_min:.1f} '
+            f'puntos (mínimo {MIN_RISE_PTS}): con {width_s*1e6:g} us a '
+            f'{rate_hz:g} Hz harían falta {slot_min} puntos por período y el '
+            f'instrumento admite {slot_cap} ({srate_max:g} Sa/s, '
+            f'{n_pts_max} pts). Subí width_s o bajá rate_hz.')
+
+    if n_pulses is None:
+        # Apuntar a pts_per_fwhm puntos por pulso y meter todos los que entren:
+        # más pulsos = más variedad de amplitudes por ciclo.
+        slot_want = int(_np.ceil(pts_per_fwhm / duty))
+        slot_pts  = int(min(max(slot_want, slot_min), slot_cap))
+        n_pulses  = max(1, n_pts_max // slot_pts)
+    else:
+        n_pulses = int(n_pulses)
+        if n_pulses < 1:
+            raise ValueError('n_pulses tiene que ser >= 1')
+        slot_pts = int(min(n_pts_max // n_pulses, slot_cap))
+        if slot_pts < slot_min:
+            raise ValueError(
+                f'con n_pulses={n_pulses} quedan {slot_pts} puntos por período '
+                f'y hacen falta {slot_min}. Bajá n_pulses a '
+                f'{max(1, n_pts_max // slot_min)} o menos.')
+
+    srate = slot_pts * rate_hz                    # = n_total * freq_hz
+    return dict(n_pts=slot_pts * n_pulses, n_pulses=n_pulses, slot_pts=slot_pts,
+                freq_hz=rate_hz / n_pulses, srate_sa_s=srate, dt_s=1.0 / srate,
+                fwhm_pts=duty * slot_pts, duty=duty,
+                width_s=width_s, rate_hz=rate_hz,
+                n_rise_pts=duty * slot_pts * rise_frac)
+
+
 def pulse_train_wave(width_s, rate_hz, n_pts_max=ARB_MAX_POINTS,
                      t_rise_frac=0.25, tau_frac=0.6, amplitude=1.0,
                      amp_range=None, tau_choices=None, n_pulses=None,
@@ -913,50 +980,16 @@ def pulse_train_wave(width_s, rate_hz, n_pts_max=ARB_MAX_POINTS,
     """
     import numpy as _np
 
-    if width_s <= 0 or rate_hz <= 0:
-        raise ValueError('width_s y rate_hz tienen que ser positivos')
-    duty = float(width_s) * float(rate_hz)
-    if duty >= 0.5:
-        raise ValueError(
-            f'duty = width_s*rate_hz = {duty:.3f} >= 0.5: los pulsos se '
-            f'solapan. Bajá el ancho o la tasa.')
-
     # --- geometría ---
-    # Cota dura: el flanco necesita MIN_RISE_PTS puntos.
-    slot_min = int(_np.ceil(MIN_RISE_PTS / max(t_rise_frac, 1e-9) / duty))
-    # Cota superior: memoria y tasa de muestreo del instrumento.
-    slot_cap = int(min(n_pts_max, _np.floor(srate_max / rate_hz)))
-    if slot_min > slot_cap:
-        raise ValueError(
-            f'el flanco de subida entraría en {MIN_RISE_PTS * slot_cap / slot_min:.1f} '
-            f'puntos (mínimo {MIN_RISE_PTS}): con {width_s*1e6:g} us a '
-            f'{rate_hz:g} Hz harían falta {slot_min} puntos por período y el '
-            f'instrumento admite {slot_cap} ({srate_max:g} Sa/s, '
-            f'{n_pts_max} pts). Subí width_s o bajá rate_hz.')
-
-    if n_pulses is None:
-        # Apuntar a pts_per_fwhm puntos por pulso y meter todos los que entren:
-        # más pulsos = más variedad de amplitudes por ciclo.
-        slot_want = int(_np.ceil(pts_per_fwhm / duty))
-        slot_pts  = int(min(max(slot_want, slot_min), slot_cap))
-        n_pulses  = max(1, n_pts_max // slot_pts)
-    else:
-        n_pulses = int(n_pulses)
-        if n_pulses < 1:
-            raise ValueError('n_pulses tiene que ser >= 1')
-        slot_pts = int(min(n_pts_max // n_pulses, slot_cap))
-        if slot_pts < slot_min:
-            raise ValueError(
-                f'con n_pulses={n_pulses} quedan {slot_pts} puntos por período '
-                f'y hacen falta {slot_min}. Bajá n_pulses a '
-                f'{max(1, n_pts_max // slot_min)} o menos.')
-
-    n_total  = slot_pts * n_pulses
-    freq_hz  = rate_hz / n_pulses
-    srate    = slot_pts * rate_hz                 # = n_total * freq_hz
-    dt_s     = 1.0 / srate
-    fwhm_pts = duty * slot_pts                    # = width_s / dt_s
-    n_rise   = fwhm_pts * t_rise_frac
+    info = _geometria_tren(width_s, rate_hz, t_rise_frac, n_pts_max=n_pts_max,
+                           n_pulses=n_pulses, pts_per_fwhm=pts_per_fwhm,
+                           srate_max=srate_max)
+    duty     = info['duty']
+    slot_pts = info['slot_pts']
+    n_pulses = info['n_pulses']
+    n_total  = info['n_pts']
+    freq_hz  = info['freq_hz']
+    fwhm_pts = info['fwhm_pts']
 
     # Pedir variedad con un solo pulso por forma da una forma degenerada: la
     # misma amplitud (o la misma cola) repetida para siempre. Es exactamente el
@@ -1002,12 +1035,266 @@ def pulse_train_wave(width_s, rate_hz, n_pts_max=ARB_MAX_POINTS,
             f'el período: los pulsos se pisarían. Bajá tau_frac o el duty '
             f'(duty={duty:.3f}).')
 
-    info = dict(n_pts=n_total, n_pulses=n_pulses, slot_pts=slot_pts,
-                freq_hz=freq_hz, srate_sa_s=srate, dt_s=dt_s,
-                fwhm_pts=fwhm_pts, duty=duty,
-                width_s=width_s, rate_hz=rate_hz,
-                n_rise_pts=n_rise, tail_residual=residual)
+    info['tail_residual'] = residual
     return out, freq_hz, info
+
+
+# ================================================================
+# Familias de forma de amplificador de conformado (Knoll, cap. 16)
+#
+# `pulse_train_wave` usa UNA sola forma: (1-e^{-t/t_r})·e^{-t/tau}, que es la
+# CR-RC de constantes desiguales. Alcanza para caracterizar el MCA a forma
+# fija, pero no dice nada sobre cuánto de lo medido DEPENDE de la forma — que
+# es justamente la pregunta de robustez: si la amplitud reportada cambia al
+# cambiar la forma a igual altura de pico, el error es de la cadena de medición
+# y no del estímulo.
+#
+# Estas son las salidas clásicas de un amplificador de conformado, todas
+# escritas como f(u) con u = t/escala. Que sean todas de la forma f(t/escala)
+# es lo que hace que el FWHM sea LINEAL en la escala, y por lo tanto que se
+# pueda despejar con un solo sondeo (ver `_escala_para_fwhm`).
+#
+# No están normalizadas al pico a propósito: normaliza el constructor, una vez,
+# después de elegir la escala.
+# ================================================================
+
+
+def forma_cr(u, r=0.05):
+    """CR: una sola diferenciación. Pulso de cola del preamplificador.
+
+    `f(u) = (1 - e^{-u/r})·e^{-u}`. Flanco rápido y cola exponencial larga: es
+    el caso más ASIMÉTRICO del catálogo, y el peor para el estimador de pico
+    (el ápice dura poquísimas muestras). `r` es el flanco en unidades de la
+    escala; con r → 0 queda el escalón diferenciado ideal `e^{-u}`, que en el
+    ARB no es realizable (el flanco se cuantiza).
+    """
+    import numpy as _np
+    u = _np.asarray(u, dtype=float)
+    return _np.where(u < 0, 0.0,
+                     (1.0 - _np.exp(-u / max(r, 1e-9))) * _np.exp(-u))
+
+
+def forma_cr_rc(u):
+    """CR-RC: una diferenciación y una integración, constantes iguales.
+
+    `f(u) = u·e^{-u}`, pico en u=1. La semi-gaussiana unipolar clásica, y la
+    forma más parecida a la que usó la campaña publicada — es la familia de
+    REFERENCIA del barrido.
+    """
+    import numpy as _np
+    u = _np.asarray(u, dtype=float)
+    return _np.where(u < 0, 0.0, u * _np.exp(-u))
+
+
+def forma_cr_rc_n(u, n=4):
+    """CR-RC^n: una diferenciación y n integraciones.
+
+    `f(u) = u^n·e^{-u}/n!`, pico en u=n. Cuanto mayor es n más simétrica y más
+    parecida a una gaussiana queda la forma (de ahí "semi-gaussiana"), a costa
+    de un pulso más largo para el mismo FWHM. n=4 es el valor habitual en
+    espectroscopía.
+    """
+    import numpy as _np
+    from math import factorial
+    u = _np.asarray(u, dtype=float)
+    n = int(n)
+    return _np.where(u < 0, 0.0, u ** n * _np.exp(-u) / factorial(n))
+
+
+def forma_triangular(u):
+    """Triangular simétrica: rampa 0→1 en u∈[0,1], rampa 1→0 en u∈[1,2].
+
+    Ápice puntiagudo y soporte finito. Es el contraste natural del trapecio:
+    misma simetría, mismo soporte, pero sin techo plano — así que la diferencia
+    entre las dos aísla el efecto del ápice sobre el estimador de pico.
+    """
+    import numpy as _np
+    u = _np.asarray(u, dtype=float)
+    return _np.clip(_np.where(u <= 1.0, u, 2.0 - u), 0.0, None)
+
+
+def forma_trapezoidal(u, plano=1.0):
+    """Trapezoidal: rampa en [0,1], techo plano en [1,1+plano], bajada después.
+
+    Es la forma del filtro trapezoidal digital, y el MEJOR caso para el
+    estimador de pico: el ápice dura `plano` unidades de escala en vez de un
+    instante, así que el muestreo del ADC cae sobre el máximo verdadero muchas
+    veces y el jitter de muestreo desaparece. Si la determinación de amplitud
+    es robusta, esta familia tiene que dar el FWHM más chico del catálogo.
+
+    Detalle geométrico que la vuelve el par de control ideal de la triangular:
+    todo trapecio simétrico tiene área = pico·FWHM EXACTAMENTE (la recta de
+    media altura bisecta las dos rampas, así que lo que se recorta en las
+    esquinas es lo mismo que se agrega en los flancos), y la triangular es el
+    caso límite `plano=0`. O sea que las dos familias tienen el MISMO factor de
+    forma, 1.000, para cualquier `plano`: caen sobre la misma recta en el
+    gráfico pico-vs-carga. Cualquier diferencia entre ellas es entonces del
+    ápice y de nada más.
+    """
+    import numpy as _np
+    u = _np.asarray(u, dtype=float)
+    plano = float(plano)
+    y = _np.where(u <= 1.0, u,
+                  _np.where(u <= 1.0 + plano, 1.0, 2.0 + plano - u))
+    return _np.clip(_np.where(u < 0, 0.0, y), 0.0, None)
+
+
+def forma_bipolar(u):
+    """CR-RC-CR: doble diferenciación. Bipolar, con cruce por cero en u=2.
+
+    `f(u) = (1 - u/2)·u·e^{-u}`. El lóbulo negativo es lo que la hace
+    interesante acá: el RTL recorta a cero (`xc = max(x,0)` en
+    `mca_pulse_feature.sv`) y el seguidor de línea de base queda congelado
+    durante el pulso, así que es la familia que más estresa la segmentación.
+    Puede no ser medible con la configuración por default — y eso también es un
+    resultado sobre la robustez.
+    """
+    import numpy as _np
+    u = _np.asarray(u, dtype=float)
+    return _np.where(u < 0, 0.0, (1.0 - u / 2.0) * u * _np.exp(-u))
+
+
+FORMAS_KNOLL = {
+    'cr':          forma_cr,
+    'cr_rc':       forma_cr_rc,
+    'cr_rc4':      lambda u: forma_cr_rc_n(u, n=4),
+    'triangular':  forma_triangular,
+    'trapezoidal': forma_trapezoidal,
+    'bipolar':     forma_bipolar,
+}
+
+
+# Sondeo para despejar escala y flanco: 4096 puntos sobre u ∈ [0, 16). El
+# alcance cubre la más larga del catálogo (CR-RC^4 pica en u=4 y decae hasta
+# ~u=14), y la resolución (1/256 de unidad) es de sobra para interpolar el
+# FWHM y los cruces del 10 % y el 90 %.
+_SONDEO_PTS   = 4096
+_SONDEO_SCALE = 256.0
+
+
+def _sondeo(forma, **kw):
+    import numpy as _np
+    u = _np.arange(_SONDEO_PTS, dtype=float) / _SONDEO_SCALE
+    return u, _np.asarray(forma(u, **kw), dtype=float)
+
+
+def _escala_para_fwhm(forma, fwhm_pts, **kw):
+    """Escala (en puntos del ARB) que le da a `forma` el FWHM pedido.
+
+    Como toda forma del catálogo es f(t/escala), el FWHM es lineal en la escala
+    y basta con medirlo UNA vez sobre una versión sobre-muestreada y despejar.
+    Es la misma idea que `_shape_scale_for_fwhm`, pero sin quedar atada a los
+    parámetros concretos de `detector_pulse`.
+    """
+    u, y = _sondeo(forma, **kw)
+    k = _fwhm_pts(y) / _SONDEO_SCALE          # FWHM en unidades de escala
+    if k <= 0:
+        raise ValueError('forma degenerada: FWHM nulo en el sondeo')
+    return fwhm_pts / k
+
+
+def _rise_frac(forma, **kw):
+    """Flanco de subida 10–90 % en unidades de FWHM.
+
+    Es lo que `_geometria_tren` necesita para no dejar el flanco cuantizado en
+    menos de MIN_RISE_PTS puntos del ARB. Se calcula numéricamente porque cada
+    familia tiene una relación flanco/FWHM distinta: ~0.15 para la CR (flanco
+    casi vertical) contra ~0.8 para la triangular.
+    """
+    import numpy as _np
+    u, y = _sondeo(forma, **kw)
+    pk = y.max()
+    if pk <= 0:
+        raise ValueError('forma degenerada: pico no positivo en el sondeo')
+    i = int(_np.argmax(y))
+    # El flanco de subida es monótono en todas las familias del catálogo, así
+    # que se puede interpolar directamente sobre él.
+    subida, u_sub = y[:i + 1], u[:i + 1]
+    t10 = float(_np.interp(0.1 * pk, subida, u_sub))
+    t90 = float(_np.interp(0.9 * pk, subida, u_sub))
+    fw = _fwhm_pts(y) / _SONDEO_SCALE
+    if fw <= 0:
+        raise ValueError('forma degenerada: FWHM nulo en el sondeo')
+    return max((t90 - t10) / fw, 1e-6)
+
+
+def shaped_train_wave(forma, width_s, rate_hz, n_pts_max=ARB_MAX_POINTS,
+                      amplitude=1.0, n_pulses=None, pts_per_fwhm=64,
+                      srate_max=ARB_MAX_SRATE, tail_tol=0.02, **forma_kw):
+    """Tren de pulsos de FWHM `width_s` y tasa `rate_hz`, con forma arbitraria.
+
+    Es `pulse_train_wave` generalizado a cualquier familia del catálogo: misma
+    geometría (comparten `_geometria_tren`), mismo `info`, misma convención de
+    salida `(wave, freq_hz, info)`.
+
+    `forma` es una clave de FORMAS_KNOLL o un callable f(u, **kw); `forma_kw` le
+    llega tal cual (por ejemplo `plano=2.0` para el trapecio, o `n=6` si se pasa
+    `forma_cr_rc_n` directo).
+
+    **Para comparar familias entre sí hay que pasar `n_pulses=1`.** Con eso
+    `slot_pts` se pega al techo de memoria y quedan fijas las dos cosas que si
+    no cambiarían de familia en familia junto con la forma: la frecuencia de
+    repetición (`freq_hz == rate_hz`, así que la exactitud de amplitud del
+    generador no se mueve) y la tasa de muestreo del ARB (misma cuantización
+    temporal). Sin eso, `n_pulses` sale del duty y la comparación queda
+    contaminada.
+
+    Ojo con la altura: `load_arb(normalize=True)` divide por max|v|, y acá la
+    forma ya sale normalizada al pico, así que la altura real del pulso es
+    `amp_vpp/2` para TODAS las familias. El eje de amplitud es entonces
+    idéntico entre familias por construcción.
+
+    `info` agrega, sobre el de `pulse_train_wave`:
+        forma          : nombre de la familia (o 'callable')
+        escala_pts     : escala de la forma, en puntos del ARB
+        factor_forma   : área/(pico·FWHM), adimensional. Es la pendiente
+                         esperada del gráfico pico-vs-carga.
+        area_pos_frac  : fracción del área que queda por encima de cero — < 1
+                         sólo para las bipolares, que es lo que ve el
+                         integrador del RTL (recorta los negativos).
+    """
+    import numpy as _np
+
+    nombre = forma if isinstance(forma, str) else getattr(forma, '__name__', 'callable')
+    f = FORMAS_KNOLL[forma] if isinstance(forma, str) else forma
+    if f is None:
+        raise ValueError(f'forma desconocida: {forma!r}. '
+                         f'Conocidas: {sorted(FORMAS_KNOLL)}')
+
+    info = _geometria_tren(width_s, rate_hz, _rise_frac(f, **forma_kw),
+                           n_pts_max=n_pts_max, n_pulses=n_pulses,
+                           pts_per_fwhm=pts_per_fwhm, srate_max=srate_max)
+    slot_pts = info['slot_pts']
+
+    escala = _escala_para_fwhm(f, info['fwhm_pts'], **forma_kw)
+    p = _np.asarray(f(_np.arange(slot_pts, dtype=float) / escala, **forma_kw),
+                    dtype=float)
+    pico = float(p.max())
+    if pico <= 0:
+        raise ValueError(f'la forma {nombre!r} no tiene pico positivo')
+    p = amplitude * p / pico
+
+    # Misma guarda que pulse_train_wave: si la forma no terminó cuando arranca
+    # el período siguiente, los pulsos se pisan. Con las bipolares hay que
+    # mirar el VALOR ABSOLUTO, porque lo que sobra es el lóbulo negativo.
+    residual = float(_np.abs(p[-1]) / max(_np.abs(p).max(), 1e-12))
+    if residual > tail_tol:
+        raise ValueError(
+            f'la forma {nombre!r} todavía vale el {100*residual:.1f}% del pico '
+            f'al terminar el período: los pulsos se pisarían. Bajá el duty '
+            f'(duty={info["duty"]:.4f}) o usá una familia más compacta.')
+
+    # El factor de forma se calcula sobre el área POSITIVA, no la neta: es la
+    # única que ve el integrador del RTL, que recorta a cero (`xc = max(x,0)`).
+    # Con las bipolares la distinción es todo: su área neta es ~0 por
+    # construcción (para eso está la segunda diferenciación), así que usar la
+    # neta daría factor de forma nulo y una pendiente esperada absurda.
+    area_pos = float(p[p > 0].sum())
+    area_abs = float(_np.abs(p).sum())
+    info.update(forma=nombre, escala_pts=escala, tail_residual=residual,
+                factor_forma=area_pos / (amplitude * info['fwhm_pts']),
+                area_pos_frac=area_pos / area_abs if area_abs else float('nan'))
+    return _np.tile(p, info['n_pulses']), info['freq_hz'], info
 
 
 # ================================================================

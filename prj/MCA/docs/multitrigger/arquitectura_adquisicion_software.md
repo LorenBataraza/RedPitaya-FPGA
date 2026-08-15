@@ -330,6 +330,21 @@ Hasta ~2 kHz la eficiencia es ≥99 %.
 > | 10 kHz | 3 | 3333 | 3259 |
 > | 20 kHz | 6 | 3333 | 3684 |
 >
+> El ajuste está en
+> [`plot_modelos_tasa.py`](../../software/plot_modelos_tasa.py) (corre en la PC,
+> sin placa). Con τ **constante** el modelo son mesetas discretas y el punto de
+> 20 kev/s no lo puede acertar ningún τ: cae justo entre `k=5` (4000) y `k=6`
+> (3333). Dejando que el servicio tenga dispersión —que la tiene: `read`,
+> `rearm` y `book` no tardan siempre lo mismo— el ajuste da
+>
+> **τ = 250 ± 2 µs, con 1.1 % de rms y 2.3 % de residuo máximo**
+>
+> y ese τ coincide con los **252.7 µs** de la atribución por fases, que es una
+> medición independiente (cronometrar el ciclo, no ajustar la curva). Que los
+> dos caminos den lo mismo es la mejor evidencia de que el modelo K=1 describe
+> a esta arquitectura. Los otros dos modelos quedan lejos: Poisson 14.3 % de rms
+> y paralizable 17.0 %.
+>
 > Una fuente radiactiva entrega **Poisson**, y ahí la pérdida de un sistema K=1
 > es `P_loss = ρ/(1+ρ)` con `ρ = λτ`: se pierde algo a **cualquier** tasa, y la
 > pérdida tiende a ρ cuando ρ→0 (no hay tasa lo bastante baja como para no

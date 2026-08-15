@@ -77,9 +77,20 @@ cuenta como apilamiento. La cola arranca `cfg_tail_dly` muestras después del pi
 Con **`cfg_gate_mode = 1`** la ventana cierra a `gate_larga` muestras del
 disparo, pase lo que pase, y la cola arranca en `gate_corta` — las dos medidas
 **desde el disparo**, no desde el pico. Es el método de comparación de carga
-(Brooks 1959; Knoll cap. 17). Si al cerrar la señal sigue por encima de
-`cfg_thr − cfg_hyst`, el evento se marca como **apilamiento**: hay otro pulso
-encima y la carga está contaminada.
+(Brooks 1959; Knoll cap. 17).
+
+**Apilamiento en modo 1:** se marca cuando llega un **segundo pulso dentro de la
+compuerta**, o sea que la señal bajó de `cfg_thr − cfg_hyst` y **volvió a
+cruzar** `cfg_thr` con la ventana todavía abierta.
+
+> La regla obvia —"si al cerrar la señal sigue alta, hay apilamiento"— es
+> **incorrecta**, y se descubrió midiendo en la placa. La cola del *propio*
+> pulso tarda cientos de muestras en bajar del umbral (~700 con un pulso de 2 µs
+> y `thr_lo = 60` cuentas), así que esa regla descartaba el **100 %** de los
+> eventos con cualquier compuerta más corta que la cola — justo el rango útil.
+> Y como el cruce cae en la parte más chata del pulso, el punto se movía
+> cientos de muestras con cualquier deriva de línea de base: el resultado no era
+> ni siquiera reproducible entre corridas.
 
 **`cfg_maxlen` no actúa en el modo 1**: el largo ya está acotado por la
 compuerta, así que dejarlo activo sólo agregaría un modo de falla si alguien

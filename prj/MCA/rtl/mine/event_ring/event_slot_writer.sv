@@ -52,7 +52,15 @@ module event_slot_writer #(
 )(
   input                    clk_i,
   input                    rstn_i,
+  // flush_i: vacia la FSM y el dato en vuelo (parada de adquisicion).
+  // clr_cnt_i: resetea wr_slot_o/seq_o. SEPARADO de flush_i a proposito —
+  // wr_slot vive en pareja con el rd_slot que publica el PS, y resetear uno
+  // solo deja la resta de creditos en underflow (ocupados ~ 2^32) y el ring
+  // descartando todo. Un stop/start NO tiene por que invalidar el ring: los
+  // contadores solo se reinician cuando el PS pide clr explicitamente, y ahi
+  // el top resetea los DOS al mismo tiempo.
   input                    flush_i,
+  input                    clr_cnt_i,
 
   // geometria del slot (latcheada por el top con la adquisicion parada)
   input      [4:0]         slot_shift_i,   // log2(bytes por slot), >= 6
@@ -111,6 +119,17 @@ module event_slot_writer #(
   // Emision efectiva este ciclo
   wire fire = wr_val_o && wr_rdy_i;
 
+  // Contadores de slot: NO se tocan con flush_i (ver la nota del puerto).
+  always @(posedge clk_i) begin
+    if (!rstn_i || clr_cnt_i) begin
+      wr_slot_o <= 32'h0;
+      seq_o     <= 32'h0;
+    end else if (st == W_DONE && !wr_val_o) begin
+      wr_slot_o <= wr_slot_o + 1'b1;
+      seq_o     <= seq_o + 1'b1;
+    end
+  end
+
   always @(posedge clk_i) begin
     if (!rstn_i || flush_i) begin
       st          <= W_IDLE;
@@ -126,8 +145,6 @@ module event_slot_writer #(
       s_meta_rd_o <= 1'b0;
       wr_val_o    <= 1'b0;
       wr_dat_o    <= 64'h0;
-      wr_slot_o   <= 32'h0;
-      seq_o       <= 32'h0;
       ts_r        <= '0;
       snap_r      <= 17'h0;
       nsamp_r     <= '0;
@@ -250,8 +267,6 @@ module event_slot_writer #(
         W_DONE: begin
           if (!wr_val_o) begin
             s_meta_rd_o <= 1'b1;
-            wr_slot_o   <= wr_slot_o + 1'b1;
-            seq_o       <= seq_o + 1'b1;
             st          <= W_IDLE;
           end
         end

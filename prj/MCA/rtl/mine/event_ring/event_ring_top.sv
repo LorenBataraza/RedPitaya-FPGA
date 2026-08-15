@@ -186,7 +186,7 @@ module event_ring_top #(
   event_slot_writer #(
     .SW(SW), .S_AW(S_AW), .N_CH(N_CH)
   ) i_writer (
-    .clk_i(adc_clk_i), .rstn_i(adc_rstn_i), .flush_i(flush),
+    .clk_i(adc_clk_i), .rstn_i(adc_rstn_i), .flush_i(flush), .clr_cnt_i(flush),
     .slot_shift_i(slot_shift),
     .s_meta_val_i(stg_meta_val), .s_ts_i(stg_ts), .s_snap_i(stg_snap),
     .s_nsamp_i(stg_nsamp), .s_meta_rd_o(stg_meta_rd),
@@ -323,6 +323,19 @@ module event_ring_top #(
       err_cfg    <= 1'b0;
     end else begin
       cfg_clr <= 1'b0;
+
+      // rd_slot se reinicia EXACTAMENTE con lo mismo que wr_slot y que el
+      // generador de direcciones del axi_wr_fifo (los tres cuelgan de `flush`).
+      //
+      // El invariante del que depende el PS es
+      //     direccion_fisica = slot_base + (wr_slot mod N_SLOTS) * SLOT_SZ
+      // y solo se sostiene si los contadores y la direccion se reinician
+      // JUNTOS. Resetear wr_slot sin rd_slot deja `ocupados = wr - rd` en
+      // underflow (~2^32) y el ring descarta todo (bug visto en la placa, no en
+      // simulacion, porque el TB re-publicaba rd_slot tras cada arranque).
+      // Resetear los contadores sin la direccion desincroniza el indice con la
+      // memoria y el PS lee el slot equivocado.
+      if (flush) rd_slot <= 32'h0;
 
       if (sys_wen) begin
         case (a)

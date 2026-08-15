@@ -186,10 +186,20 @@ wire close_maxl  = (st == S_ACTIVE) && !cfg_gate_mode_i && (len >= cfg_maxlen_i)
 wire close_gate  = (st == S_ACTIVE) &&  cfg_gate_mode_i && (len >= cfg_gate_long_i);
 wire close_pulse = close_hyst || close_maxl || close_gate;
 
-// APILAMIENTO en modo compuerta: si al cerrar la señal TODAVÍA está por encima
-// de thr_lo, es que hay otro pulso encima y la carga está contaminada. Cumple
-// el mismo rol que close_maxl en el modo 0.
-wire gate_pileup = close_gate && (x >= thr_lo);
+// APILAMIENTO en modo compuerta: un SEGUNDO pulso dentro de la compuerta, o sea
+// que la señal bajó de thr_lo y volvió a cruzar thr_hi con la ventana abierta.
+//
+// La regla obvia —"si al cerrar la señal sigue por encima de thr_lo, hay
+// apilamiento"— es INCORRECTA y se descubrió midiendo en la placa: la cola del
+// PROPIO pulso tarda cientos de muestras en bajar de thr_lo (~700 con un pulso
+// de 2 µs y thr_lo = 60 cuentas), así que marcaba como apilado el 100 % de los
+// eventos con cualquier compuerta más corta que la cola — justo el rango útil.
+// Peor: el punto de cruce cae en la parte más chata del pulso, así que se movía
+// cientos de muestras con cualquier deriva de línea de base y el resultado no
+// era ni siquiera reproducible entre corridas.
+reg gate_rearm;      // dentro de la compuerta, la señal bajó de thr_lo
+reg gate_2nd;        // ...y después volvió a cruzar thr_hi: hay un 2do pulso
+wire gate_pileup = close_gate && gate_2nd;
 
 // COLA. En modo 0 arranca cfg_tail_dly muestras después del pico: mientras el
 // pulso sube, t_peak == len y la condición es falsa (con tail_dly >= 1). En
@@ -249,6 +259,7 @@ reg [AMP_W-1:0] hold_amp;
 always @(posedge clk_i) begin
   if (!rstn_i) begin
     st <= S_IDLE; armed <= 1'b0;
+    gate_rearm <= 1'b0; gate_2nd <= 1'b0;
     len <= {LEN_W{1'b0}}; t_peak <= {LEN_W{1'b0}}; peak <= {DW{1'b0}};
     q_tot <= {QW{1'b0}}; q_tail <= {QW{1'b0}};
     bl_acc <= {BL_ACC_W{1'b0}}; bl_hold <= {LEN_W{1'b0}};
@@ -313,6 +324,7 @@ always @(posedge clk_i) begin
           armed  <= 1'b0;
           len    <= {{(LEN_W-1){1'b0}}, 1'b1};
           t_peak <= {LEN_W{1'b0}};
+          gate_rearm <= 1'b0; gate_2nd <= 1'b0;
           peak   <= xc;
           q_tot  <= {{(QW-DW){1'b0}}, xc};
           q_tail <= {QW{1'b0}};
@@ -355,6 +367,12 @@ always @(posedge clk_i) begin
             end
           end else begin
             len   <= len + {{(LEN_W-1){1'b0}}, 1'b1};
+            // Deteccion del 2do pulso para el modo compuerta: primero la senal
+            // tiene que BAJAR de thr_lo (gate_rearm) y recien despues volver a
+            // cruzar thr_hi. Sin el paso intermedio se disparia con la propia
+            // subida del pulso en curso.
+            if (x < thr_lo)                  gate_rearm <= 1'b1;
+            else if (gate_rearm && (x >= thr_hi)) gate_2nd <= 1'b1;
             q_tot <= q_tot + {{(QW-DW){1'b0}}, xc};
             if (in_tail) q_tail <= q_tail + {{(QW-DW){1'b0}}, xc};
             // Pico con comparación ESTRICTA: gana la primera ocurrencia.

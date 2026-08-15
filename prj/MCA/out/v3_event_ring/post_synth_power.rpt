@@ -1,7 +1,7 @@
 Copyright 1986-2020 Xilinx, Inc. All Rights Reserved.
 ----------------------------------------------------------------------------------------
 | Tool Version     : Vivado v.2020.1 (lin64) Build 2902540 Wed May 27 19:54:35 MDT 2020
-| Date             : Wed Aug 12 21:43:47 2026
+| Date             : Fri Aug 14 18:27:56 2026
 | Host             : LoloVictus running 64-bit Ubuntu 20.04.3 LTS
 | Command          : report_power -file out/v3_event_ring/post_synth_power.rpt
 | Design           : event_ring_red_pitaya_top
@@ -53,16 +53,16 @@ Table of Contents
 | On-Chip                  | Power (W) | Used     | Available | Utilization (%) |
 +--------------------------+-----------+----------+-----------+-----------------+
 | Clocks                   |     0.071 |       17 |       --- |             --- |
-| Slice Logic              |     0.016 |    19890 |       --- |             --- |
-|   LUT as Logic           |     0.012 |     6791 |     17600 |           38.59 |
+| Slice Logic              |     0.016 |    19930 |       --- |             --- |
+|   LUT as Logic           |     0.012 |     6828 |     17600 |           38.80 |
 |   CARRY4                 |     0.003 |      796 |      4400 |           18.09 |
-|   Register               |    <0.001 |     9255 |     35200 |           26.29 |
+|   Register               |    <0.001 |     9258 |     35200 |           26.30 |
 |   LUT as Distributed RAM |    <0.001 |      300 |      6000 |            5.00 |
 |   LUT as Shift Register  |    <0.001 |      275 |      6000 |            4.58 |
 |   F7/F8 Muxes            |    <0.001 |       54 |     17600 |            0.31 |
 |   Others                 |     0.000 |      352 |       --- |             --- |
 |   BUFG                   |     0.000 |        1 |        32 |            3.13 |
-| Signals                  |     0.017 |    16533 |       --- |             --- |
+| Signals                  |     0.017 |    16573 |       --- |             --- |
 | Block RAM                |     0.091 |     43.5 |        60 |           72.50 |
 | PLL                      |     0.097 |        1 |         2 |           50.00 |
 | DSPs                     |    <0.001 |        4 |        80 |            5.00 |

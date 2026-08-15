@@ -163,6 +163,70 @@ El TB de integración además vuelca la DDR a
 mismo Python que usará el lector: un error de endianness o de intercalado se cae
 en la PC, sin placa.
 
+## Lecciones de la validación en placa (Fase 0)
+
+Tres cosas que la simulación **no** cazó y el hardware sí. Las tres tienen ahora
+un caso de regresión en los testbenches.
+
+### 1. El trigger es un NIVEL, no un pulso
+
+`multitrigger_trig_src.sv:113` hace `adc_trig <= trig_comb` — un nivel
+registrado — y el strobe de escritura que llega por `sys_bus_cdc` puede durar más
+de un ciclo de `adc_clk`. Resultado en la placa: **cada trigger producía dos
+eventos**, uno capturado y otro contado como `drop_busy` (`suma = 2 × triggers`).
+
+`event_window_capture` ahora detecta **flanco**. Depender del ancho de un pulso
+generado por un módulo que no controlamos es frágil; el flanco no.
+Regresión: `tb_event_window_capture` test [7] (trigger sostenido 3 ciclos ⇒ un
+solo evento).
+
+### 2. `wr_slot`, `rd_slot` y la dirección del `axi_wr_fifo` se reinician JUNTOS
+
+El invariante del que depende el PS es
+
+```
+dirección_física = slot_base + (wr_slot mod N_SLOTS) · SLOT_SZ
+```
+
+y sólo se sostiene si los tres se reinician con la misma condición (`flush`).
+En la placa apareció el caso de reiniciar sólo `wr_slot`: `ocupados = wr − rd`
+quedaba en underflow (~2³²) y el ring **descartaba todo**. El primer intento de
+arreglo —hacer que los contadores sobrevivieran al stop— era peor: la dirección
+del `axi_wr_fifo` sí se resetea con el flush, así que los índices quedaban
+desincronizados de la memoria y el PS habría leído el slot equivocado.
+
+El TB no lo veía porque re-publicaba `rd_slot` después de cada arranque.
+Regresión: `tb_event_ring_top` test [4b].
+
+### 3. Leer slot por slot no sirve — hay que leer en lote
+
+Medición en placa (mmap con `O_SYNC`, no cacheable, sobre la región reservada):
+
+| lectura | por llamada | **µs por slot de 512 B** |
+|---|---|---|
+| 512 B (1 slot) | 27.3 µs | 27.3 |
+| 4 KB (8 slots) | 46.7 µs | 5.8 |
+| **64 KB (128 slots)** | 296 µs | **2.31** |
+| 1 MB (2048 slots) | 6.2 ms | 3.02 |
+
+Un slot por vez da apenas 1.7× contra los 45.6 µs de la BRAM por GP0: domina el
+overhead fijo de Python, no el ancho de banda. **La ganancia de ~20× sólo aparece
+leyendo lotes de ~64 KB**, que es el punto óptimo (a 1 MB empieza a perder por
+presión de cache). `RingSource` tiene que leer por lote, nunca slot por slot.
+
+### Región de DDR: no hizo falta tocar el device tree
+
+Este RP OS (2.00, kernel 5.15-xilinx) ya trae regiones reservadas:
+
+| nodo | dirección | tamaño | uso original |
+|---|---|---|---|
+| `buffer@1000000` | `0x0100_0000` | 2 MB | deep memory del ADC (`rp_AcqAxi`) |
+| `labuf@a000000` | `0x0A00_0000` | 32 MB | buffer del analizador lógico |
+
+La Fase 0 usa `labuf` por tamaño; `hw_ring_plumbing.py` la descubre del device
+tree en vez de hardcodearla. **Es prestada**: si se corre la app de analizador
+lógico al mismo tiempo, se pisan. Para producción conviene un nodo propio.
+
 ## Estado
 
 - [x] RTL de los cuatro módulos + `event_ring_red_pitaya_top.sv` (slot 2, HP2)
@@ -170,7 +234,56 @@ en la PC, sin placa.
 - [x] elaboración del top completa (sólo faltan primitivas Xilinx, que necesitan
       las libs de simulación)
 - [x] decodificador de slots en Python + tests offline contra el volcado del RTL
-- [ ] **falta: síntesis en Vivado** — no se corrió; hay que verificar timing y
-      utilización (baseline: 40/60 RAMB36, 20 libres)
-- [ ] falta: device tree con la región reservada, y correr `hw_ring_plumbing.py`
-- [ ] falta: la fuente `RingSource` en `mca/sources.py`
+- [x] **síntesis en Vivado** (`red_pitaya_vivado_Z10_v3_event_ring.tcl`, salida en
+      `out/v3_event_ring/`): bitstream + `.bit.bin`. Utilización 43.5/60 tiles de
+      BRAM (vs 40 del MCA), LUT 40 %, FF 25 %.
+- [x] **validado en placa** (`hw_ring_swtrig.py`, RESULT: PASS): el invariante
+      cierra EXACTO con trigger por software, que es la única forma de conocer
+      sin ambigüedad cuántos triggers entraron:
+
+      | escenario | ev | drop_busy | drop_full | suma | triggers |
+      |---|---|---|---|---|---|
+      | con drenaje | 200 | 0 | 0 | **200** | 200 |
+      | ráfaga sin drenar | 68 | 0 | 46 | **114** | 114 |
+
+      Los créditos frenaron al writer justo en `ocupados = N_SLOTS`, y los 46
+      eventos perdidos quedaron CONTADOS. Con la BRAM esa pérdida es invisible.
+- [x] `RingSource` en `mca/ring_source.py` + tests offline (10/10)
+- [ ] **timing NO cierra** — y tampoco cerraba antes del ring. Ver abajo.
+- [ ] falta: barrido con arribos Poisson contra la predicción M/M/1/K
+
+### Timing: el ring no es el problema, pero el diseño no cierra
+
+| build | WNS | TNS | endpoints |
+|---|---|---|---|
+| MCA (previo al ring) | −0.027 ns | −0.372 ns | 22 |
+| v3_event_ring | −0.05 a −0.19 ns | −0.19 a −1.95 ns | 6 a 29 |
+
+**Ningún endpoint en falla está dentro de `i_event_ring`** (verificado con
+`report_timing -from` sobre las celdas del ring: peor slack **+0.273 ns**). Los
+que fallan son preexistentes: `i_mca/g_hist_2d`, `i_mca/i_feat`, los ODDR del DAC
+mudo, el `axi_master_3` de HP3 atado a cero, y el esclavo GP0.
+
+El rango de valores entre corridas es **varianza de place & route**: hay decenas
+de caminos dentro de ±0.2 ns de cero, así que cada build cae distinto con cambios
+mínimos (+69 LUTs movieron el WNS de −0.05 a −0.19). Un diseño con timing
+irreproducible entre corridas necesita trabajo real en esos caminos —pipeline en
+`i_mca/g_hist_2d`, que tiene 15 niveles de lógica y una cadena de 10 CARRY4—, no
+restricciones que los tapen.
+
+### Deuda conocida: un multicycle que sí es load-bearing
+
+`sdc/red_pitaya_event_ring.xdc` da 4 ciclos a los registros de geometría. Medido
+sobre el diseño ruteado, tres de esos caminos **exceden un ciclo**:
+
+| registro | datapath | ¿pasa con 1 ciclo? |
+|---|---|---|
+| `ring_sz` | 9.664 ns | no (−1.86) |
+| `slot_shift` | 9.482 ns | no (−1.68) |
+| `pre_n` | 8.325 ns | no (−0.53) |
+
+El multicycle es *justificable* —el RTL **rechaza** las escrituras si no está en
+`STOPPED`, que es más fuerte que la convención del MCA— pero la solución correcta
+es acortar el camino: **registrar `n_slots` y `slot_words` al salir de `STOPPED`**
+en vez de derivarlos combinacionalmente de `ring_sz >> slot_shift` en cada uso.
+Eso elimina la necesidad del multicycle en vez de apoyarse en él.

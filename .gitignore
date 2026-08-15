@@ -24,3 +24,12 @@ prj/MCA/software/datos/
 # Clade
 .claude
 
+# Archivos Caché
+prj/MCA/docs/mca/figuras/__pycache__/
+prj/MCA/software/tests/__pycache__
+
+# Quito figuras y videos
+*.png
+*.jpg
+*.mp4
+

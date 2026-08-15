@@ -3,7 +3,7 @@
 Cómo está organizada la caracterización del Analizador Multicanal, qué cierra
 cada test, y **cuáles de los resultados hay que creerle y cuáles no**. Los
 números de la última campaña están en
-[`resultados_validacion_hw.md`](resultados_validacion_hw.md); acá está el
+[`resultados_validacion_hw.md`](../resultados_validacion_hw.md); acá está el
 *método*.
 
 Código:
@@ -16,6 +16,7 @@ Código:
 | [`../software/tests/test_mca_datapath.py`](../../software/tests/test_mca_datapath.py) | camino de datos completo, con señal |
 | [`../software/tests/diag_mca_hw.py`](../../software/tests/diag_mca_hw.py) | diagnóstico incremental, un paso por invocación |
 | [`../software/tests/test_wave_builders.py`](../../software/tests/test_wave_builders.py) | estímulo y análisis, **en la PC sin instrumento** |
+| [`../software/tests/test_formas_pulso.py`](../../software/tests/test_formas_pulso.py) | familias de forma de Knoll y la descomposición común/diferencial, **en la PC sin instrumento** |
 
 ---
 
@@ -59,6 +60,7 @@ parámetros a caracterizar (ver
 |---|---|---|---|---|
 | `single_peak` | resolución | FWHM del pulser = contribución de ruido electrónico | válido | estímulo nuevo (§6) |
 | `sweep_amplitude` | amplitud | ganancia, INL, offset de cero | 3718.3 canales/Vpp; **INL 0.501 % FS con el generador incluido** | + ida y vuelta (§6) |
+| `formas_inl` | amplitud | **cuánto de la INL depende de la forma del pulso** y cuánto es común-modo | — (nuevo) | **medido 2026-08-14**: con el estimador de pico la INL es común-modo (ganancias dentro de ±0.2 %, correlación +0.997); con el de carga NO (diferencial = ½ del residuo) |
 | `dnl` | amplitud | no linealidad diferencial | **inválido**: líneas discretas | corregido, falta re-medir |
 | `compare_estimators` | resolución | jitter de muestreo: pico vs integral | limitado por `q_shift` fijo | corregido, falta re-medir |
 | `sweep_rate` | tasa | throughput, tiempo muerto, live time, corrimiento del centroide | válido hasta 100 kcps; **no se alcanzó el techo** | corregido, falta re-medir |
@@ -223,6 +225,7 @@ partida en tres scripts que comparten `--outdir`:
 | [`run_campana.py`](../../software/run_campana.py) | `baseline_k` **primero**, después `single_peak`, `cross_check`, `compare_estimators` → `resumen.json` + `plot_all` |
 | [`run_resto.py`](../../software/run_resto.py) | `sweep_amplitude`, `pulse_pair`, `sweep_rate` → `resumen_resto.json` |
 | [`run_resto2.py`](../../software/run_resto2.py) | `sweep_threshold`, `psd_fom`, `dnl` → `resumen_resto2.json` |
+| [`run_formas.py`](../../software/run_formas.py) | `formas_inl` + el análisis común/diferencial → `resumen_formas.json`, `inl_formas.png`, `pico_vs_carga.png` (~20 min; ver §8) |
 
 Cada uno deja los `.npz` crudos en el mismo directorio y un JSON con los números
 resumidos. La campaña del 2026-08-11 está en
@@ -286,18 +289,103 @@ espectro daba 19.5 %, seis veces más).
 **Falta re-medir todo en la placa.** El orden importa: `sweep_baseline_k`
 primero, porque el resto depende del `bl_k` que salga.
 
-## 7. Qué NO cubre
+## 7. `formas_inl`: cuánto de la INL es de la forma del pulso
+
+`sweep_amplitude` mide la INL con **una sola** forma de pulso, y su pasada de
+ida y vuelta alcanza para decir que el residuo es sistemático — pero no de
+quién es. `sweep_formas_inl` agrega el eje que falta: repite la misma curva con
+las formas de amplificador de conformado de Knoll (cap. 16), todas con el
+**mismo FWHM y la misma altura de pico**, de manera que entre familia y familia
+lo único que cambia es la forma.
+
+| Familia | `f(u)`, con `u = t/escala` | Factor de forma (área/pico·FWHM) |
+|---|---|---|
+| `cr` | `(1−e^{−u/0.05})·e^{−u}` — una diferenciación, pulso de cola | 1.343 |
+| `cr_rc` | `u·e^{−u}` — semi-gaussiana clásica, **la de referencia** | 1.111 |
+| `cr_rc4` | `u⁴·e^{−u}/4!` — cuasi-gaussiana | 1.076 |
+| `triangular` | rampa arriba, rampa abajo | 1.007 |
+| `trapezoidal` | rampa, techo plano, rampa | 1.000 |
+| `bipolar` | `(1−u/2)·u·e^{−u}` — doble diferenciación, cruza por cero | 0.979 |
+
+Están en [`rigol_dg4162.py`](../../software/rigol_dg4162.py) (`FORMAS_KNOLL`,
+`shaped_train_wave`), que es donde ya vivían los constructores de onda: son
+funciones puras de numpy y se validan sin instrumento.
+
+### Por qué el barrido dice algo que la ida y vuelta no puede decir
+
+El error de consigna de amplitud del DG4162 es **común a todas las formas**:
+`load_arb` normaliza cada forma a pico 1.0 y `set_arb` la escala por `amp_vpp`,
+así que el mismo lazo de amplitud del instrumento actúa idéntico sobre todas.
+De ahí sale la descomposición que hace `analizar_formas`:
+
+```
+residuo COMÚN a todas las familias  =  generador + INL estática del ADC
+residuo DIFERENCIAL entre familias  =  cadena de medición, y sólo ella
+```
+
+**No** separa generador de INL estática del ADC — los dos son común-modo, y eso
+sigue pidiendo un patrón trazable. Pero sí acota la parte que depende de la
+forma, que es la que responde la pregunta de robustez.
+
+### Tres cosas que hacen que la comparación signifique algo
+
+1. **`n_pulses=1` forzado.** Fija `freq_hz = rate_hz` y la tasa de muestreo del
+   ARB (32.77 MSa/s) iguales para todas las familias. Sin eso `n_pulses` sale
+   del duty y cambiaría la forma **y** la frecuencia a la vez, con lo cual la
+   diferencia medida no sería atribuible a nada.
+2. **Pre-vuelo por familia.** Verifica `cnt_total ≈ rate·seconds` y apilamiento
+   < 5 % antes de medir la curva. Es la guarda contra el modo de falla de
+   `mca_utils` (si la constante del seguidor de línea de base no es mucho más
+   larga que el pulso, el seguidor se **come** el pulso y no se detecta ningún
+   evento). Una familia que no pasa se reporta como no medible y el resto de la
+   campaña sigue.
+3. **Réplica de cierre.** Al final se re-mide la familia de referencia: es el
+   control nulo. Si la deriva de la réplica es del orden del diferencial entre
+   familias, lo que se midió es deriva térmica y no forma.
+
+### El gráfico pico-vs-carga
+
+`pico_vs_carga.png` es el único test de linealidad del conjunto que **no
+depende de la exactitud del generador**: los dos ejes son estimadores internos
+del mismo pulso físico, así que un error de consigna mueve el punto *a lo largo*
+de la recta y no fuera de ella.
+
+- pendiente distinta por familia → esperado, es la geometría del pulso;
+- **curvatura dentro de una familia** → no linealidad de la electrónica;
+- ordenada al origen ≠ 0 → offset de cero de alguno de los dos estimadores.
+
+Los ejes van en unidades físicas deshaciendo los desplazamientos de binning
+(`cen_pico · 2^h_shift`, `cen_carga · 2^q_shift`), porque `q_shift` se autoescala
+**por familia** y sin la corrección la pendiente mediría el autoescalado en vez
+de la forma. La pendiente relativa medida tiene que reproducir el factor de
+forma relativo de la tabla de arriba, que sale de la geometría y de ninguna
+medición: es la verificación cruzada de que el eje de carga está bien escalado.
+
+> La triangular y la trapezoidal comparten factor de forma **exactamente**
+> (1.000, para cualquier ancho de techo: la recta de media altura bisecta las
+> dos rampas). O sea que caen sobre la misma recta teniendo ápices
+> completamente distintos — es el par de control que aísla el efecto del ápice
+> sobre el estimador de pico.
+
+---
+
+## 8. Qué NO cubre
 
 - **Pulsos de detector reales**: la campaña entera se hizo con el generador. El
   cambio de §6 pone el estímulo en la escala temporal correcta, pero un pulso
   sintético sigue sin tener el ruido ni la variabilidad de uno real.
 - **Deriva de ganancia y offset** con el tiempo y la temperatura: pide horas de
-  adquisición repetida del mismo pico.
+  adquisición repetida del mismo pico. (`formas_inl` sólo la **acota** sobre los
+  ~20 min que dura su campaña, con la réplica de cierre.)
 - **Separar la INL del ADC de la del generador**: la pasada de ida y vuelta
-  distingue sistemático de ruido, pero no cuál de los dos instrumentos aporta el
-  sistemático. Eso pide un patrón de tensión trazable.
-- **El conformado trapezoidal**, fuera de alcance del diseño (ver
-  [`decisiones_diseno_mca.md`](decisiones_diseno_mca.md) §5).
+  distingue sistemático de ruido, y `formas_inl` (§7) separa la parte que
+  depende de la forma de la que no — pero generador e INL estática del ADC son
+  los dos común-modo y siguen sin poder separarse entre sí. Eso pide un patrón
+  de tensión trazable.
+- **El conformado trapezoidal** *en el MCA*, fuera de alcance del diseño (ver
+  [`decisiones_diseno_mca.md`](decisiones_diseno_mca.md) §5). Que `formas_inl`
+  **inyecte** una forma trapezoidal desde el generador es otra cosa: no
+  implementa el filtro, sólo usa la forma como estímulo.
 
 ---
 

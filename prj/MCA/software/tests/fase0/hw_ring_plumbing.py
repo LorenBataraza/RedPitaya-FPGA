@@ -53,19 +53,51 @@ R_TS_LO, R_TS_HI, R_AXI_ADDR, R_MAGIC = 0x40, 0x44, 0x48, 0x50
 
 MAGIC = 0x45564E54  # "EVNT"
 
-# --- región de DDR reservada (ajustar al device tree real) -----------------
-DDR_PHYS = 0x1E00_0000
-DDR_SIZE = 0x0200_0000      # 32 MB
+class NotOnPitaya(RuntimeError):
+    pass
+
+
+# --- región de DDR reservada ------------------------------------------------
+# Se descubre del device tree en vez de hardcodearse. Este RP OS (2.00) ya trae
+# dos regiones reservadas y NO hace falta tocar el device tree para la Fase 0:
+#   buffer@1000000  0x0100_0000   2 MB   (deep memory del ADC, rp_AcqAxi)
+#   labuf@a000000   0x0A00_0000  32 MB   (buffer del analizador logico)
+# Se usa labuf por tamaño. OJO: es prestada — si alguna vez se corre la app de
+# analizador logico al mismo tiempo, se pisan. Para produccion conviene un nodo
+# propio en el device tree.
+DT_RESERVED = "/sys/firmware/devicetree/base/reserved-memory"
+PREFER_REGIONS = ("labuf@a000000", "buffer@1000000")
+
+DDR_PHYS = None
+DDR_SIZE = None
+
+
+def discover_ddr():
+    """Elige la region reservada mas grande de las preferidas."""
+    global DDR_PHYS, DDR_SIZE
+    if DDR_PHYS is not None:
+        return DDR_PHYS, DDR_SIZE
+    env = os.environ.get("RING_DDR")           # "0xADDR:SIZE" para forzar
+    if env:
+        a, s = env.split(":")
+        DDR_PHYS, DDR_SIZE = int(a, 0), int(s, 0)
+        return DDR_PHYS, DDR_SIZE
+    for name in PREFER_REGIONS:
+        reg = os.path.join(DT_RESERVED, name, "reg")
+        if os.path.isfile(reg):
+            with open(reg, "rb") as fh:
+                a, s = struct.unpack(">II", fh.read(8))
+            DDR_PHYS, DDR_SIZE = a, s
+            return DDR_PHYS, DDR_SIZE
+    raise NotOnPitaya(
+        "no encontre ninguna region reservada en el device tree; "
+        "forzar con RING_DDR=0xADDR:SIZE")
 
 # Baseline del camino viejo, medido: ~45.6 us por canal por llamada a
 # rp_AcqGetDataPosV sobre BRAM (docs/arquitectura_adquisicion_software.md).
 BRAM_BASELINE_US_PER_CALL = 45.6
 
 _U32 = struct.Struct("<I")
-
-
-class NotOnPitaya(RuntimeError):
-    pass
 
 
 def _open_mem(phys, size):
@@ -100,6 +132,8 @@ def w32(m, off, val):
 def step_dt():
     """¿Está la región reservada y Linux la está respetando?"""
     print("== device tree / reserved-memory ==")
+    discover_ddr()
+    print(f"  region elegida: {DDR_PHYS:#010x}  {DDR_SIZE/2**20:.0f} MB")
     ok = True
 
     dt = "/sys/firmware/devicetree/base/reserved-memory"
@@ -128,6 +162,7 @@ def step_dt():
 
 def step_regs():
     """¿Responde el event_ring y la geometría se congela con la adquisición parada?"""
+    discover_ddr()
     print("== registros del event_ring (slot 2) ==")
     m = _open_mem(RING_PHYS, RING_SIZE)
 
@@ -167,6 +202,7 @@ def step_regs():
 
 def step_bw():
     """El número que justifica la Fase 1: cuánto más rápido es leer DDR que BRAM."""
+    discover_ddr()
     print("== throughput de lectura ==")
     m = _open_mem(DDR_PHYS, min(DDR_SIZE, 4 << 20))
     size = min(DDR_SIZE, 4 << 20)
@@ -190,6 +226,7 @@ def step_bw():
 
 def step_capture(seconds=2.0):
     """Corrida corta: arrancar, dejar que dispare, decodificar los slots."""
+    discover_ddr()
     print("== captura y decodificacion ==")
     reg = _open_mem(RING_PHYS, RING_SIZE)
     if r32(reg, R_MAGIC) != MAGIC:

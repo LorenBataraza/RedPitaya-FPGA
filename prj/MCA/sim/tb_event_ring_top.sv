@@ -342,6 +342,42 @@ module tb_event_ring_top;
     checkv("y sigue tomando eventos nuevos", rv, wrs + 1);
 
     //======================================================================
+    // Regresion del bug que aparecio en la PLACA y no en simulacion: wr_slot se
+    // reseteaba con el flush de STOPPED pero rd_slot no, asi que un stop/start
+    // dejaba `ocupados = wr - rd` en underflow (~2^32) y el ring descartaba
+    // TODO sin credito. El TB no lo veia porque re-publicaba rd_slot despues de
+    // cada arranque; aca se hace justamente lo contrario.
+    // Regresion del bug de la PLACA: wr_slot se reseteaba con el flush de
+    // STOPPED pero rd_slot no, asi que un stop/start dejaba `ocupados = wr - rd`
+    // en underflow (~2^32) y el ring descartaba TODO. El TB no lo veia porque
+    // re-publicaba rd_slot despues de cada arranque; aca se hace lo contrario.
+    //
+    // El invariante que hay que sostener es
+    //     direccion_fisica = slot_base + (wr_slot mod N_SLOTS) * SLOT_SZ
+    // y por eso los DOS contadores y la direccion del axi_wr_fifo se reinician
+    // juntos: un stop deja el ring como recien arrancado, sin desincronizar el
+    // indice de la memoria.
+    $display("[4b] stop/start SIN republicar rd_slot: nada de underflow");
+    bus_wr(20'h00, 32'h0);            // stop
+    repeat (400) @(posedge clk);
+    bus_wr(20'h00, 32'h1);            // start, SIN tocar rd_slot
+    repeat (80) @(posedge clk);
+    bus_rd(20'h20, rv);
+    bus_rd(20'h24, rds);
+    checkv("wr_slot reiniciado", rv, 0);
+    checkv("rd_slot reiniciado JUNTO con wr_slot", rds, 0);
+    check("ocupados sano (sin underflow)", (rv - rds) <= N_SLOTS);
+
+    // Y el primer evento tras el stop/start aterriza en el slot fisico 0,
+    // que es lo que el PS va a ir a buscar con (wr_slot mod N_SLOTS).
+    pulse_trig();
+    repeat (400) @(posedge clk);
+    bus_rd(20'h20, rv);
+    checkv("captura tras el stop/start", rv, 1);
+    checkv("y aterrizo en el slot fisico 0", slot_w(0, SLOT_W-1),
+           {~32'd0, 32'd0});
+
+    //======================================================================
     $display("[5] parada ordenada: DRAINING no corta la ventana en vuelo");
     // wr_slot se resetea al volver a STOPPED (arranca una corrida nueva), asi
     // que la evidencia hay que buscarla en la MEMORIA, que no se toca.
@@ -365,6 +401,8 @@ module tb_event_ring_top;
     repeat (80) @(posedge clk);
     bus_rd(20'h20, wrs);
     bus_wr(20'h24, wrs);
+    bus_rd(20'h28, rv);        // seq que le va a tocar al proximo evento
+    s = rv;
     fork
       begin
         pulse_trig();
@@ -382,11 +420,11 @@ module tb_event_ring_top;
     bus_rd(20'h20, rv);
     checkv("el evento salio pese a la contrapresion", rv, wrs + 1);
     checkv("footer bien formado con contrapresion",
-           slot_w(wrs, SLOT_W-1), {~wrs, wrs});
+           slot_w(s, SLOT_W-1), {~s[31:0], s[31:0]});
     // intercalado intacto: la contrapresion no debe desalinear el empaquetado
     errs = 0;
     for (i = 0; i < (32*N_CH)/4; i = i + 1)
-      if (slot_w(wrs,4+i)[31:16] !== ((-$signed(slot_w(wrs,4+i)[15:0])) & 16'hFFFF))
+      if (slot_w(s,4+i)[31:16] !== ((-$signed(slot_w(s,4+i)[15:0])) & 16'hFFFF))
         errs = errs + 1;
     checkv("intercalado intacto con contrapresion", errs, 0);
     bus_rd(20'h04, rv);

@@ -320,7 +320,12 @@ module tb_mca_pulse_feature;
     // 13a) La compuerta larga define el largo: mas CORTA que el pulso.
     //      30 muestras de 500 con gate_long=10 -> q_tot = 10*500
     //      (10 muestras: la que abre + 9 en S_ACTIVE, igual que en modo 0)
-    //      La senal sigue alta al cerrar -> APILAMIENTO.
+    //
+    //      Y NO es apilamiento aunque la senal siga alta al cerrar: es la cola
+    //      del PROPIO pulso. Esta es la regla que se corrigio despues de medir
+    //      en la placa — con la version anterior ("senal alta al cerrar =
+    //      apilamiento") el 100 % de los eventos se descartaba con cualquier
+    //      compuerta mas corta que la cola, que es justo el rango util.
     //-----------------------------------------------------------------------
     reset_dut;
     cfg_gate_mode = 1'b1; cfg_gate_short = 4; cfg_gate_long = 10;
@@ -328,8 +333,8 @@ module tb_mca_pulse_feature;
     settle;
     checkv("compuerta corta que el pulso: q_tot = 10*500", last_qtot, 5000);
     checkv("compuerta: contado en total",                  c_total,   1);
-    checkv("compuerta: senal alta al cerrar -> apilamiento", c_pileup, 1);
-    checkv("compuerta: apilado NO se acepta",              c_acc,     0);
+    checkv("la cola del PROPIO pulso no es apilamiento",   c_pileup,  0);
+    checkv("compuerta corta: el evento se acepta",         c_acc,     1);
 
     //-----------------------------------------------------------------------
     // 13b) Compuerta MAS LARGA que el pulso: el pulso entra entero y la
@@ -387,7 +392,37 @@ module tb_mca_pulse_feature;
     checkv("modo 0 ignora gate_long: q_tot = 20*500",  last_qtot,  10000);
     checkv("modo 0 ignora gate_short: q_tail = 19*500", last_qtail, 9500);
     checkv("modo 0: sin apilamiento",                   c_pileup,   0);
-    cfg_gate_short = 32; cfg_gate_long = 384;
+
+    //-----------------------------------------------------------------------
+    // 13f) APILAMIENTO DE VERDAD en modo compuerta: un SEGUNDO pulso dentro de
+    //      la compuerta. La senal tiene que bajar de thr_lo y volver a cruzar
+    //      thr_hi con la ventana todavia abierta.
+    //-----------------------------------------------------------------------
+    reset_dut;
+    cfg_gate_mode = 1'b1; cfg_gate_short = 4; cfg_gate_long = 40;
+    for (i=0;i<10;i=i+1) push(500);   // 1er pulso
+    for (i=0;i<5;i=i+1)  push(0);     // baja: arma la deteccion del 2do
+    for (i=0;i<10;i=i+1) push(500);   // 2do pulso DENTRO de la compuerta
+    for (i=0;i<30;i=i+1) push(0);     // relleno hasta cerrar
+    settle;
+    checkv("2do pulso en la compuerta: contado",        c_total,  1);
+    checkv("2do pulso en la compuerta: APILAMIENTO",    c_pileup, 1);
+    checkv("2do pulso en la compuerta: NO se acepta",   c_acc,    0);
+
+    //-----------------------------------------------------------------------
+    // 13g) ...pero un solo pulso que baja y NO vuelve a subir no es
+    //      apilamiento, aunque haya cruzado thr_lo dentro de la compuerta.
+    //-----------------------------------------------------------------------
+    reset_dut;
+    cfg_gate_mode = 1'b1; cfg_gate_short = 4; cfg_gate_long = 40;
+    for (i=0;i<10;i=i+1) push(500);
+    for (i=0;i<40;i=i+1) push(0);     // baja y se queda abajo
+    settle;
+    checkv("bajar sin volver a subir NO es apilamiento", c_pileup, 0);
+    checkv("y el evento se acepta",                      c_acc,    1);
+    checkv("con la carga del unico pulso",               last_qtot, 5000);
+
+    cfg_gate_mode = 1'b0; cfg_gate_short = 32; cfg_gate_long = 384;
 
     $display("---------------------------------------------");
     $display("tb_mca_pulse_feature: %0d PASS, %0d FAIL", pass_cnt, fail_cnt);

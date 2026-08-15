@@ -1,5 +1,5 @@
 # vsim -c -quiet tb_event_ring_top -do "run -all; quit -f" 
-# Start time: 20:26:34 on Aug 12,2026
+# Start time: 18:37:32 on Aug 14,2026
 # ** Note: (vsim-3812) Design is being optimized...
 # //  Questa Sim-64
 # //  Version 10.7c linux_x86_64 Aug 17 2018
@@ -22,12 +22,13 @@
 # [3] wrap del ring con el PS drenando
 # [4] RAFAGA sin drenaje: absorbe, despues cuenta la perdida
 #       capturados=8 drop_busy=8 drop_full=4 wr_slot=4 rd_slot=0
+# [4b] stop/start SIN republicar rd_slot: nada de underflow
 # [5] parada ordenada: DRAINING no corta la ventana en vuelo
 # [6] contrapresion del bus AXI
 # 
-#   pass=34  fail=0
+#   pass=39  fail=0
 # RESULT: PASS
-# ** Note: $finish    : tb_event_ring_top.sv(400)
-#    Time: 94104 ns  Iteration: 1  Instance: /tb_event_ring_top
-# End time: 20:26:35 on Aug 12,2026, Elapsed time: 0:00:01
+# ** Note: $finish    : tb_event_ring_top.sv(438)
+#    Time: 101488 ns  Iteration: 1  Instance: /tb_event_ring_top
+# End time: 18:37:33 on Aug 14,2026, Elapsed time: 0:00:01
 # Errors: 0, Warnings: 0

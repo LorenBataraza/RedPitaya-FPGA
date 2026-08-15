@@ -1,7 +1,7 @@
 Copyright 1986-2020 Xilinx, Inc. All Rights Reserved.
 ----------------------------------------------------------------------------------------
 | Tool Version     : Vivado v.2020.1 (lin64) Build 2902540 Wed May 27 19:54:35 MDT 2020
-| Date             : Wed Aug 12 21:45:13 2026
+| Date             : Fri Aug 14 18:29:12 2026
 | Host             : LoloVictus running 64-bit Ubuntu 20.04.3 LTS
 | Command          : report_power -file out/v3_event_ring/post_route_power.rpt
 | Design           : event_ring_red_pitaya_top
@@ -30,10 +30,10 @@ Table of Contents
 ----------
 
 +--------------------------+--------------+
-| Total On-Chip Power (W)  | 1.829        |
+| Total On-Chip Power (W)  | 1.828        |
 | Design Power Budget (W)  | Unspecified* |
 | Power Budget Margin (W)  | NA           |
-| Dynamic (W)              | 1.696        |
+| Dynamic (W)              | 1.695        |
 | Device Static (W)        | 0.133        |
 | Effective TJA (C/W)      | 11.5         |
 | Max Ambient (C)          | 63.9         |
@@ -53,15 +53,15 @@ Table of Contents
 | On-Chip                  | Power (W) | Used     | Available | Utilization (%) |
 +--------------------------+-----------+----------+-----------+-----------------+
 | Clocks                   |     0.047 |       16 |       --- |             --- |
-| Slice Logic              |     0.013 |    19445 |       --- |             --- |
-|   LUT as Logic           |     0.010 |     6619 |     17600 |           37.61 |
+| Slice Logic              |     0.013 |    19478 |       --- |             --- |
+|   LUT as Logic           |     0.010 |     6656 |     17600 |           37.82 |
 |   CARRY4                 |     0.002 |      796 |      4400 |           18.09 |
-|   Register               |    <0.001 |     8853 |     35200 |           25.15 |
+|   Register               |    <0.001 |     8856 |     35200 |           25.16 |
 |   LUT as Distributed RAM |    <0.001 |      300 |      6000 |            5.00 |
 |   LUT as Shift Register  |    <0.001 |      157 |      6000 |            2.62 |
 |   F7/F8 Muxes            |    <0.001 |       54 |     17600 |            0.31 |
 |   Others                 |     0.000 |      337 |       --- |             --- |
-| Signals                  |     0.015 |    15425 |       --- |             --- |
+| Signals                  |     0.015 |    15387 |       --- |             --- |
 | Block RAM                |     0.086 |     43.5 |        60 |           72.50 |
 | PLL                      |     0.097 |        1 |         2 |           50.00 |
 | DSPs                     |    <0.001 |        4 |        80 |            5.00 |
@@ -69,7 +69,7 @@ Table of Contents
 | XADC                     |     0.004 |        1 |       --- |             --- |
 | PS7                      |     1.310 |        1 |       --- |             --- |
 | Static Power             |     0.133 |          |           |                 |
-| Total                    |     1.829 |          |           |                 |
+| Total                    |     1.828 |          |           |                 |
 +--------------------------+-----------+----------+-----------+-----------------+
 
 
@@ -79,7 +79,7 @@ Table of Contents
 +-----------+-------------+-----------+-------------+------------+-------------+-------------+------------+
 | Source    | Voltage (V) | Total (A) | Dynamic (A) | Static (A) | Powerup (A) | Budget (A)  | Margin (A) |
 +-----------+-------------+-----------+-------------+------------+-------------+-------------+------------+
-| Vccint    |       1.000 |     0.173 |       0.164 |      0.009 |       NA    | Unspecified | NA         |
+| Vccint    |       1.000 |     0.172 |       0.163 |      0.009 |       NA    | Unspecified | NA         |
 | Vccaux    |       1.800 |     0.067 |       0.059 |      0.008 |       NA    | Unspecified | NA         |
 | Vcco33    |       3.300 |     0.024 |       0.023 |      0.001 |       NA    | Unspecified | NA         |
 | Vcco25    |       2.500 |     0.000 |       0.000 |      0.000 |       NA    | Unspecified | NA         |
@@ -165,7 +165,7 @@ Table of Contents
 +--------------------------------+-----------+
 | Name                           | Power (W) |
 +--------------------------------+-----------+
-| event_ring_red_pitaya_top      |     1.696 |
+| event_ring_red_pitaya_top      |     1.695 |
 |   i_daisy                      |     0.036 |
 |     genblk1[0].i_OBUF_dat      |     0.004 |
 |     genblk3[0].i_test          |     0.002 |
@@ -194,17 +194,17 @@ Table of Contents
 |     i_cfg                      |     0.003 |
 |   pdm                          |     0.002 |
 |   pll                          |     0.097 |
-|   ps                           |     1.339 |
+|   ps                           |     1.338 |
 |     axi_master_0               |     0.001 |
 |     axi_master_1               |     0.001 |
 |     axi_master_2               |     0.001 |
 |     axi_master_3               |     0.001 |
 |     axi_slave_gp0              |     0.002 |
-|     system_i                   |     1.332 |
+|     system_i                   |     1.331 |
 |       axi_protocol_converter_0 |     0.009 |
 |       axi_register_slice_0     |     0.003 |
 |       processing_system7       |     1.311 |
-|       xadc                     |     0.008 |
+|       xadc                     |     0.007 |
 |   sys_bus_interconnect         |     0.002 |
 +--------------------------------+-----------+
 

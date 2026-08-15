@@ -129,6 +129,28 @@ def _acquire(mca, seconds):
     return spec, m2d, cnt
 
 
+def _pico(spec, frac=0.15, min_w=8):
+    """Ajusta el pico dominante del espectro: argmax + ventana + gaussiana.
+
+    La ventana es proporcional al canal del pico (`frac`) y no fija, porque el
+    ancho del pico crece con la energía; con una ventana fija el ajuste se come
+    la cola a canal alto y se queda sin bins a canal bajo. El piso `min_w`
+    cubre el caso de un pico cerca del canal 0.
+
+    Devuelve el dict de `mu.gauss_fit_peak` (con NaN y `empty=True` si el
+    espectro está vacío, que es un resultado legítimo: umbral mal puesto,
+    generador apagado, todo rechazado).
+    """
+    spec = np.asarray(spec)
+    if not spec.any():
+        return {'centroid': float('nan'), 'sigma': float('nan'),
+                'fwhm': float('nan'), 'area': 0.0,
+                'resolution_pct': float('nan'), 'empty': True}
+    pk = int(np.argmax(spec))
+    w = max(min_w, int(frac * pk))
+    return mu.gauss_fit_peak(spec, max(0, pk - w), min(len(spec), pk + w))
+
+
 # =============================================================================
 # 1. Pico único — contribución de ruido electrónico
 # =============================================================================
@@ -150,9 +172,7 @@ def test_single_peak(mca, gen, ch=1, seconds=10.0, amp_vpp=0.5, rate_hz=2e3,
     spec, _, cnt = _acquire(mca, seconds)
     gen.output(ch, False)
 
-    peak = np.argmax(spec)
-    w = max(8, int(0.15 * peak))
-    fit = mu.gauss_fit_peak(spec, max(0, peak - w), min(len(spec), peak + w))
+    fit = _pico(spec)
     print(f"  centroide {fit['centroid']:.1f} canales   FWHM {fit['fwhm']:.2f}   "
           f"resolución {fit['resolution_pct']:.2f}%")
     print(f"  cuentas: total {cnt['total']}, aceptadas {cnt['accepted']}, "
@@ -203,11 +223,7 @@ def sweep_amplitude(mca, gen, ch=1, amps=None, seconds=4.0, rate_hz=2e3,
         gen.output(ch, True)
         time.sleep(0.3)
         spec, _, _ = _acquire(mca, seconds)
-        if not spec.any():
-            return float('nan'), float('nan')
-        pk = int(np.argmax(spec))
-        w = max(8, int(0.15 * pk))
-        f = mu.gauss_fit_peak(spec, max(0, pk - w), min(len(spec), pk + w))
+        f = _pico(spec)
         return f['centroid'], f['fwhm']
 
     centroids, fwhms = [], []
@@ -264,6 +280,405 @@ def sweep_amplitude(mca, gen, ch=1, amps=None, seconds=4.0, rate_hz=2e3,
     return {'amps': amps, 'centroids': centroids, 'fwhms': np.array(fwhms),
             'gain': a_fit, 'offset': b_fit, 'inl_pct_fs': inl, 'resid': resid,
             'resid_vuelta': resid2, 'veredicto': veredicto}
+
+
+# =============================================================================
+# 2b. INL vs familia de forma — robustez de la determinación de amplitud
+# =============================================================================
+
+# Orden del barrido: la de REFERENCIA primero. `cr_rc` es la semi-gaussiana
+# clásica, la forma más parecida al estímulo con el que se midió la campaña
+# publicada, así que su ganancia y su INL son la comparación de cordura de todo
+# el barrido. Las demás van de más asimétrica a más simétrica.
+FAMILIAS_KNOLL = ('cr_rc', 'cr', 'cr_rc4', 'triangular', 'trapezoidal', 'bipolar')
+
+# amp_src del MCA por estimador (registro cfg_amp_src, bit 0).
+_AMP_SRC = {'pico': 0, 'carga': 1}
+
+
+def sweep_formas_inl(mca, gen, ch=1, familias=None, amps=None, seconds=3.0,
+                     rate_hz=2e3, width_s=None, estimadores=('pico', 'carga'),
+                     ida_y_vuelta=True, target_channel=8000, outdir=None, **cfg):
+    """La curva de INL medida con VARIAS familias de forma de pulso.
+
+    `sweep_amplitude` mide la INL con una sola forma, y su pasada de ida y
+    vuelta alcanza para decir que el residuo es SISTEMÁTICO — pero no de quién
+    es. Este barrido agrega el eje que falta repitiendo la misma curva con las
+    formas de amplificador de conformado de Knoll (ver `rg.FORMAS_KNOLL`), todas
+    con el MISMO FWHM y la misma altura de pico, de modo que entre familia y
+    familia lo único que cambia es la forma.
+
+    Sirve para dos cosas:
+
+    1. **Robustez.** Si la amplitud que reporta el MCA cambia al cambiar la
+       forma a igual altura de pico, ese error es de la cadena de medición y no
+       del estímulo. Es la pregunta directa.
+
+    2. **Atribución.** El error de consigna de amplitud del DG4162 es COMÚN a
+       todas las formas: `load_arb` normaliza cada forma a pico 1.0 y `set_arb`
+       la escala por `amp_vpp`, así que el mismo lazo de amplitud del
+       instrumento actúa idéntico sobre todas. Entonces:
+
+           residuo COMÚN a todas las familias  = generador + INL estática del ADC
+           residuo DIFERENCIAL entre familias  = cadena de medición, y sólo ella
+
+       Es lo más lejos que se llega sin un patrón de tensión trazable. NO separa
+       generador de INL estática del ADC (los dos son común-modo), pero sí acota
+       la parte que depende de la forma, que es la que importa acá.
+
+    Se mide con los dos estimadores (`estimadores=('pico','carga')`) porque la
+    expectativa es opuesta: el de pico lee el ápice y debería ser casi
+    insensible a la forma; el de carga integra, así que su ganancia escala con
+    el factor de forma (área/pico) y va a cambiar mucho — de forma PREDECIBLE,
+    lo que sirve de verificación cruzada (ver el gráfico pico-vs-carga).
+
+    Devuelve el dict de datos crudos; el análisis es `analizar_formas()`.
+    """
+    print('\n=== INL vs familia de forma (robustez de la amplitud) ===')
+    c = {**DEFAULT_CFG, **cfg}
+    familias = FAMILIAS_KNOLL if familias is None else tuple(familias)
+    # Validar los nombres ANTES de conectar nada: un typo en --familias o en
+    # --estimadores tiene que fallar en el segundo cero, no a los quince
+    # minutos de campaña.
+    malas = [f for f in familias if f not in rg.FORMAS_KNOLL]
+    if malas:
+        raise ValueError(f'familias desconocidas: {malas}. '
+                         f'Conocidas: {sorted(rg.FORMAS_KNOLL)}')
+    malos = [e for e in estimadores if e not in _AMP_SRC]
+    if malos:
+        raise ValueError(f'estimadores desconocidos: {malos}. '
+                         f'Conocidos: {sorted(_AMP_SRC)}')
+    amps = np.linspace(0.1, 1.0, 12) if amps is None else np.asarray(amps, dtype=float)
+    width_s = PULSE_WIDTH_S if width_s is None else width_s
+    a_max = float(amps.max())
+
+    def _set_amp(a):
+        # freq_hz = rate_hz porque todas las formas se arman con n_pulses=1.
+        gen.set_arb(ch=ch, freq_hz=rate_hz, amp_vpp=float(a), offset_v=float(a) / 2)
+        gen.output(ch, True)
+        time.sleep(0.3)
+
+    def _centroide(a):
+        _set_amp(a)
+        spec, _, _ = _acquire(mca, seconds)
+        f = _pico(spec)
+        return f['centroid'], f['fwhm']
+
+    def _prevuelo(fam):
+        """¿Esta familia se mide bien con la configuración actual?
+
+        Es la guarda contra el modo de falla documentado en mca_utils: si la
+        constante del seguidor de línea de base no es mucho más larga que el
+        pulso, el seguidor se COME el pulso y no se detecta ningún evento. Con
+        formas de cola larga (`cr`) o con el lóbulo negativo de la bipolar el
+        riesgo es real, y una curva medida sobre un espectro casi vacío sale
+        como una INL enorme sin ninguna advertencia.
+        """
+        mca.configure(**{**c, 'amp_src': 0, 'q_shift': 0})
+        _set_amp(a_max)
+        spec, _, cnt = _acquire(mca, 1.0)
+        esperados = rate_hz * max(cnt['realtime_s'], 1e-9)
+        frac = cnt['total'] / max(esperados, 1e-9)
+        pileup = cnt['pileup'] / max(cnt['total'], 1)
+        ok = bool(spec.any()) and 0.9 <= frac <= 1.1 and pileup < 0.05
+        print(f'  pre-vuelo: {cnt["total"]} eventos = {100*frac:.0f}% de los '
+              f'esperados, apilamiento {100*pileup:.1f}%'
+              f'{"" if ok else "   <-- NO MEDIBLE"}')
+        return ok, frac, pileup
+
+    guardar = {'amps': amps, 'familias': np.array(familias),
+               'estimadores': np.array(estimadores),
+               'h_shift': np.array(c['h_shift']),
+               'width_s': np.array(width_s), 'rate_hz': np.array(rate_hz),
+               'seconds': np.array(seconds)}
+    res = {'amps': amps, 'familias': familias, 'estimadores': estimadores,
+           'h_shift': c['h_shift'], 'por_forma': {}}
+
+    for fam in familias:
+        print(f'\n--- familia {fam} ---')
+        try:
+            # n_pulses=1 es lo que fija freq_hz y la tasa de muestreo del ARB
+            # iguales para todas las familias: sin eso cambiaría la forma Y la
+            # frecuencia a la vez, y la comparación no diría nada.
+            wave, freq, info = rg.shaped_train_wave(fam, width_s, rate_hz,
+                                                    n_pulses=1)
+        except ValueError as e:
+            print(f'  no se puede armar el estímulo: {e}')
+            guardar[f'ok_{fam}'] = np.array(False)
+            continue
+        print(f'  estímulo: {width_s*1e6:g} us FWHM a {freq:.0f} Hz, '
+              f'{info["srate_sa_s"]/1e6:.1f} MSa/s, factor de forma '
+              f'{info["factor_forma"]:.3f}'
+              + ('' if info['area_pos_frac'] > 0.99 else
+                 f', área positiva {100*info["area_pos_frac"]:.0f}%'))
+        gen.load_arb(wave, ch=ch)
+
+        ok, frac, pileup = _prevuelo(fam)
+        guardar[f'ok_{fam}'] = np.array(ok)
+        guardar[f'prevuelo_{fam}'] = np.array([frac, pileup])
+        guardar[f'factor_forma_{fam}'] = np.array(info['factor_forma'])
+        guardar[f'area_pos_frac_{fam}'] = np.array(info['area_pos_frac'])
+        if not ok:
+            print('  se saltea esta familia (el resto de la campaña sigue)')
+            continue
+
+        for est in estimadores:
+            qs = 0
+            if _AMP_SRC[est] == 1:
+                # Q_tot escala con el factor de forma, así que el
+                # desplazamiento hay que re-elegirlo POR FAMILIA: con uno fijo
+                # las familias compactas quedarían comprimidas en pocos canales
+                # y su FWHM cuantizado al bin. Se autoescala a la amplitud
+                # máxima para que el barrido entero entre en el eje.
+                _set_amp(a_max)
+                qs = mca.autoscale_q_shift(target_channel=target_channel,
+                                           **{**c, 'amp_src': 1, 'q_shift': 0})
+                if qs is None:
+                    print(f'  [{est}] sin eventos al autoescalar; se saltea')
+                    continue
+            mca.configure(**{**c, 'amp_src': _AMP_SRC[est], 'q_shift': qs})
+
+            cen, fw = [], []
+            for a in amps:
+                x, y = _centroide(a)
+                cen.append(x)
+                fw.append(y)
+            cen = np.array(cen)
+            gain, off, resid, inl = mu.energy_calibration(cen, amps)
+
+            resid2 = None
+            if ida_y_vuelta:
+                cen2 = np.array([_centroide(a)[0] for a in amps[::-1]])[::-1]
+                _, _, resid2, _ = mu.energy_calibration(cen2, amps)
+
+            piso = (float(np.nanstd(resid - resid2)) if resid2 is not None
+                    else float('nan'))
+            print(f'  [{est:5s}] q_shift={qs:2d}  ganancia {gain:9.1f} ch/Vpp  '
+                  f'offset {off:+7.1f}  INL {inl:5.2f}% FS  '
+                  f'({1e3*np.nanmax(np.abs(resid))/abs(gain):.2f} mV)  '
+                  f'piso ida/vuelta {piso:.2f} ch')
+
+            guardar[f'cen_{fam}_{est}'] = cen
+            guardar[f'fwhm_{fam}_{est}'] = np.array(fw)
+            guardar[f'resid_{fam}_{est}'] = resid
+            guardar[f'gain_{fam}_{est}'] = np.array(gain)
+            guardar[f'offset_{fam}_{est}'] = np.array(off)
+            guardar[f'inl_{fam}_{est}'] = np.array(inl)
+            guardar[f'qshift_{fam}_{est}'] = np.array(qs)
+            if resid2 is not None:
+                guardar[f'resid_vuelta_{fam}_{est}'] = resid2
+            res['por_forma'][(fam, est)] = {
+                'cen': cen, 'fwhm': np.array(fw), 'gain': gain, 'offset': off,
+                'resid': resid, 'resid_vuelta': resid2, 'inl_pct_fs': inl,
+                'q_shift': qs}
+
+    # Réplica de cierre: la familia de referencia otra vez, al final de la
+    # campaña. Acota la deriva sobre los ~20 minutos que dura todo, y es el
+    # control nulo del análisis diferencial — dos medidas de la MISMA forma
+    # tienen que dar diferencia ~0. Si la réplica se aparta más que el
+    # diferencial entre familias, lo que se está midiendo es deriva.
+    ref = familias[0]
+    if guardar.get(f'ok_{ref}', np.array(False)) and 'pico' in estimadores:
+        print(f'\n--- réplica de cierre ({ref}, pico) ---')
+        wave, freq, _ = rg.shaped_train_wave(ref, width_s, rate_hz, n_pulses=1)
+        gen.load_arb(wave, ch=ch)
+        mca.configure(**{**c, 'amp_src': 0, 'q_shift': 0})
+        cen_r = np.array([_centroide(a)[0] for a in amps])
+        g_r, _, resid_r, inl_r = mu.energy_calibration(cen_r, amps)
+        guardar['cen_replica'] = cen_r
+        guardar['resid_replica'] = resid_r
+        guardar['gain_replica'] = np.array(g_r)
+        deriva = 1e3 * float(np.nanmax(np.abs(
+            resid_r - guardar[f'resid_{ref}_pico']))) / abs(g_r)
+        print(f'  ganancia {g_r:.1f} ch/Vpp (inicial '
+              f'{float(guardar[f"gain_{ref}_pico"]):.1f}), INL {inl_r:.2f}% FS')
+        print(f'  deriva sobre la campaña: {deriva:.2f} mV de residuo')
+
+    gen.output(ch, False)
+    _save(outdir, 'formas_inl', **guardar)
+    res['npz'] = guardar
+    return res
+
+
+def analizar_formas(d):
+    """Descompone los residuos en parte común (generador) y diferencial (MCA).
+
+    `d` es el .npz de `sweep_formas_inl` (o su ruta). No toca hardware: se puede
+    correr en la PC sobre una campaña ya medida.
+
+    Todo se pasa a mV referidos a la consigna del generador (residuo en canales
+    dividido por la ganancia de esa misma familia), que es la única unidad en la
+    que las familias y los dos estimadores son comparables entre sí — las
+    ganancias en canales/Vpp difieren en órdenes de magnitud entre pico y carga.
+    """
+    if isinstance(d, str):
+        d = np.load(d)
+    # Acepta tanto el NpzFile como el dict crudo que devuelve sweep_formas_inl,
+    # para poder analizar sin pasar por el disco.
+    claves = set(d.files) if hasattr(d, 'files') else set(d)
+    familias = [str(x) for x in d['familias']]
+    estimadores = [str(x) for x in d['estimadores']]
+    amps = np.asarray(d['amps'], dtype=float)
+    out = {'amps': amps.tolist(), 'por_estimador': {}}
+
+    # Control nulo PRIMERO, porque es un piso del veredicto y no un apéndice: la
+    # réplica de cierre re-mide la familia de referencia al final de la campaña,
+    # así que su diferencia contra la medición inicial es lo que la deriva
+    # produce SIN cambiar la forma. Un diferencial entre familias que no supere
+    # esa deriva no se puede atribuir a la forma — y esto ya pasó en la primera
+    # campaña medida, donde la deriva (0.43 mV) quedó del orden del diferencial
+    # del estimador de pico (0.57 mV).
+    ref = familias[0]
+    deriva = float('nan')
+    if 'resid_replica' in claves and f'resid_{ref}_pico' in claves:
+        g = float(d['gain_replica'])
+        deriva = 1e3 * float(np.nanmax(np.abs(
+            np.asarray(d['resid_replica'])
+            - np.asarray(d[f'resid_{ref}_pico'])))) / abs(g)
+        out['deriva_replica_mv'] = deriva
+        out['ganancia_replica_pct'] = 100.0 * (
+            g / float(d[f'gain_{ref}_pico']) - 1.0)
+
+    for est in estimadores:
+        fams = [f for f in familias
+                if f'resid_{f}_{est}' in claves and bool(d[f'ok_{f}'])]
+        if len(fams) < 2:
+            out['por_estimador'][est] = {'error': f'sólo {len(fams)} familia(s) '
+                                         'medibles: no hay comparación posible'}
+            continue
+
+        gain = {f: float(d[f'gain_{f}_{est}']) for f in fams}
+        # Ganancia FÍSICA: en canales la ganancia arrastra el desplazamiento de
+        # binning, y `q_shift` se autoescala por familia — así que comparar
+        # ganancias en canales/Vpp entre familias mide el autoescalado, no la
+        # electrónica. Deshacer el desplazamiento deja cuentas de ADC por Vpp
+        # (pico) o cuentas·muestra por Vpp (carga), que sí son comparables.
+        shift = {f: 2.0 ** float(d[f'qshift_{f}_{est}'] if _AMP_SRC[est] == 1
+                                 else d['h_shift']) for f in fams}
+        g_fis = {f: gain[f] * shift[f] for f in fams}
+        # Residuos en mV: canales / (canales por Vpp). El desplazamiento se
+        # cancela solo acá (numerador y denominador están en la misma escala).
+        R = np.vstack([1e3 * np.asarray(d[f'resid_{f}_{est}']) / gain[f]
+                       for f in fams])
+
+        # Descomposición común / diferencial.
+        comun = np.nanmean(R, axis=0)
+        dif = R - comun
+
+        # Piso de ruido: dispersión entre la pasada de ida y la de vuelta. Todo
+        # diferencial por debajo de esto es estadística del ajuste del
+        # centroide, no una diferencia entre formas.
+        piso = {}
+        for i, f in enumerate(fams):
+            k = f'resid_vuelta_{f}_{est}'
+            piso[f] = (1e3 * float(np.nanstd(np.asarray(d[f'resid_{f}_{est}'])
+                                             - np.asarray(d[k]))) / abs(gain[f])
+                       if k in claves else float('nan'))
+        piso_tipico = float(np.nanmedian(list(piso.values())))
+
+        ref_e = fams[0]
+        max_dif = float(np.nanmax(np.abs(dif)))
+        max_comun = float(np.nanmax(np.abs(comun)))
+        # El diferencial tiene que superar DOS pisos, no uno: la estadística del
+        # ajuste del centroide (ida/vuelta, que es por punto) y la deriva de la
+        # campaña (réplica de cierre, que es lenta y no la ve la ida y vuelta).
+        piso_efectivo = float(np.nanmax([piso_tipico,
+                                         deriva if np.isfinite(deriva) else 0.0]))
+
+        # Correlación entre los residuos de cada par de familias. Si todas
+        # correlacionan ~1, el residuo es común-modo: la INL no viene de cómo se
+        # determina la amplitud sino del estímulo (o de la INL estática del ADC).
+        with np.errstate(invalid='ignore'):
+            corr = np.corrcoef(np.nan_to_num(R, nan=0.0))
+        fuera = ~np.eye(len(fams), dtype=bool)
+        corr_min = float(np.nanmin(corr[fuera])) if len(fams) > 1 else float('nan')
+
+        quien = ('estadística del ajuste' if piso_tipico >= piso_efectivo
+                 else 'deriva de la campaña (réplica de cierre)')
+        if max_dif < piso_efectivo:
+            veredicto = (
+                f'la INL NO depende de la forma: el diferencial entre familias '
+                f'({max_dif:.2f} mV) está por debajo del piso de {piso_efectivo:.2f} '
+                f'mV que impone la {quien}. Los {max_comun:.2f} mV de residuo son '
+                f'común-modo, o sea del generador y/o de la INL estática del ADC '
+                f'— la determinación de amplitud es robusta frente a la forma.')
+        elif max_dif < 3.0 * piso_efectivo:
+            # Zona gris: supera el piso pero no por margen suficiente para
+            # atribuirlo a la forma. Es el caso que se dio con el estimador de
+            # pico en la primera campaña (0.57 mV de diferencial contra 0.43 mV
+            # de deriva), y el veredicto anterior lo daba por bueno.
+            veredicto = (
+                f'la INL es común-modo ({max_comun:.2f} mV) dentro de lo que esta '
+                f'campaña puede resolver: el diferencial entre familias '
+                f'({max_dif:.2f} mV) supera el piso de {piso_efectivo:.2f} mV '
+                f'({quien}) por sólo {max_dif/piso_efectivo:.1f}x, así que es una '
+                f'COTA SUPERIOR de la dependencia con la forma, no una medición '
+                f'de ella. Para bajar la cota hay que bajar la deriva: campaña '
+                f'más corta, o familias intercaladas en vez de en bloque.')
+        elif max_dif < 0.3 * max_comun:
+            veredicto = (
+                f'la INL es mayormente común-modo ({max_comun:.2f} mV) con una '
+                f'componente dependiente de la forma de {max_dif:.2f} mV '
+                f'({100*max_dif/max_comun:.0f}% del total, {max_dif/piso_efectivo:.1f}x '
+                f'el piso de {piso_efectivo:.2f} mV impuesto por la {quien}). Esa '
+                f'componente SÍ es de la cadena de medición.')
+        else:
+            veredicto = (
+                f'la determinación de amplitud depende fuertemente de la forma: '
+                f'el diferencial ({max_dif:.2f} mV) es comparable al residuo '
+                f'total ({max_comun:.2f} mV) y supera {max_dif/piso_efectivo:.0f}x '
+                f'el piso de {piso_efectivo:.2f} mV ({quien}). La INL medida con '
+                f'una sola forma no es representativa.')
+
+        out['por_estimador'][est] = {
+            'familias': fams,
+            'ganancia_ch_por_vpp': gain,
+            'ganancia_fisica_por_vpp': g_fis,
+            'ganancia_relativa': {f: g_fis[f] / g_fis[ref] for f in fams},
+            'inl_pct_fs': {f: float(d[f'inl_{f}_{est}']) for f in fams},
+            'inl_mv': {f: float(np.nanmax(np.abs(R[i])))
+                       for i, f in enumerate(fams)},
+            'fwhm_medio_ch': {f: float(np.nanmean(d[f'fwhm_{f}_{est}']))
+                              for f in fams},
+            'residuo_comun_max_mv': max_comun,
+            'residuo_diferencial_max_mv': max_dif,
+            'diferencial_por_familia_mv': {f: float(np.nanmax(np.abs(dif[i])))
+                                           for i, f in enumerate(fams)},
+            'piso_ida_vuelta_mv': piso,
+            'piso_efectivo_mv': piso_efectivo,
+            'piso_lo_impone': quien,
+            'diferencial_sobre_piso': (max_dif / piso_efectivo
+                                       if piso_efectivo > 0 else float('inf')),
+            'correlacion_min_entre_familias': corr_min,
+            'veredicto': veredicto,
+        }
+
+    # Pendiente medida del gráfico pico-vs-carga contra la predicha por la
+    # geometría de la forma: es la verificación cruzada de que el eje de carga
+    # está bien escalado. La comparación es de RELACIONES entre familias, no de
+    # valores absolutos, porque el factor de forma es adimensional y la
+    # pendiente medida arrastra el ancho del pulso y la ganancia del ADC.
+    ff = {f: float(d[f'factor_forma_{f}']) for f in familias
+          if f'factor_forma_{f}' in claves}
+    pend = {}
+    for f in familias:
+        kp, kc = f'cen_{f}_pico', f'cen_{f}_carga'
+        if kp in claves and kc in claves:
+            x = np.asarray(d[kp]) * 2.0 ** float(d['h_shift'])
+            y = np.asarray(d[kc]) * 2.0 ** float(d[f'qshift_{f}_carga'])
+            m = np.isfinite(x) & np.isfinite(y)
+            if m.sum() >= 2:
+                pend[f] = float(np.polyfit(x[m], y[m], 1)[0])
+    if pend and ff:
+        r0 = familias[0] if familias[0] in pend else list(pend)[0]
+        out['pico_vs_carga'] = {
+            'pendiente_medida': pend,
+            'factor_forma': {f: ff[f] for f in pend if f in ff},
+            'pendiente_relativa': {f: pend[f] / pend[r0] for f in pend},
+            'factor_forma_relativo': {f: ff[f] / ff[r0] for f in pend if f in ff},
+        }
+
+    return out
 
 
 # =============================================================================
@@ -481,10 +896,7 @@ def compare_estimators(mca, gen, ch=1, seconds=10.0, amp_vpp=0.5, rate_hz=2e3,
                       'revisá umbral/q_shift. Se saltea el punto.')
                 res = None
                 break
-            pk = int(np.argmax(spec))
-            w = max(8, int(0.15 * pk))
-            res[label] = mu.gauss_fit_peak(spec, max(0, pk - w),
-                                           min(len(spec), pk + w))
+            res[label] = _pico(spec)
         if res is None:
             continue
 
@@ -588,11 +1000,8 @@ def sweep_rate(mca, gen, ch=1, rates=None, seconds=5.0, amp_vpp=0.5,
         lt_frac.append(cnt['livetime_s'] / rt)
         anchos.append(w_real if np.isfinite(w_real) else w_s)
         validos.append(ok)
-        pk = int(np.argmax(spec))
-        w = max(8, int(0.15 * pk))
         try:
-            centroids.append(mu.gauss_fit_peak(spec, max(0, pk - w),
-                                               min(len(spec), pk + w))['centroid'])
+            centroids.append(_pico(spec)['centroid'])
         except ValueError:
             centroids.append(np.nan)
         aviso = ''
@@ -1160,6 +1569,27 @@ def cross_check_counts(mca, gen, ch=1, seconds=5.0, amp_vpp=0.5, rate_hz=1e3,
 # Graficado
 # =============================================================================
 
+# Paleta de las comparaciones de dos modos. Validada para daltonismo: el par
+# tiene ΔE 24.7 en protanopia y 33.6 en visión normal (OKLab x100), muy por
+# encima de los pisos de 8 y 15. Además cada curva lleva su etiqueta, así que la
+# identidad nunca depende sólo del color.
+C_HYST = '#eb6834'      # naranja: el modo viejo (ventana por histéresis)
+C_GATE = '#2a78d6'      # azul:    el modo nuevo (compuerta de largo fijo)
+INK    = '#0b0b0b'
+MUTED  = '#8a8a86'
+
+
+def _limpiar(ax):
+    """Grilla y ejes recesivos: los datos adelante, el andamiaje atrás."""
+    ax.grid(color=MUTED, alpha=.25, lw=.6)
+    ax.set_axisbelow(True)
+    for lado in ('top', 'right'):
+        ax.spines[lado].set_visible(False)
+    for lado in ('left', 'bottom'):
+        ax.spines[lado].set_color(MUTED)
+    ax.tick_params(colors=MUTED, labelcolor=INK)
+
+
 def plot_all(outdir):
     """Grafica los .npz de una campaña. Se puede correr en la PC, sin hardware."""
     import matplotlib
@@ -1188,6 +1618,88 @@ def plot_all(outdir):
         a2.set_xlabel('amplitud [Vpp]'); a2.set_ylabel('residuo (INL)')
         fig.savefig(os.path.join(outdir, 'linealidad.png'), dpi=120,
                     bbox_inches='tight'); plt.close(fig)
+
+    d = _load('formas_inl')
+    if d is not None:
+        familias = [str(x) for x in d['familias']]
+        estims = [str(x) for x in d['estimadores']]
+        amps = np.asarray(d['amps'], dtype=float)
+        # Un color por familia, el MISMO en las dos figuras: son dos vistas del
+        # mismo barrido y se leen juntas. El marcador también cambia, porque hay
+        # familias que caen una encima de la otra a propósito (la triangular y
+        # la trapezoidal comparten factor de forma exactamente) y con sólo el
+        # color una taparía a la otra.
+        color = {f: plt.cm.tab10(i % 10) for i, f in enumerate(familias)}
+        marca = {f: 'osD^vP*X'[i % 8] for i, f in enumerate(familias)}
+        medidas = [f for f in familias
+                   if f'ok_{f}' in d.files and bool(d[f'ok_{f}'])]
+
+        # --- 1. las curvas de INL superpuestas -------------------------------
+        # Sólo el residuo: la recta de calibración no aporta nada visual (todas
+        # las familias dan una recta) y la INL vive enteramente en el residuo.
+        # En mV y no en canales, que es la única unidad en la que el estimador
+        # de pico y el de carga son comparables entre sí.
+        ejes = [e for e in estims
+                if any(f'resid_{f}_{e}' in d.files for f in medidas)]
+        if ejes:
+            fig, axs = plt.subplots(len(ejes), 1, figsize=(8, 3.2 * len(ejes)),
+                                    sharex=True, squeeze=False)
+            for ax, est in zip(axs[:, 0], ejes):
+                curvas = []
+                for f in medidas:
+                    k = f'resid_{f}_{est}'
+                    if k not in d.files:
+                        continue
+                    r = 1e3 * np.asarray(d[k]) / float(d[f'gain_{f}_{est}'])
+                    curvas.append(r)
+                    ax.plot(amps, r, marker=marca[f], ls='-', ms=4.5, lw=1.2,
+                            color=color[f], label=f)
+                if len(curvas) > 1:
+                    # La media entre familias es la parte COMÚN del residuo: lo
+                    # que no depende de la forma, o sea el generador y la INL
+                    # estática del ADC. Lo que cada curva se aparta de ella es
+                    # lo único atribuible a la cadena de medición: si todas las
+                    # curvas abrazan esta línea, la amplitud se determina igual
+                    # sea cual sea la forma del pulso.
+                    ax.plot(amps, np.nanmean(np.vstack(curvas), axis=0), '--',
+                            color='k', lw=2.2, alpha=.75, zorder=10,
+                            label='común (generador + ADC)')
+                ax.axhline(0, color='k', lw=.5)
+                ax.set_ylabel(f'residuo [mV]\nestimador de {est}')
+                ax.grid(alpha=.3)
+            axs[0, 0].set_title('INL por familia de forma de pulso')
+            axs[-1, 0].set_xlabel('amplitud del generador [Vpp]')
+            h, lab = axs[0, 0].get_legend_handles_labels()
+            fig.legend(h, lab, loc='upper center', ncol=4, fontsize=8,
+                       bbox_to_anchor=(0.5, 0.03), frameon=False)
+            fig.savefig(os.path.join(outdir, 'inl_formas.png'), dpi=120,
+                        bbox_inches='tight'); plt.close(fig)
+
+        # --- 2. pico vs carga -------------------------------------------------
+        # Es el test de linealidad que NO depende del generador: los dos ejes
+        # son estimadores internos del MISMO pulso, así que un error de consigna
+        # de amplitud mueve el punto A LO LARGO de la recta, no fuera de ella.
+        # Curvatura dentro de una familia = no linealidad de la electrónica.
+        pares = [f for f in medidas
+                 if f'cen_{f}_pico' in d.files and f'cen_{f}_carga' in d.files]
+        if pares:
+            fig, ax = plt.subplots(figsize=(7, 6))
+            for f in pares:
+                # A unidades físicas: hay que deshacer los desplazamientos de
+                # binning, porque `q_shift` se autoescala POR FAMILIA y sin esto
+                # la pendiente de cada una estaría contaminada por su propio
+                # desplazamiento en vez de por su geometría.
+                x = np.asarray(d[f'cen_{f}_pico']) * 2.0 ** float(d['h_shift'])
+                y = np.asarray(d[f'cen_{f}_carga']) * 2.0 ** float(d[f'qshift_{f}_carga'])
+                ax.plot(x, y / 1e3, marker=marca[f], ls='none', ms=7,
+                        color=color[f], mec='white', mew=.8, alpha=.85,
+                        label=f'{f}  (factor {float(d[f"factor_forma_{f}"]):.3f})')
+            ax.set_xlabel('amplitud de pico [cuentas de ADC]')
+            ax.set_ylabel(r'carga $Q_{tot}$ [kcuentas$\cdot$muestra]')
+            ax.set_title('Pico vs carga — dos estimadores del mismo pulso')
+            ax.grid(alpha=.3); ax.legend(fontsize=8)
+            fig.savefig(os.path.join(outdir, 'pico_vs_carga.png'), dpi=120,
+                        bbox_inches='tight'); plt.close(fig)
 
     d = _load('sweep_rate')
     if d is not None:
@@ -1269,6 +1781,63 @@ def plot_all(outdir):
         ax.set_title('Mapa amplitud x forma')
         fig.savefig(os.path.join(outdir, 'psd_map.png'), dpi=120,
                     bbox_inches='tight'); plt.close(fig)
+
+    d = _load('sweep_gate')
+    if d is not None:
+        fig, ax = plt.subplots(figsize=(8, 4.5))
+        ax.plot(d['largas'], d['res'], 'o-', color=C_GATE, lw=2, ms=8,
+                mec='white', mew=1.5, label='compuerta fija')
+        rh = float(d['res_hyst'][0])
+        ax.axhline(rh, color=C_HYST, ls='--', lw=2)
+        ax.annotate(f'histéresis  {rh:.3f} %',
+                    xy=(d['largas'][-1], rh), xytext=(-4, 6),
+                    textcoords='offset points', ha='right',
+                    color=INK, fontsize=9)
+        i = int(np.nanargmin(d['res']))
+        ax.annotate(f'óptimo: {int(d["largas"][i])} muestras\n'
+                    f'{d["res"][i]:.3f} %  (×{rh / d["res"][i]:.2f})',
+                    xy=(d['largas'][i], d['res'][i]), xytext=(10, 14),
+                    textcoords='offset points', color=INK, fontsize=9,
+                    arrowprops=dict(arrowstyle='-', color=MUTED, lw=.8))
+        ax.set_xlabel('largo de la compuerta [muestras a 125 MSPS]')
+        ax.set_ylabel('resolución FWHM/centroide [%]')
+        ax.set_title('Largo de compuerta óptimo')
+        _limpiar(ax)
+        fig.savefig(os.path.join(outdir, 'sweep_gate.png'), dpi=120,
+                    bbox_inches='tight'); plt.close(fig)
+
+    d = _load('sweep_gate_espectro')
+    if d is not None:
+        # El FWHM en CANALES no es comparable entre modos: cada uno integra una
+        # cantidad distinta de muestras, así que tienen ganancias distintas y el
+        # mismo ruido de entrada da distinto número de canales. Se lo refiere a
+        # la entrada dividiendo por la ganancia (canales/V) de CADA modo, sacada
+        # del ajuste lineal de su propio eje. Ahí sí las dos curvas están en la
+        # misma unidad física y se pueden superponer.
+        amps, larga = d['amps'], int(d['larga'][0])
+        fig, (a1, a2) = plt.subplots(2, 1, figsize=(8, 7.5), sharex=True)
+        for n, col, lab in (('hist', C_HYST, 'histéresis'),
+                            ('gate', C_GATE, f'compuerta fija ({larga})')):
+            cen, fw = d[f'cen_{n}'], d[f'fwhm_{n}']
+            m = np.isfinite(cen) & np.isfinite(fw)
+            gan = np.polyfit(amps[m], cen[m], 1)[0] if m.sum() >= 2 else np.nan
+            a1.plot(amps, 1e3 * fw / gan, 'o-', color=col, lw=2, ms=7,
+                    mec='white', mew=1.2, label=lab)
+            a2.plot(amps, d[f'res_{n}'], 'o-', color=col, lw=2, ms=7,
+                    mec='white', mew=1.2, label=lab)
+        a1.set_ylabel('FWHM referido a la entrada [mV]')
+        a1.set_title('Precisión absoluta a lo largo del espectro')
+        a2.set_ylabel('resolución FWHM/centroide [%]')
+        a2.set_xlabel('amplitud del pulso [Vpp]')
+        a2.set_title('Precisión relativa')
+        for a in (a1, a2):
+            _limpiar(a)
+        # Una sola leyenda: los dos paneles comparten series. Arriba a la
+        # izquierda es la zona libre en los dos (las curvas suben hacia la
+        # derecha en el panel de arriba y caen en el de abajo).
+        a1.legend(frameon=False, loc='upper left')
+        fig.savefig(os.path.join(outdir, 'gate_espectro.png'), dpi=120,
+                    bbox_inches='tight'); plt.close(fig)
     print(f'gráficos en {outdir}')
 
 
@@ -1311,10 +1880,7 @@ def sweep_gate(mca, gen, ch=1, largas=None, corta=32, seconds=4.0,
         spec, _, cnt = _acquire(mca, seconds)
         if not spec.any():
             return None, cnt
-        pk = int(np.argmax(spec))
-        w = max(8, int(0.15 * pk))
-        f = mu.gauss_fit_peak(spec, max(0, pk - w), min(len(spec), pk + w))
-        return f, cnt
+        return _pico(spec), cnt
 
     # --- referencia: el modo de siempre ---
     f_h, cnt_h = _res({'gate_mode': 0})
@@ -1361,10 +1927,152 @@ def sweep_gate(mca, gen, ch=1, largas=None, corta=32, seconds=4.0,
             'mejor': mejor}
 
 
+def sweep_gate_espectro(mca, gen, ch=1, amps=None, corta=32, larga=384,
+                        seconds=4.0, rate_hz=2e3, width_s=None,
+                        target_channel=12000, outdir=None, **cfg):
+    """FWHM de los dos modos de ventana A LO LARGO DEL ESPECTRO.
+
+    `sweep_gate` compara histéresis contra compuerta fija en UN punto del
+    espectro (la amplitud del estímulo). Acá se barre la amplitud y se mide el
+    FWHM de los dos modos en CADA punto, para ver si la mejora es pareja o si
+    depende de la energía.
+
+    Por qué importa: los dos modos no fallan igual en función de la amplitud.
+
+      - Con histéresis el largo de la ventana lo decide dónde la cola cruza
+        `thr − hyst`, y ese punto se corre con la amplitud (un pulso más grande
+        tarda más en bajar). O sea que el largo de integración **crece con la
+        energía**: la ganancia no es lineal y la varianza del cruce entra en
+        todos los canales.
+      - Con compuerta fija el largo no depende de la amplitud por construcción,
+        así que se espera ganancia lineal y un FWHM que crezca sólo como el
+        ruido integrado.
+
+    Metodología: los dos modos se miden **intercalados en cada amplitud**, con
+    el mismo estímulo cargado una sola vez. Así cualquier deriva del generador
+    o de la línea de base afecta a los dos por igual y la comparación se
+    sostiene aunque la corrida dure varios minutos.
+
+    `q_shift` se calibra UNA vez por modo, en la amplitud máxima, y queda fijo
+    durante todo el barrido: si se re-escalara en cada punto, el eje de canales
+    dejaría de ser un eje de energía y el FWHM no sería comparable entre puntos.
+    """
+    print('\n=== FWHM vs energía: histéresis vs compuerta fija ===')
+    amps = np.linspace(0.1, 1.0, 12) if amps is None else np.asarray(amps)
+    c = {**DEFAULT_CFG, **cfg, 'amp_src': 1}      # integral de carga
+    modos = {'hist': {'gate_mode': 0},
+             'gate': {'gate_mode': 1, 'gate_short': int(corta),
+                      'gate_long': int(larga)}}
+
+    width_s = PULSE_WIDTH_S if width_s is None else width_s
+    wave, freq, info = rg.pulse_train_wave(width_s, rate_hz)
+    print(f'  estímulo: {width_s*1e6:g} us FWHM a {rate_hz:g} Hz '
+          f'({info["n_pulses"]} pulso(s)/forma a {freq:.1f} Hz)')
+    gen.load_arb(wave, ch=ch)
+
+    def _amplitud(a):
+        gen.set_arb(ch=ch, freq_hz=freq, amp_vpp=float(a),
+                    offset_v=float(a) / 2)
+        gen.output(ch, True)
+        time.sleep(0.3)
+
+    # --- calibración de q_shift: una vez por modo, en la amplitud máxima ---
+    _amplitud(amps.max())
+    qs = {}
+    for nombre, extra in modos.items():
+        qs[nombre] = mca.autoscale_q_shift(target_channel=target_channel,
+                                           **{**c, **extra, 'q_shift': 0})
+        if qs[nombre] is None:
+            print(f'  no se detectan eventos en modo {nombre}; '
+                  'revisá umbral y amplitud')
+            gen.output(ch, False)
+            return None
+        print(f'  q_shift {nombre} = {qs[nombre]} '
+              f'(pico a ~{target_channel} canales con {amps.max():.2f} Vpp)')
+
+    def _medir(nombre, extra):
+        mca.configure(**{**c, **extra, 'q_shift': qs[nombre]})
+        spec, _, cnt = _acquire(mca, seconds)
+        if not spec.any():
+            return None, cnt
+        f = _pico(spec)
+        # El pico tiene que ENTRAR ENTERO en el histograma. Si la cola derecha
+        # se pasa del último canal, el ajuste ve una gaussiana cortada y devuelve
+        # un FWHM MENOR que el real: el punto aparece como el mejor de todo el
+        # barrido justo donde el instrumento se está quedando sin escala. Pasó
+        # en la primera corrida (centroide 16376 + 2 FWHM = 16412 > 16383), y
+        # rompía la tendencia hacia abajo. Se descarta, no se promedia.
+        if f['centroid'] + 2 * f['fwhm'] > len(spec) - 1:
+            print(f'    [{nombre}] pico truncado por el tope del histograma '
+                  f'(centroide {f["centroid"]:.0f} + 2·FWHM > {len(spec)-1}): '
+                  'punto descartado. Bajá `target_channel`.')
+            return None, cnt
+        return f, cnt
+
+    out = {n: {'cen': [], 'fwhm': [], 'res': [], 'pileup': []} for n in modos}
+    for a in amps:
+        _amplitud(a)
+        linea = f'  {a:.3f} Vpp'
+        for nombre, extra in modos.items():
+            f, cnt = _medir(nombre, extra)
+            if f is None:
+                for k in out[nombre]:
+                    out[nombre][k].append(float('nan'))
+                linea += f'   {nombre}: sin eventos'
+                continue
+            out[nombre]['cen'].append(f['centroid'])
+            out[nombre]['fwhm'].append(f['fwhm'])
+            out[nombre]['res'].append(f['resolution_pct'])
+            out[nombre]['pileup'].append(100.0 * cnt['pileup']
+                                         / max(cnt['total'], 1))
+            linea += (f'   {nombre}: canal {f["centroid"]:7.0f} '
+                      f'FWHM {f["fwhm"]:6.2f} ({f["resolution_pct"]:5.3f} %)')
+        print(linea)
+    gen.output(ch, False)
+
+    for n in out:
+        for k in out[n]:
+            out[n][k] = np.array(out[n][k], dtype=float)
+
+    # --- veredicto: mejora punto a punto y linealidad de cada eje ---
+    gan = out['hist']['res'] / out['gate']['res']
+    ok = np.isfinite(gan)
+    inl = {}
+    for n in modos:
+        cen = out[n]['cen']
+        m = np.isfinite(cen)
+        if m.sum() >= 3:
+            _, _, _, inl[n] = mu.energy_calibration(cen[m], amps[m])
+        else:
+            inl[n] = float('nan')
+    if ok.any():
+        print(f'  mejora en resolución: x{np.nanmin(gan):.2f} a '
+              f'x{np.nanmax(gan):.2f} (mediana x{np.nanmedian(gan):.2f})')
+        print(f'  INL del eje: histéresis {inl["hist"]:.3f} % FS   '
+              f'compuerta {inl["gate"]:.3f} % FS')
+        if np.nanmin(gan) < 1.0:
+            print('  AVISO: hay puntos donde la compuerta NO mejora. Con esta '
+                  'compuerta\n  parte del espectro pierde carga: revisá `larga` '
+                  'contra la cola del pulso.')
+    if np.nanmax([out[n]['pileup'].max() if out[n]['pileup'].size else 0
+                  for n in modos]) > 5.0:
+        print('  AVISO: apilamiento > 5 % en algún punto; los FWHM de esos '
+              'puntos no son confiables.')
+
+    _save(outdir, 'sweep_gate_espectro', amps=amps, corta=np.array([corta]),
+          larga=np.array([larga]),
+          q_shift=np.array([qs['hist'], qs['gate']]),
+          **{f'{k}_{n}': out[n][k] for n in modos for k in out[n]})
+    return {'amps': amps, 'hist': out['hist'], 'gate': out['gate'],
+            'ganancia': gan, 'inl_pct_fs': inl}
+
+
 TESTS = {
     'single_peak':        test_single_peak,
     'sweep_gate':         sweep_gate,
+    'sweep_gate_espectro': sweep_gate_espectro,
     'sweep_amplitude':    sweep_amplitude,
+    'formas_inl':         sweep_formas_inl,
     'dnl':                test_dnl,
     'compare_estimators': compare_estimators,
     'sweep_rate':         sweep_rate,

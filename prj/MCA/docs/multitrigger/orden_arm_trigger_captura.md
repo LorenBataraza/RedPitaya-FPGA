@@ -30,7 +30,7 @@ trigger ocurrió, pero fuera de la ventana en que la `bram_sm` podía registrarl
 La causa raíz es confundir dos señales que son **independientes**:
 
 1. **`set_trig_src` (OR-mask, reg `0x240`/`0x244`)** — qué fuentes de trigger
-   están *vivas*. Vive en [`multitrigger_trig_src.sv`](../../rtl/mine/multitrigger_trig_src.sv).
+   están *vivas*. Vive en [`multitrigger_trig_src.sv`](../../rtl/mine/multitrigger/multitrigger_trig_src.sv).
 2. **`adc_arm_do` / `adc_we` (reg `0x00` bit0)** — la FSM de captura
    ([`rp_bram_sm.v`](../../../../rtl_250/classic/rp_bram_sm.v)) está *armada y
    escribiendo al buffer*.

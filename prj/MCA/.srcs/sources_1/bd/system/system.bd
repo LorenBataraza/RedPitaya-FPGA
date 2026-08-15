@@ -2110,54 +2110,6 @@
       }
     },
     "interface_nets": {
-      "processing_system7_0_M_AXI_GP0": {
-        "interface_ports": [
-          "M_AXI_GP0",
-          "processing_system7/M_AXI_GP0"
-        ]
-      },
-      "axi_protocol_converter_0_M_AXI": {
-        "interface_ports": [
-          "axi_protocol_converter_0/M_AXI",
-          "xadc/s_axi_lite"
-        ]
-      },
-      "Vp_Vn_1": {
-        "interface_ports": [
-          "Vp_Vn",
-          "xadc/Vp_Vn"
-        ]
-      },
-      "Vaux9_1": {
-        "interface_ports": [
-          "Vaux9",
-          "xadc/Vaux9"
-        ]
-      },
-      "Vaux8_1": {
-        "interface_ports": [
-          "Vaux8",
-          "xadc/Vaux8"
-        ]
-      },
-      "Vaux1_1": {
-        "interface_ports": [
-          "Vaux1",
-          "xadc/Vaux1"
-        ]
-      },
-      "Vaux0_1": {
-        "interface_ports": [
-          "Vaux0",
-          "xadc/Vaux0"
-        ]
-      },
-      "s_axi_hp3_1": {
-        "interface_ports": [
-          "S_AXI_HP3",
-          "processing_system7/S_AXI_HP3"
-        ]
-      },
       "processing_system7_0_M_AXI_GP1": {
         "interface_ports": [
           "axi_register_slice_0/S_AXI",
@@ -2222,6 +2174,54 @@
         "interface_ports": [
           "CAN1",
           "processing_system7/CAN_1"
+        ]
+      },
+      "processing_system7_0_M_AXI_GP0": {
+        "interface_ports": [
+          "M_AXI_GP0",
+          "processing_system7/M_AXI_GP0"
+        ]
+      },
+      "axi_protocol_converter_0_M_AXI": {
+        "interface_ports": [
+          "axi_protocol_converter_0/M_AXI",
+          "xadc/s_axi_lite"
+        ]
+      },
+      "Vp_Vn_1": {
+        "interface_ports": [
+          "Vp_Vn",
+          "xadc/Vp_Vn"
+        ]
+      },
+      "Vaux9_1": {
+        "interface_ports": [
+          "Vaux9",
+          "xadc/Vaux9"
+        ]
+      },
+      "Vaux8_1": {
+        "interface_ports": [
+          "Vaux8",
+          "xadc/Vaux8"
+        ]
+      },
+      "Vaux1_1": {
+        "interface_ports": [
+          "Vaux1",
+          "xadc/Vaux1"
+        ]
+      },
+      "Vaux0_1": {
+        "interface_ports": [
+          "Vaux0",
+          "xadc/Vaux0"
+        ]
+      },
+      "s_axi_hp3_1": {
+        "interface_ports": [
+          "S_AXI_HP3",
+          "processing_system7/S_AXI_HP3"
         ]
       }
     },

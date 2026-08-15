@@ -100,12 +100,13 @@ module tb_event_window_capture;
   //--------------------------------------------------------------------------
   // Captura del stream de salida
   //--------------------------------------------------------------------------
-  integer          rx_n = 0, sof_n = 0, eof_n = 0;
+  integer          rx_n = 0, sof_n = 0, eof_n = 0, db_n = 0;
   integer          rx [0:4095];
   integer          rx_at_sof_idx;      // sample_idx cuando llego el sof
   integer          trig_sample_idx;    // sample_idx en el ciclo del trigger
 
   always @(posedge clk) begin
+    if (drop_busy) db_n = db_n + 1;
     if (m_val) begin
       rx[rx_n] = $signed(m_dat);
       rx_n     = rx_n + 1;
@@ -115,7 +116,7 @@ module tb_event_window_capture;
   end
 
   task automatic rx_clear;
-    begin rx_n = 0; sof_n = 0; eof_n = 0; end
+    begin rx_n = 0; sof_n = 0; eof_n = 0; db_n = 0; end
   endtask
 
   // Espera a que el DUT termine de drenar (con timeout)
@@ -252,6 +253,27 @@ module tb_event_window_capture;
     wait_idle(500);
     checkv("evento B", rx_n, 32*N_CH);
     checkv("alineacion evento B", rx[2*8], trig_sample_idx);
+
+    //======================================================================
+    // Regresion de un bug encontrado en la PLACA: multitrigger_trig_src registra
+    // adc_trig como NIVEL (`adc_trig <= trig_comb`), y el strobe que llega por
+    // el sys_bus_cdc puede durar mas de un ciclo de adc_clk. Con trig tomado por
+    // nivel, cada trigger por software producia DOS eventos: uno capturado y uno
+    // contado como drop_busy (se veia como suma = 2x triggers inyectados).
+    $display("[7] trigger ANCHO (3 ciclos) = UN solo evento");
+    repeat (40) @(posedge clk);
+    rx_clear();
+    db_n = 0;
+    @(negedge clk);
+    trig_sample_idx = sample_idx;
+    trig = 1'b1;
+    repeat (3) @(negedge clk);      // trigger sostenido 3 ciclos
+    trig = 1'b0;
+    wait_idle(500);
+    checkv("una sola ventana", rx_n, (8+24)*N_CH);
+    checkv("un solo sof", sof_n, 1);
+    checkv("sin drop_busy espurio", db_n, 0);
+    checkv("alineado al FLANCO, no al nivel", rx[2*8], trig_sample_idx);
 
     //======================================================================
     $display("");

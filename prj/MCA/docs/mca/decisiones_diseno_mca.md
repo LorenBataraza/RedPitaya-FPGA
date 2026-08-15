@@ -14,9 +14,10 @@ Documentos hermanos, para no duplicar:
 | Documento | Qué contiene |
 |---|---|
 | [`register_map_mca.md`](register_map_mca.md) | el **qué**: offsets y bits |
-| [`resultados_validacion_hw.md`](resultados_validacion_hw.md) | los **números medidos** y sus salvedades |
+| [`resultados_validacion_hw.md`](../resultados_validacion_hw.md) | los **números medidos** y sus salvedades |
 | [`testbenches_software_mca.md`](testbenches_software_mca.md) | el **método** de cada medición |
 | [`bus_sistema_redpitaya.md`](../bus_sistema_redpitaya.md) | el bus sobre el que cuelga |
+| [`figuras/`](figuras/README.md) | las **figuras** que explican INL, DNL, FWHM y el bineado |
 
 ---
 
@@ -44,7 +45,7 @@ significa, qué implica para la medición, qué quiere decir que salga alto o ba
 y —lo más útil en la práctica— **si se puede compensar o no**.
 
 Los valores medidos y sus salvedades están en
-[`resultados_validacion_hw.md`](resultados_validacion_hw.md); acá se citan sólo
+[`resultados_validacion_hw.md`](../resultados_validacion_hw.md); acá se citan sólo
 para dar escala. El método de cada test está en
 [`testbenches_software_mca.md`](testbenches_software_mca.md).
 
@@ -61,6 +62,9 @@ para dar escala. El método de cada test está en
 >
 > Un espectro con INL alta se ve **perfectamente limpio** y aun así miente la
 > energía. Uno con DNL alta tiene picos deformados aunque la energía esté bien.
+>
+> Las tres, dibujadas sobre el mismo pico:
+> [`figuras/04_tres_metricas.png`](figuras/04_tres_metricas.png).
 
 ### 2.1 Eje de amplitud
 
@@ -91,7 +95,8 @@ INL = max|residuo| / (canal_max − canal_min)
 ```
 
 Medido: **1.13 % FS**, o sea **40 canales** de desvío máximo sobre un rango de
-3547.
+3547. La curva, con el FWHM como barra de error y las dos pasadas superpuestas,
+está en [`figuras/02_linealidad_inl.png`](figuras/02_linealidad_inl.png).
 
 **Qué implica.** Que si calibrás con dos puntos e **interpolás**, las energías
 intermedias salen corridas hasta 40 canales — unos 10 mV, ~1 % de un pulso de
@@ -125,7 +130,9 @@ está en la señal**: deforma los picos, sesga área y centroide, y en el peor c
 genera picos falsos. Cuando es periódica (típico de los ADC, en los límites de
 bit) produce un rizado regular en todo el espectro.
 
-**Alto/bajo.** La spec típica es <±1 %.
+**Alto/bajo.** La spec típica es <±1 %. Cómo se ve —la regla despareja, la
+medición con sliding pulser y el pico deformado— en
+[`figuras/03_dnl_esquema.png`](figuras/03_dnl_esquema.png).
 
 > **Dato de diseño:** la DNL del *binado digital* es **exactamente cero por
 > construcción** — el bin es un desplazamiento a la derecha de un entero, así que
@@ -150,7 +157,10 @@ adquisiciones repetidas del mismo pico durante horas. **No medida todavía.**
 **Qué es.** El ancho a media altura del pico, en % del centroide. Con un **pulser
 de amplitud fija** no hay ensanchamiento estadístico del detector, así que lo que
 se mide es puramente instrumental: ruido electrónico + digitización + jitter del
-estimador. Medido: **6.56 canales sobre 1920 = 0.342 %**.
+estimador. Medido: **6.56 canales sobre 1920 = 0.342 %** — el pico, con el FWHM y
+el desvío en la misma imagen, en
+[`figuras/01_pico_unico.png`](figuras/01_pico_unico.png); qué le hace el bineado,
+en [`figuras/05_bineado.png`](figuras/05_bineado.png).
 
 **Qué implica.** Es el **piso** del sistema. Los anchos se suman en cuadratura:
 
@@ -226,7 +236,9 @@ Medido: **+1.28 % sobre un rango de tasa de ×36** (1995 → 72 444 Hz).
 > `min(width, 0.2·T)` porque `set_pulse_periodic` exige `width < T/2`, así que a
 > tasas altas el estímulo deja de ser el mismo. El salto grande cae **exactamente**
 > donde el ancho cambia (72 → 132 kHz, de 2000 a 1517 ns: +2.52 % de golpe), no
-> donde cambia la tasa. El único tramo con estímulo constante son los 7 puntos de
+> donde cambia la tasa — se ve en
+> [`figuras/06_limites_estimulo.png`](figuras/06_limites_estimulo.png), junto con
+> el techo de throughput que pone el generador. El único tramo con estímulo constante son los 7 puntos de
 > 2000 ns, y ahí el corrimiento es **+1.28 %**. Es el número que hay que citar.
 
 **Qué implica.** La **calibración de energía depende de la actividad de la
@@ -811,7 +823,7 @@ Dos detalles heredados del driver del scope que hay que respetar:
 Hecha sobre la placa (10.73.28.27) con el DG4162 en IN1, en dos campañas. **Los
 números completos, con sus salvedades y con las correcciones de la segunda
 campaña sobre la primera, están en
-[`resultados_validacion_hw.md`](resultados_validacion_hw.md)** — acá va sólo lo
+[`resultados_validacion_hw.md`](../resultados_validacion_hw.md)** — acá va sólo lo
 que valida el *diseño*:
 
 | Lo que valida | Resultado |
@@ -870,7 +882,7 @@ DG4162 acepta `APPLy:PULSe`, contesta la frecuencia nueva en `:FREQuency?` y
 **sigue emitiendo la anterior**. Así se generó una tabla entera de throughput
 falsa. `sweep_rate` ahora lo detecta con un criterio físico —si el MCA no perdió
 ni un evento, `cnt_total/realtime` **es** la tasa de entrada— y marca los puntos
-inválidos. Ver [`resultados_validacion_hw.md`](resultados_validacion_hw.md)
+inválidos. Ver [`resultados_validacion_hw.md`](../resultados_validacion_hw.md)
 §13.8.
 
 ---
@@ -906,7 +918,13 @@ inválidos. Ver [`resultados_validacion_hw.md`](resultados_validacion_hw.md)
    panel frontal. Lo medido es una cota superior impuesta por el estímulo.
 7. **La INL no está separada del generador.** Se demostró que es sistemática
    (correlación +1.00 entre pasadas), o sea compensable, pero no de quién es.
-   Pide una referencia de tensión trazable.
+   `sweep_formas_inl` (**medido 2026-08-14**) mostró que con el estimador de
+   PICO la INL es común a todas las formas (ganancias dentro de ±0.2 %,
+   correlación +0.997), o sea que no sale de la determinación de amplitud sino
+   del generador y/o de la INL estática del ADC; distinguir esos dos sigue
+   pidiendo una referencia de tensión trazable. Con el estimador de CARGA y
+   ventana por histéresis, en cambio, la INL sí depende de la forma. Ver
+   [`../resultados_validacion_hw.md`](../resultados_validacion_hw.md) §13.11.
 8. **El techo de throughput no se alcanzó**: a 794 kcps el MCA seguía sin perder
    un evento y el que se quedó sin rango fue el generador.
 9. **Deriva de ganancia y offset** con tiempo y temperatura: sin medir.

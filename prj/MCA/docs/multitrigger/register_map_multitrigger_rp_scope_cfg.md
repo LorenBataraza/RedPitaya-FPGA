@@ -1,6 +1,6 @@
 # Mapa de registros — `multitrigger_rp_scope_cfg`
 
-Módulo: [`prj/MCA/rtl/mine/multitrigger_rp_scope_cfg.sv`](../../rtl/mine/multitrigger_rp_scope_cfg.sv)
+Módulo: [`prj/MCA/rtl/mine/multitrigger_rp_scope_cfg.sv`](../../rtl/mine/multitrigger/multitrigger_rp_scope_cfg.sv)
 
 Da acceso a los registros y buffers internos del scope a través del *system
 bus* de la Pitaya. Las direcciones son `sys_addr[19:0]` (offset dentro del

@@ -1,7 +1,7 @@
 # Resultados de la validación en hardware del MCA
 
 El **por qué** del diseño está en
-[`decisiones_diseno_mca.md`](decisiones_diseno_mca.md); acá van los números
+[`decisiones_diseno_mca.md`](mca/decisiones_diseno_mca.md); acá van los números
 medidos y cómo interpretarlos.
 
 > ## ⚠️ Este documento describe la PRIMERA campaña (2026-08-11), y varios de sus
@@ -26,8 +26,8 @@ medidos y cómo interpretarlos.
 > estado del hardware que se validó entonces (bus, registros, relojes) y porque
 > los errores de método son parte del registro.
 
-**Datos crudos:** [`../software/datos/mca_20260811_113136/`](../../software/datos/mca_20260811_113136/)
-(1ª campaña) y [`../software/datos/mca_20260528_001034/`](../../software/datos/mca_20260528_001034/)
+**Datos crudos:** [`../software/datos/mca_20260811_113136/`](../software/datos/mca_20260811_113136/)
+(1ª campaña) y [`../software/datos/mca_20260528_001034/`](../software/datos/mca_20260528_001034/)
 (2ª campaña; el nombre lleva la fecha del reloj de la placa, que está mal — es
 del 2026-08-11 por la noche).
 
@@ -353,14 +353,14 @@ calibrados para 336 µs. `run_campana.py` ya lo hace en ese orden y propaga el
 resultado.
 
 Los cambios están verificados sin hardware por
-[`../software/tests/test_wave_builders.py`](../../software/tests/test_wave_builders.py):
+[`../software/tests/test_wave_builders.py`](../software/tests/test_wave_builders.py):
 que el ancho y la tasa del estímulo son los pedidos, que las combinaciones
 imposibles fallan con un mensaje que dice qué ajustar, y que `dnl()` recupera
 una DNL inyectada del 3 % sobre una envolvente no plana (contra la media global
 el mismo espectro da 19.5 %).
 
 El método de cada test, y cuáles de sus resultados son creíbles, está en
-[`testbenches_software_mca.md`](testbenches_software_mca.md).
+[`testbenches_software_mca.md`](mca/testbenches_software_mca.md).
 
 ---
 
@@ -445,7 +445,7 @@ Con ancho y período de burst **fijos** y normalizando contra la medición a gap
 máximo, la fracción detectada da **1.00 en todos los gaps de 0.5 a 100 µs**: los
 dos pulsos del par se cuentan como dos incluso separados 500 ns. Es coherente con
 el tiempo muerto de §13.1 y con la resolución par-pulso del scope (~25 ns, ver
-[`testbenches_software_multitrigger.md`](../multitrigger/testbenches_software_multitrigger.md)).
+[`testbenches_software_multitrigger.md`](multitrigger/testbenches_software_multitrigger.md)).
 
 Por debajo de 9 µs aparecen eventos perdidos por extractor ocupado (~46 % de los
 que llegan) **sin que baje la fracción detectada**: son cruces de umbral extra
@@ -503,7 +503,7 @@ escala de canales:
 | 2 µs | **0.34 %** | 0.53 % |
 | 4 µs | **0.33 %** | 1.15 % |
 
-**Es lo contrario de lo que esperaba el diseño** ([`decisiones_diseno_mca.md`](decisiones_diseno_mca.md) §5).
+**Es lo contrario de lo que esperaba el diseño** ([`decisiones_diseno_mca.md`](mca/decisiones_diseno_mca.md) §5).
 La razón es que la integral gana cuando el estimador de pico sufre *jitter de
 muestreo*, y acá no sufre: un pulso de 2 µs son **250 muestras a 125 MSPS**, así
 que la muestra de pico cae prácticamente en el máximo verdadero. La integral, en
@@ -517,7 +517,7 @@ mantiene. Se cruzarían por debajo de ~0.2 µs, que es donde el ARB ya no llega.
 ### …y por qué la integral perdía: era la VENTANA, no la integral
 
 El análisis offline sobre 7054 pulsos crudos
-([`../../software/tests/estimadores/`](../../software/tests/estimadores/))
+([`../../software/tests/estimadores/`](../software/tests/estimadores/))
 cierra la pregunta, calculando todos los estimadores **sobre los mismos pulsos**:
 
 | Estimador | Resolución |
@@ -591,7 +591,7 @@ bien. Lo arregla `RigolDG4162.clear_errors()`, que vacía la cola.
 |---|---|
 | DNL de verdad | pide modulación analógica de amplitud, no disponible por SCPI (§13.7) |
 | Techo real de throughput | el generador se quedó sin rango a 794 kcps; el MCA no |
-| Separar la INL del generador | pide una referencia de tensión trazable (§13.4) |
+| Separar la INL del generador | **parcialmente resuelto y medido** (2026-08-14): `formas_inl` separa la parte que depende de la FORMA del pulso (cadena de medición) de la común-modo (generador + INL estática del ADC) — ver §13.11. Separar generador de ADC dentro del común-modo sigue pidiendo una referencia de tensión trazable (§13.4) |
 | Aislar la trampa del generador | detectada y evitada, pero no explicada (§13.8) |
 | **Todo con pulsos de detector reales** | el estímulo ya está en la escala correcta; falta el detector |
 
@@ -612,3 +612,303 @@ python3 run_dnl.py $OUT
 `sweep_baseline_k` va primero siempre: `bl_k` y `cfg_maxlen` dependen de cuánto
 dura el pulso. (En esta campaña dio lo mismo para `bl_k` de 3 a 18 — el
 seguidor se congela durante el pulso, así que no lo persigue.)
+
+## 13.11 INL vs forma del pulso — medido 2026-08-14
+
+Datos en
+[`../software/datos/formas_20260814_203920/`](../software/datos/formas_20260814_203920/)
+(`formas_inl.npz`, `resumen_formas.json`, `campana.log`, las dos figuras).
+12 amplitudes de 0.1 a 1.0 Vpp, 3 s por punto, ida y vuelta, 2 µs de FWHM a
+2 kHz, `bl_k=12`, `thr=100`, `gate_mode=0` (histéresis).
+
+§13.4 dejó la INL en **1.13 % FS, sistemática**, y la pregunta abierta de a
+quién pertenece. La ida y vuelta separa *sistemático de estadístico*; no separa
+*generador de MCA*. `sweep_formas_inl` ataca la separación por otro lado: mide
+la misma curva con las familias de conformado de Knoll, todas con el mismo FWHM
+y la misma altura de pico. Como el error de consigna del DG4162 es idéntico para
+todas las formas, el residuo **común** es del generador (+ INL estática del ADC)
+y el **diferencial** es de la cadena de medición.
+
+**Cordura primero**: `cr_rc` dio **3927.4 canales/Vpp** contra los 3927.50 de
+§13.4, y offset −27.5 contra −28.0. El barrido reproduce la campaña publicada.
+
+### El resultado
+
+| | estimador de **pico** | estimador de **carga** |
+|---|---|---|
+| ganancia relativa entre familias | 0.9957 – 1.0021 (**±0.2 %**) | 0.922 – 1.186 (**±19 %**) |
+| INL por familia | 1.04 – 1.09 % FS | 0.38 – 0.93 % FS |
+| residuo **común** | 9.69 mV | 6.54 mV |
+| residuo **diferencial** | **0.57 mV** | **3.10 mV** |
+| correlación mínima entre familias | **+0.997** | +0.937 |
+| piso efectivo (deriva de la campaña) | 0.43 mV | 0.43 mV |
+| diferencial / piso | 1.4× | 7.3× |
+
+**Con el estimador de pico la determinación de amplitud es robusta frente a la
+forma.** Las cinco familias medidas dan la misma ganancia dentro de ±0.2 % y sus
+curvas de INL son indistinguibles (correlación +0.997); en `inl_formas.png` se
+superponen sobre la línea de común-modo. O sea que el 1.13 % FS de §13.4 **no
+sale de cómo el MCA determina la amplitud**: es del generador y/o de la INL
+estática del ADC.
+
+**Con el estimador de carga, no.** La ganancia se mueve un ±19 % siguiendo el
+factor de forma —eso es geometría esperada, ver abajo— pero además el residuo
+diferencial (3.10 mV) es **la mitad del residuo total**, siete veces el piso.
+La INL del estimador de carga medida con una sola forma no es representativa.
+
+> **Cuidado con el número del pico.** Los 0.57 mV de diferencial superan por
+> sólo **1.4×** el piso de 0.43 mV que impone la deriva de la campaña (medida
+> por la réplica de cierre, ver abajo). Es una **cota superior** de la
+> dependencia con la forma, no una medición de ella. Para bajarla hay que bajar
+> la deriva: campaña más corta, o familias intercaladas en vez de en bloque.
+> (El piso de la ida y vuelta, 0.013–0.027 mV, es 20 veces más chico y no es el
+> que manda: la ida y vuelta es rápida y no ve la deriva lenta.)
+
+### Por qué el estimador de carga depende de la forma
+
+Con `gate_mode=0` la ventana de integración cierra por **histéresis**, así que
+su largo depende de dónde el pulso cruza `thr − hyst` — que es función de la
+forma *y* crece con la amplitud. Es el mismo efecto que documenta §14 para la
+resolución. La consecuencia acá es que la fracción de cola integrada varía con
+la amplitud de manera distinta según la familia, y eso es exactamente una no
+linealidad dependiente de la forma.
+
+**Es una predicción falsable y barata de probar**: el RTL ya soporta
+`gate_mode=1` (compuertas de largo fijo desde el disparo, inmunes al jitter del
+instante de pico). Si la explicación es correcta, repetir el barrido con
+compuerta fija tiene que **colapsar el diferencial de 3.10 mV**. Sin medir.
+
+### Control nulo y verificación cruzada
+
+- **Réplica de cierre** (`cr_rc` re-medida al final, ~18 min después): ganancia
+  +0.07 %, deriva de residuo 0.43 mV. Es el piso que se usa arriba.
+- **Pico vs carga** (`pico_vs_carga.png`), el único test de linealidad que no
+  depende de la exactitud del generador: la pendiente relativa medida reproduce
+  el factor de forma **calculado de la geometría** con un error de −2.1 % a
+  +2.5 % en las cinco familias. Confirma que el eje de carga está bien escalado
+  y que los `q_shift` por familia se deshacen bien.
+
+### La bipolar no es medible con esta configuración
+
+`bipolar` (CR-RC-CR, doble diferenciación) **no pasó el pre-vuelo**: **4004
+eventos contra 2002 esperados (200 %) y 50 % de apilamiento**. El MCA cuenta
+**dos eventos por cada pulso emitido**.
+
+Hipótesis, coherente con el RTL pero **no verificada**: el seguidor de línea de
+base se descongela al cerrar el lóbulo positivo, persigue el lóbulo negativo y
+arrastra la base hacia abajo; cuando la señal vuelve a cero, la diferencia
+contra esa base deprimida vuelve a cruzar el umbral y dispara un segundo evento.
+Es el problema clásico de restaurador de línea de base con conformado bipolar
+(Knoll cap. 16). Se puede discriminar con `bl_auto=False` y `baseline` fijo: si
+el doble conteo desaparece, era el seguidor.
+
+Que no sea medible **es** un resultado sobre robustez, y la guarda del pre-vuelo
+hizo lo suyo — lo detectó y siguió con el resto en vez de guardar una curva de
+INL sin sentido.
+
+### Lo que sigue sin resolver
+
+Generador e INL estática del ADC son los dos común-modo, así que este
+experimento **no los separa entre sí**. Eso sigue pidiendo un patrón de tensión
+trazable.
+
+```bash
+# en la placa, ~20 min
+python3 run_formas.py datos/formas_$(date +%Y%m%d_%H%M%S)
+# re-analizar y re-graficar en la PC, sin hardware:
+python3 run_formas.py datos/formas_20260814_203920 --plot-only
+```
+
+---
+
+# 14. Etapa B — compuertas de largo fijo, medidas en placa
+
+Misma placa y mismo estímulo (2 µs FWHM a 2 kHz). Bitstream
+`v2b_compuertas_pileup_fix`, que agrega `cfg_gate_mode` (`0x048`) y
+`cfg_gate_len` (`0x04C`).
+
+## 14.1 El resultado
+
+| Compuerta larga | Resolución |
+|---|---|
+| ventana por **histéresis** (referencia) | **0.325 %** |
+| 128 muestras | 0.812 % |
+| 192 | 0.353 % |
+| 256 | 0.211 % |
+| 320 | 0.167 % |
+| **384** | **0.161 %** ← mínimo |
+| 448 | 0.174 % |
+| 512 | 0.183 % |
+
+**La compuerta fija mejora ×2.02 sobre la ventana por histéresis**, con cero
+apilamiento en todo el rango. La curva tiene un mínimo claro: por debajo de 320
+se pierde carga de la cola, por encima de 448 se integra ruido de más.
+
+![Resolución vs largo de compuerta](../software/datos/mca_gate_20260530_023829/sweep_gate.png)
+
+**Ojo con lo que este número NO dice: está medido en UN solo punto del
+espectro**, la amplitud del estímulo (0.5 Vpp). Que la compuerta fija mejore
+×2.02 ahí no implica que mejore lo mismo en todo el rango de energías, y hay un
+motivo concreto para esperar que *no* sea parejo: con histéresis el largo de la
+ventana lo fija dónde la cola cruza `thr − hyst`, y ese punto **se corre con la
+amplitud** (un pulso más grande tarda más en bajar), así que el largo de
+integración crece con la energía. Con compuerta fija no depende de la amplitud
+por construcción. Los dos modos tienen entonces distinta ganancia y, muy
+probablemente, distinta linealidad.
+
+Eso se midió, y está en §14.1b.
+
+## 14.1b Los dos modos a lo largo del espectro
+
+`sweep_gate_espectro`: 12 amplitudes de 0.1 a 1.0 Vpp, los dos modos
+**intercalados en cada punto** (para que cualquier deriva del generador les
+pegue a los dos por igual), `q_shift = 7` fijo en los dos, compuerta de 384.
+Datos en [`../software/datos/mca_gate_esp_v2/`](../software/datos/mca_gate_esp_v2/).
+
+![FWHM de los dos modos a lo largo del espectro](../software/datos/mca_gate_esp_v2/gate_espectro.png)
+
+El FWHM está **referido a la entrada** (dividido por la ganancia de cada modo:
+8619 y 7425 canales/Vpp). Hay que hacerlo: los dos modos integran distinta
+cantidad de muestras, así que tienen distinta ganancia y compararlos en canales
+crudos no significa nada.
+
+| Amplitud | FWHM histéresis | FWHM compuerta | Mejora |
+|---|---|---|---|
+| 0.100 Vpp | 1.335 mV | 0.774 mV | ×1.73 |
+| 0.264 | 1.458 | 0.734 | **×1.99** |
+| 0.345 | 1.615 | 0.775 | **×2.08** |
+| 0.509 | 1.558 | 0.812 | ×1.92 |
+| 0.755 | 1.631 | 0.914 | ×1.78 |
+| 1.000 | 1.676 | 1.059 | ×1.58 |
+
+**La compuerta gana en todo el rango: ×1.58 a ×2.13, mediana ×1.91.** No hay
+ninguna energía donde la histéresis sea mejor. El ×2.02 de §14.1 no era un punto
+afortunado: es el valor típico.
+
+**Pero la mejora NO es pareja, y se degrada hacia arriba.** El FWHM de la
+compuerta crece 37 % de punta a punta (0.774 → 1.059 mV) mientras el de la
+histéresis crece 26 % (1.335 → 1.676 mV): las dos curvas convergen despacio. O
+sea que **la ventaja de la compuerta fija es mayor a energía baja**, que es
+justo donde más se necesita.
+
+Lo que también se ve es que **ninguno de los dos estimadores tiene un FWHM
+proporcional a la energía**: los dos son casi planos en mV sobre una década de
+amplitud. Eso dice que el término dominante es **aditivo** (ruido de la cadena y
+error de línea de base), no proporcional a la carga — y es la razón de que la
+resolución en % caiga como 1/E en el panel de abajo, de 1.5 % a 0.17 %.
+
+### La linealidad salió al revés de lo que yo esperaba
+
+Predije que la histéresis sería el modo menos lineal, porque su ventana se
+alarga con la amplitud. **La ganancia local le da la razón a esa predicción,
+pero la INL del ajuste global no:**
+
+| | ganancia local | INL |
+|---|---|---|
+| histéresis | 7690 → 8558 c/Vpp (**11.3 % de variación**) | 0.563 % FS |
+| compuerta fija | 7305 → 7455 c/Vpp (**2.1 %**) | 0.970 % FS |
+
+La compuerta fija es **5× más estable en ganancia**, exactamente como predecía
+el argumento. Que su INL dé peor **no lo contradice: mide otra cosa**. La INL es
+el residuo máximo contra una recta global, y la histéresis se curva *suave y
+monótona* —una recta le pasa por el medio con residuo moderado— mientras que la
+compuerta es casi plana pero con una ondulación no monótona que la recta no
+sigue.
+
+**No sé cuál de las dos ondulaciones es del MCA y cuál del generador**, y con
+este montaje no se puede separar: la INL medida es la del conjunto
+generador+ADC+MCA (§13.4 llegó a lo mismo por otro camino). Lo único que
+sostengo de acá es la ganancia local, que es una comparación entre modos con el
+*mismo* generador y por lo tanto inmune a su error.
+
+### El punto que hubo que tirar
+
+La primera corrida usó `target_channel = 12000` y a 1.0 Vpp el pico de
+histéresis quedó en el canal 16376 de 16384: **la cola derecha se salía del
+histograma**, el ajuste vio una gaussiana cortada y devolvió FWHM 17.89 cuando
+la tendencia pedía ~24. Ese punto aparecía como **el mejor de todo el barrido**
+justo donde el instrumento se estaba quedando sin escala.
+
+`_medir()` ahora rechaza el punto si `centroide + 2·FWHM` se pasa del último
+canal, y lo dice. Es la misma disciplina que el resto de la suite: el test tiene
+que *rechazar* el resultado cuando el estímulo no da, no imprimir un número
+lindo.
+
+## 14.2 Lo que confirma del análisis offline
+
+La predicción de [`../software/tests/estimadores/`](../software/tests/estimadores/),
+hecha sobre 7054 pulsos crudos **sin tocar la placa**, era:
+
+| | offline | en placa |
+|---|---|---|
+| compuerta óptima | 384 muestras | **384 muestras** |
+| resolución en el óptimo | 0.149 % | **0.161 %** (8 % de diferencia) |
+
+Acertó el largo óptimo **exacto** y la resolución dentro del 8 %. Es la
+validación de que el método offline sirve para decidir cambios de RTL antes de
+gastar una síntesis.
+
+**La ganancia sí quedó por debajo de lo anunciado: ×2.02 y no ×3.5.** El motivo
+es la referencia, no la compuerta: el ×3.5 se calculó contra el 0.528 % de la
+integral por histéresis de la 2ª campaña, y al medirlo de nuevo en las mismas
+condiciones la histéresis da 0.325 %. La compuerta llegó a donde se predijo; la
+referencia estaba peor medida.
+
+## 14.3 El bug que encontró medir en placa
+
+La primera versión marcaba apilamiento así: *si al cerrar la compuerta la señal
+sigue por encima de `thr − hyst`, el evento está contaminado*. Es incorrecto: la
+cola del **propio** pulso tarda ~700 muestras en bajar de 60 cuentas, así que
+descartaba el **100 % de los eventos** con cualquier compuerta más corta que la
+cola — justo el rango útil.
+
+| compuerta | apilamiento (regla vieja) |
+|---|---|
+| 128 a 640 | **100 %** |
+| 768, 1024 | 0 % |
+
+Y no era ni reproducible: el punto de cruce cae en la parte más chata del pulso,
+así que se movía cientos de muestras con cualquier deriva de línea de base. Una
+corrida dio 0.260 % con compuerta 384 y la siguiente no dio ningún evento.
+
+**La regla correcta** es que apilamiento significa un **segundo pulso dentro de
+la compuerta**: la señal bajó de `thr − hyst` y **volvió a cruzar** `thr` con la
+ventana abierta. Con eso el apilamiento da 0 % en todo el rango, como debe ser
+con un generador que entrega un pulso por período.
+
+Sólo se podía encontrar midiendo: en simulación los pulsos son rectangulares y
+la cola no existe.
+
+## 14.4 Timing
+
+| | v1 (histéresis) | v2 (compuertas) | v2b (regla corregida) |
+|---|---|---|---|
+| WNS | −0.114 ns | −0.027 ns | **−0.294 ns** |
+| TNS | −0.570 | −0.372 | −4.195 |
+| Endpoints | 14 | 22 | 49 |
+| Slice LUTs | 5841 | 5874 | 5884 |
+
+**El timing empeoró y no está explicado.** El cono de lógica que agrega v2b es
+más *chico* que el de v2 (`gate_2nd` es un registro; antes era una comparación
+de 15 bits), así que lo más probable es varianza de emplazamiento — pero no se
+verificó con otra semilla.
+
+El peor camino sigue siendo el mismo de siempre:
+`i_mca/i_feat/q_tot_reg[29]` → desplazador por `cfg_q_shift` → ventana de
+amplitud → `cnt_rej_amp_o/CE`. La solución limpia es partir el cierre en dos
+ciclos (un estado `S_CLOSE` que evalúe la amplitud con valores ya registrados),
+a costa de 1 ciclo de tiempo muerto por evento sobre los ~50 que ya hay.
+
+Con −0.294 ns sobre un período de 8 ns (3.7 %) la placa funciona —el smoke test
+da 29/29 y el conteo de eventos es exacto—, pero **es un bitstream que no
+debería quedar como definitivo** sin resolver eso.
+
+## 14.5 Qué queda
+
+| Pendiente | Por qué |
+|---|---|
+| Arreglar el camino crítico | −0.294 ns; probar primero con otra semilla, y si persiste partir el cierre en dos ciclos |
+| Separar la INL del generador de la del MCA | la ondulación de ganancia de §14.1b no se puede atribuir sin un patrón de tensión mejor que el DG4162 |
+| Medir la FOM con compuertas fijas | es el método estándar de PSD y esta es su aplicación real; sólo se midió la resolución en amplitud |
+| Re-medir el throughput | la compuerta fija acota la ventana, así que el tiempo muerto por evento debería bajar |
+| `gate_short` sin barrer | se dejó fijo en 32 muestras; el eje de forma depende de él |

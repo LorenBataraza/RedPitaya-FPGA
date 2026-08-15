@@ -55,7 +55,13 @@ module event_window_capture #(
   input                      dv_i,         // muestra valida este ciclo
 
   // --- trigger -------------------------------------------------------------
-  input                      trig_i,       // pulso de 1 ciclo
+  // trig_i se toma por FLANCO, no por nivel. multitrigger_trig_src registra
+  // `adc_trig <= trig_comb` (un NIVEL), y el strobe de escritura que llega por
+  // el sys_bus_cdc puede durar mas de un ciclo de adc_clk: en la placa, cada
+  // trigger por software producia DOS eventos (uno capturado y uno contado como
+  // drop_busy). Depender del ancho del pulso de un modulo que no controlamos es
+  // fragil; el flanco no.
+  input                      trig_i,
   input      [16:0]          snapshot_i,   // que fuente disparo
   input      [TS_W-1:0]      ts_i,         // reloj libre de adquisicion
 
@@ -82,6 +88,14 @@ module event_window_capture #(
 );
 
   localparam integer PRE_N = (1<<PRE_AW);
+
+  // Deteccion de flanco de trigger (ver la nota del puerto trig_i)
+  reg  trig_d;
+  wire trig_edge = trig_i && !trig_d;
+  always @(posedge clk_i) begin
+    if (!rstn_i || !run_i) trig_d <= 1'b0;
+    else                   trig_d <= trig_i;
+  end
 
   //--------------------------------------------------------------------------
   // Buffer circular de pre-trigger. Se escribe SIEMPRE que corre, pase lo que
@@ -166,7 +180,7 @@ module event_window_capture #(
 
         //-------------------------------------------------------------------
         ST_IDLE: begin
-          if (trig_i && accept_trig_i) begin
+          if (trig_edge && accept_trig_i) begin
             if (!m_accept_i) begin
               // Aguas abajo no tiene lugar para la ventana ENTERA. Se descarta
               // el evento completo; nunca se emite una ventana parcial.
@@ -188,7 +202,7 @@ module event_window_capture #(
         //-------------------------------------------------------------------
         ST_DRAIN: begin
           // Un trigger durante el drenaje es el tiempo muerto intrinseco.
-          if (trig_i) drop_busy_o <= 1'b1;
+          if (trig_edge) drop_busy_o <= 1'b1;
 
           if (do_read) begin
             word_r   <= pre_buf[rd_ptr];
@@ -226,7 +240,7 @@ module event_window_capture #(
           // Un ciclo de gracia para que m_eof_o salga por el registro antes de
           // aceptar un trigger nuevo.
           st <= ST_IDLE;
-          if (trig_i) drop_busy_o <= 1'b1;
+          if (trig_edge) drop_busy_o <= 1'b1;
         end
 
         default: st <= ST_IDLE;
