@@ -272,10 +272,10 @@ Dos límites que conviene tener a mano:
   pico del espectro se mueve entre realizaciones.
 
 Verificado sin hardware por
-[`test_poisson_wave.py`](../../software/tests/test_poisson_wave.py) (intervalos
+[`test_poisson_wave.py`](../../software/tests/tiempo-muerto/test_poisson_wave.py) (intervalos
 exponenciales por KS, `var(N)=media(N)`, la costura sesgada por longitud como
 corresponde a Poisson, pile-up contra `1−e^{−2λw}`) y por
-[`test_poisson_sweep_sim.py`](../../software/tests/test_poisson_sweep_sim.py),
+[`test_poisson_sweep_sim.py`](../../software/tests/tiempo-muerto/test_poisson_sweep_sim.py),
 que corre el barrido entero contra un servidor K=1 simulado y recupera
 `ρ/(1+ρ)` con 0.45 pp de error medio, contra 18.75 pp del modelo periódico.
 

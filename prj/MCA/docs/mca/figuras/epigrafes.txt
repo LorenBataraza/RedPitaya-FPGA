@@ -140,16 +140,27 @@ que limita el generador.
       el corrimiento real es +1.28 %, y ése es el número que hay que citar.
 
 
-FIGURA 7 — 07_cadena_mca.mp4   (animación, datos sintéticos)
-------------------------------------------------------------
-Cómo un pulso se convierte en una cuenta del espectro, en las tres etapas a la
-vez: la señal con pulsos de distinta altura y el umbral dibujado; el bloque
-pulse_feature, que por cada pulso emite UN número —su amplitud— que viaja hasta
-el módulo histograma; y el espectro, donde la barra del canal amp >> h_shift
-sube una cuenta y parpadea. Los pulsos que no cruzan el umbral no producen
-nada.
+FIGURA 7 — la cadena, en tres videos sincronizados   (datos sintéticos)
+----------------------------------------------------------------------
+Cómo un pulso se convierte en una cuenta del espectro. Son tres videos
+separados que salen de la misma simulación, cuadro a cuadro: el cuadro f de uno
+corresponde al cuadro f de los otros dos, así que se pueden reproducir en
+paralelo.
 
-Arranca en tiempo real del gráfico para que se vea el mecanismo pulso a pulso y
-después acelera hasta x8 para acumular 232 cuentas y dibujar dos picos. Los
+  (7a) 07a_senal.mp4 — la señal de entrada, con pulsos de distinta altura y el
+       umbral dibujado. Cuando un pulso cierra se marca su pico con la amplitud
+       que midió el MCA. Los pulsos que no cruzan el umbral pasan de largo y no
+       producen nada: se ven en la traza y nunca aparecen en el espectro.
+  (7b) 07b_cadena.mp4 — el camino de datos. Por cada pulso aceptado,
+       pulse_feature emite UN número —su amplitud— que viaja por el cable hasta
+       el módulo histograma. Es literalmente lo que hace el RTL: un registro de
+       evento por pulso, no una forma de onda.
+  (7c) 07c_histograma.mp4 — el espectro. Al llegar el número, la barra del
+       canal amp >> h_shift sube una cuenta y parpadea. Empieza con cuentas
+       sueltas y termina con dos picos y 227 cuentas.
+
+Los tres arrancan en tiempo real del gráfico para que se vea el mecanismo pulso
+a pulso y después aceleran hasta x8 (lo indica 07a arriba a la derecha) para
+acumular estadística. De los 252 pulsos generados, 232 cruzan el umbral. Los
 pulsos, el ruido de línea de base y las dos líneas de energía son sintéticos:
 es una ilustración del camino de datos, no una medición.

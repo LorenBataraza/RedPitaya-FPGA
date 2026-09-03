@@ -283,6 +283,101 @@ def fig_compromiso(d, res, out):
     _guardar(fig, out, 'compromiso.png')
 
 
+def fig_familias_evento(d, res, out):
+    """Lo que el MCA registra COMO UN SOLO EVENTO, en volts contra µs.
+
+    Es la figura que hace visible lo que el resto del estudio cuenta con
+    números: por qué Q/pico separa las poblaciones de `mapa_forma.png`, y por
+    qué hay un piso que ningún corte puede bajar.
+
+    No usa los .npz del barrido: reconstruye seis casos con la misma `pu.render`
+    y el mismo `pu.segmentar_rapido` que el Monte-Carlo, con las separaciones
+    elegidas a mano para que cada panel muestre un régimen distinto.
+    """
+    forma, info = pu.forma_referencia()
+    cfg = pu.CFG_MODO0
+    A = 1920.0                                   # la línea del espectro
+    rng = np.random.default_rng(4)
+    V = pu.ADC_CNT_PER_V
+    us = 1e6 / pu.FS_HZ                          # muestras -> µs
+
+    #  (título, [(retardo en muestras, amplitud)])
+    CASOS = [
+        ('limpio — un solo pulso',            [(0, A)]),
+        ('coincidencia exacta — Δt = 4 muestras (32 ns)',    [(0, A), (4, A)]),
+        ('el borde — Δt = 20 muestras (160 ns)',             [(0, A), (20, A)]),
+        ('solapamiento parcial — Δt = 150 (1.2 µs)',         [(0, A), (150, A)]),
+        ('solapamiento en la cola — Δt = 600 (4.8 µs)',      [(0, A), (600, A)]),
+        ('triple — Δt = 120 y 320',           [(0, A), (120, A), (320, A)]),
+    ]
+
+    # El lugar geométrico, calibrado con un PULSER DESLIZANTE igual que
+    # `montecarlo.calibracion_pulser`. Tiene que ser dependiente de la amplitud:
+    # un evento apilado de dos pulsos de la línea mide ~3840 cuentas, y el
+    # Q/pico esperado ahí NO es el de 1920 —la ventana por histéresis se estira
+    # con el logaritmo de la amplitud—. Comparar contra un valor fijo daría por
+    # apilada a una coincidencia exacta, que es precisamente el caso que ningún
+    # corte de forma puede detectar.
+    a_cal = rng.uniform(110.0, 7000.0, 12000)
+    d_cal, _ = pu.render_aislados(a_cal, forma, rng=rng)
+    ev_cal = pu.segmentar_rapido(d_cal, **cfg)
+    m = ev_cal['cerrado']
+    ev_cal = {k: v[m] for k, v in ev_cal.items()}
+    locus = pu.locus_forma(pu.amplitud(ev_cal, 0),
+                           pu.razon_forma(ev_cal, 'q_pico'))
+
+    fig, axes = plt.subplots(2, 3, figsize=(14, 6.8))
+    thr_hi = cfg['thr'] / V
+    thr_lo = (cfg['thr'] - cfg['hyst']) / V
+
+    for ax, (titulo, pulsos) in zip(axes.ravel(), CASOS):
+        t_idx = np.array([200 + p[0] for p in pulsos], dtype=np.int64)
+        amps = np.array([p[1] for p in pulsos], dtype=float)
+        dat, o = pu.render(t_idx, amps, forma, rng=rng)
+        ev = pu.segmentar_rapido(dat, **cfg)
+
+        x = np.arange(dat.size) * us
+        ax.plot(x, dat / V, color=TINTA, lw=0.9)
+        ax.axhline(thr_hi, color=ROJO, lw=0.9, ls=':')
+        ax.axhline(thr_lo, color=MUDO, lw=0.9, ls=':')
+
+        if ev['i0'].size:
+            k = int(np.argmax(ev['q_tot']))
+            i0, largo = int(ev['i0'][k]), int(ev['largo'][k])
+            amp = pu.amplitud(ev, 0)[k:k + 1].astype(float)
+            q_pico = float(pu.razon_forma(ev, 'q_pico')[k])
+            esperado = float(np.interp(amp, locus[0], locus[1])[0])
+            sigma = float(np.interp(amp, locus[0], locus[2])[0])
+            desvio = (q_pico - esperado) / sigma
+            acepta = desvio <= 3.0
+            col = VERDE if acepta else ROJO
+            ax.axvspan(i0 * us, (i0 + largo) * us, color=col, alpha=.10, lw=0)
+            ax.axvline(i0 * us, color=col, lw=1.0)
+            ax.axvline((i0 + largo) * us, color=col, lw=1.0)
+
+            txt = (f'ventana {largo} muestras ({largo*us:.1f} µs)\n'
+                   f'amplitud {ev["pico"][k]/V*1e3:.0f} mV  '
+                   f'({ev["pico"][k]/A*100:.0f} % de la línea)\n'
+                   f'Q/pico {q_pico:.1f}   esperado {esperado:.1f}\n'
+                   f'desvío {desvio:+.1f} σ  →  '
+                   f'{"ACEPTA" if acepta else "RECHAZA"}')
+            ax.text(0.975, 0.93, txt, transform=ax.transAxes, ha='right',
+                    va='top', fontsize=7.8, color=TINTA2 if acepta else ROJO,
+                    linespacing=1.4)
+            ax.set_xlim(0, min(dat.size, i0 + largo + 300) * us)
+
+        ax.set_title(titulo, loc='left', color=TINTA2, fontsize=9)
+        ax.set_xlabel('tiempo [µs]')
+        ax.set_ylabel('tensión [V]')
+        _limpiar(ax)
+
+    fig.suptitle('Familias de evento del apilamiento — sombreado: la ventana '
+                 'del MCA.  Punteados: thr y thr−hyst.',
+                 x=0.008, ha='left', fontsize=10, color=TINTA2)
+    fig.tight_layout(rect=(0, 0, 1, 0.965))
+    _guardar(fig, out, 'familias_evento.png')
+
+
 def main():
     if len(sys.argv) > 1:
         d = sys.argv[1]
@@ -299,8 +394,8 @@ def main():
     print(f'{res["n_eventos"]} eventos por punto, '
           f'{len(res["tasas"])} tasas, {len(res["combinaciones"])} combinaciones')
 
-    for fn in (fig_espectros, fig_distorsion, fig_mapa, fig_corte,
-               fig_compromiso):
+    for fn in (fig_familias_evento, fig_espectros, fig_distorsion,
+               fig_mapa, fig_corte, fig_compromiso):
         try:
             fn(d, res, d)
         except Exception as e:                      # una figura mala no tira el resto

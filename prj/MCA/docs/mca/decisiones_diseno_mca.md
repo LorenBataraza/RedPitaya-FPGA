@@ -96,7 +96,10 @@ INL = max|residuo| / (canal_max − canal_min)
 
 Medido: **1.13 % FS**, o sea **40 canales** de desvío máximo sobre un rango de
 3547. La curva, con el FWHM como barra de error y las dos pasadas superpuestas,
-está en [`figuras/02_linealidad_inl.png`](figuras/02_linealidad_inl.png).
+está en [`figuras/02_linealidad_inl.png`](figuras/02_linealidad_inl.png). Esa
+barra de error, desplegada sobre el eje —el FWHM punto a punto, separado en su
+término aditivo y el proporcional—, está en
+[`figuras/09_fwhm_vs_eje.png`](figuras/09_fwhm_vs_eje.png).
 
 **Qué implica.** Que si calibrás con dos puntos e **interpolás**, las energías
 intermedias salen corridas hasta 40 canales — unos 10 mV, ~1 % de un pulso de

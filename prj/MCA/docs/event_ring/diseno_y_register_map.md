@@ -4,6 +4,12 @@ Ring de slots de evento en DDR. Reemplaza el ciclo
 `capturar → congelar → que el PS lea por GP0 → re-armar` (K=1, τ = 252.7 µs) por
 una cola productor/consumidor de N_SLOTS eventos.
 
+> El detalle interno —señales, las tres FSMs, qué son los créditos y cómo se
+> forman las transferencias AXI— está en
+> [`logica_de_captura_y_axi.md`](logica_de_captura_y_axi.md). La máquina que esto
+> reemplaza está en
+> [`../multitrigger/sistema_adquisicion_original.md`](../multitrigger/sistema_adquisicion_original.md).
+
 ## Por qué "ring" y no "arbiter"
 
 El módulo original se llamaba `multievent_arbiter`. Un *árbitro* elige entre

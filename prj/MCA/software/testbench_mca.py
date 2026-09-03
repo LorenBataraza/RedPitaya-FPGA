@@ -1141,7 +1141,11 @@ def sweep_rate_poisson(mca, gen, ch=1, rates=None, rhos=None, tau_s=2.3e-6,
     c = {**DEFAULT_CFG, **cfg}
     width_s = PULSE_WIDTH_S if width_s is None else width_s
     if rates is None:
-        rhos = np.asarray([0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 0.9, 1.5]
+        # Grilla DENSA y log-espaciada: la curva rho/(1+rho) no tiene rasgos
+        # que se pierdan con pocos puntos, pero la comparacion contra el modelo
+        # periodico (que es cero hasta rho=1) se juega justamente en la decada
+        # rho = 0.01..1, y con 8 puntos ahi no se ve la forma.
+        rhos = np.asarray(np.logspace(np.log10(0.005), np.log10(2.0), 20)
                           if rhos is None else rhos, dtype=float)
         rates = rhos / float(tau_s)
     rates = np.asarray(rates, dtype=float)

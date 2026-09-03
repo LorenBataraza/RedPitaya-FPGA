@@ -31,9 +31,11 @@ LO QUE NO SE MODELA, Y POR QUÉ
   - Los 6 ciclos de S_DIV (el divisor de forma) durante los cuales un pulso
     nuevo se pierde y se cuenta en `cnt_lost_busy`. Son 48 ns contra ventanas de
     ~700 muestras: a 500 kcps afecta al 2.4e-5 de los eventos.
-  - El seguidor IIR de línea de base. Se usa base fija = 0, que es el caso
-    `cfg_bl_auto = 0` del RTL. El seguidor promedia sobre miles de muestras y
-    está congelado durante el pulso y `cfg_bl_holdoff` después.
+  - (Ya no.) El seguidor IIR de línea de base está modelado en
+    `segmentar_base`, fiel al RTL. Lo que sigue con base fija es el barrido de
+    `montecarlo.py`, por costo: `segmentar_rapido` es vectorizado y
+    `segmentar_base` es un lazo muestra a muestra. El estudio del seguidor está
+    en `linea_base.py`.
   - Una diferencia de orden entre `estimadores.segmentar_rtl` y el RTL, que se
     hereda a propósito para que la equivalencia sea exacta: si en la MISMA
     muestra se cumplen `len >= maxlen` y `x < thr_lo`, el RTL lo cuenta como
@@ -50,6 +52,7 @@ _AQUI = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_AQUI, '..', '..'))          # software/
 sys.path.insert(0, os.path.join(_AQUI, '..', 'estimadores'))  # la réplica de referencia
 
+import rigol_dg4162 as rg                                     # noqa: E402
 from rigol_dg4162 import detector_pulse, _fwhm_pts            # noqa: E402
 
 
@@ -124,6 +127,51 @@ def forma_referencia(fwhm_s=FWHM_S, tau_muestras=TAU_COLA, fs_hz=FS_HZ,
                 fwhm_pts=float(_fwhm_pts(forma)),
                 i_pico=int(np.argmax(forma)),
                 area_pico=float(forma.sum()),
+                n=int(forma.size), fs_hz=float(fs_hz))
+    return forma, info
+
+
+def forma_knoll(familia, fwhm_s=FWHM_S, fs_hz=FS_HZ, piso=1e-5, **kw):
+    """Una familia del catálogo de Knoll, muestreada a la tasa del ADC.
+
+    La contraparte de `forma_referencia` para las formas de amplificador de
+    conformado (`rigol_dg4162.FORMAS_KNOLL`): CR, CR-RC, CR-RC^n, triangular,
+    trapezoidal, bipolar. Sirve para preguntar cuánto de lo que concluye el
+    estudio de apilamiento depende de la forma del pulso.
+
+    Toda forma del catálogo es f(t/escala), así que el FWHM es LINEAL en la
+    escala y se despeja con un solo sondeo sobre-muestreado: es exactamente lo
+    que hace `_escala_para_fwhm`, y se reusa en vez de reimplementarlo para que
+    la forma de acá y la que la campaña le cargó al Rigol sean la misma.
+
+    El template se corta donde la cola cae por debajo de `piso` relativo al
+    pico. Ese largo es el que fija el hueco mínimo entre grupos (ver `agrupar`).
+
+    Devuelve (forma, info), con la misma convención que `forma_referencia`.
+    """
+    f = rg.FORMAS_KNOLL[familia] if isinstance(familia, str) else familia
+    fwhm_pts = float(fwhm_s) * float(fs_hz)          # FWHM en muestras del ADC
+    escala = rg._escala_para_fwhm(f, fwhm_pts, **kw)
+
+    # Largo del template: se sondea la cola hasta que baja de `piso`. Se hace
+    # sobre la forma continua y no sobre la muestreada para no atarlo a la
+    # grilla del ADC.
+    u = np.arange(0.0, 400.0, 1.0 / 64.0)
+    y = np.asarray(f(u, **kw), dtype=float)
+    pk = float(np.abs(y).max())
+    i_pk = int(np.argmax(np.abs(y)))
+    cola = np.flatnonzero(np.abs(y[i_pk:]) < piso * pk)
+    u_max = float(u[i_pk + int(cola[0])]) if cola.size else float(u[-1])
+
+    n = int(np.ceil(u_max * escala)) + 1
+    forma = np.asarray(f(np.arange(n, dtype=float) / escala, **kw), dtype=float)
+    forma = forma / float(forma.max())               # normalizada al PICO
+
+    pos = forma[forma > 0].sum()
+    info = dict(familia=familia if isinstance(familia, str) else 'callable',
+                escala=float(escala), fwhm_pts=float(_fwhm_pts(forma)),
+                i_pico=int(np.argmax(forma)), area_pico=float(pos),
+                factor_forma=float(pos / _fwhm_pts(forma)),
                 n=int(forma.size), fs_hz=float(fs_hz))
     return forma, info
 
@@ -520,6 +568,181 @@ def contar_arribos(ev, loc):
                                                             dtype=np.int64)
     bordes = np.concatenate(([0], fin))
     return np.diff(np.searchsorted(np.asarray(loc, dtype=np.int64), bordes))
+
+
+def avanzar_base(bl_acc, dc, n, k):
+    """Adelanta el acumulador del IIR `n` muestras de señal quieta en `dc`.
+
+    HACE FALTA porque el renderizado por grupos NO materializa el tiempo muerto
+    entre pulsos —ese es justamente el truco que hace viable el barrido— pero el
+    seguidor sí corre durante ese tiempo y converge. Saltearlo dejaría la base
+    enganchada al último grupo.
+
+    En reposo el IIR es lineal, así que el salto tiene forma cerrada:
+
+        bl_acc(n) = (1 - 2^-k)^n * (bl_acc(0) - dc*2^k) + dc*2^k
+
+    Es exacto en valor esperado; lo que se pierde es el ruido de la base, que
+    promedia a cero sobre las miles de muestras de un hueco. Y donde la
+    aproximación sería peor —tasa alta— los huecos directamente no existen,
+    porque los grupos se funden.
+    """
+    n = int(n)
+    if n <= 0:
+        return int(bl_acc)
+    objetivo = float(dc) * (1 << int(k))
+    decae = (1.0 - 2.0 ** -int(k)) ** n
+    return int(round(decae * (float(bl_acc) - objetivo) + objetivo))
+
+
+def segmentar_base(dat, bl_auto=True, baseline=0, bl_k=12, bl_holdoff=64,
+                   thr=100, hyst=40, maxlen=4096, tail_dly=8, bl_acc0=None,
+                   traza_base=False):
+    """Modo 0 CON el seguidor IIR de línea de base. Lazo muestra a muestra.
+
+    NO se puede vectorizar como `segmentar_rapido`, y no es por falta de ganas:
+    la base depende del estado de la segmentación (se congela durante el pulso)
+    y el estado depende de la base (`x = dat - baseline` decide los cruces). El
+    lazo corre a ~3.8 Mmuestras/s, que alcanza para el estudio.
+
+    Con `bl_auto=False` tiene que dar EXACTAMENTE los mismos eventos que
+    `segmentar_rapido(dat, baseline=...)`. Eso es lo que la ancla a la cadena ya
+    validada contra `tb_mca_pulse_feature.sv` y contra la placa, y es un test.
+
+    Temporización de registros, copiada de mca_pulse_feature.sv:110-138 y
+    :285-301. Los tres detalles no son cosméticos:
+
+      - el shift va UN ciclo atrasado (`:119-127`): se lo sacó del lazo del IIR
+        para dejarlo en una sola suma, así que
+        `bl_acc(n) = bl_acc(n-1) + dat(n) - (bl_acc(n-2) >> k)`;
+      - `baseline` TAMBIÉN está registrada (`:128-138`), o sea dos ciclos detrás
+        de `bl_acc`. Se hizo porque el camino combinacional era el peor de todo
+        el MCA (-0.674 ns a 125 MHz);
+      - la condición de actualización lleva `!open_pulse` (`:288-292`): en el
+        flanco en que abre el pulso `st` todavía vale S_IDLE, y sin esa guarda
+        el IIR se come la primera muestra del flanco de subida de CADA pulso y
+        arrastra la base hacia arriba de forma sistemática. Ese bug ya apareció
+        una vez en la placa; acá se modela la versión corregida.
+
+    Devuelve el mismo dict que `segmentar_rapido`, más:
+        bl_acc_fin  : el acumulador al terminar, para encadenar grupos
+        frac_congelada : fracción de muestras en que el IIR no actualizó. Es la
+                         variable explicativa del estudio: a tasa alta el
+                         seguidor está congelado casi siempre y deja de seguir.
+        base        : la traza de la base (sólo si `traza_base=True`)
+        congelada   : máscara de las muestras en que el IIR no actualizó
+    """
+    dat = np.asarray(dat, dtype=np.int64)
+    k = int(bl_k)
+    thr_hi, thr_lo = int(thr), int(thr) - int(hyst)
+
+    # --- registros del seguidor -------------------------------------------
+    if bl_acc0 is None:
+        bl_acc0 = int(baseline) << k          # arranca convergido, no en cero
+    bl_acc = int(bl_acc0)
+    bl_shr = bl_acc >> k                      # bl_acc_shr
+    base_r = int(baseline) if not bl_auto else bl_shr   # baseline registrada
+    bl_hold = 0
+
+    # --- registros de la FSM ----------------------------------------------
+    armed = False
+    activo = False
+    i0 = largo = q_tot = q_tail = pico = t_pico = 0
+
+    i0s, largos, motivos = [], [], []
+    q_tots, q_tails, picos, t_picos = [], [], [], []
+    n_congeladas = 0
+    base_tr = np.empty(dat.size, dtype=np.int64) if traza_base else None
+    cong_tr = np.zeros(dat.size, dtype=bool) if traza_base else None
+
+    for i in range(dat.size):
+        d = int(dat[i])
+        x = d - base_r
+        xc = x if x > 0 else 0
+        if traza_base:
+            base_tr[i] = base_r
+
+        # `st` ANTES del flanco: es lo que mira la condición del seguidor, y no
+        # es lo mismo que `activo` después de correr la FSM de este ciclo.
+        en_reposo = not activo
+        carga_hold = False
+
+        # ---- FSM (idéntica a segmentar_rapido / mca_pulse_feature) --------
+        abre = False
+        if not activo:
+            if x < thr_lo:
+                armed = True
+            if armed and x >= thr_hi:
+                abre = True
+                activo, armed = True, False
+                i0, largo = i, 1
+                q_tot, q_tail = xc, 0
+                pico, t_pico = xc, 0
+        else:
+            if x < thr_lo:                    # cierra por histéresis
+                i0s.append(i0); largos.append(largo); motivos.append(M_HYST)
+                q_tots.append(q_tot); q_tails.append(q_tail)
+                picos.append(pico); t_picos.append(t_pico)
+                activo, armed = False, True
+                carga_hold = True
+            elif largo >= int(maxlen):        # cierra por longitud: apilamiento
+                i0s.append(i0); largos.append(largo); motivos.append(M_MAXLEN)
+                q_tots.append(q_tot); q_tails.append(q_tail)
+                picos.append(pico); t_picos.append(t_pico)
+                activo = False
+                carga_hold = True
+            else:
+                if largo >= t_pico + int(tail_dly):
+                    q_tail += xc
+                q_tot += xc
+                if xc > pico:
+                    pico, t_pico = xc, largo
+                largo += 1
+
+        # ---- seguidor: sólo en reposo, sin abrir y fuera del holdoff ------
+        if en_reposo and not abre and bl_hold == 0:
+            bl_acc_n = bl_acc + d - bl_shr    # bl_shr va un ciclo atrasado
+        else:
+            bl_acc_n = bl_acc
+            n_congeladas += 1
+            if traza_base:
+                cong_tr[i] = True
+            if bl_hold:
+                bl_hold -= 1
+
+        # El `bl_hold <= cfg_bl_holdoff` de la FSM está DESPUÉS en el archivo
+        # que el `bl_hold <= bl_hold - 1` del seguidor, así que en Verilog gana
+        # la carga: en el ciclo que cierra el pulso el holdoff se carga entero,
+        # no se carga y se decrementa. Por eso va acá y no en la rama de arriba.
+        if carga_hold:
+            bl_hold = int(bl_holdoff)
+
+        # los tres registros avanzan juntos, cada uno con el valor pre-flanco
+        base_r = bl_shr if bl_auto else int(baseline)
+        bl_shr = bl_acc >> k
+        bl_acc = bl_acc_n
+
+    if activo:                                 # se acabó el array sin cerrar
+        i0s.append(i0); largos.append(largo); motivos.append(M_FIN)
+        q_tots.append(q_tot); q_tails.append(q_tail)
+        picos.append(pico); t_picos.append(t_pico)
+
+    mot = np.array(motivos, dtype=np.int8)
+    out = dict(i0=np.array(i0s, dtype=np.int64),
+               largo=np.array(largos, dtype=np.int64),
+               motivo=mot,
+               q_tot=np.array(q_tots, dtype=np.int64),
+               q_tail=np.array(q_tails, dtype=np.int64),
+               pico=np.array(picos, dtype=np.int64),
+               t_pico=np.array(t_picos, dtype=np.int64),
+               cerrado=mot != M_FIN,
+               apilado=mot == M_MAXLEN,
+               bl_acc_fin=int(bl_acc),
+               frac_congelada=float(n_congeladas / max(dat.size, 1)))
+    if traza_base:
+        out['base'] = base_tr
+        out['congelada'] = cong_tr
+    return out
 
 
 def psd(q_tail, q_tot, psd_aw=6):

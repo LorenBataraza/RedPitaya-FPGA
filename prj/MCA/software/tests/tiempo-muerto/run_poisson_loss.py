@@ -32,7 +32,8 @@ import time
 
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_AQUI = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(_AQUI, '..', '..'))   # -> software/
 
 import rigol_dg4162 as rg
 
@@ -41,8 +42,11 @@ def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('outdir')
-    p.add_argument('--rhos', default='0.05,0.1,0.2,0.5,0.9,1.5',
-                   help='ocupaciones a medir (rho = lambda*tau)')
+    p.add_argument('--rhos', default=None,
+                   help='ocupaciones a medir (rho = lambda*tau). Por default, '
+                        '16 puntos log-espaciados de 0.02 a 2: la comparacion '
+                        'contra el modelo periodico (cero hasta rho=1) se juega '
+                        'en esa decada y con pocos puntos no se ve la forma')
     p.add_argument('--tau-us', type=float, default=252.7,
                    help='tiempo de servicio del lector, para elegir las tasas')
     p.add_argument('--sub-s', type=float, default=4.0,
@@ -101,7 +105,8 @@ def main(argv=None):
     args = parse_args(argv)
     os.makedirs(args.outdir, exist_ok=True)
     tau = args.tau_us * 1e-6
-    rhos = np.array([float(x) for x in args.rhos.split(',')], dtype=float)
+    rhos = (np.logspace(np.log10(0.02), np.log10(2.0), 16) if not args.rhos
+            else np.array([float(x) for x in args.rhos.split(',')], dtype=float))
     rates = rhos / tau
 
     from multitrigger_utils import BIT_ADC_P0, MultiTriggerScope
@@ -131,6 +136,9 @@ def main(argv=None):
     ses = Session(src, run_dir, verbose=False,
                   meta={'test': 'poisson_loss', 'tau_us': args.tau_us})
 
+    t_est = len(rhos) * args.semillas * (args.sub_s + 0.4)
+    print(f'{len(rhos)} puntos x {args.semillas} semillas x {args.sub_s:g} s '
+          f'-> ~{t_est/60:.1f} min de barrido')
     filas = []
     try:
         ses.start()

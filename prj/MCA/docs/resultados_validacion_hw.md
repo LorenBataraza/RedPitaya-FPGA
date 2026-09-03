@@ -2,7 +2,9 @@
 
 El **por qué** del diseño está en
 [`decisiones_diseno_mca.md`](mca/decisiones_diseno_mca.md); acá van los números
-medidos y cómo interpretarlos.
+medidos y cómo interpretarlos. Qué **limita** a esos números —y por qué el que ata
+es la deriva y no el contador ni la cantidad de canales— está en
+[`limites_resolucion_y_deriva.md`](mca/limites_resolucion_y_deriva.md).
 
 > ## ⚠️ Este documento describe la PRIMERA campaña (2026-08-11), y varios de sus
 > ## números están CORREGIDOS o REFUTADOS por la segunda
@@ -19,7 +21,7 @@ medidos y cómo interpretarlos.
 > | FOM vs energía | `nan` en 3 de 4 rebanadas | **1.31 → 1.58 al subir la amplitud** | |
 > | DNL | 467 % (inválida) | **26 % pero es una cota superior** del estímulo | no se puede medir con este generador |
 > | INL | 0.501 % FS | **1.13 % FS, sistemático** (correlación +1.00 entre pasadas) | |
-> | Pico vs integral | "integral ≥60× mejor" | **la integral es 1.3-3.5× PEOR** — pero por la VENTANA, no por la integral: con compuerta fija da 0.149 %, mejor que todo | la 1ª comparaba escalas distintas |
+> | Pico vs integral | "integral ≥60× mejor" | **el resultado vigente está en [§0](#0-precisión-de-los-estimadores--el-resultado-vigente)** | la 1ª comparaba escalas distintas |
 > | Corrimiento con la tasa | — | **+1.28 %** en ×36 (el +6.45 % que se reportó primero está confundido con el ancho de pulso) | |
 >
 > Las secciones 1-12 se dejan como estaban, con su fecha, porque documentan el
@@ -60,7 +62,7 @@ del 2026-08-11 por la noche).
 | Reloj de tiempo real | **1.0014 s** medidos vs 1.0 s | error 0.14 % |
 | **Conteo de eventos** | **10010 / 10010 esperados, −0.004 %** | valida todo el camino de datos |
 | Pico único (pulser) | centroide **1843.1**, FWHM **4.54**, **0.247 %** | contribución de ruido de la cadena |
-| Pico vs integral | integral **≥60×** mejor | ver la salvedad abajo |
+| Pico vs integral | *retirado — medía el piso del binado* | resultado vigente en [§0](#0-precisión-de-los-estimadores--el-resultado-vigente) |
 | Constante del seguidor de base | `bl_k ≥ 9` con este pulso | §4 |
 | **Ganancia de conversión** | **3718.3 canales/Vpp**, offset −7.4 canales | linealidad excelente |
 | INL | **0.501 % FS** | 10× peor que un MCA comercial, §6 |
@@ -71,6 +73,74 @@ del 2026-08-11 por la noche).
 | **FOM de PSD** | **1.462** | **>1.27: buena separación** |
 | DNL | **no válida** con este estímulo | §10 |
 | Resolución par-pulso | **no válida** | §10 |
+
+---
+
+# 0. Precisión de los estimadores — el resultado vigente
+
+La comparación entre estimadores se midió cuatro veces y las tres primeras
+quedaron obsoletas; ésta es la tabla que hay que citar. Todo con el mismo
+estímulo de 2 µs de FWHM.
+
+## 0.1 Medido en placa
+
+Cada bloque compara estimadores **en las mismas condiciones**; entre bloques no,
+porque cambia la amplitud del estímulo.
+
+| Estimador | Resolución (FWHM/centroide) | Dónde |
+|---|---|---|
+| muestra de **pico** | 0.33 – 0.44 % (0.344 % a 2 µs) | [§13.6](#136-pico-vs-integral-la-integral-es-peor-y-se-entiende-por-qué) |
+| **integral**, ventana por histéresis | 0.53 % | [§13.6](#136-pico-vs-integral-la-integral-es-peor-y-se-entiende-por-qué) |
+
+| Estimador | Resolución | Dónde |
+|---|---|---|
+| **integral**, ventana por histéresis (referencia re-medida) | 0.325 % | [§14.1](#141-el-resultado) |
+| **integral, compuerta FIJA de 384 muestras** | **0.161 %** | [§14.1](#141-el-resultado) |
+
+**El resultado de diseño es ×2.02 a favor de la compuerta fija**, y
+[§14.1b](#141b-los-dos-modos-a-lo-largo-del-espectro) muestra que se sostiene en
+toda una década de amplitud: **×1.58 a ×2.13, mediana ×1.91**, sin ninguna
+energía donde la histéresis gane. La ventaja es mayor a energía baja.
+
+## 0.2 Análisis offline sobre los mismos 7054 pulsos
+
+Único bloque donde **todos** los estimadores se calculan sobre los mismos datos
+crudos, así que las relaciones entre ellos son directamente comparables
+([`../software/tests/estimadores/`](../software/tests/estimadores/)):
+
+| Estimador | Resolución | Relativo al pico |
+|---|---|---|
+| integral, ventana por histéresis | 0.528 % | 1.94× peor |
+| pico | 0.272 % | — |
+| trapecio (k=192, m=160) | 0.212 % | 1.28× mejor |
+| **integral, compuerta fija de 384 muestras** | **0.149 %** | **1.83× mejor** |
+
+La réplica se valida contra el hardware por la σ **en cuentas**: da 2.78 y la
+placa midió 2.81, 1 % de acuerdo.
+
+> **El 0.528 % de este bloque no es la referencia buena.** Al re-medir la
+> histéresis en placa en las mismas condiciones da 0.325 %
+> ([§14.2](#142-lo-que-confirma-del-análisis-offline)), así que la mejora real de
+> la compuerta fija es **×2.02 y no ×3.5**.
+
+## 0.3 Por qué el pico le gana a la integral con esta señal
+
+La integral gana cuando el estimador de pico sufre *jitter de muestreo*, y acá no
+sufre: un pulso de 2 µs son **250 muestras a 125 MSPS**, así que la muestra de
+pico cae prácticamente en el máximo verdadero. La integral, en cambio, acumula el
+error de línea de base sobre toda la ventana.
+
+Pero el problema no era la integral: **era la VENTANA**. Con `gate_mode=0` el RTL
+cierra donde la cola cruza `thr − hyst`, que es la zona **más chata** del pulso —
+con τ = 186 muestras y σ = 2.8 cuentas de ruido el cruce tiembla ~9 muestras, y
+cada muestra vale ~60 cuentas de carga. Con compuerta de largo fijo eso
+desaparece y la carga pasa a ser el mejor estimador de los cuatro.
+
+**El trapecio queda por debajo de la compuerta fija** y costaría la mitad del
+throughput, así que con esta señal no se justifica. Su valor está en otra cosa
+—la cancelación polo-cero, que es lo que ataca la deriva de
+[`limites_resolucion_y_deriva.md`](mca/limites_resolucion_y_deriva.md) §6—, no en
+la resolución.
 
 ---
 
@@ -102,31 +172,30 @@ detector de electrónica:
 FWHM_detector = sqrt( FWHM_total^2 - 4.54^2 )
 ```
 
+> **No cites el 0.247 % como la resolución del MCA.** Está medido con el pulso de
+> 336 µs de la 1ª campaña. Con el estímulo corregido de 2 µs la misma medición da
+> **0.344 %** (§13.6) y con compuerta fija **0.161 %**
+> ([§0](#0-precisión-de-los-estimadores--el-resultado-vigente)). Lo que sigue
+> valiendo de esta sección es el **método**, no el número.
+
 Un 0.25 % es un piso instrumental cómodo: para un NaI(Tl) (~7 % FWHM) el aporte
 de la electrónica es despreciable; incluso para un HPGe (~0.2 %) queda del mismo
 orden, así que ahí sí conviene usar el estimador de integral.
 
 ---
 
-## 3. Pico vs integral — la tesis central del diseño
+## 3. Pico vs integral — *números retirados*
 
-| `t_rise` | FWHM pico | FWHM integral | Resolución pico | Resolución integral |
-|---|---|---|---|---|
-| 2 muestras | 4.99 | 0.68 | 0.269 % | 0.0041 % |
-| 4 muestras | 4.58 | 0.68 | 0.248 % | 0.0041 % |
+Esta sección publicaba una mejora de "≥60×" a favor de la integral. **No medía
+el estimador: medía el piso del binado.** Con el `cfg_q_shift` de esa campaña
+todos los eventos de la integral caían en un único canal, así que el FWHM
+reportado (0.68) era el desvío de una distribución uniforme de un bin,
+`2.355/√12`, y no una propiedad de la integral. Los dos estimadores estaban
+además en escalas de canal distintas, así que la comparación no era comparación.
 
-**Salvedad importante: el "≥60×" es una cota inferior, no la mejora real.** Con
-la integral **todos los eventos caen en un único canal**, así que el FWHM medido
-(0.68) es sencillamente el piso del binado —el desvío de una distribución
-uniforme de un bin, `2.355/√12`— y no una propiedad del estimador. Lo único que
-se puede afirmar es que la dispersión de la integral es **menor que un canal**.
-
-Para medir cuánto mejor es de verdad habría que reducir `cfg_q_shift` (más
-canales por unidad de carga) hasta que el pico ocupe varios bins.
-
-Aun así, la conclusión de diseño se sostiene y queda verificada en hardware:
-**la integral de carga es al menos dos órdenes de magnitud más reproducible que
-la muestra de pico**, que es lo que justifica un eje de 16384 canales.
+Se corrigió llevando los dos a la misma escala con `autoscale_q_shift()`. El
+resultado vigente, con el signo invertido respecto de lo que decía acá, está en
+**[§0](#0-precisión-de-los-estimadores--el-resultado-vigente)**.
 
 ---
 
@@ -527,8 +596,11 @@ cierra la pregunta, calculando todos los estimadores **sobre los mismos pulsos**
 | trapecio (k=192, m=160) | 0.212 % |
 | **integral, compuerta FIJA de 384 muestras** | **0.149 %** |
 
-Con compuerta de largo fijo la carga mejora **1.83× sobre el pico** y **3.55×
-sobre la integral con histéresis**. La causa del problema quedó identificada: el
+Con compuerta de largo fijo la carga mejora **1.83× sobre el pico** dentro de
+este bloque. El "3.55× sobre la integral con histéresis" que decía acá **está
+retirado**: usa como referencia el 0.528 % de arriba, y al re-medir la histéresis
+en placa en las mismas condiciones da 0.325 %, así que la mejora real es **×2.02**
+([§14.2](#142-lo-que-confirma-del-análisis-offline)). La causa del problema quedó identificada: el
 RTL cierra la ventana donde la cola cruza `thr − hyst`, que es la zona **más
 chata** del pulso — con τ = 186 muestras y σ = 2.8 cuentas de ruido el cruce
 tiembla ~9 muestras, y cada muestra vale ~60 cuentas de carga.
@@ -912,3 +984,256 @@ debería quedar como definitivo** sin resolver eso.
 | Medir la FOM con compuertas fijas | es el método estándar de PSD y esta es su aplicación real; sólo se midió la resolución en amplitud |
 | Re-medir el throughput | la compuerta fija acota la ventana, así que el tiempo muerto por evento debería bajar |
 | `gate_short` sin barrer | se dejó fijo en 32 muestras; el eje de forma depende de él |
+| **Campaña de amplitud con muchos más puntos** | §15.3: con 12 amplitudes el error leave-one-out (0.24 % FS) es peor que cualquier tabla de calibración, hasta con 8 nodos. La tabla no es el cuello de botella, la campaña sí |
+
+---
+
+# 15. Linealización del eje en software — 2026-08-15
+
+Fase 0 de la expansión del MCA: antes de gastar una síntesis en una tabla de
+calibración, contestar en software si la corrección sirve y de qué tamaño tiene
+que ser la tabla. Todo offline, sobre datos ya medidos.
+
+Implementación en [`software/mca_utils.py`](../software/mca_utils.py) (sección
+*Linealización del eje de amplitud*) y verificación en
+[`software/tests/test_linealizacion.py`](../software/tests/test_linealizacion.py).
+
+## 15.1 El modelo y la condición de inversión
+
+Con `Â = G·A + INL(A)`, recuperar `A` a partir de `Â` exige que el mapa sea
+estrictamente creciente:
+
+    dÂ/dA = G + dINL/dA > 0     ⟺     min(dINL/dA) > −G
+
+Lo que se reporta es el **margen** `G + min(dINL/dA)`, no un booleano: un margen
+chico dice que la inversión existe pero es frágil.
+
+| Modo | G (canales/Vpp) | min dINL/dA | Margen | Margen / G |
+|---|---|---|---|---|
+| Histéresis | 8619 | −276.4 | 8342.6 | **96.8 %** |
+| Compuerta fija | 7425 | −261.4 | 7163.7 | **96.5 %** |
+
+El eje está **muy lejos** de plegarse: la INL medida usa menos del 4 % del
+margen disponible. La preocupación de que dos regiones no conexas de energía
+cayeran en el mismo canal no aplica en este régimen, y ahora es un número y no
+una opinión.
+
+## 15.2 Corregir el espectro no es renombrar los canales
+
+Si el mapa estira una zona y comprime otra, las **alturas** del histograma
+también cambian. Corregir sólo las etiquetas deja los picos en el lugar correcto
+con el área equivocada, y fabrica una DNL falsa.
+
+`linearize_spectrum()` hace **rebinning por bordes**: pasa los bordes enteros del
+espectro medido por el mapa, interpola la cuenta acumulada en la grilla destino,
+y diferencia. Conserva las cuentas **exactamente** (verificado a `< 1e-9`
+relativo) y absorbe el jacobiano sin derivar nada — la fórmula puntual
+`N(A) = N̂(g(A))·g'(A)` obliga a derivar un interpolante construido sobre datos
+ruidosos y encima no conserva las cuentas sobre una grilla discreta.
+
+El peine de DNL que introduce el rebinning, **medido y no supuesto**, sobre un
+espectro plano de 16384 canales: **0.34 % rms** (histéresis) y **0.40 % rms**
+(compuerta), con máximos de 2.6 y 2.9 %. Es el costo de linealizar y es chico
+porque se corrige con 16 bits sobre un eje de 14.
+
+## 15.3 El resultado que cambia la conclusión: el cuello de botella es la campaña, no la tabla
+
+La primera versión del test medía la INL sobre los mismos 12 puntos con que se
+construyó la calibración, y daba **0.0000 % FS**. Es circular: la corrección
+devuelve la recta por construcción. La pregunta útil es si la calibración
+**generaliza**, y eso se contesta con *leave-one-out* — calibrar sin un punto y
+ver cuánto erra al predecirlo.
+
+| Modo | INL cruda | Error leave-one-out (interior) |
+|---|---|---|
+| Histéresis | 0.563 % FS | **0.238 % FS** (18.6 canales) |
+| Compuerta fija | 0.970 % FS | **0.260 % FS** (17.4 canales) |
+
+O sea que la calibración saca entre la mitad y las tres cuartas partes de la
+INL, no toda. Lo que queda **no es un límite de la corrección: es que 12 puntos
+no determinan la curva**.
+
+Eso se ve todavía más claro en la predicción de INL residual contra número de
+nodos de la LUT, que era el entregable que tenía que dimensionar el hardware:
+
+| Nodos | INL residual, histéresis | INL residual, compuerta |
+|---|---|---|
+| 8 | 0.185 % FS | 0.201 % FS |
+| 16 | 0.086 % FS | 0.094 % FS |
+| 32 | 0.033 % FS | 0.036 % FS |
+| 64 | 0.011 % FS | 0.010 % FS |
+| 128 | 0.006 % FS | 0.007 % FS |
+| 256 | 0.004 % FS | 0.004 % FS |
+
+**Todos los tamaños de tabla, incluso 8 nodos, quedan por debajo del error
+leave-one-out de 0.24 %.** El tamaño de la LUT no es el factor limitante — ni
+siquiera de cerca. Con 12 amplitudes medidas, una tabla de 8 nodos ya es más
+fina que lo que la campaña puede determinar.
+
+**Conclusión para la fase 4:** el trabajo no es elegir entre 64 y 128 nodos, es
+**medir muchas más amplitudes**. Sin una campaña con decenas de puntos —y sin
+separar antes la INL del generador de la del MCA (§14.5)— cualquier tabla que se
+grabe está ajustando ruido de calibración.
+
+## 15.4 Una calibración no significa lo mismo para cada feature
+
+Verificado sobre 2048 ventanas de pulso reales de
+`datos/e2e_20260528_013404/principal/`, replayando las réplicas bit-exactas del
+RTL de [`tests/estimadores/`](../software/tests/estimadores/):
+
+Con una corrección **en el dominio de muestra** `x → f(x)` monótona creciente:
+
+- **Pico**: `max(f(x)) = f(max(x))` **exactamente** — error máximo `0.00e+00`
+  sobre los 2048 pulsos. El máximo conmuta con `f`, así que calibrar la muestra
+  y calibrar la feature son la misma cosa.
+- **Integral**: `Σf(xₙ) ≠ f(Σxₙ)`. Medido: la misma `f` escala el pico ×1.0452 y
+  la integral ×1.0466. **No existe ningún mapa escalar** `Q → Q'`: es un
+  funcional de la forma entera del pulso, y la única forma de obtenerlo es
+  replayar.
+- **Cocientes**: una ganancia se cancela; un offset no.
+
+Por eso la corrección de la fase 4 va sobre la feature tal como se mide, sin
+pretender representar ninguna `f(x)` de muestra.
+
+## 15.5 Cómo reproducir
+
+```bash
+cd prj/MCA/software
+python3 tests/test_linealizacion.py       # 6 bloques, no necesita placa
+```
+
+Los tests 5 y 6 se saltean con aviso si no están los `.npz` de `datos/`.
+El bloque 4 comprueba que un eje **plegado** (INL con pendiente `< −G`) haga
+fallar a `apply_calibration` y `linearize_spectrum` con un mensaje explícito, en
+vez de devolver un número — el mismo criterio de aceptación de toda la campaña.
+
+---
+
+# 16. Comparación con MCAs comerciales
+
+Tres instrumentos de referencia, con las cifras tomadas de sus hojas de datos
+(enlaces al pie). Los tres son la competencia real de este diseño: **DSPEC 50** y
+**Lynx II** hacen el procesamiento digital completo desde el ADC, como éste;
+el **MCA8000D** es un MCA puro que va detrás de un amplificador conformador
+analógico.
+
+## 16.1 El cuadro
+
+| | **Este MCA** | ORTEC DSPEC 50/50A | Mirion Lynx II | Amptek MCA8000D |
+|---|---|---|---|---|
+| Canales | 16384 (+ zoom ×2ⁿ) | 256 – 64k | 256 – 32768 (×2 grupos) | 256 – 8k |
+| Cuentas por canal | **2³²−1 = 4.3·10⁹** | — | — | 16.7·10⁶ (3 bytes) |
+| ADC | 14 bit / 125 MSPS | — | — | 16 bit / 100 MHz |
+| **INL** | **1.13 % FS** (ajuste global)<br>**0.028 % FS** en 0.1–0.62 Vpp | <±0.025 % (top 99.5 %) | <±0.025 % FS (top 99 %) | <±0.02 % FS |
+| **DNL** | **no medible** con este generador (cota 26.5 %)<br>del binado digital: **0 exacto** | <±1 % (top 99 %) | <±1 % (top 99 %, incl. INL) | <±0.6 % (15 mV a FS) |
+| Linealización | ninguna (estudiada en §15) | estabilizador digital | estabilizador digital | *sliding scale* |
+| **Throughput** | **794 kcps sin perder un evento**, techo no alcanzado | >100 000 cps (LFR off) | — | — |
+| Tiempo muerto/evento | ~0.4 – 0.5 µs | — | — | conversión 10 ns |
+| Resolución par-pulso | **≤ 0.5 µs** | — | <500 ns (NORM) | peaking mín. 500 ns |
+| Deriva de ganancia | **+1.28 % sobre ×36 de tasa**; térmica **no medida** | <50 ppm/°C (típ. <30) | <35 ppm/°C | ±10 ppm/°C |
+| Deriva de cero | no medida | <5 ppm/°C FS | <3 ppm/°C | ±10 ppm/°C |
+| Resolución (pulser) | **0.161 %** FWHM/centroide | — | — | — |
+| **Precio** | **USD 719** (STEMlab 125-14) + software libre | consultar (sin lista pública) | consultar (sin lista pública) | **USD 3 500** (lista) |
+| Incluye HV para el detector | **no** | sí | sí (150–5000 V) | no |
+| Incluye conformado analógico | no lo necesita (DSP propio) | no lo necesita | no lo necesita | **no — pide amplificador externo** |
+
+## 16.2 Cómo leer el cuadro (tres comparaciones que NO son justas)
+
+1. **La INL no se mide igual.** La de ellos es una **especificación garantizada**
+   del instrumento sobre el 99 % superior del rango. La nuestra es una
+   **medición del conjunto generador + ADC + MCA**, y §13.11 ya mostró que la
+   parte que le toca al MCA es indistinguible de cero con el estimador de pico.
+   El 1.13 % es una **cota superior del conjunto**, no una spec del diseño.
+2. **El throughput no se mide con lo mismo.** Los >100 kcps del DSPEC son con
+   pulsos de detector reales y tiempos de conformado de µs, donde el límite lo
+   pone el filtro trapezoidal. Los 794 kcps de acá son con un tren de 2 µs de un
+   generador. Que el número sea 8× mayor dice que **la ruta de datos no es el
+   cuello de botella**, no que el instrumento sea 8× mejor en el laboratorio.
+3. **La deriva se especifica en otro eje.** Ellos declaran ppm/**°C**
+   (estabilidad térmica); acá se midió %/**tasa**. Son dos cosas distintas y la
+   térmica de este MCA **no está medida** — es un hueco de la caracterización.
+4. **El precio no compra lo mismo.** Los USD 719 son una **placa de desarrollo**:
+   sin gabinete, sin fuente de alta tensión para el detector, sin calibración
+   trazable, sin garantía de instrumento y sin software de análisis espectral.
+   El Lynx II trae una HVPS de 150–5000 V que por sí sola es una fracción
+   importante de su precio. La comparación honesta es **"qué cuesta el
+   procesamiento digital"**, no "qué cuesta un sistema de espectrometría
+   completo". Ver §16.2b.
+
+### 16.2b Qué hay detrás de cada precio
+
+| | Este MCA | DSPEC 50 | Lynx II | MCA8000D |
+|---|---|---|---|---|
+| Precio | USD 719 | consultar | consultar | USD 3 500 |
+| Origen del dato | tienda Red Pitaya | sin lista pública | sin lista pública | lista de precios Amptek |
+| Fuente analógica de HV | — | incluida | incluida (150–5000 V) | — |
+| Gabinete y fuente | placa desnuda + adaptador | instrumento | instrumento | instrumento de bolsillo |
+| Calibración trazable | no | — | — | opción PA (+USD 400) |
+| Software de espectrometría | el que escribas | GammaVision | Genie / Apex | DPPMCA (incluido) |
+| Soporte y garantía | comunidad | fabricante | fabricante | fabricante |
+
+**ORTEC y Mirion no publican lista de precios** — son venta por cotización y el
+número depende de la configuración. Como referencia indicativa **y sólo como
+piso**, en el mercado de segunda mano un DSPEC/DSPEC Plus (generación anterior a
+la del DSPEC 50) aparece listado entre **USD 1 000 y 1 300**. No es el precio de
+un equipo nuevo y no debe citarse como tal.
+
+> **Lo que sí se puede afirmar del precio:** el hardware de este MCA cuesta
+> **~1/5 del MCA8000D**, que es el más barato de los tres y encima **necesita un
+> amplificador conformador externo** que este diseño no necesita porque hace el
+> procesamiento desde el ADC. Lo que no está en el precio es el tiempo de
+> ingeniería, el gabinete, la HV y la calibración.
+
+## 16.3 Lo que el cuadro sí dice
+
+**Dónde este diseño está a la par o mejor:**
+
+- **Profundidad de contador**: 4.3·10⁹ cuentas por canal contra los 16.7·10⁶ del
+  MCA8000D, 256× más. Nunca es la restricción activa
+  ([`limites_resolucion_y_deriva.md`](mca/limites_resolucion_y_deriva.md) §4).
+- **Throughput y tiempo muerto**: no se encontró el techo.
+- **Resolución par-pulso**: ≤0.5 µs, igual que el Lynx II.
+- **DNL del binado**: exactamente cero por construcción, porque el bin es un
+  desplazamiento de un entero. Ellos necesitan *sliding scale* o un estabilizador
+  para llegar al ±0.6–1 % porque su cadena tiene una conversión analógica que
+  linealizar; acá esa fuente de DNL no existe.
+- **Linealidad en el tramo lineal**: 0.028 % FS entre 0.1 y 0.62 Vpp **empata con
+  la spec comercial** (±0.025 % de ORTEC y Lynx, ±0.02 % de Amptek) sobre el 60 %
+  inferior del rango. Ver la salvedad de §16.2.1.
+
+**Dónde está claramente peor, y es uno solo:**
+
+> **La estabilidad.** Los tres instrumentos comerciales traen un **estabilizador
+> digital de espectro** y especifican deriva en ppm/°C. Este MCA no tiene
+> estabilizador, no tiene cancelación polo-cero, y su centroide se corre **1.28 %
+> con la tasa** — que es **38× la tolerancia** que se deriva en
+> [`limites_resolucion_y_deriva.md`](mca/limites_resolucion_y_deriva.md) §6 y
+> **26× la deriva térmica** que declara un DSPEC sobre un ΔT de 10 °C
+> (50 ppm/°C × 10 °C = 500 ppm = 0.05 %, contra 12 800 ppm medidos).
+
+Eso ordena la lista de pendientes: no es más resolución ni más canales ni
+contadores más anchos. Es **cancelación polo-cero y un pulser de referencia**,
+que es exactamente lo que estos instrumentos implementan y este diseño todavía
+no.
+
+## 16.4 Fuentes
+
+| Instrumento | Hoja de datos |
+|---|---|
+| ORTEC DSPEC 50/50A, 502/502A | <https://www.ortec-online.com/-/media/ametekortec/brochures/d/dspec-50-a4.pdf> |
+| Mirion (Canberra) Lynx II DSA | <https://318921.fs1.hubspotusercontent-na1.net/hubfs/318921/SPC-249_Lynx-II_FINAL.pdf> |
+| Amptek MCA8000D | <https://www.amptek.com/-/media/ametekamptek/documents/resources/products/specs/mca-8000d-digital-multichannel-analyzer-specifications.pdf> |
+
+**Precios:**
+
+| Dato | Fuente |
+|---|---|
+| MCA8000D USD 3 500 (y opción PA USD 3 900) | lista de precios Amptek, <https://atomfizika.elte.hu/muszerek/Amptek/Amptek-Price-List-June14.pdf> — es la lista pública más reciente que encontré, **de junio de 2014**; conviene pedir cotización actualizada antes de citarla |
+| STEMlab 125-14 USD 719 | tienda oficial Red Pitaya, <https://redpitaya.com/product/stemlab-125-14/> (Starter Kit: placa + microSD + fuente + cable) |
+| DSPEC 50 / Lynx II | **no publican precio**; venta por cotización |
+| DSPEC / DSPEC Plus usados USD 1 000–1 300 | mercado secundario (LabX, SPW Industrial) — generación anterior, **no es precio de equipo nuevo** |
+
+Consultadas el 2026-08-25. Las celdas con "—" son parámetros que el fabricante
+no publica en la hoja de datos, no ceros. Los precios de instrumentación nuclear
+se mueven y varias de estas listas tienen años: verificá antes de ponerlos en un
+informe.

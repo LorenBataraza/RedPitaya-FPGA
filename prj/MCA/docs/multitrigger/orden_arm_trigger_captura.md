@@ -4,6 +4,10 @@ Este documento explica **por qué hay que armar la `bram_sm` antes de habilitar
 la OR-mask de trigger**, la FSM de captura involucrada, y da una guía práctica
 del orden de comandos con snippets.
 
+> La anatomía completa de la cadena de adquisición original —la FSM de
+> `rp_bram_sm` señal por señal, el buffer, el camino a DDR— está en
+> [`sistema_adquisicion_original.md`](sistema_adquisicion_original.md).
+
 ---
 
 ## Parte 1 — Decisión de diseño

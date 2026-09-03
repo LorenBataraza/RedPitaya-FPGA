@@ -331,7 +331,7 @@ Hasta ~2 kHz la eficiencia es ≥99 %.
 > | 20 kHz | 6 | 3333 | 3684 |
 >
 > El ajuste está en
-> [`plot_modelos_tasa.py`](../../software/plot_modelos_tasa.py) (corre en la PC,
+> [`plot_modelos_tasa.py`](../../software/tests/tiempo-muerto/plot_modelos_tasa.py) (corre en la PC,
 > sin placa). Con τ **constante** el modelo son mesetas discretas y el punto de
 > 20 kev/s no lo puede acertar ningún τ: cae justo entre `k=5` (4000) y `k=6`
 > (3333). Dejando que el servicio tenga dispersión —que la tiene: `read`,
@@ -358,7 +358,7 @@ Hasta ~2 kHz la eficiencia es ≥99 %.
 >
 > O sea: a 2 kev/s la eficiencia real no es 99 % sino ~67 %. **Ninguna medición
 > de eficiencia vale hasta rehacerla con arribos Poisson**; para eso está
-> [`run_poisson_loss.py`](../../software/run_poisson_loss.py) (este lector) y
+> [`run_poisson_loss.py`](../../software/tests/tiempo-muerto/run_poisson_loss.py) (este lector) y
 > `testbench_mca.sweep_rate_poisson` (el MCA), los dos con el estímulo de
 > [`poisson_train_wave`](../../software/rigol_dg4162.py).
 

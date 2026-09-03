@@ -404,11 +404,104 @@ def fig_limites_estimulo(d, out):
 
 
 # =============================================================================
+# 9. La resolución a lo largo del eje: el ancho de la barra de la figura 2
+# =============================================================================
+def fig_fwhm_eje(d, out, seconds=4.0, rate_hz=2e3):
+    """FWHM contra canal, que es la barra de error de la figura 2 desplegada.
+
+    La figura 2 dibuja ±FWHM/2 como barra y ahí no se ve nada: a la escala de la
+    calibración el pico es más angosto que el marcador. Acá la misma cantidad va
+    sola en el eje vertical, que es la única forma de ver que **crece con la
+    energía**, y cuánto.
+    """
+    sw = np.load(os.path.join(d, 'sweep_amplitude.npz'))
+    amps, cent, fw = sw['amps'], sw['centroids'], sw['fwhms']
+    a, b = np.polyfit(amps, cent, 1)
+    n_pto = int(seconds * rate_hz)
+
+    # Modelo estándar: las contribuciones independientes se suman en cuadratura,
+    #
+    #     FWHM(E)² = w0² + (k·E)²
+    #
+    # con w0 el término ADITIVO —ruido de la cadena, digitización, error de línea
+    # de base: no depende de la amplitud— y k el PROPORCIONAL, que es jitter de
+    # ganancia. Se ajusta por mínimos cuadrados sobre (E², FWHM²), donde el
+    # modelo ES una recta y no hace falta iterar.
+    A = np.vstack([np.ones_like(cent), cent ** 2]).T
+    (w2, k2), *_ = np.linalg.lstsq(A, fw ** 2, rcond=None)
+    w0, k = np.sqrt(max(w2, 0.0)), np.sqrt(max(k2, 0.0))
+
+    def modelo(E):
+        return np.sqrt(w2 + k2 * np.asarray(E, dtype=float) ** 2)
+
+    # Incerteza del ancho de un ajuste gaussiano con N cuentas: sigma/sqrt(2N),
+    # o sea FWHM/sqrt(2N). Va dibujada para poder decir si la dispersión punto a
+    # punto es estadística o estructura real.
+    err = fw / np.sqrt(2.0 * n_pto)
+    disp = float(np.sqrt(np.mean((fw - modelo(cent)) ** 2)))
+
+    xr = np.linspace(cent.min() * 0.96, cent.max() * 1.04, 300)
+
+    fig, (ax1, ax2) = plt.subplots(
+        2, 1, figsize=(7.6, 6.2), sharex=True,
+        gridspec_kw=dict(height_ratios=[1.15, 1], hspace=0.20))
+
+    ax1.plot(xr, modelo(xr), color=TINTA, lw=1.2, ls='--',
+             label=r'ajuste  $\sqrt{w_0^2+(kE)^2}$')
+    ax1.axhline(w0, color=TINTA2, lw=1.1, ls=':', label='piso aditivo $w_0$')
+    ax1.errorbar(cent, fw, yerr=err, fmt='o', ms=5, color=AZUL, ecolor=AZUL,
+                 elinewidth=1.4, capsize=3, label='medido ± error del ajuste')
+    ax1.set_ylabel('FWHM [canales]')
+    # El cero va incluido a propósito: es lo que deja ver de un vistazo que w0
+    # se lleva casi todo el ancho y que el crecimiento es la parte chica.
+    ax1.set_ylim(0, fw.max() * 1.45)
+    ax1.legend(loc='upper left', ncol=1)
+    _panel(ax1, '(a)')
+    _limpiar(ax1)
+
+    # Eje derecho en mV: es la misma magnitud dividida por la ganancia, así que
+    # el par de funciones es exacto, no un reescalado aproximado.
+    axmv = ax1.secondary_yaxis('right', functions=(lambda y: y / a * 1e3,
+                                                   lambda v: v * a * 1e-3))
+    axmv.set_ylabel('FWHM referido a la entrada [mV]')
+
+    ax2.plot(xr, 100 * modelo(xr) / xr, color=TINTA, lw=1.2, ls='--',
+             label='el mismo ajuste')
+    ax2.axhline(100 * k, color=ROJO, lw=1.2, ls=':',
+                label='asíntota $k$ (término proporcional)')
+    ax2.plot(cent, 100 * fw / cent, 'o', ms=5, color=AZUL, label='medido')
+    ax2.set_yscale('log')
+    ax2.set_xlabel('Canal del centroide')
+    ax2.set_ylabel('Resolución FWHM/centroide [%]')
+    ax2.legend(loc='upper right')
+    _panel(ax2, '(b)')
+    _limpiar(ax2)
+
+    # Arriba de todo, la misma abscisa en la unidad de la figura 2.
+    axv = ax1.secondary_xaxis('top', functions=(lambda c: (c - b) / a,
+                                                lambda v: a * v + b))
+    axv.set_xlabel('Amplitud del pulso en el generador [Vpp]')
+
+    fig.tight_layout()
+    fig.savefig(os.path.join(out, '09_fwhm_vs_eje.png'))
+    plt.close(fig)
+    return dict(a=a, b=b, w0=w0, k=k, n_pto=n_pto, disp=disp,
+                err_med=float(err.mean()), fw_lo=float(fw[0]),
+                fw_hi=float(fw[-1]), cen_lo=float(cent[0]),
+                cen_hi=float(cent[-1]), res_lo=100 * fw[0] / cent[0],
+                res_hi=100 * fw[-1] / cent[-1], n=len(amps),
+                crece=100 * (fw[-1] / fw[0] - 1),
+                # Con h_shift = 0 el bin es un canal, así que el FWHM EN canales
+                # ya es el "canales por FWHM" de la regla de 4 a 10.
+                elem=float((cent[-1] - cent[0]) / fw.mean()))
+
+
+# =============================================================================
 def _mil(n):
     return f'{int(n):,}'.replace(',', ' ')
 
 
-_ITEM = re.compile(r'^(\s*)(·|\([a-z]\))\s+')
+_ITEM = re.compile(r'^(\s*)(·|\(\w{1,3}\))\s+')
 
 
 def _reflow(txt, ancho=79):
@@ -448,7 +541,7 @@ def _reflow(txt, ancho=79):
     return '\n\n'.join(fuera) + '\n'
 
 
-def escribir_epigrafes(out, r1, r2, r3, r5, r6):
+def escribir_epigrafes(out, r1, r2, r3, r5, r6, r9):
     f = {x['hs']: x for x in r5['filas']}
     tabla = '\n'.join(
         f"      h_shift = {h}   bin = {f[h]['k']:2d} canales   "
@@ -596,16 +689,27 @@ MCA de lo que limita el generador.
       el número que hay que citar.
 
 
-FIGURA 7 — 07_cadena_mca.mp4   (animación, datos sintéticos)
-------------------------------------------------------------
-Cómo un pulso se convierte en una cuenta del espectro, en las tres etapas a la
-vez: la señal con pulsos de distinta altura y el umbral dibujado; el bloque
-pulse_feature, que por cada pulso emite UN número —su amplitud— que viaja hasta
-el módulo histograma; y el espectro, donde la barra del canal amp >> h_shift sube
-una cuenta y parpadea. Los pulsos que no cruzan el umbral no producen nada.
+FIGURA 7 — la cadena, en tres videos sincronizados   (datos sintéticos)
+----------------------------------------------------------------------
+Cómo un pulso se convierte en una cuenta del espectro. Son tres videos separados
+que salen de la misma simulación, cuadro a cuadro: el cuadro f de uno corresponde
+al cuadro f de los otros dos, así que se pueden reproducir en paralelo.
 
-Arranca en tiempo real del gráfico para que se vea el mecanismo pulso a pulso y
-después acelera hasta x8 para acumular 232 cuentas y dibujar dos picos. Los
+  (7a) 07a_senal.mp4 — la señal de entrada, con pulsos de distinta altura y el
+       umbral dibujado. Cuando un pulso cierra se marca su pico con la amplitud
+       que midió el MCA. Los pulsos que no cruzan el umbral pasan de largo y no
+       producen nada: se ven en la traza y nunca aparecen en el espectro.
+  (7b) 07b_cadena.mp4 — el camino de datos. Por cada pulso aceptado,
+       pulse_feature emite UN número —su amplitud— que viaja por el cable hasta
+       el módulo histograma. Es literalmente lo que hace el RTL: un registro de
+       evento por pulso, no una forma de onda.
+  (7c) 07c_histograma.mp4 — el espectro. Al llegar el número, la barra del canal
+       amp >> h_shift sube una cuenta y parpadea. Empieza con cuentas sueltas y
+       termina con dos picos y 227 cuentas.
+
+Los tres arrancan en tiempo real del gráfico para que se vea el mecanismo pulso a
+pulso y después aceleran hasta x8 (lo indica 07a arriba a la derecha) para
+acumular estadística. De los 252 pulsos generados, 232 cruzan el umbral. Los
 pulsos, el ruido de línea de base y las dos líneas de energía son sintéticos: es
 una ilustración del camino de datos, no una medición.
 """
@@ -628,7 +732,8 @@ def main():
     fig_tres_metricas(args.out)
     r5 = fig_bineado(args.datos, args.out)
     r6 = fig_limites_estimulo(args.datos, args.out)
-    ep = escribir_epigrafes(args.out, r1, r2, r3, r5, r6)
+    r9 = fig_fwhm_eje(args.datos, args.out)
+    ep = escribir_epigrafes(args.out, r1, r2, r3, r5, r6, r9)
 
     print(f"01  centroide {r1['centroide']:.2f}  ideal {r1['ideal']:.2f}  "
           f"INL {r1['inl']:+.2f}  FWHM {r1['fwhm']:.2f}  N={r1['n']}")
@@ -638,6 +743,9 @@ def main():
                              for x in r5['filas']))
     print(f"06  techo {r6['r_max'] / 1e3:.0f} kcps  {r6['d_const']:.2f} % vs "
           f"{r6['d_todo']:.2f} %")
+    print(f"09  FWHM {r9['fw_lo']:.2f} -> {r9['fw_hi']:.2f} canales  "
+          f"w0 {r9['w0']:.2f}  k {100 * r9['k']:.3f} %  "
+          f"res {r9['res_lo']:.2f} -> {r9['res_hi']:.3f} %")
     print(f'figuras y {os.path.basename(ep)} en {os.path.abspath(args.out)}')
 
 

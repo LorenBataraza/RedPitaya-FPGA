@@ -386,11 +386,129 @@ def test_apilamiento_aparece():
           f'({100*peor_par:.1f} % contra {100*peor_npar:.1f} %)')
 
 
+def test_base_equivale_con_bl_auto_off():
+    print('\n[11] seguidor: con bl_auto=0 reproduce segmentar_rapido bit a bit')
+    rng = np.random.default_rng(31)
+    forma, _ = pu.forma_referencia(n_forma=512)
+    cfg = dict(thr=100, hyst=40, maxlen=600, tail_dly=8)
+
+    n_ev = n_dif = 0
+    for base in (0, 37, -25):
+        for dat in _trazas_de_prueba(60, rng, forma):
+            ref = pu.segmentar_rapido(dat, baseline=base, **cfg)
+            got = pu.segmentar_base(dat, bl_auto=False, baseline=base, **cfg)
+            if ref['i0'].size != got['i0'].size:
+                n_dif += 1
+                continue
+            for c in ('i0', 'largo', 'q_tot', 'q_tail', 'pico', 't_pico',
+                      'motivo'):
+                if not np.array_equal(ref[c], got[c]):
+                    n_dif += 1
+                    if n_dif <= 3:
+                        print(f'      base={base} campo {c}: '
+                              f'{ref[c][:5]} contra {got[c][:5]}')
+            n_ev += ref['i0'].size
+
+    check(f'{n_ev} eventos idénticos con base fija 0, +37 y -25',
+          n_dif == 0, f'({n_dif} diferencias)')
+
+
+def test_base_escenario_tb_rtl():
+    print('\n[12] seguidor: el escenario 8 de tb_mca_pulse_feature.sv')
+    # El TB de RTL (:219-237) es la única validación existente del seguidor:
+    # DC=80 con k=4 -> la base converge a ~80; después 40 muestras a 3000 -> la
+    # base tiene que SEGUIR en (70,90), o sea congelada durante el pulso.
+    dat = np.concatenate([np.full(400, 80, dtype=np.int64),
+                          np.full(40, 3000, dtype=np.int64)])
+    ev = pu.segmentar_base(dat, bl_auto=True, bl_k=4, bl_holdoff=0,
+                           thr=100, hyst=50, maxlen=1000, tail_dly=1,
+                           bl_acc0=0, traza_base=True)
+    b_dc = int(ev['base'][399])
+    b_pulso = int(ev['base'][-1])
+    check(f'converge al DC de 80 con k=4 (dio {b_dc})', 70 < b_dc < 90)
+    check(f'congelada durante el pulso (dio {b_pulso})', 70 < b_pulso < 90)
+
+    # y con la base en 80, un pulso de 3000 mide 2920
+    check('el pulso mide dat - base', ev['pico'].size == 1
+          and abs(int(ev['pico'][0]) - (3000 - b_dc)) <= 2,
+          f'({ev["pico"]})')
+
+
+def test_base_constante_de_tiempo():
+    print('\n[13] seguidor: la constante de tiempo es 2^k muestras')
+    for k in (4, 8, 12):
+        n = (1 << k) * 6
+        # escalón de 0 a 500, sin pulsos: umbral alto para que no dispare
+        dat = np.full(n, 500, dtype=np.int64)
+        ev = pu.segmentar_base(dat, bl_auto=True, bl_k=k, bl_holdoff=0,
+                               thr=10000, hyst=100, bl_acc0=0, traza_base=True)
+        b = ev['base'].astype(float)
+        # a 1 tau el IIR llegó a 1 - 1/e = 63.2 % del escalón
+        i_tau = int(np.argmax(b >= 500 * (1 - np.exp(-1.0))))
+        rel = i_tau / float(1 << k)
+        check(f'k={k}: 63 % del escalón en {i_tau} muestras '
+              f'({rel:.2f} x 2^k)', 0.9 < rel < 1.1)
+        check(f'k={k}: converge al escalón', abs(b[-1] - 500) < 3,
+              f'({b[-1]:.1f})')
+        checkv(f'k={k}: sin pulsos, nunca se congela',
+               ev['frac_congelada'], 0.0)
+
+
+def test_base_holdoff():
+    print('\n[14] seguidor: bl_holdoff retrasa el descongelamiento')
+    rng = np.random.default_rng(37)
+    forma, _ = pu.forma_referencia(n_forma=512)
+    dat = np.zeros(4000)
+    dat[200:200 + forma.size] += 1500 * forma
+    dat = np.rint(dat + rng.normal(0, pu.SIGMA_RUIDO, dat.size)).astype(np.int64)
+
+    frac = {}
+    for ho in (0, 64, 512):
+        ev = pu.segmentar_base(dat, bl_auto=True, bl_k=12, bl_holdoff=ho,
+                               **pu.CFG_MODO0)
+        frac[ho] = ev['frac_congelada'] * dat.size
+        checkv(f'holdoff={ho}: un solo evento', ev['i0'].size, 1)
+
+    # cada muestra de holdoff es una muestra más congelada, exacto
+    checkv('holdoff=64 congela 64 muestras más que holdoff=0',
+           round(frac[64] - frac[0]), 64)
+    checkv('holdoff=512 congela 512 muestras más que holdoff=0',
+           round(frac[512] - frac[0]), 512)
+
+
+def test_base_no_se_come_el_pulso():
+    print('\n[15] seguidor: con k chico se come el pulso (modo de falla real)')
+    # La placa lo midió con pulsos de ~62 us: bl_k=6 daba CERO eventos y
+    # bl_k>=9 funcionaba (resultados_validacion_hw.md §4). Con 2 us el barrido
+    # salió PLANO de 3 a 18, porque el seguidor se congela durante el pulso y
+    # no llega a perseguirlo. Las dos cosas tienen que reproducirse.
+    rng = np.random.default_rng(41)
+    for ancho_s, etiqueta in ((2e-6, '2 us'), (62e-6, '62 us')):
+        forma, _ = pu.forma_knoll('cr_rc', fwhm_s=ancho_s)
+        amps = np.full(60, 1500.0)
+        dat, _ = pu.render_aislados(amps, forma, rng=rng, trail=forma.size)
+        tot = {}
+        for k in (3, 6, 9, 12, 15):
+            ev = pu.segmentar_base(dat, bl_auto=True, bl_k=k, bl_holdoff=64,
+                                   **pu.CFG_MODO0)
+            tot[k] = int(ev['cerrado'].sum())
+        print(f'      {etiqueta}: ' +
+              '  '.join(f'k={k}:{v}' for k, v in tot.items()))
+        if ancho_s < 1e-5:
+            check(f'{etiqueta}: plano, como midió la placa (3 a 15)',
+                  min(tot.values()) == max(tot.values()) == 60)
+        else:
+            check(f'{etiqueta}: k chico se come el pulso, k grande no',
+                  tot[3] < 60 and tot[15] == 60)
+
+
 def main():
     for t in (test_replica_modo0, test_replica_modo1, test_gate_2nd, test_forma,
               test_arribos, test_agrupar, test_locus_plano,
               test_resolucion_conocida, test_calibracion_y_metricas,
-              test_apilamiento_aparece):
+              test_apilamiento_aparece, test_base_equivale_con_bl_auto_off,
+              test_base_escenario_tb_rtl, test_base_constante_de_tiempo,
+              test_base_holdoff, test_base_no_se_come_el_pulso):
         t()
     print(f'\nRESULT: {"PASS" if not FAILS else "FAIL"}')
     if FAILS:

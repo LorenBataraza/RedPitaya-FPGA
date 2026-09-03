@@ -29,7 +29,8 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+_AQUI = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(_AQUI, '..', '..'))   # -> software/
 
 from rigol_dg4162 import poisson_train_wave, ARB_MAX_POINTS   # noqa: E402
 

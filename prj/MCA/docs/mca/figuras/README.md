@@ -1,14 +1,14 @@
 # Figuras: los problemas de la determinación de resolución
 
-Seis figuras y una animación para explicar, sin fórmulas, por qué medir la
-resolución de este MCA es más difícil de lo que parece. Las generan
+Siete figuras y tres videos sincronizados para explicar, sin fórmulas, por qué
+medir la resolución de este MCA es más difícil de lo que parece. Las generan
 [`figuras_resolucion.py`](figuras_resolucion.py) y
 [`animacion_cadena_mca.py`](animacion_cadena_mca.py):
 
 ```bash
 cd prj/MCA/docs/mca/figuras
-python3 figuras_resolucion.py       # las seis figuras
-python3 animacion_cadena_mca.py     # el video (--gif para GIF)
+python3 figuras_resolucion.py       # las siete figuras
+python3 animacion_cadena_mca.py     # los tres videos (--gif para GIF)
 ```
 
 Los gráficos van **sin texto adentro**: sólo ejes, leyenda y las marcas
@@ -17,9 +17,9 @@ cada medición y el límite que en cada caso pone el **sistema de excitación** 
 vez del MCA— están juntos en **[`epigrafes.txt`](epigrafes.txt)**, que escribe el
 mismo script a partir de los datos para que no puedan desincronizarse.
 
-Cuatro figuras salen de **datos medidos** (los `.npz` de la 2ª campaña, en
+Cinco figuras salen de **datos medidos** (los `.npz` de la 2ª campaña, en
 [`software/datos/mca_20260528_001034/`](../../../software/datos/mca_20260528_001034/));
-las otras dos y el video son **esquemas sintéticos**.
+las otras dos y los videos son **esquemas sintéticos**.
 
 | Figura | Qué muestra | Datos |
 |---|---|---|
@@ -29,7 +29,10 @@ las otras dos y el video son **esquemas sintéticos**.
 | [`04_tres_metricas.png`](04_tres_metricas.png) | INL vs DNL vs FWHM sobre el mismo pico: arruinan cosas distintas | esquema |
 | [`05_bineado.png`](05_bineado.png) | Qué pasa al rebinar el pico real: `h_shift` sólo puede empeorar | medidos |
 | [`06_limites_estimulo.png`](06_limites_estimulo.png) | Dónde termina el MCA y empieza el generador (techo de throughput, ancho de pulso) | medidos |
-| [`07_cadena_mca.mp4`](07_cadena_mca.mp4) | **Video**: pulsos → `pulse_feature` → un número → `histograma` → el espectro creciendo | simulados |
+| [`07a_senal.mp4`](07a_senal.mp4) | **Video**: la señal de entrada, con pulsos de distinta altura y el umbral | simulados |
+| [`07b_cadena.mp4`](07b_cadena.mp4) | **Video**: `pulse_feature` emite un número por pulso y viaja al `histograma` | simulados |
+| [`07c_histograma.mp4`](07c_histograma.mp4) | **Video**: el espectro que se acumula, una barra por cuenta | simulados |
+| [`09_fwhm_vs_eje.png`](09_fwhm_vs_eje.png) | La barra de error de la figura 2 **desplegada**: el FWHM a lo largo del eje, separado en su término aditivo y el proporcional | medidos |
 
 ---
 
@@ -154,3 +157,4 @@ modulación de amplitud.
 - Los **números medidos** con sus salvedades: [`resultados_validacion_hw.md`](../../resultados_validacion_hw.md)
 - El **método** de cada test: [`testbenches_software_mca.md`](../testbenches_software_mca.md)
 - Los **registros**: [`register_map_mca.md`](../register_map_mca.md)
+- Los **límites** de resolución y la deriva: [`limites_resolucion_y_deriva.md`](../limites_resolucion_y_deriva.md) — su figura la genera [`figuras_limites.py`](figuras_limites.py)

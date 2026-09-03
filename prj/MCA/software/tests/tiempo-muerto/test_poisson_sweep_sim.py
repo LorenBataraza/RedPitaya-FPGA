@@ -21,7 +21,8 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+_AQUI = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(_AQUI, '..', '..'))   # -> software/
 
 import testbench_mca as tb        # noqa: E402
 import rigol_dg4162 as rg         # noqa: E402
@@ -136,8 +137,7 @@ def test_barrido_recupera_el_modelo():
     rg.apply_poisson_train = wrapper
     try:
         mca = McaFalso(gen, tau_s=tau)
-        out = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                           '_out_poisson_sim')
+        out = os.path.join(_AQUI, '_out_poisson_sim')
         res = tb.sweep_rate_poisson(mca, gen, ch=1,
                                     rhos=(0.02, 0.05, 0.1, 0.2, 0.5, 0.9),
                                     tau_s=tau, seconds=2.0, chunk_s=0.25,
@@ -166,8 +166,7 @@ def test_barrido_recupera_el_modelo():
     check('se pierde algo incluso a rho chico (lo que el tren periodico oculta)',
           pl[0] > 0.5 * rho[0], f'a rho={rho[0]:.3f} se perdio {100*pl[0]:.2f}%')
 
-    npz = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                       '_out_poisson_sim', 'sweep_rate_poisson.npz')
+    npz = os.path.join(_AQUI, '_out_poisson_sim', 'sweep_rate_poisson.npz')
     check('guardo el .npz', os.path.exists(npz))
     if os.path.exists(npz):
         z = np.load(npz)
