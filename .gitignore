@@ -4,6 +4,10 @@ synReport.*
 *.jou
 *.str
 *.npz
+# ...menos el golden del test de compatibilidad: es dato de referencia, no
+# salida de medicion. Sin versionarlo, tests/test_compat_api.py no corre en un
+# clon limpio.
+!prj/MCA/software/tests/compat_golden.npz
 
 
 

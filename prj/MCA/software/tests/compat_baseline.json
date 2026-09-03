@@ -1,0 +1,907 @@
+{
+  "modulos": {
+    "mca": {
+      "AcquisitionSession": {
+        "kind": "class",
+        "methods": {
+          "__enter__": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "__exit__": {
+            "kind": "method",
+            "sig": "(self, *exc)"
+          },
+          "__init__": {
+            "kind": "method",
+            "sig": "(self, source, run_dir, capacity=4096, ram_budget_mb=64, annotators=(), compress=False, wave_dtype=<class 'numpy.int16'>, meta=None, poll_timeout_s=1.0, set_switch_interval=True, verbose=True)"
+          },
+          "describe": {
+            "kind": "method",
+            "sig": "(self, rate_hz=None)"
+          },
+          "start": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "stop": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "summary": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "wait": {
+            "kind": "method",
+            "sig": "(self, duration_s=None, n_events=None, poll_s=0.2, on_tick=None)"
+          }
+        }
+      },
+      "Annotator": {
+        "kind": "class",
+        "methods": {
+          "meta": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "sample_into": {
+            "kind": "method",
+            "sig": "(self, batch, i)"
+          },
+          "start": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "stop": {
+            "kind": "method",
+            "sig": "(self)"
+          }
+        }
+      },
+      "BramSource": {
+        "kind": "class",
+        "methods": {
+          "__init__": {
+            "kind": "method",
+            "sig": "(self, scope, pre=8, post=24, n_ch=2, thr=0.5, hyst=0.02, mask=None, delay=None, read_snap=True, wp_addr=28, single_shot=True)"
+          },
+          "arm": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "close": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "meta": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "read_into": {
+            "kind": "method",
+            "sig": "(self, batch, i, wp)"
+          },
+          "rearm": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "snapshot": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "wait_event": {
+            "kind": "method",
+            "sig": "(self, deadline_ns)"
+          }
+        }
+      },
+      "CachedAnnotator": {
+        "kind": "class",
+        "methods": {
+          "__init__": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "meta": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "poll": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "sample_into": {
+            "kind": "method",
+            "sig": "(self, batch, i)"
+          },
+          "start": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "stop": {
+            "kind": "method",
+            "sig": "(self)"
+          }
+        }
+      },
+      "ChunkWriter": {
+        "kind": "class",
+        "methods": {
+          "__init__": {
+            "kind": "method",
+            "sig": "(self, run_dir, free_q, full_q, stats, meta_base=None, compress=False, wave_dtype=<class 'numpy.int16'>, wave_scale=8192, min_free_mb=200.0, disk_check_every=8, name='mca-writer')"
+          },
+          "run": {
+            "kind": "method",
+            "sig": "(self)"
+          }
+        }
+      },
+      "ConstantAnnotator": {
+        "kind": "class",
+        "methods": {
+          "__init__": {
+            "kind": "method",
+            "sig": "(self, **values)"
+          },
+          "meta": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "sample_into": {
+            "kind": "method",
+            "sig": "(self, batch, i)"
+          }
+        }
+      },
+      "EventBatch": {
+        "kind": "class",
+        "methods": {
+          "__init__": {
+            "kind": "method",
+            "sig": "(self, capacity, n_ch, samples, scalar_fields=(('t_ns', <class 'numpy.int64'>), ('wp', <class 'numpy.int32'>), ('snap', <class 'numpy.uint32'>), ('gap', <class 'numpy.uint8'>)), wave_dtype=<class 'numpy.float32'>)"
+          },
+          "nbytes": {
+            "kind": "property"
+          },
+          "payload": {
+            "kind": "method",
+            "sig": "(self, wave_dtype=None, wave_scale=None)"
+          },
+          "reset": {
+            "kind": "method",
+            "sig": "(self)"
+          }
+        }
+      },
+      "FakeSource": {
+        "kind": "class",
+        "methods": {
+          "__init__": {
+            "kind": "method",
+            "sig": "(self, pre=8, post=24, n_ch=2, rate_hz=1000.0, amplitude=0.5, seed=0, n_events=None)"
+          },
+          "arm": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "close": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "exhausted": {
+            "kind": "property"
+          },
+          "meta": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "read_into": {
+            "kind": "method",
+            "sig": "(self, batch, i, wp)"
+          },
+          "rearm": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "snapshot": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "wait_event": {
+            "kind": "method",
+            "sig": "(self, deadline_ns)"
+          }
+        }
+      },
+      "ReaderThread": {
+        "kind": "class",
+        "methods": {
+          "__init__": {
+            "kind": "method",
+            "sig": "(self, source, free_q, full_q, stats, annotators=(), poll_timeout_s=1.0, name='mca-reader')"
+          },
+          "run": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "stop": {
+            "kind": "method",
+            "sig": "(self)"
+          }
+        }
+      },
+      "SCHEMA_VERSION": {
+        "kind": "const",
+        "value": 1
+      },
+      "bytes_per_event": {
+        "kind": "function",
+        "sig": "(n_ch, samples, scalar_fields=(('t_ns', <class 'numpy.int64'>), ('wp', <class 'numpy.int32'>), ('snap', <class 'numpy.uint32'>), ('gap', <class 'numpy.uint8'>)), wave_dtype=<class 'numpy.float32'>)"
+      },
+      "load_chunk": {
+        "kind": "function",
+        "sig": "(path)"
+      },
+      "scope_regs": {
+        "kind": "function",
+        "sig": "(sc)"
+      }
+    },
+    "mca_utils": {
+      "ADC_CNT_PER_V": {
+        "kind": "const",
+        "value": 8192
+      },
+      "APERTURE_2D": {
+        "kind": "const",
+        "value": 131072
+      },
+      "APERTURE_H": {
+        "kind": "const",
+        "value": 65536
+      },
+      "CAP_HIST_H": {
+        "kind": "const",
+        "value": 1
+      },
+      "CAP_HIST_H_PSD": {
+        "kind": "const",
+        "value": 2
+      },
+      "FS_HZ": {
+        "kind": "const",
+        "value": 125000000.0
+      },
+      "MAGIC": {
+        "kind": "const",
+        "value": 1296253233
+      },
+      "MCA": {
+        "kind": "class",
+        "methods": {
+          "__enter__": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "__exit__": {
+            "kind": "method",
+            "sig": "(self, *exc)"
+          },
+          "__init__": {
+            "kind": "method",
+            "sig": "(self, mem, fd, caps, h_aw, h2_aw, psd_aw)"
+          },
+          "acquire": {
+            "kind": "method",
+            "sig": "(self, seconds, clear_first=True)"
+          },
+          "acquire_chunks": {
+            "kind": "method",
+            "sig": "(self, seconds, chunk_s, on_chunk=None)"
+          },
+          "autoscale_h2_shift": {
+            "kind": "method",
+            "sig": "(self, seconds=0.5, margin=1.3, **cfg)"
+          },
+          "autoscale_q_shift": {
+            "kind": "method",
+            "sig": "(self, target_channel=8000, seconds=0.5, **cfg)"
+          },
+          "channel": {
+            "kind": "property"
+          },
+          "clear": {
+            "kind": "method",
+            "sig": "(self, timeout_s=1.0)"
+          },
+          "close": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "configure": {
+            "kind": "method",
+            "sig": "(self, thr=200, hyst=80, baseline=0, bl_auto=False, bl_k=12, bl_holdoff=0, maxlen=1024, tail_dly=8, amp_min=0, amp_max=65535, amp_src=0, q_shift=0, h_shift=0, h2_shift=0, dec=1, channel=0, gate_mode=0, gate_short=32, gate_long=384, verify=True)"
+          },
+          "counters": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "identify": {
+            "kind": "method",
+            "sig": "(self, verbose=True)"
+          },
+          "last_event": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "map2d": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "open": {
+            "kind": "classmethod",
+            "sig": "(cls, phys=1081081856, size=196608, check_magic=True)"
+          },
+          "r32": {
+            "kind": "method",
+            "sig": "(self, off)"
+          },
+          "running": {
+            "kind": "property"
+          },
+          "spectrum": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "start": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "stop": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "w32": {
+            "kind": "method",
+            "sig": "(self, off, v)"
+          }
+        }
+      },
+      "MCANotPresent": {
+        "kind": "class",
+        "methods": {}
+      },
+      "MCA_PHYS": {
+        "kind": "const",
+        "value": 1081081856
+      },
+      "MCA_SIZE": {
+        "kind": "const",
+        "value": 196608
+      },
+      "R_AMP_MAX": {
+        "kind": "const",
+        "value": 52
+      },
+      "R_AMP_MIN": {
+        "kind": "const",
+        "value": 48
+      },
+      "R_AMP_SRC": {
+        "kind": "const",
+        "value": 56
+      },
+      "R_BASELINE": {
+        "kind": "const",
+        "value": 28
+      },
+      "R_BASELINE_NOW": {
+        "kind": "const",
+        "value": 36
+      },
+      "R_BL_CTRL": {
+        "kind": "const",
+        "value": 32
+      },
+      "R_CAPS": {
+        "kind": "const",
+        "value": 4
+      },
+      "R_CNT_ACCEPTED": {
+        "kind": "const",
+        "value": 84
+      },
+      "R_CNT_DROPPED": {
+        "kind": "const",
+        "value": 100
+      },
+      "R_CNT_PILEUP": {
+        "kind": "const",
+        "value": 96
+      },
+      "R_CNT_REJ_AMP": {
+        "kind": "const",
+        "value": 88
+      },
+      "R_CNT_REJ_PSD": {
+        "kind": "const",
+        "value": 92
+      },
+      "R_CNT_TOTAL": {
+        "kind": "const",
+        "value": 80
+      },
+      "R_CTRL": {
+        "kind": "const",
+        "value": 12
+      },
+      "R_DEADTIME_HI": {
+        "kind": "const",
+        "value": 124
+      },
+      "R_DEADTIME_LO": {
+        "kind": "const",
+        "value": 120
+      },
+      "R_DEC": {
+        "kind": "const",
+        "value": 68
+      },
+      "R_GATE_LEN": {
+        "kind": "const",
+        "value": 76
+      },
+      "R_GATE_MODE": {
+        "kind": "const",
+        "value": 72
+      },
+      "R_H2_SHIFT": {
+        "kind": "const",
+        "value": 64
+      },
+      "R_HYST": {
+        "kind": "const",
+        "value": 24
+      },
+      "R_H_SHIFT": {
+        "kind": "const",
+        "value": 60
+      },
+      "R_LAST_AMP": {
+        "kind": "const",
+        "value": 128
+      },
+      "R_LAST_PSD": {
+        "kind": "const",
+        "value": 132
+      },
+      "R_LAST_QTAIL": {
+        "kind": "const",
+        "value": 140
+      },
+      "R_LAST_QTOT": {
+        "kind": "const",
+        "value": 136
+      },
+      "R_LIVETIME_HI": {
+        "kind": "const",
+        "value": 116
+      },
+      "R_LIVETIME_LO": {
+        "kind": "const",
+        "value": 112
+      },
+      "R_MAGIC": {
+        "kind": "const",
+        "value": 0
+      },
+      "R_MAXLEN": {
+        "kind": "const",
+        "value": 40
+      },
+      "R_REALTIME_HI": {
+        "kind": "const",
+        "value": 108
+      },
+      "R_REALTIME_LO": {
+        "kind": "const",
+        "value": 104
+      },
+      "R_STATUS": {
+        "kind": "const",
+        "value": 16
+      },
+      "R_TAIL_DLY": {
+        "kind": "const",
+        "value": 44
+      },
+      "R_THR": {
+        "kind": "const",
+        "value": 20
+      },
+      "R_WIDTHS": {
+        "kind": "const",
+        "value": 8
+      },
+      "apply_calibration": {
+        "kind": "function",
+        "sig": "(bins, cal)"
+      },
+      "axis_calibration": {
+        "kind": "function",
+        "sig": "(ref, centroids, inl_model='knots', deg=3, n_grid=1024)"
+      },
+      "counts_to_volts": {
+        "kind": "function",
+        "sig": "(bins, h_shift=0, amp_src=0, q_shift=0)"
+      },
+      "ctypes": {
+        "kind": "module",
+        "name": "ctypes"
+      },
+      "deadtime_fit": {
+        "kind": "function",
+        "sig": "(rate_in, rate_out)"
+      },
+      "dnl": {
+        "kind": "function",
+        "sig": "(spec, lo=None, hi=None, smooth=64, strict=True, max_empty_frac=0.01)"
+      },
+      "energy_calibration": {
+        "kind": "function",
+        "sig": "(centroids, energies)"
+      },
+      "fom": {
+        "kind": "function",
+        "sig": "(map2d, amp_lo=None, amp_hi=None)"
+      },
+      "gauss_fit_peak": {
+        "kind": "function",
+        "sig": "(spec, lo=None, hi=None)"
+      },
+      "inl_residual_vs_knots": {
+        "kind": "function",
+        "sig": "(cal, n_knots=(8, 16, 32, 64, 128, 256))"
+      },
+      "linearize_spectrum": {
+        "kind": "function",
+        "sig": "(spec, cal)"
+      },
+      "mmap": {
+        "kind": "module",
+        "name": "mmap"
+      },
+      "np": {
+        "kind": "module",
+        "name": "numpy"
+      },
+      "os": {
+        "kind": "module",
+        "name": "os"
+      },
+      "propagar_calibracion_muestra": {
+        "kind": "function",
+        "sig": "(ondas, f, estimadores, baseline=0.0)"
+      },
+      "struct": {
+        "kind": "module",
+        "name": "struct"
+      },
+      "time": {
+        "kind": "module",
+        "name": "time"
+      }
+    },
+    "multitrigger_utils": {
+      "ADC_CNT_PER_V": {
+        "kind": "const",
+        "value": 8192
+      },
+      "BITSTREAM_DEFAULT": {
+        "kind": "const",
+        "value": "/root/red_pitaya_top.bit.bin"
+      },
+      "BIT_ADC_N0": {
+        "kind": "const",
+        "value": 4
+      },
+      "BIT_ADC_N1": {
+        "kind": "const",
+        "value": 16
+      },
+      "BIT_ADC_N2": {
+        "kind": "const",
+        "value": 64
+      },
+      "BIT_ADC_N3": {
+        "kind": "const",
+        "value": 256
+      },
+      "BIT_ADC_P0": {
+        "kind": "const",
+        "value": 2
+      },
+      "BIT_ADC_P1": {
+        "kind": "const",
+        "value": 8
+      },
+      "BIT_ADC_P2": {
+        "kind": "const",
+        "value": 32
+      },
+      "BIT_ADC_P3": {
+        "kind": "const",
+        "value": 128
+      },
+      "BIT_ASG_N": {
+        "kind": "const",
+        "value": 4096
+      },
+      "BIT_ASG_P": {
+        "kind": "const",
+        "value": 2048
+      },
+      "BIT_EXT_N": {
+        "kind": "const",
+        "value": 1024
+      },
+      "BIT_EXT_P": {
+        "kind": "const",
+        "value": 512
+      },
+      "BIT_SW": {
+        "kind": "const",
+        "value": 1
+      },
+      "BIT_TRIG_CH0": {
+        "kind": "const",
+        "value": 8192
+      },
+      "BIT_TRIG_CH1": {
+        "kind": "const",
+        "value": 16384
+      },
+      "BIT_TRIG_CH2": {
+        "kind": "const",
+        "value": 32768
+      },
+      "BIT_TRIG_CH3": {
+        "kind": "const",
+        "value": 65536
+      },
+      "DEC_LEGAL": {
+        "kind": "const",
+        "value": [
+          1,
+          8,
+          64,
+          1024,
+          8192,
+          65536
+        ]
+      },
+      "FPGAUTIL_PATHS": {
+        "kind": "const",
+        "value": [
+          "/opt/redpitaya/bin/fpgautil",
+          "/usr/local/bin/fpgautil"
+        ]
+      },
+      "FPGA_BRIDGE_DIR": {
+        "kind": "const",
+        "value": "/sys/class/fpga_bridge"
+      },
+      "FPGA_STATE": {
+        "kind": "const",
+        "value": "/sys/class/fpga_manager/fpga0/state"
+      },
+      "FS": {
+        "kind": "const",
+        "value": 125000000.0
+      },
+      "MultiTriggerScope": {
+        "kind": "class",
+        "methods": {
+          "__init__": {
+            "kind": "method",
+            "sig": "(self, scope_mmap, fd)"
+          },
+          "acq_base": {
+            "kind": "method",
+            "sig": "(self, thr=0.5, delay=0, decim=1)"
+          },
+          "acq_capture_sw": {
+            "kind": "method",
+            "sig": "(self, thr=0.5, delay=None, timeout_ms=500)"
+          },
+          "arm_for_adc_trigger": {
+            "kind": "method",
+            "sig": "(self, mask_ch0=2, mask_ch1=2, thr=0.0, hyst=0.01, delay=0, we_keep_both=True, auto_rearm=True)"
+          },
+          "capture_n_events": {
+            "kind": "method",
+            "sig": "(self, n=100, timeout_ms=2000, wp_addr=28, clear_both=True, read_snap=False, deadline_every=256)"
+          },
+          "capture_window_np": {
+            "kind": "staticmethod",
+            "sig": "(channels=None, pre=0, post=16384, at_trigger=True)"
+          },
+          "close": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "configure_shield_autorearm": {
+            "kind": "method",
+            "sig": "(self, channels=3, dur=0)"
+          },
+          "debug_dump": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "debug_trigger": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "disable_shield": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "disarm": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "open": {
+            "kind": "classmethod",
+            "sig": "(cls, phys=1074790400, size=196608, check_pl=True)"
+          },
+          "r32": {
+            "kind": "method",
+            "sig": "(self, off)"
+          },
+          "read_buffers": {
+            "kind": "staticmethod",
+            "sig": "(n_buf=16384)"
+          },
+          "reload_bitstream": {
+            "kind": "classmethod",
+            "sig": "(cls, path='/root/red_pitaya_top.bit.bin', scope=None, phys=1074790400, size=196608, release_rp=True, verbose=True)"
+          },
+          "set_or_mask": {
+            "kind": "method",
+            "sig": "(self, mask_ch0=4294967295, mask_ch1=None)"
+          },
+          "set_raw_delay": {
+            "kind": "method",
+            "sig": "(self, delay=1)"
+          },
+          "verify_bitstream": {
+            "kind": "method",
+            "sig": "(self, verbose=True, raise_on_fail=False)"
+          },
+          "w32": {
+            "kind": "method",
+            "sig": "(self, off, v)"
+          },
+          "wait_fill": {
+            "kind": "staticmethod",
+            "sig": "(timeout_ms=2000)"
+          },
+          "wait_triggered": {
+            "kind": "staticmethod",
+            "sig": "(timeout_ms=2000)"
+          }
+        }
+      },
+      "N_BUF": {
+        "kind": "const",
+        "value": 16384
+      },
+      "OR_MASK_ALL": {
+        "kind": "const",
+        "value": 4294967295
+      },
+      "RESET_CALIB_GAIN": {
+        "kind": "const",
+        "value": 32768
+      },
+      "RESET_SET_DEC": {
+        "kind": "const",
+        "value": 1
+      },
+      "SCOPE_PHYS": {
+        "kind": "const",
+        "value": 1074790400
+      },
+      "SCOPE_SIZE": {
+        "kind": "const",
+        "value": 196608
+      },
+      "ctypes": {
+        "kind": "module",
+        "name": "ctypes"
+      },
+      "decode_snap": {
+        "kind": "function",
+        "sig": "(s)"
+      },
+      "efficiency": {
+        "kind": "function",
+        "sig": "(observed_n, target_freq_hz, duration_s)"
+      },
+      "events_to_intervals": {
+        "kind": "function",
+        "sig": "(events)"
+      },
+      "fpga_bridges": {
+        "kind": "function",
+        "sig": "()"
+      },
+      "fpga_state": {
+        "kind": "function",
+        "sig": "()"
+      },
+      "fpgautil_bin": {
+        "kind": "function",
+        "sig": "()"
+      },
+      "load_bitstream": {
+        "kind": "function",
+        "sig": "(path='/root/red_pitaya_top.bit.bin', settle_s=0.2, check=True, bridges=True, wait_bus_s=8.0, verbose=False)"
+      },
+      "mmap": {
+        "kind": "module",
+        "name": "mmap"
+      },
+      "np": {
+        "kind": "module",
+        "name": "numpy"
+      },
+      "os": {
+        "kind": "module",
+        "name": "os"
+      },
+      "pl_bus_ready": {
+        "kind": "function",
+        "sig": "(phys=1074790400, off=20, timeout_s=8.0, interval_s=0.3, verbose=False)"
+      },
+      "pl_probe": {
+        "kind": "function",
+        "sig": "(phys=1074790400, off=20)"
+      },
+      "pulses_from_buffer": {
+        "kind": "function",
+        "sig": "(d, threshold=0.0, hyst=0.05)"
+      },
+      "rp": {
+        "kind": "module",
+        "name": "rp"
+      },
+      "set_fpga_bridges": {
+        "kind": "function",
+        "sig": "(enable, verbose=False)"
+      },
+      "struct": {
+        "kind": "module",
+        "name": "struct"
+      },
+      "subprocess": {
+        "kind": "module",
+        "name": "subprocess"
+      },
+      "sys": {
+        "kind": "module",
+        "name": "sys"
+      },
+      "time": {
+        "kind": "module",
+        "name": "time"
+      }
+    }
+  },
+  "nota": "superficie PRE-refactor; la compara tests/test_compat_api.py. Regenerar sólo si el cambio de API es deliberado.",
+  "numpy": "1.24.2",
+  "python": "3.11",
+  "rp_stub": true
+}
