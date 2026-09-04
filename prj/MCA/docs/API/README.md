@@ -65,6 +65,8 @@ formatos estructurados (`save_file_`).
 | [`API.multitrigger`](../../software/API/multitrigger.py) | máscaras OR, shield, snapshot | `0x4010_0000` (slot 1, `0x210`–`0x24C`) | [mapa](../multitrigger/register_map_multitrigger_rp_scope_cfg.md) |
 | [`API.osciloscope_ring`](../../software/API/osciloscope_ring.py) | event_ring en DDR | `0x4020_0000` (slot 2) | [mapa](../event_ring/diseno_y_register_map.md) |
 | [`API.osciloscope_store`](../../software/API/osciloscope_store/) | guardado continuo del flujo de eventos | — | [arquitectura](../multitrigger/arquitectura_adquisicion_software.md) |
+| [`API.mca_net`](../../software/API/mca_net.py) | protocolo de red del MCA (JSON + binario) | — | — |
+| [`API.mca_remote`](../../software/API/mca_remote.py) | el MCA por socket, y un MCA simulado | `0x4070_0000` remoto | [mapa](../mca/register_map_mca.md) |
 | [`API.analisis`](../../software/API/analisis.py) | helpers puros, sin hardware | — | — |
 | [`API.fpga`](../../software/API/fpga.py) | bring-up de la PL | — | — |
 | [`API.rigol_dg4162`](../../software/API/rigol_dg4162.py) | generador externo | — | — |
@@ -83,6 +85,8 @@ formatos estructurados (`save_file_`).
 software/
 ├── API/                    ← la API
 │   ├── mca.py
+│   ├── mca_net.py          ← protocolo de red
+│   ├── mca_remote.py       ← MCARemote(MCA) y FakeMCA
 │   ├── osciloscope.py
 │   ├── osciloscope_ring.py
 │   ├── osciloscope_store/  ← el antiguo paquete mca/
@@ -90,6 +94,10 @@ software/
 │   ├── analisis.py
 │   ├── fpga.py
 │   └── rigol_dg4162.py
+│
+├── app/                    ← la aplicación cliente/servidor (ver app/README.md)
+│   ├── mca_server.py       ← corre en la Pitaya
+│   └── mcamon.py           ← corre en la PC
 │
 ├── mca_utils.py            ← SHIM, reexporta de API/
 ├── multitrigger_utils.py   ← SHIM

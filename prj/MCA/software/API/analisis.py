@@ -17,6 +17,10 @@ Contenido:
     dnl                     no-linealidad diferencial desde un pulser deslizante
     fom                     figura de mérito de discriminación por forma
     deadtime_fit            modelos paralizable / no paralizable
+    tau_poisson             tau y TASA INCIDENTE de los Δt (fuente real)
+    tau_periodico           tau acotado y pérdida exacta de los Δt (Rigol PULSE)
+    error_cuantizacion      verifica que el estímulo sea el que se dice
+    cv_residuo              diagnóstico de la forma de los Δt
     counts_to_volts         canal -> volts de amplitud de pico
     axis_calibration        mapa directo del eje de amplitud, con invertibilidad
     apply_calibration       corrige números de canal sueltos
@@ -236,6 +240,216 @@ def deadtime_fit(rate_in, rate_out):
         'tau_paralyzable_s':    tau_p,  'sse_paralyzable':    sse_p,
         'best': 'no paralizable' if sse_np <= sse_p else 'paralizable',
     }
+
+
+# =============================================================================
+# Tiempo muerto inferido de los intervalos entre eventos
+# =============================================================================
+#
+# `deadtime_fit` (arriba) necesita un BARRIDO de tasas: ajusta m(n) sobre varios
+# puntos. Lo que sigue saca tau de UNA SOLA corrida, de la distribución de los
+# Δt, y es lo que permite estimarlo en tiempo de corrida.
+#
+# Es el complemento del `DeadTimeAnnotator` (API/osciloscope_store/annotators.py),
+# que cronometra el período ocupado directamente. Los dos hacen falta: el
+# cronómetro mide tau sin suponer nada sobre los arribos, pero NO puede dar la
+# tasa incidente; la inferencia por intervalos sí, y sirve de contraste.
+#
+# EL PROCESO DE ARRIBOS CAMBIA LA MATEMÁTICA, no es un parámetro del mismo
+# ajuste. Por eso hay dos funciones y no una con un flag:
+#
+#   Poisson (fuente real)      Δt = tau + Exp(n)   exponencial DESPLAZADA
+#   periódico (Rigol PULSE)    Δt = k·T            CUANTIZADA, k = ⌈tau/T⌉
+#
+# La primera determina tau y además `n`; la segunda sólo ACOTA tau, y a cambio
+# da la pérdida exacta sin pasar por ningún modelo. Ver
+# `tests/tiempo-muerto/README.md` para por qué el estímulo periódico engaña.
+
+
+def _intervalos_limpios(t_ns, gap):
+    """Δt utilizables: los pares SIN descartes de backpressure en el medio.
+
+    `gap` cuenta SÓLO los descartes por backpressure (la rama `queue.Empty` del
+    lector). Los eventos perdidos por tiempo muerto **no dejan rastro**: el
+    scope no estaba armado, así que no hubo trigger que detectar y el lector
+    nunca se enteró.
+
+    Esa asimetría es justo lo que hace válido el método. Los Δt tienen que
+    incluir las pérdidas por tiempo muerto —son la señal que se está midiendo—
+    y NO las de backpressure, que son un artefacto del pipeline de software.
+    Filtrar por `gap == 0` deja exactamente eso.
+
+    Medido en simulación con 20 % de backpressure encima: sin filtrar, la tasa
+    incidente sale sesgada un 24 %.
+    """
+    t_ns = np.asarray(t_ns, dtype=np.int64)
+    gap  = np.asarray(gap)
+    if t_ns.ndim != 1 or gap.shape != t_ns.shape:
+        raise ValueError('t_ns y gap tienen que ser 1-D y del mismo largo')
+    dt = np.diff(t_ns) / 1e9
+    return dt[gap[1:] == 0]          # el gap del evento que CIERRA el par
+
+
+def tau_poisson(t_ns, gap, q=0.001):
+    """tau y TASA INCIDENTE, para arribos de Poisson (una fuente real).
+
+    Con un sistema K=1 no paralizable el intervalo entre eventos REGISTRADOS es
+    una exponencial DESPLAZADA::
+
+        Δt = tau + Exp(n)
+
+    El corrimiento da `tau` y la pendiente da `n`, la tasa que realmente entró
+    — que es lo que no se puede obtener de ninguna otra forma sin una fuente
+    calibrada ni un pulser de referencia.
+
+    `q` es un cuantil bajo en lugar del mínimo estricto: el MLE del corrimiento
+    es `min(Δt)`, pero un solo outlier por debajo (jitter del reloj de software)
+    lo arruina. Se paga algo de sesgo y se gana robustez.
+
+    Validado por Monte-Carlo contra un K=1 de tau conocido
+    (`tests/tiempo-muerto/test_deadtime_estimadores.py`): tau dentro de ±3 % y
+    `n` dentro de ±5 % en el rango rho = 0.05 … 2.
+
+    **Requiere arribos de Poisson.** Con el Rigol en PULSE no aplica: un tren
+    periódico no tiene esta distribución. Usar `tau_periodico`.
+    """
+    dt = _intervalos_limpios(t_ns, gap)
+    if dt.size < 100:
+        raise ValueError(f'muy pocos intervalos limpios ({dt.size}): hacen '
+                         'falta al menos 100')
+    tau = float(np.quantile(dt, q))
+    med = float(dt.mean())
+    if med <= tau:
+        raise ValueError('la media de los Δt no supera al corrimiento: los '
+                         'datos no son una exponencial desplazada')
+    n   = 1.0 / (med - tau)
+    rho = n * tau
+    return {
+        'modelo': 'poisson', 'tau_s': tau,
+        'n_incidente': n, 'm_registrada': 1.0 / med,
+        'rho': rho, 'perdida': rho / (1.0 + rho),
+        'n_intervalos': int(dt.size),
+    }
+
+
+def error_cuantizacion(t_ns, gap, T_s):
+    """Mediana de |Δt/T − entero más cercano|, en unidades de período.
+
+    Es LA propiedad que define a un tren periódico visto por un sistema K=1:
+    los intervalos registrados son múltiplos enteros de T.
+
+        periódico -> ~0     (los Δt SON múltiplos de T)
+        Poisson   -> ~0.25  (la parte fraccionaria queda uniforme en [−0.5, 0.5])
+
+    Sirve para VERIFICAR que el estímulo es el que se dice, no como selector
+    automático: hace falta `T_s`, que se conoce porque se programa el generador.
+    """
+    dt = _intervalos_limpios(t_ns, gap) / float(T_s)
+    if dt.size == 0:
+        raise ValueError('no quedaron intervalos limpios')
+    return float(np.median(np.abs(dt - np.round(dt))))
+
+
+def tau_periodico(t_ns, gap, T_s, tol=0.15):
+    """tau (ACOTADO) y pérdida EXACTA, para un tren periódico (Rigol en PULSE).
+
+    Un D/D/1/1 acepta un arribo cada `k = ⌈tau/T⌉` períodos, así que los Δt
+    quedan cuantizados en múltiplos de T. De ahí salen tres cosas:
+
+    - `k`, redondeando `Δt/T`;
+    - la **pérdida exacta**, `1 − 1/⟨k⟩`, sin pasar por ningún modelo;
+    - y tau **acotado**, no determinado:  `(k−1)·T < tau <= k·T`.
+
+    Ese bracket no es debilidad del estimador: el modelo es **discontinuo en
+    tau** y con un solo `k` poblado la información no está en los datos. Es el
+    mismo "cualquier tau entre 200 y 250 µs da la misma predicción" que ya
+    reporta `tests/tiempo-muerto/README.md`. Lo que lo aprieta es barrer T e
+    **intersecar los brackets**.
+
+    Caso especial útil: cuando `tau/T` cae cerca de un entero se pueblan DOS `k`
+    adyacentes, y entonces el borde entre ellos localiza tau directamente. Es lo
+    que pasa en el punto de 20 kev/s del barrido del lector (`tau/T = 5.00`).
+
+    `T_s` es obligatorio: con un único `k` poblado, `Δt = k·T` es indistinguible
+    de un tren de período `k·T`. Se conoce, se programa el generador.
+
+    `tol` es el error de cuantización admitido, EN UNIDADES DE PERÍODO, y no es
+    arbitrario: el jitter del reloj de software ensancha cada Δt, así que el
+    error escala como `jitter/T` — con 3 µs de jitter da 0.01 períodos a
+    T = 1 ms pero 0.06 a T = 50 µs. El contraste es contra Poisson, que da 0.25,
+    y el default va en el medio. De ahí sale el límite de validez: la prueba
+    pierde poder cuando T se acerca al jitter del timestamp (~30 µs, o sea
+    33 kev/s, bastante por encima del techo de ~11 kev/s del lector).
+    """
+    T_s = float(T_s)
+    if T_s <= 0:
+        raise ValueError('T_s tiene que ser positivo')
+    dt = _intervalos_limpios(t_ns, gap)
+    if dt.size < 100:
+        raise ValueError(f'muy pocos intervalos limpios ({dt.size}): hacen '
+                         'falta al menos 100')
+
+    # El test de cuantización va PRIMERO: es el discriminante de verdad, y da
+    # el diagnóstico útil. Si fuera después del chequeo de k, un estímulo
+    # Poisson con Δt cortos fallaría con "T_s incompatible", que manda a
+    # revisar el T en vez de a cambiar de función.
+    k   = np.round(dt / T_s).astype(int)
+    err = float(np.median(np.abs(dt / T_s - k)))
+    if err > tol:
+        raise ValueError(
+            f'los Δt no son múltiplos de T_s={T_s:g} s (error de cuantización '
+            f'mediano {err:.3f} períodos, tolerancia {tol}): el estímulo no es '
+            'periódico — usar tau_poisson')
+    if (k < 1).any():
+        raise ValueError(f'T_s={T_s:g} s incompatible con los datos: hay Δt '
+                         'menores a T/2 aunque estén cuantizados. Suele ser un '
+                         'T_s mal pasado (¿factor de 10? ¿Hz en vez de s?)')
+
+    ks, cuentas = np.unique(k, return_counts=True)
+    frac    = cuentas / cuentas.sum()
+    orden   = np.argsort(-cuentas)
+    k_moda  = int(ks[orden[0]])
+    k_medio = float((ks * frac).sum())
+
+    salida = {
+        'modelo': 'periodico', 'T_s': T_s, 'err_cuantizacion': err,
+        'k_moda': k_moda, 'k_medio': k_medio,
+        'k_frac': {int(a): float(b) for a, b in zip(ks, frac)},
+        'tau_lo': (k_moda - 1) * T_s, 'tau_hi': k_moda * T_s,
+        'n_incidente': 1.0 / T_s, 'm_registrada': 1.0 / float(dt.mean()),
+        'perdida': 1.0 - 1.0 / k_medio,
+        'n_intervalos': int(dt.size),
+    }
+
+    # Dos k adyacentes poblados: es LA condición que localiza tau dentro del
+    # bracket, porque el borde entre ellos está a un pelo de tau.
+    if len(ks) >= 2 and abs(int(ks[orden[1]]) - k_moda) == 1:
+        k_bajo = min(k_moda, int(ks[orden[1]]))
+        salida['tau_est'] = k_bajo * T_s
+        salida['frac_bajo_borde'] = float(frac[ks <= k_bajo].sum())
+    return salida
+
+
+def cv_residuo(t_ns, gap, q=0.001):
+    """CV del residuo de los Δt. **Diagnóstico, NO selector automático.**
+
+    Anclajes: exponencial da 1.00, jitter gaussiano da ~0.33, y ninguno de los
+    dos depende de rho ni de la amplitud del jitter. Tienta usarlo para elegir
+    modelo solo, y por eso conviene decir por qué no se hace:
+
+    cuando `tau/T` cae cerca de un entero, el periódico reparte los eventos
+    entre `k` y `k+1`, los Δt se vuelven bimodales y el CV sube hasta ~0.91 —
+    indistinguible de Poisson. Medido en el Monte-Carlo: se equivoca en 3 de 5
+    casos periódicos, incluido `tau/T = 5.00`, que es el punto de 20 kev/s del
+    barrido del lector. El modelo se declara; para verificarlo está
+    `error_cuantizacion`, que sí acierta en los cinco.
+    """
+    dt = _intervalos_limpios(t_ns, gap)
+    if dt.size == 0:
+        raise ValueError('no quedaron intervalos limpios')
+    resid = dt - np.quantile(dt, q)
+    m = float(resid.mean())
+    return float(resid.std() / m) if m > 0 else 0.0
 
 
 def counts_to_volts(bins, h_shift=0, amp_src=0, q_shift=0):

@@ -7,7 +7,7 @@ Tests para los métodos de lectura del buffer ADC del Red Pitaya y para el fix d
 > grupos de este directorio están documentados aparte:
 >
 > - `test_mca_hw.py`, `test_mca_datapath.py`, `diag_mca_hw.py` →
->   [`../../docs/testbenches_software_mca.md`](../../docs/testbenches_software_mca.md)
+>   [`../../docs/mca/testbenches_software_mca.md`](../../docs/mca/testbenches_software_mca.md)
 > - `test_mca_pipeline.py` y los bloques de escritor/GIL de
 >   `bench_reader_budget.py` →
 >   [`../../docs/testbenches_escritura_archivos.md`](../../docs/testbenches_escritura_archivos.md)

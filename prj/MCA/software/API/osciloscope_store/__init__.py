@@ -23,7 +23,8 @@ Offline, en la PC (sin placa ni modulo `rp`):
     from mca import FakeSource, AcquisitionSession
 """
 
-from .annotators import Annotator, CachedAnnotator, ConstantAnnotator
+from .annotators import (Annotator, CachedAnnotator, ConstantAnnotator,
+                         DeadTimeAnnotator)
 from .events import EventBatch, SCHEMA_VERSION, bytes_per_event
 from .reader import ReaderThread
 from .session import AcquisitionSession, scope_regs
@@ -31,7 +32,7 @@ from .sources import BramSource, FakeSource
 from .storage import ChunkWriter, load_chunk
 
 __all__ = [
-    'Annotator', 'CachedAnnotator', 'ConstantAnnotator',
+    'Annotator', 'CachedAnnotator', 'ConstantAnnotator', 'DeadTimeAnnotator',
     'EventBatch', 'SCHEMA_VERSION', 'bytes_per_event',
     'ReaderThread', 'ChunkWriter', 'load_chunk',
     'AcquisitionSession', 'scope_regs',

@@ -128,6 +128,46 @@ releído del csv no comparaba igual que el que se escribió.
 
 ---
 
+### 1.6 El mismo MCA, por red
+
+Código: [`API/mca_net.py`](../../software/API/mca_net.py) (protocolo) y
+[`API/mca_remote.py`](../../software/API/mca_remote.py) (handles). La
+aplicación que los usa está en [`software/app/`](../../software/app/README.md).
+
+`MCARemote` **hereda de `class MCA`** y sólo redefine `r32`/`w32` y las
+lecturas en bloque. Como todas las funciones de arriba acceden al hardware
+únicamente a través del handle, **la superficie `mca_*` entera funciona por
+socket sin cambiar nada**:
+
+```python
+h = MCARemote.connect('10.73.28.27')     # en vez de mca_open()
+mca_set_thr(h, 317)                      # todo lo demás, igual
+hist = mca_read_histogram(h)
+```
+
+| Handle | Qué es |
+|---|---|
+| `MCARemote.connect(host, port=1001, timeout=10)` | el MCA de la placa, por TCP |
+| `FakeMCA(h_aw=14, …)` | un MCA que no existe: fotopico gaussiano que crece con el tiempo vivo, y respeta `amp_min`/`amp_max`. Es a `mca.py` lo que `FakeSource` a `osciloscope_store` |
+
+Extras que sólo tienen sentido por red — `h.status()` (contadores + tasas +
+exposición en una vuelta), `h.config()`, `h.metadata()`, `h.fpga_state()` y
+`h.load_bitstream(path)`.
+
+> **La exposición la implementa el servidor, no el hardware.** El MCA es
+> free-running y no tiene registro de tiempo de medida: `ctrl.start` con
+> `seconds` arma un hilo que poléa `livetime_s` y para al llegar. Es la misma
+> cuenta que hace `mca_read_acquire`, movida al lado de la placa para que
+> sobreviva a que el cliente se desconecte.
+
+> **Refrescar el espectro en vivo cuesta ~0.01 % de los eventos.** La lectura
+> del bus tiene prioridad sobre el pipeline del histograma
+> (`mca_hist.sv:30-37`) y el evento que colisiona se cuenta en `dropped`, pero
+> ocupa el puerto ~2 ciclos cada 6.7 µs. Con un refresco por segundo es
+> despreciable, y el contador lo deja verificar en vez de suponerlo.
+
+---
+
 ## 2. `API.osciloscope` — osciloscopio clásico
 
 Base `0x4010_0000` (slot 1). Código: [`API/osciloscope.py`](../../software/API/osciloscope.py).
@@ -279,6 +319,30 @@ Es la **API de guardado** del flujo OSC: mientras la API de lectura da una
 estructura puntual, ésta hace guardado continuo del flujo de entrada, un `.npz`
 por chunk más un `run_summary.json` por corrida.
 
+### Anotadores
+
+Información externa que se *adjunta* a cada evento sin definir cuándo ocurre.
+Añaden columnas al esquema del batch, así que el lector, el escritor y el formato
+de archivo no se tocan.
+
+| Clase | Qué añade |
+|---|---|
+| `ConstantAnnotator(**valores)` | valores fijos por corrida |
+| `CachedAnnotator` | base para fuentes lentas y asincrónicas (GPS, temperatura), con su `*_age_ns` |
+| `DeadTimeAnnotator` | columna `dead_ns`: **el período ocupado del lector**, evento por evento |
+
+`DeadTimeAnnotator` es la medición *directa* del tiempo muerto del camino del
+lector, que no tiene contador en hardware como sí lo tiene el MCA. Funciona
+porque `sample_into` corre justo después de `rearm()`, así que la diferencia
+contra `t_ns` es exactamente el intervalo en que el scope estuvo congelado — la
+misma definición que el `deadtime_cnt` del RTL. Expone además `busy_fraction()`
+para leer rho en vivo.
+
+> **rho no es la fracción perdida.** Con arribos periódicos se puede estar 28 %
+> ocupado y no perder ni un evento. Para la pérdida con fuente Poisson,
+> `rho/(1+rho)`; ver
+> [`tests/tiempo-muerto/README.md`](../../software/tests/tiempo-muerto/README.md).
+
 ---
 
 ## 6. `API.analisis` — helpers puros
@@ -292,7 +356,11 @@ hardware**, así que se prueban contra `.npz` guardados sin la placa.
 | `energy_calibration(centroids, energies)` | recta canal(E) + INL como % de fondo de escala |
 | `dnl(spec, lo, hi, smooth)` | no-linealidad diferencial desde un pulser deslizante |
 | `fom(map2d, amp_lo, amp_hi)` | figura de mérito de discriminación por forma |
-| `deadtime_fit(rate_in, rate_out)` | modelos paralizable y no paralizable, y cuál gana |
+| `deadtime_fit(rate_in, rate_out)` | modelos paralizable y no paralizable, y cuál gana (necesita un **barrido**) |
+| `tau_poisson(t_ns, gap)` | de **una corrida**: tau, **tasa incidente**, rho y pérdida — fuente real |
+| `tau_periodico(t_ns, gap, T_s)` | de una corrida: `k`, bracket de tau y **pérdida exacta** — Rigol en PULSE |
+| `error_cuantizacion(t_ns, gap, T_s)` | verifica que el estímulo sea periódico (~0) o no (0.25) |
+| `cv_residuo(t_ns, gap)` | forma de los Δt. **Diagnóstico, no selector** — se equivoca en los bordes |
 | `counts_to_volts(bins, h_shift, amp_src, q_shift)` | canal → volts de amplitud de pico |
 | `axis_calibration(ref, centroids, ...)` | mapa directo del eje, con chequeo de invertibilidad |
 | `apply_calibration(bins, cal)` | corrige números de canal sueltos |
@@ -307,6 +375,26 @@ cfg/read/store ni pegan a ningún bloque del bus. El porqué está en
 `counts_to_volts` **rechaza `amp_src=1`** con un `ValueError`: con la integral de
 carga el eje ya no es amplitud, y convertirlo a volts daría un número sin
 significado físico. Hay que calibrar contra el generador.
+
+### Tiempo muerto en tiempo de corrida
+
+`tau_poisson` y `tau_periodico` **no son variantes del mismo ajuste**: el proceso
+de arribos cambia la matemática. La primera determina tau y además la tasa
+incidente; la segunda sólo *acota* tau, y a cambio da la pérdida exacta sin pasar
+por ningún modelo. Cuál usar se **declara** —`T_s` obligatorio es lo que impide
+equivocarse de función por accidente—, y `tau_periodico` se niega con un
+`ValueError` si los Δt no están cuantizados.
+
+Las dos filtran por `gap == 0`, y de ahí depende su validez: `gap` cuenta sólo
+los descartes por *backpressure*, mientras que las pérdidas por tiempo muerto no
+dejan rastro. Los Δt tienen que incluir las segundas y no las primeras.
+
+Miden el camino del **lector de Python**; el MCA ya trae los contadores en
+hardware (`mca_read_counters()` → `livetime_s`/`deadtime_s`). La medición directa
+complementaria es el `DeadTimeAnnotator` de
+[`API.osciloscope_store`](#5-apiosciloscope_store--guardado-continuo). Todo el
+detalle y la validación por Monte-Carlo:
+[`tests/tiempo-muerto/README.md`](../../software/tests/tiempo-muerto/README.md).
 
 ---
 

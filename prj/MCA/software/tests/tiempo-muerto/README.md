@@ -19,13 +19,107 @@ medidos a 2 kev/s son entonces una propiedad del estímulo, no del equipo.
 | [`run_poisson_loss.py`](run_poisson_loss.py) | mide las pérdidas del **lector de Python** con estímulo Poisson | Pitaya + Rigol |
 | [`test_poisson_wave.py`](test_poisson_wave.py) | valida el generador Poisson (KS, conteo, costura, pile-up, escala) | PC |
 | [`test_poisson_sweep_sim.py`](test_poisson_sweep_sim.py) | corre el barrido entero contra un servidor K=1 **simulado** | PC |
+| [`test_deadtime_estimadores.py`](test_deadtime_estimadores.py) | valida los estimadores **en tiempo de corrida** (ver abajo) | PC |
 
 ```bash
 python3 plot_modelos_tasa.py          # -> ../../datos/modelos_tasa/*.png
 python3 test_poisson_wave.py          # RESULT: PASS
 python3 test_poisson_sweep_sim.py     # RESULT: PASS
+python3 test_deadtime_estimadores.py  # RESULT: PASS
 python3 run_poisson_loss.py <outdir>  # en la Pitaya
 ```
+
+---
+
+## Estimar τ **durante** la corrida
+
+Todo lo de arriba necesita un **barrido** de tasas: `deadtime_fit` ajusta `m(n)`
+sobre varios puntos, y eso es una campaña, no algo que se pueda hacer mientras
+se toma un espectro. Para el camino del lector hay dos formas de sacar τ de
+**una sola corrida**.
+
+El MCA no las necesita: ya trae contadores de 64 bits a 125 MHz
+(`mca_read_counters()` → `livetime_s` / `deadtime_s` / `realtime_s`, de
+`feat_busy` en [`mca_top.sv`](../../../rtl/mine/mca/mca_top.sv)). Esto es para el
+lector de Python, que no tiene contador en hardware.
+
+### A · Cronometrar el período ocupado — `DeadTimeAnnotator`
+
+```python
+from API.osciloscope_store import AcquisitionSession, DeadTimeAnnotator
+
+dt = DeadTimeAnnotator()
+with AcquisitionSession(src, run_dir, annotators=(dt,)) as s:
+    s.wait(duration_s=60)
+    print(f'ocupado {dt.busy_fraction()*100:.1f} %')     # en vivo
+```
+
+Funciona porque `sample_into` corre **justo después de `rearm()`**, así que
+`perf_counter_ns() − batch.t_ns[i]` es el intervalo en que el scope estuvo
+congelado — la misma definición que el `deadtime_cnt` del RTL. Cuesta un
+`perf_counter_ns()` por evento y **no hay que tocar el lector**: la columna
+`dead_ns` se propaga sola al esquema y al `.npz`.
+
+Es **independiente del estímulo**: sirve igual con fuente Poisson y con el Rigol
+en PULSE. No ve la latencia de detección (≤ 2.3 µs sobre ~250, < 1 %) ni el
+período ocupado de los eventos tirados por backpressure (ésos van en
+`stats['n_dropped']`).
+
+Y guarda τ **por evento**, no sólo el total: la distribución es lo que distingue
+un ciclo de `τ ± σ` de uno con cola larga por stalls de GIL.
+
+### B · Inferirlo de los Δt — y acá **sí** cambia según la fuente
+
+El proceso de arribos cambia la matemática, no es un parámetro del mismo ajuste.
+Por eso son dos funciones ([`API/analisis.py`](../../API/analisis.py)):
+
+| | `tau_poisson(t_ns, gap)` | `tau_periodico(t_ns, gap, T_s)` |
+|---|---|---|
+| Estímulo | fuente real | Rigol en PULSE |
+| Modelo de Δt | `τ + Exp(n)`, exponencial **desplazada** | `k·T`, **cuantizado**, `k = ⌈τ/T⌉` |
+| τ | sí, ±3 % | **sólo un bracket** `((k−1)T, kT]` |
+| Tasa incidente `n` | **sí** — no hay otra forma sin fuente calibrada | trivial, `n = 1/T` |
+| Pérdida | `ρ/(1+ρ)`, del modelo | **exacta**, `1 − 1/⟨k⟩`, sin modelo |
+
+Son complementarias en un sentido fuerte: la fuente Poisson da τ pero la pérdida
+sale de un modelo; la periódica da la pérdida exacta pero τ sólo acotado.
+
+**El bracket no es debilidad del estimador.** El modelo D/D/1/1 es discontinuo
+en τ y con un solo `k` poblado la información no está en los datos — es el mismo
+"cualquier τ entre 200 y 250 µs da la misma predicción" de más arriba. Lo que lo
+aprieta es **barrer T e intersecar los brackets**; el test lo hace con 8 valores
+de T y recupera exactamente `(200, 250] µs`, por un camino independiente del
+ajuste de la curva de tasas.
+
+Caso especial: cuando `τ/T` cae cerca de un entero se pueblan **dos `k`
+adyacentes**, y el borde entre ellos **sí** localiza τ. Es lo que pasa en el
+punto de 20 kev/s (`τ/T = 5.00`), el mismo que el ajuste no podía acertar.
+
+### Por qué el modelo se declara y no se adivina
+
+Tienta clasificar solo por la forma de los Δt. **No funciona.** El CV del
+residuo tiene anclajes limpios (exponencial 1.00, jitter gaussiano 0.33), pero
+cuando `τ/T` cae cerca de un entero el periódico se vuelve bimodal y sube a
+~0.91 — indistinguible de Poisson. Medido: se equivoca en 3 de 5 casos
+periódicos, **incluido el de 20 kev/s**.
+
+Lo que sí funciona es el **error de cuantización**, `|Δt/T − round(Δt/T)|`: ~0
+para periódico, 0.25 para Poisson porque la parte fraccionaria queda uniforme.
+`tau_periodico` lo lleva adentro como guarda y **se niega** ante un estímulo que
+no es periódico, en vez de devolver un número plausible y falso. `cv_residuo`
+queda expuesta como diagnóstico, documentada como no-selector.
+
+### El detalle de `gap` del que depende todo
+
+Las pérdidas por **tiempo muerto no se anotan en `gap`**: el scope no estaba
+armado, no hubo trigger, el lector nunca se enteró. `gap` sólo lleva los
+descartes por **backpressure** (la rama `queue.Empty`).
+
+Esa asimetría es justo lo que hace válido el método. Los Δt tienen que *incluir*
+las pérdidas por tiempo muerto —son la señal que se mide— y *no* las de
+backpressure, que son artefacto del pipeline. Filtrar por `gap == 0` deja
+exactamente eso. Con 20 % de backpressure encima, sin filtrar la tasa incidente
+sale sesgada **24 %**.
 
 `plot_modelos_tasa.py` toma las mediciones de los `.npz` de los barridos, así
 que **rehacer las figuras con datos nuevos no toca el código**:

@@ -129,6 +129,75 @@ class CachedAnnotator(Annotator):
         return dict(kind=type(self).__name__, interval_s=self.interval_s)
 
 
+class DeadTimeAnnotator(Annotator):
+    """Cronometra el periodo ocupado del lector, evento por evento.
+
+    Es la medicion DIRECTA del tiempo muerto, y no supone nada sobre como
+    llegan los eventos: sirve igual con fuente Poisson y con tren periodico.
+    (La inferencia por intervalos, que si depende del proceso de arribos, esta
+    en `API/analisis.py`: `tau_poisson` y `tau_periodico`.)
+
+    Funciona porque `sample_into` corre JUSTO DESPUES de `rearm()` en el lazo
+    del lector (reader.py, "los annotators van DESPUES, con el HW ya
+    adquiriendo de nuevo"). Entonces
+
+        perf_counter_ns() - batch.t_ns[i]
+
+    es el intervalo en que el scope estuvo congelado: la misma definicion que
+    el `deadtime_cnt` del MCA en RTL (mca_top.sv, `if (feat_busy)`), pero
+    medida en SW para el camino del lector, que no tiene contador en hardware.
+
+    Cuesta un `perf_counter_ns()` por evento (~60 ns sobre un ciclo de ~250 us)
+    y respeta la regla de la clase: no hace I/O, solo lee un reloj.
+
+    Guarda `dead_ns` POR EVENTO y no solo el total: la distribucion es lo que
+    distingue un ciclo de tau +- sigma de uno con cola larga por stalls de GIL,
+    y esa diferencia no se ve en la media.
+
+    DOS COSAS QUE NO VE, las dos acotadas y las dos hacia abajo:
+
+    1. La latencia de deteccion. El cronometro arranca cuando el poll NOTA el
+       trigger, no cuando el trigger ocurrio; el hueco es <= un periodo de poll
+       (2.3 us medidos) sobre ~250 us, o sea < 1 %.
+    2. Los eventos descartados por backpressure. Esa rama del lector hace
+       `continue` sin llamar a los annotators, asi que su periodo ocupado no se
+       suma. Se contabilizan aparte, en `stats['n_dropped']`.
+    """
+
+    scalar_fields = (('dead_ns', np.int64),)
+
+    def __init__(self):
+        self.total_ns = 0
+        self.n        = 0
+        self._t0_ns   = 0
+
+    def start(self):
+        self._t0_ns = time.perf_counter_ns()
+
+    def sample_into(self, batch, i):
+        d = time.perf_counter_ns() - batch.t_ns[i]
+        batch.scalars['dead_ns'][i] = d
+        self.total_ns += d
+        self.n        += 1
+
+    def busy_fraction(self):
+        """rho = fraccion de tiempo ocupado desde `start()`. Para el dashboard.
+
+        Es el analogo directo de `1 - livetime/realtime` del MCA. OJO: NO es la
+        fraccion de eventos perdidos -- con arribos periodicos se puede estar
+        28 % ocupado y no perder ninguno. Para la perdida con fuente Poisson,
+        rho/(1+rho).
+        """
+        if not self._t0_ns:
+            return 0.0
+        transcurrido = time.perf_counter_ns() - self._t0_ns
+        return self.total_ns / transcurrido if transcurrido > 0 else 0.0
+
+    def meta(self):
+        return dict(kind='DeadTimeAnnotator', mide='periodo ocupado del lector',
+                    total_ns=int(self.total_ns), n=int(self.n))
+
+
 def merge_fields(source, annotators):
     """Esquema final del batch: lo que declara la fuente + cada annotator.
 

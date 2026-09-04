@@ -134,6 +134,14 @@ class MCARemote(MCA):
         """
         return self._pedir('status')[0]['result']
 
+    def config(self):
+        """Los 19 campos en una ida y vuelta.
+
+        `mca_get_config(h)` da lo mismo pero son 19, una por campo: para el
+        poleo de una GUI conviene ésta.
+        """
+        return self._pedir('config.get')[0]['result']
+
     def metadata(self):
         return self._pedir('read.metadata')[0]['result']
 

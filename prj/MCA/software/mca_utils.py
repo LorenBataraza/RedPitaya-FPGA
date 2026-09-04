@@ -39,4 +39,5 @@ from API.analisis import (                                     # noqa: F401
     counts_to_volts, axis_calibration, apply_calibration,
     linearize_spectrum, inl_residual_vs_knots,
     propagar_calibracion_muestra,
+    tau_poisson, tau_periodico, error_cuantizacion, cv_residuo,
 )
