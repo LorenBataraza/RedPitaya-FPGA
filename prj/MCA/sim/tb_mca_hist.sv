@@ -27,12 +27,17 @@ module tb_mca_hist;
   wire            busy;
   wire [31:0]     dropped;
 
+  reg          keep = 1'b1;      // por defecto: seguir contando (como antes)
+  wire         full;
+  wire [31:0]  suppressed;
+
   mca_hist #(.AW(AW), .CW(CW)) dut (
     .clk_i(clk), .rstn_i(rstn),
     .inc_i(inc), .inc_addr_i(inc_addr),
     .clear_i(clear), .busy_o(busy),
+    .cfg_keep_i(keep), .full_o(full),
     .rd_i(rd), .rd_addr_i(rd_addr), .rd_data_o(rd_data),
-    .dropped_o(dropped)
+    .dropped_o(dropped), .suppressed_o(suppressed)
   );
 
   integer pass_cnt=0, fail_cnt=0;
@@ -47,6 +52,14 @@ module tb_mca_hist;
   // Tareas de estímulo
   //--------------------------------------------------------------------------
   // Lectura de bus: rd_i es un PULSO de 1 ciclo; el dato sale 2 ciclos después.
+  task automatic checkv(input string name, input integer got, input integer exp);
+    begin
+      if (got===exp) pass_cnt=pass_cnt+1;
+      else begin fail_cnt=fail_cnt+1;
+        $display("  FAIL: %s  (obtenido %0d, esperado %0d)", name, got, exp); end
+    end
+  endtask
+
   task automatic bus_rd(input [AW-1:0] a, output [CW-1:0] d);
     begin
       @(negedge clk); rd_addr = a; rd = 1'b1;
@@ -172,6 +185,38 @@ module tb_mca_hist;
     bus_rd(4'd9, d);  check("saturacion: se queda en 2^CW-1 (255)", d===8'd255);
     inc1(4'd9); flush;
     bus_rd(4'd9, d);  check("saturacion: sigue en 255 tras otro incremento", d===8'd255);
+
+    //-----------------------------------------------------------------------
+    // Bandera de lleno y `keep`. Se prueba con keep=1 (lo de siempre: se sigue
+    // contando y solo se levanta la bandera) y despues con keep=0 (la
+    // acumulacion se CONGELA en todo el histograma, no solo en el bin lleno).
+    //-----------------------------------------------------------------------
+    check("full: la bandera se levanto al saturar", full===1'b1);
+    // Con keep=1 los demas bins siguen contando normalmente.
+    inc1(4'd3); inc1(4'd3); flush;
+    bus_rd(4'd3, d);
+    check("full con keep=1: otro bin sigue contando", d===8'd2);
+    checkv("full con keep=1: nada suprimido", suppressed, 0);
+
+    // Ahora se congela. El bin 3 NO puede seguir subiendo.
+    keep = 1'b0; @(negedge clk);
+    inc1(4'd3); inc1(4'd3); inc1(4'd3); flush;
+    bus_rd(4'd3, d);
+    check("full con keep=0: la acumulacion se congela en TODO el histograma",
+          d===8'd2);
+    checkv("full con keep=0: los eventos suprimidos se cuentan", suppressed, 3);
+    // Y no se cuentan como `dropped`: es otra causa de perdida y hay que poder
+    // distinguirlas.
+    checkv("full con keep=0: no se confunden con dropped", dropped, 0);
+
+    // El borrado arranca una adquisicion nueva: baja la bandera y descongela.
+    do_clear;
+    check("tras borrar: la bandera de lleno baja", full===1'b0);
+    checkv("tras borrar: suprimidos a cero", suppressed, 0);
+    inc1(4'd3); flush;
+    bus_rd(4'd3, d);
+    check("tras borrar: vuelve a contar aunque keep siga en 0", d===8'd1);
+    keep = 1'b1; @(negedge clk);
 
     //-----------------------------------------------------------------------
     // 5) Barrido de borrado

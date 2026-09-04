@@ -1,5 +1,5 @@
-# vsim -c -quiet tb_event_ring_top -do "run -all; quit -f" 
-# Start time: 20:11:46 on Sep 03,2026
+# vsim -c -quiet tb_mca_discriminator -do "run -all; quit -f" 
+# Start time: 18:28:47 on Sep 04,2026
 # ** Note: (vsim-3812) Design is being optimized...
 # //  Questa Sim-64
 # //  Version 10.7c linux_x86_64 Aug 17 2018
@@ -16,19 +16,9 @@
 # //  18 U.S.C. Section 1905.
 # //
 # run -all
-# [0] magic y configuracion en STOPPED
-# [1] arranque y primer evento
-# [2] geometria en marcha: se ignora y marca err_cfg
-# [3] wrap del ring con el PS drenando
-# [4] RAFAGA sin drenaje: absorbe, despues cuenta la perdida
-#       capturados=8 drop_busy=8 drop_full=4 wr_slot=4 rd_slot=0
-# [4b] stop/start SIN republicar rd_slot: nada de underflow
-# [5] parada ordenada: DRAINING no corta la ventana en vuelo
-# [6] contrapresion del bus AXI
-# 
-#   pass=39  fail=0
+# tb_mca_discriminator: 21 PASS, 0 FAIL
 # RESULT: PASS
-# ** Note: $finish    : tb_event_ring_top.sv(438)
-#    Time: 101488 ns  Iteration: 1  Instance: /tb_event_ring_top
-# End time: 20:11:47 on Sep 03,2026, Elapsed time: 0:00:01
+# ** Note: $finish    : tb_mca_discriminator.sv(140)
+#    Time: 40 ns  Iteration: 0  Instance: /tb_mca_discriminator
+# End time: 18:28:48 on Sep 04,2026, Elapsed time: 0:00:01
 # Errors: 0, Warnings: 0

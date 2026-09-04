@@ -5,6 +5,7 @@
 #   make placa          TODO lo que necesita la Red Pitaya
 #   make mc             las simulaciones Monte-Carlo
 #   make campana-mca    la campaña de caracterización del MCA (placa + Rigol)
+#   make gui-demo       la GUI andando contra un MCA falso, sin placa
 #
 # "testbench" es ambigua en este proyecto y acá se desambigua: los testbenches
 # de RTL (SystemVerilog, QuestaSim) NO están en este fichero. Corren con
@@ -31,6 +32,13 @@ EN_PLACA := $(shell test -d /opt/redpitaya/lib/python && echo si)
 PITAYA   ?= pitaya
 REMOTO   ?= /home/jupyter/RedPitaya/remote_soft
 
+# El bitstream. `make sync` NO lo copia (excluye todo lo que no sea software),
+# así que el despliegue de la PL es un objetivo aparte y explícito: recargar la
+# PL corta el bus AXI y no es algo que deba pasar como efecto secundario de
+# sincronizar unos .py.
+BIT_LOCAL  ?= $(RAIZ)/../out/mca_red_pitaya.bit.bin
+BIT_REMOTO ?= /root/mca_red_pitaya.bit.bin
+
 # Para los scripts que se invocan sueltos (no vía pytest): pytest resuelve la
 # raíz con `pythonpath` de pyproject.toml, pero `python3 campanas/x.py` no.
 export PYTHONPATH := $(RAIZ):$(PYTHONPATH)
@@ -41,12 +49,13 @@ export PYTHONPATH := $(RAIZ):$(PYTHONPATH)
         compat baseline lint \
         mc mc-rapido mc-apilamiento mc-linea-base mc-pico-carga mc-figuras \
         campana-lista campana-mca campana-campana campana-resto campana-formas \
-        campana-e2e campana-poisson adquirir \
+        campana-e2e campana-poisson campana-deriva adquirir \
         graficos-mca graficos-formas graficos-tasa analisis-estimadores \
         placa placa-mem placa-buffer placa-mca placa-diag placa-ring \
-        placa-rigol placa-e2e bench exige-placa \
-        gui servidor servidor-falso \
+        placa-rigol placa-e2e placa-preparar placa-cargar bench exige-placa \
+        gui gui-demo test-gui exige-gui servidor servidor-falso \
         sync remoto-test remoto-placa remoto-bench \
+        bitstream remoto-preparar remoto-deriva \
         clean clean-pyc distclean
 
 # ------------------------------------------------------------------ ayuda ---
@@ -59,7 +68,7 @@ help:              ## esta ayuda
 	@echo "  (P) necesita la Red Pitaya      (R) necesita además el Rigol DG4162"
 	@echo "  esta máquina es placa: $(if $(EN_PLACA),SÍ,no)"
 	@echo "  variables: OUT=$(OUT)"
-	@echo "             CH=$(CH)  GEN_CH=$(GEN_CH)  PITAYA=$(PITAYA)"
+	@echo "             CH=$(CH)  GEN_CH=$(GEN_CH)  PITAYA=$(PITAYA)  PUERTO=$(PUERTO)"
 	@echo ""
 	@echo "  los testbenches de RTL (QuestaSim) van aparte:  make -C ../sim"
 
@@ -134,6 +143,9 @@ campana-resto: exige-placa     ## (P,R) amplitud, umbral, par-pulso, tasa. OUT=
 campana-formas: exige-placa    ## (P,R) INL vs familia de forma de pulso (~20 min)
 	$(PY) campanas/run_formas.py $(OUT)
 
+campana-deriva: exige-placa    ## (P,R) tasa vs tiempo: el experimento de deriva. OUT=
+	$(PY) campanas/run_deriva.py $(OUT)
+
 campana-e2e: exige-placa       ## (P,R) espectro HW contra espectro SW, mismo estímulo
 	$(PY) campanas/e2e_espectro.py --acquire --duration 20
 
@@ -166,6 +178,12 @@ exige-placa:
 placa: placa-mem placa-buffer placa-mca placa-ring  ## (P) toda la batería de placa
 	@echo "OK: batería de placa completa"
 
+placa-preparar: exige-placa  ## (P) verifica que el bitstream cargado sea el nuevo
+	$(PY) campanas/preparar_placa.py
+
+placa-cargar: exige-placa  ## (P) programa la PL con $(BIT_REMOTO) y verifica
+	$(PY) campanas/preparar_placa.py --cargar --bitstream $(BIT_REMOTO)
+
 placa-mem: exige-placa     ## (P) regresión del SIGBUS al escribir /dev/mem
 	$(PY) API/tests/placa/test_rw_dev_mem.py
 
@@ -194,14 +212,46 @@ bench: exige-placa         ## (P) benchmarks de lectura del buffer (no son pass/
 	$(PY) API/bench/bench_reader_budget.py
 
 # ------------------------------------------------------------------- la app --
-gui:               ## abre mcamon (GUI). SERVIDOR=host para modo cliente
-	$(PY) app/mcamon.py $(if $(SERVIDOR),--host $(SERVIDOR),)
+#
+# PUERTO: en la placa se corre como root y vale el 1001 por defecto (el de
+# mcpha). En una PC de usuario Linux reserva todo lo que está por debajo de
+# 1024, así que los objetivos que corren acá usan uno alto.
+PUERTO ?= 5001
+
+exige-gui:
+	@$(PY) -c 'import PyQt5, matplotlib' 2>/dev/null || { \
+	  echo "ERROR: la GUI necesita PyQt5 y matplotlib en esta máquina."; \
+	  echo "       Debian/Ubuntu:  sudo apt install python3-pyqt5 python3-matplotlib"; \
+	  echo "       (la placa no los necesita: allá sólo corre el servidor)"; \
+	  exit 1; }
+
+gui-demo: exige-gui  ## PROBAR LA GUI sin placa: servidor falso + mcamon conectado
+	@echo "servidor falso en 127.0.0.1:$(PUERTO) + mcamon; Ctrl-C o cerrar la ventana para salir"
+	@LOG=$$(mktemp); \
+	 $(PY) app/mca_server.py --fake --host 127.0.0.1 --port $(PUERTO) >$$LOG 2>&1 & \
+	 SRV=$$!; \
+	 trap 'kill $$SRV 2>/dev/null; rm -f $$LOG' EXIT INT TERM HUP; \
+	 for i in $$(seq 40); do \
+	   grep -q escuchando $$LOG && break; \
+	   kill -0 $$SRV 2>/dev/null || break; \
+	   sleep 0.1; \
+	 done; \
+	 if ! grep -q escuchando $$LOG; then \
+	   echo "el servidor falso no llegó a escuchar:"; cat $$LOG; exit 1; fi; \
+	 $(PY) app/mcamon.py --host 127.0.0.1 --port $(PUERTO) --conectar; \
+	 echo "--- log del servidor falso ---"; [ -f $$LOG ] && cat $$LOG; true
+
+test-gui: exige-gui  ## la GUI de punta a punta SIN pantalla (lo que corre en CI)
+	$(PYTEST) $(PFLAGS) app/tests/test_mcamon_gui.py
+
+gui:               ## abre mcamon solo. SERVIDOR=host PUERTO=n
+	$(PY) app/mcamon.py $(if $(SERVIDOR),--host $(SERVIDOR),) --port $(PUERTO)
 
 servidor: exige-placa   ## (P) levanta mca_server en la placa
 	$(PY) app/mca_server.py
 
-servidor-falso:    ## servidor con MCA falso, para probar cliente y GUI sin placa
-	$(PY) app/mca_server.py --fake
+servidor-falso:    ## sólo el servidor con MCA falso. PUERTO=n
+	$(PY) app/mca_server.py --fake --port $(PUERTO)
 
 # -------------------------------------------------------- PC -> Red Pitaya ---
 sync:              ## rsync del árbol a la Pitaya (sin datos/, sin notebooks)
@@ -218,6 +268,29 @@ remoto-placa: sync ## corre la batería de placa EN la Pitaya
 
 remoto-bench: sync ## corre los benchmarks EN la Pitaya
 	ssh $(PITAYA) 'make -C $(REMOTO) bench'
+
+# --------------------------------------------------- despliegue del bitstream
+bitstream:         ## copia el .bit.bin a la Pitaya (SOBREESCRIBE; no lo carga)
+	@test -f $(BIT_LOCAL) || { \
+	  echo "ERROR: no existe $(BIT_LOCAL)."; \
+	  echo "       corré la síntesis primero (make -C ../.. o el flujo de Vivado)."; \
+	  exit 1; }
+	@echo "copiando $(BIT_LOCAL)"
+	@echo "     ->  $(PITAYA):$(BIT_REMOTO)   (sobreescribe el que haya)"
+	scp $(BIT_LOCAL) $(PITAYA):$(BIT_REMOTO)
+	@# Verificar la copia: un .bit.bin truncado programa la PL con basura, y el
+	@# síntoma sería un MCA que no contesta o que contesta cualquier cosa.
+	@L=$$(md5sum $(BIT_LOCAL) | cut -d' ' -f1); \
+	 R=$$(ssh $(PITAYA) "md5sum $(BIT_REMOTO)" | cut -d' ' -f1); \
+	 if [ "$$L" = "$$R" ]; then echo "md5 coincide: $$L"; \
+	 else echo "ERROR: md5 distinto (local $$L, remoto $$R)"; exit 1; fi
+
+remoto-preparar: bitstream sync  ## copia bitstream+software, PROGRAMA la PL y verifica
+	ssh $(PITAYA) 'make -C $(REMOTO) placa-cargar'
+
+remoto-deriva: sync  ## corre el experimento de deriva EN la Pitaya. OUT=
+	ssh $(PITAYA) 'make -C $(REMOTO) campana-deriva OUT=$(OUT)'
+	@echo "traé los datos con:  rsync -az $(PITAYA):$(REMOTO)/$(OUT)/ $(OUT)/"
 
 # ---------------------------------------------------------------- limpieza ---
 clean-pyc:         ## borra __pycache__ y .pyc

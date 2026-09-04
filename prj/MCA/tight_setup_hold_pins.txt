@@ -1,11 +1,5 @@
 +--------------------------+--------------------------+----------------------------------------------------------------------------------------------------------+
 |       Launch Clock       |      Capture Clock       |                                                 Pin                                                      |
 +--------------------------+--------------------------+----------------------------------------------------------------------------------------------------------+
-|              pll_adc_clk |              pll_adc_clk |                                                                  i_mca/g_hist_h.i_hist_h/wdata2_reg[29]/D|
-|              pll_adc_clk |              pll_adc_clk |                                                                  i_mca/g_hist_h.i_hist_h/wdata2_reg[26]/D|
-|              pll_adc_clk |              pll_adc_clk |                                                                  i_mca/g_hist_h.i_hist_h/wdata2_reg[27]/D|
-|              pll_adc_clk |              pll_adc_clk |                                                                  i_mca/g_hist_h.i_hist_h/wdata2_reg[23]/D|
-|              pll_adc_clk |              pll_adc_clk |                                                                  i_mca/g_hist_h.i_hist_h/wdata2_reg[25]/D|
-|              pll_adc_clk |              pll_adc_clk |                                                                  i_mca/g_hist_h.i_hist_h/wdata2_reg[28]/D|
-|              pll_adc_clk |              pll_adc_clk |                                                                       i_mca/i_feat/FSM_onehot_st_reg[1]/D|
+|               clk_fpga_3 |               clk_fpga_3 |ps/system_i/axi_protocol_converter_0/inst/gen_axilite.gen_b2s_conv.axilite_b2s/RD.r_channel_0/rd_data_fifo_0/cnt_read_reg[4]/D|
 +--------------------------+--------------------------+----------------------------------------------------------------------------------------------------------+

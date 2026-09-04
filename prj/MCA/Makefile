@@ -3,6 +3,7 @@
 #   make rtl                todos los testbenches de RTL
 #   make rtl-tb_mca_top     uno solo
 #   make test               los tests de software que corren en la PC
+#   make gui-demo           la GUI del MCA contra un MCA falso, sin placa
 #   make ring-dump          regenera ring_dump.hex desde el RTL y revalida el decoder
 #
 # "testbench" significa dos cosas distintas en este proyecto y acá se separan:
@@ -17,7 +18,7 @@ SIM := sim
 SW  := software
 
 .DEFAULT_GOAL := help
-.PHONY: help rtl wave test placa mc campanas ring-dump todo clean
+.PHONY: help rtl wave test placa mc campanas gui-demo ring-dump todo clean
 
 help:              ## esta ayuda
 	@echo "prj/MCA — objetivos:"
@@ -47,6 +48,9 @@ mc:                ## simulaciones Monte-Carlo
 
 campanas:          ## lista las campañas de caracterización disponibles
 	$(MAKE) -C $(SW) campana-lista
+
+gui-demo:          ## la GUI del MCA andando contra un MCA falso, sin placa
+	$(MAKE) -C $(SW) gui-demo
 
 # El único acople real entre los dos mundos: el TB del event_ring ESCRIBE el
 # volcado que decodifica API/tests/test_ring_format.py, y lo hace con el mismo

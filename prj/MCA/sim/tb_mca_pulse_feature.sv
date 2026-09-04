@@ -14,6 +14,9 @@
 module tb_mca_pulse_feature;
 
   localparam integer DW = 14, QW = 32, AMP_W = 16, PSD_AW = 6, LEN_W = 16;
+  localparam integer DIV_W = 16, NFEAT = 16;
+  // Indices del bus de features (los mismos localparam del DUT).
+  localparam integer F_PEAK=0, F_INT=1, F_PSD=2, F_INVW=3, F_LEN=4, F_TRISE=5;
 
   reg  clk=0, rstn=0;
   always #5 clk = ~clk;
@@ -39,6 +42,7 @@ module tb_mca_pulse_feature;
   reg        [4:0]     cfg_q_shift  = 0;
 
   wire                 ev_valid;
+  wire [NFEAT*AMP_W-1:0] ev_feat;
   wire [AMP_W-1:0]     ev_amp;
   wire [PSD_AW-1:0]    ev_psd;
   wire                 ev_psd_ok;
@@ -48,7 +52,8 @@ module tb_mca_pulse_feature;
   wire [QW-1:0]        last_qtot, last_qtail;
 
   mca_pulse_feature #(
-    .DW(DW), .QW(QW), .AMP_W(AMP_W), .PSD_AW(PSD_AW), .LEN_W(LEN_W), .EN_PSD(1)
+    .DW(DW), .QW(QW), .AMP_W(AMP_W), .PSD_AW(PSD_AW), .DIV_W(DIV_W),
+    .NFEAT(NFEAT), .LEN_W(LEN_W), .EN_PSD(1)
   ) dut (
     .clk_i(clk), .rstn_i(rstn),
     .dat_i(dat), .val_i(val),
@@ -62,7 +67,7 @@ module tb_mca_pulse_feature;
     .cfg_amp_min_i(cfg_amp_min), .cfg_amp_max_i(cfg_amp_max),
     .cfg_amp_src_i(cfg_amp_src), .cfg_q_shift_i(cfg_q_shift),
     .ev_valid_o(ev_valid), .ev_amp_o(ev_amp), .ev_psd_o(ev_psd),
-    .ev_psd_ok_o(ev_psd_ok),
+    .ev_psd_ok_o(ev_psd_ok), .ev_feat_o(ev_feat),
     .baseline_o(baseline), .baseline_stale_o(bl_stale),
     .cnt_total_o(c_total), .cnt_accepted_o(c_acc), .cnt_rej_amp_o(c_rej_amp),
     .cnt_rej_psd_o(c_rej_psd), .cnt_pileup_o(c_pileup), .cnt_lost_busy_o(c_lost),
@@ -89,11 +94,18 @@ module tb_mca_pulse_feature;
   reg [AMP_W-1:0]  ev_amp_q;
   reg [PSD_AW-1:0] ev_psd_q;
   reg              ev_psd_ok_q;
+  reg [NFEAT*AMP_W-1:0] ev_feat_q;
   integer          ev_count;
   always @(posedge clk) if (rstn && ev_valid) begin
     ev_amp_q <= ev_amp; ev_psd_q <= ev_psd; ev_psd_ok_q <= ev_psd_ok;
+    ev_feat_q <= ev_feat;
     ev_count <= ev_count + 1;
   end
+
+  // Lectura de una ranura del bus de features capturado.
+  function automatic [AMP_W-1:0] feat(input integer idx);
+    feat = ev_feat_q[idx*AMP_W +: AMP_W];
+  endfunction
 
   //-------------------------------------------------------------------------
   task automatic push(input integer v);
@@ -109,8 +121,11 @@ module tb_mca_pulse_feature;
     end
   endtask
 
-  task automatic settle;             // deja terminar el divisor y el evento
-    begin @(negedge clk); val=1'b0; repeat(15) @(negedge clk); end
+  // Los divisores tardan DIV_W ciclos (16), no 6: con 15 el evento todavia no
+  // habia salido y TODOS los checks del evento fallaban a la vez. Se deja
+  // margen holgado, que en un TB no cuesta nada.
+  task automatic settle;             // deja terminar los divisores y el evento
+    begin @(negedge clk); val=1'b0; repeat(28) @(negedge clk); end
   endtask
 
   task automatic reset_dut;
@@ -146,6 +161,49 @@ module tb_mca_pulse_feature;
     checkv("rect: psd = 60",         ev_psd_q,   60);
     check ("rect: psd valido",       ev_psd_ok_q===1'b1);
     checkv("rect: un solo evento",   ev_count,   1);
+
+    //-----------------------------------------------------------------------
+    // 1b) EL BUS DE FEATURES sobre el mismo pulso rectangular. Los valores
+    //     salen de una cuenta a mano, no de reimplementar el DUT:
+    //       F_PEAK  = 500 << (AMP_W-DW) = 2000   <- alineado a la IZQUIERDA
+    //       F_INT   = q_tot >> q_shift = 10000 (q_shift = 0)
+    //       F_LEN   = 20 muestras acumuladas
+    //       F_TRISE = 0   (el pico es la PRIMERA muestra; comparacion estricta)
+    //       F_PSD   = floor(9500 * 2^16 / 10000) = 62259
+    //       F_INVW  = floor( 500 * 2^16 / 10000) =  3276   <- P/Q, ancho inverso
+    //-----------------------------------------------------------------------
+    checkv("bus: F_PEAK alineado = 500<<2", feat(F_PEAK), 500 << (AMP_W-DW));
+    checkv("bus: F_INT   = 10000", feat(F_INT),   10000);
+    checkv("bus: F_LEN   = 20",    feat(F_LEN),   20);
+    checkv("bus: F_TRISE = 0",     feat(F_TRISE), 0);
+    checkv("bus: F_PSD   = 62259", feat(F_PSD),   62259);
+    checkv("bus: F_INVW  = 3276",  feat(F_INVW),  3276);
+    // El eje de 6 bits del mapa 2D tiene que ser EXACTAMENTE los 6 bits altos
+    // del cociente de 16: es lo que hace que ampliar el divisor no mueva ni un
+    // evento del mapa ya caracterizado.
+    checkv("bus: ev_psd son los 6 bits altos de F_PSD",
+           ev_psd_q, 62259 >> (DIV_W - PSD_AW));
+    // Las ranuras sin productor tienen que estar en CERO, no en X: el
+    // discriminador y el selector de eje las pueden leer.
+    check ("bus: ranura 6 reservada en cero",  feat(6)  === {AMP_W{1'b0}});
+    check ("bus: ranura 15 reservada en cero", feat(15) === {AMP_W{1'b0}});
+
+    //-----------------------------------------------------------------------
+    // 1c) El ANCHO INVERSO separa pulsos de distinto ancho a igual amplitud.
+    //     Es la propiedad por la que existe: un apilado es mas ANCHO por unidad
+    //     de altura que un evento limpio, y P/Q lo ve aunque Q_cola/Q_total no.
+    //       10 muestras: F_INVW = floor(500*2^16/5000)  = 6553
+    //       40 muestras: F_INVW = floor(500*2^16/20000) = 1638
+    //-----------------------------------------------------------------------
+    reset_dut;  pulse_rect(500, 10, 0);  settle;
+    checkv("ancho inverso: pulso corto  = 6553", feat(F_INVW), 6553);
+    reset_dut;  pulse_rect(500, 40, 0);  settle;
+    checkv("ancho inverso: pulso largo  = 1638", feat(F_INVW), 1638);
+    check ("ancho inverso: mas ancho => menor P/Q", 6553 > 1638);
+    // Y el pico NO cambia: los dos ejes son independientes, que es lo que
+    // permite usarlos como ejes separables de un mapa 2D.
+    checkv("ancho inverso: el pico no cambia con el ancho",
+           feat(F_PEAK), 500 << (AMP_W-DW));
 
     //-----------------------------------------------------------------------
     // 2) Estimador de INTEGRAL: amp = q_tot >> q_shift = 10000>>5 = 312
@@ -273,9 +331,12 @@ module tb_mca_pulse_feature;
     //-----------------------------------------------------------------------
     // 11) Dos pulsos SEPARADOS (hueco > latencia del divisor): se cuentan los dos
     //-----------------------------------------------------------------------
+    // El hueco se ata a DIV_W en vez de ser un 15 magico: al ampliar el divisor
+    // de 6 a 16 bits la latencia paso de 6 a 16 ciclos y este test empezo a
+    // fallar aunque su INTENCION ("hueco > latencia") no habia cambiado.
     reset_dut;
     pulse_rect(500, 20, 0);
-    for (i=0;i<15;i=i+1) push(0);     // hueco holgado: el divisor termina
+    for (i=0;i<DIV_W+4;i=i+1) push(0);   // hueco holgado: los divisores terminan
     pulse_rect(300, 10, 0);
     settle;
     checkv("dos pulsos separados: cnt_total",     c_total,   2);
@@ -283,6 +344,23 @@ module tb_mca_pulse_feature;
     checkv("dos pulsos separados: amp del 2do",   ev_amp_q,  300);
     checkv("dos pulsos separados: q_tot del 2do", last_qtot, 3000);
     checkv("dos pulsos separados: nada perdido",  c_lost,    0);
+
+    //-----------------------------------------------------------------------
+    // 11b) El BORDE del tiempo muerto: dos pulsos separados por MENOS que la
+    //      latencia del divisor. El segundo tiene que perderse ENTERO y
+    //      contarse, no entrar truncado al espectro. Es el comportamiento que
+    //      cambia al ampliar DIV_W, asi que conviene tenerlo fijado por un
+    //      test y no descubrirlo midiendo.
+    //-----------------------------------------------------------------------
+    reset_dut;
+    pulse_rect(500, 20, 0);
+    for (i=0;i<DIV_W-8;i=i+1) push(0);   // hueco CORTO: el divisor sigue ocupado
+    pulse_rect(300, 10, 0);
+    settle;
+    checkv("hueco corto: solo cierra el 1ro",     c_total,   1);
+    checkv("hueco corto: solo se acepta el 1ro",  c_acc,     1);
+    checkv("hueco corto: el 2do se cuenta perdido", c_lost,  1);
+    checkv("hueco corto: la amplitud es la del 1ro", ev_amp_q, 500);
 
     //-----------------------------------------------------------------------
     // 11b) TIEMPO MUERTO: segundo pulso encima del divisor ocupado.

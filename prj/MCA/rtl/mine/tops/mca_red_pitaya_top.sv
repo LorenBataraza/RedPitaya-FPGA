@@ -843,7 +843,12 @@ integration_cfg #(
 ////////////////////////////////////////////////////////////////////////////////
 mca_top #(
   .DW            (14),
-  .EN_HIST_H     (1), .H_AW (14),        // espectro 1D: 16384 canales
+  // 8192 canales (13 bits), no 16384. La resolucion medida da 9.2-10.3 bits
+  // efectivos (FS/FWHM = 592-1298), asi que el criterio de 4-10 canales por FWHM
+  // justifica 3800-9500 canales: 16384 estaba por encima del rango util y los 4
+  // bits de mas no compraban nada medible. Libera 8 RAMB36 de 16, que es lo que
+  // habilita un segundo MCA. Ver docs/mca/limites_resolucion_y_deriva.md §2.
+  .EN_HIST_H     (1), .H_AW (13),        // espectro 1D: 8192 canales
   .EN_HIST_H_PSD (1), .H2_AW(7), .PSD_AW(6)  // mapa 2D: 128 x 64
 ) i_mca (
   .adc_clk_i   (adc_clk     ),

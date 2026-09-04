@@ -67,6 +67,62 @@ R_H2_SHIFT     = 0x040
 R_DEC          = 0x044
 R_GATE_MODE    = 0x048     # bit0: 0 = ventana por histeresis, 1 = compuertas fijas
 R_GATE_LEN     = 0x04C     # {larga[31:16], corta[15:0]} en muestras
+
+# --- selector de feature por eje, y zoom (bus de features) ---
+R_HIST_SEL     = 0x090     # {sel_2dy[11:8], sel_2dx[7:4], sel_1d[3:0]}
+R_ZOOM_1D      = 0x094     # {k[15:8], z[3:0]}
+R_ZOOM_2DX     = 0x0B8
+R_ZOOM_2DY     = 0x0BC
+
+# --- discriminador ---
+R_DISCR_CTRL   = 0x098     # {sel[7:4], externo[1], enable[0]}
+R_DISCR_MIN    = 0x09C
+R_DISCR_MAX    = 0x0A0
+
+# --- histograma lleno ---
+R_HIST_CTRL     = 0x0A4    # bit0 keep_counter_if_full
+R_HIST_STATUS   = 0x0A8    # bit0 full_1d, bit1 full_2d (pegajosos)
+R_CNT_REJ_DISCR = 0x0AC
+R_CNT_FULL_SUPP = 0x0B0
+
+# Indices del bus de features. Son los localparam F_* de mca_pulse_feature.sv:
+# un solo espacio de numeracion compartido por los tres ejes del histograma y
+# por el discriminador, para que no puedan desincronizarse.
+F_PEAK, F_INT, F_PSD, F_INVW, F_LEN, F_TRISE = 0, 1, 2, 3, 4, 5
+
+def _feat_idx(f, por_defecto):
+    """Acepta el nombre de una feature, su indice, o None.
+
+    Se valida contra FEATURES en vez de dejar pasar cualquier entero: un indice
+    fuera de rango apunta a una ranura RESERVADA, que vale cero, y el sintoma
+    seria un espectro entero en el canal 0 sin ningun error. Es exactamente el
+    tipo de falla silenciosa que conviene convertir en excepcion.
+    """
+    if f is None:
+        return por_defecto
+    if isinstance(f, str):
+        if f not in FEATURES:
+            raise ValueError(f'feature {f!r} desconocida; hay: '
+                             f'{sorted(FEATURES)}')
+        return FEATURES[f]
+    f = int(f)
+    if f not in FEATURES.values():
+        raise ValueError(
+            f'indice de feature {f} sin productor: las ranuras validas son '
+            f'{sorted(FEATURES.values())} ({sorted(FEATURES)}). Las demas estan '
+            f'reservadas y valen cero, asi que el espectro caeria entero en el '
+            f'canal 0 sin avisar.')
+    return f
+
+
+FEATURES = {
+    'pico':      F_PEAK,   # amplitud de pico, alineada a la izquierda
+    'integral':  F_INT,    # Q_total >> q_shift
+    'psd':       F_PSD,    # Q_cola/Q_total  -- DONDE esta la carga
+    'ancho_inv': F_INVW,   # Pico/Q_total    -- ancho inverso: rechaza apilamiento
+    'largo':     F_LEN,    # muestras de la ventana
+    't_subida':  F_TRISE,  # muestras del disparo al pico
+}
 # --- contadores de eventos ---
 R_CNT_TOTAL    = 0x050
 R_CNT_ACCEPTED = 0x054
@@ -223,6 +279,56 @@ class MCA:
 
     # ---------- identificación ----------
 
+    def tiene_features(self):
+        """¿El bitstream cargado tiene el bus de features (zoom, discriminador)?
+
+        **El magic NO alcanza para distinguirlo.** Sigue siendo "MCA1" en los dos
+        bitstreams, y el RTL devuelve `32'h0` para toda dirección no mapeada y
+        **ignora las escrituras sin dar error** (ver el `default` del decodificador
+        en `mca_top.sv`). O sea que contra el bitstream viejo `configure(sel_1d=...,
+        zoom_1d=...)` no falla: escribe al vacío y el MCA sigue histogrameando con
+        la configuración anterior. Una campaña entera saldría plausible y sin
+        relación con lo que se pidió.
+
+        La prueba es escribir y releer `R_DISCR_MIN`, que existe sólo en el
+        bitstream nuevo. Es INERTE: con el discriminador deshabilitado (su
+        default) ese registro no afecta a nada, así que la sonda se puede correr
+        en cualquier momento sin perturbar una medición. Se restaura igual.
+
+        Se prueban dos patrones complementarios para no confundir "registro que
+        existe" con un bus que devuelve siempre lo mismo.
+        """
+        # Atajo que además hace la sonda no perturbadora del todo: si el
+        # discriminador figura HABILITADO, ese bit sólo pudo quedar puesto en un
+        # bitstream donde el registro existe. Se contesta sin escribir nada, que
+        # es lo que hay que hacer si hay una medición en curso con corte activo.
+        if self.r32(R_DISCR_CTRL) & 0x1:
+            return True
+        previo = self.r32(R_DISCR_MIN)
+        try:
+            for patron in (0xA5A5, 0x5A5A):
+                self.w32(R_DISCR_MIN, patron)
+                if self.r32(R_DISCR_MIN) != patron:
+                    return False
+        finally:
+            self.w32(R_DISCR_MIN, previo)
+        return True
+
+    def exigir_features(self):
+        """Aborta si el bitstream cargado no es el del bus de features.
+
+        Para el arranque de una campaña: más vale perder un segundo acá que una
+        sesión de laboratorio midiendo contra el bitstream anterior.
+        """
+        if not self.tiene_features():
+            raise MCANotPresent(
+                'el bitstream cargado NO tiene el bus de features: el registro '
+                f'{R_DISCR_MIN:#05x} no retiene lo que se le escribe. El magic es '
+                '"MCA1" en los dos, así que esto no se detecta solo. '
+                'Cargá el bitstream nuevo:\n'
+                '  /opt/redpitaya/bin/fpgautil -b /root/mca_red_pitaya.bit.bin')
+        return True
+
     def identify(self, verbose=True):
         info = {
             'magic':      self.r32(R_MAGIC),
@@ -233,6 +339,7 @@ class MCA:
             'psd_aw':     self.psd_aw,
             'n_channels': 1 << self.h_aw,
             'map2d_shape': (1 << self.h2_aw, 1 << self.psd_aw),
+            'features':   self.tiene_features(),
         }
         if verbose:
             print(f"MCA presente (magic {info['magic']:#010x})")
@@ -240,6 +347,8 @@ class MCA:
                   f"({info['n_channels']} canales)")
             print(f"  mapa 2D     : {'si' if info['hist_h_psd'] else 'NO'} "
                   f"({info['map2d_shape'][0]} x {info['map2d_shape'][1]})")
+            print(f"  bus de features (zoom, discriminador): "
+                  f"{'si' if info['features'] else 'NO — bitstream viejo'}")
         return info
 
     # ---------- configuración ----------
@@ -248,7 +357,15 @@ class MCA:
                   bl_holdoff=0, maxlen=1024, tail_dly=8, amp_min=0,
                   amp_max=0xFFFF, amp_src=0, q_shift=0, h_shift=0, h2_shift=0,
                   dec=1, channel=0, gate_mode=0, gate_short=32, gate_long=384,
-                  verify=True):
+                  verify=True,
+                  # --- opciones nuevas (fase 1-3), TODAS al final -----------
+                  # Van despues de `verify` a proposito: asi la firma vieja
+                  # sigue siendo un PREFIJO exacto de la nueva y una llamada
+                  # posicional existente no puede caer en el parametro
+                  # equivocado. Lo verifica test_compat_api.
+                  sel_1d=None, sel_2dx=None, sel_2dy=None,
+                  zoom_1d=(0, 0), zoom_2dx=(0, 0), zoom_2dy=(0, 0),
+                  discr=None, keep_if_full=True):
         """Configurar el MCA.
 
         amp_src: 0 = muestra de pico, 1 = integral de carga (Q_total>>q_shift).
@@ -297,6 +414,41 @@ class MCA:
         self.w32(R_DEC,      dec      & 0xFFFF)
         self.w32(R_GATE_MODE, 1 if gate_mode else 0)
         self.w32(R_GATE_LEN, ((gate_long & 0xFFFF) << 16) | (gate_short & 0xFFFF))
+
+        # --- que feature alimenta cada eje ---------------------------------
+        # Los defaults reproducen el comportamiento historico: eje 1D con el
+        # estimador que elige amp_src, eje X del 2D igual, eje Y el factor de
+        # forma. Se escribe DESPUES de R_AMP_SRC porque este registro gana.
+        s1 = _feat_idx(sel_1d,  (F_INT if amp_src else F_PEAK))
+        sx = _feat_idx(sel_2dx, (F_INT if amp_src else F_PEAK))
+        sy = _feat_idx(sel_2dy, F_PSD)
+        self.w32(R_HIST_SEL, (sy << 8) | (sx << 4) | s1)
+
+        # --- zoom por eje: (z, k) ------------------------------------------
+        for off, zk in ((R_ZOOM_1D, zoom_1d), (R_ZOOM_2DX, zoom_2dx),
+                        (R_ZOOM_2DY, zoom_2dy)):
+            z, k = zk
+            self.w32(off, ((k & 0xFF) << 8) | (z & 0xF))
+
+        # --- discriminador --------------------------------------------------
+        # `discr=None` lo deja apagado, que es el default y deja pasar todo.
+        if discr is None:
+            self.w32(R_DISCR_CTRL, 0)
+        else:
+            feat, lo, hi = discr[0], int(discr[1]), int(discr[2])
+            externo = bool(discr[3]) if len(discr) > 3 else False
+            if lo > hi and not externo:
+                raise ValueError(
+                    f'discr con min ({lo}) > max ({hi}) e intervalo INTERNO: '
+                    f'el conjunto es vacio y el MCA va a rechazar TODOS los '
+                    f'eventos. Si lo que querias es cortar por fuera de un '
+                    f'rango, pasa externo=True.')
+            self.w32(R_DISCR_MIN, lo & 0xFFFF)
+            self.w32(R_DISCR_MAX, hi & 0xFFFF)
+            self.w32(R_DISCR_CTRL,
+                     (_feat_idx(feat, F_PEAK) << 4) | (2 if externo else 0) | 1)
+
+        self.w32(R_HIST_CTRL, 1 if keep_if_full else 0)
         self.w32(R_CTRL,     (1 << 8) if channel else 0)   # run=0, canal
 
         if verify:

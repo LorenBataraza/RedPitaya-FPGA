@@ -57,8 +57,24 @@ module mca_hist #(
   input      [AW-1:0]   rd_addr_i  ,
   output     [CW-1:0]   rd_data_o  ,   // válido 2 ciclos después de rd_i
 
+  // --- saturacion ---
+  // `full_o` es PEGAJOSO: se pone en el primer bin que llega al tope y solo lo
+  // limpia el barrido de borrado. Con `cfg_keep_i = 0` la acumulacion se congela
+  // ahi mismo, en TODO el histograma y no solo en el bin saturado: un espectro
+  // con unos canales congelados y otros no ya no es un espectro, porque las
+  // areas relativas dejan de corresponder al mismo live time.
+  //
+  // Escala, para no sobredimensionar el problema: 2^32 cuentas a 794 kcps con
+  // TODO en un solo pico son ~14 h. Es real en una corrida larga, pero esta a
+  // cuatro ordenes de magnitud de la deriva, que es lo que de verdad limita
+  // (docs/mca/limites_resolucion_y_deriva.md §7). Sirve sobre todo como
+  // disparador de rebanada y como seguro contra la saturacion silenciosa.
+  input                 cfg_keep_i ,   // 1 = seguir contando aunque haya full
+  output reg            full_o     ,   // pegajoso: algun bin llego al tope
+
   // --- diagnóstico ---
-  output reg [32-1:0]   dropped_o      // eventos perdidos por colisión/barrido
+  output reg [32-1:0]   dropped_o  ,   // eventos perdidos por colisión/barrido
+  output reg [32-1:0]   suppressed_o   // eventos NO contados por histograma lleno
 );
 
 localparam integer N_BINS = (1 << AW);
@@ -122,8 +138,14 @@ assign rd_data_o = rd_data_r;
 //   etapa 1 (m+1): dato disponible, se calcula el valor nuevo
 //   etapa 2 (m+2): escritura por el puerto A
 //-----------------------------------------------------------------------------
-wire accept = inc_i && !rd_i && !clr_busy;
-wire drop   = inc_i && !accept;
+// `congelado` para la acumulacion entera al primer bin saturado. Los eventos
+// que llegan ahi NO se cuentan como `dropped` (eso es colision de lectura o
+// barrido, que es otra cosa) sino en su propio contador, para que la perdida sea
+// medible y atribuible.
+wire congelado = full_o && !cfg_keep_i;
+wire accept = inc_i && !rd_i && !clr_busy && !congelado;
+wire drop   = inc_i && !accept && !congelado;
+wire supp   = inc_i && congelado;
 
 reg  [AW-1:0] a1, a2, a3;
 reg           v1, v2, v3;
@@ -137,6 +159,8 @@ wire [CW-1:0] cur = fwd2 ? wdata2 :
 
 // Incremento saturante: al llegar a todo unos se queda ahí.
 wire [CW-1:0] nxt = (&cur) ? cur : (cur + {{(CW-1){1'b0}}, 1'b1});
+// El bin que se esta por escribir ya estaba al tope: la cuenta se perdio.
+wire          topea = v1 && (&cur);
 
 always @(posedge clk_i) begin
   if (!rstn_i) begin
@@ -172,12 +196,25 @@ always @(posedge clk_i)
   if (pa_we) mem[pa_addr] <= pa_data;
 
 //-----------------------------------------------------------------------------
-// Contador de descartes. El borrado lo resetea: empieza una adquisición nueva.
+// Contadores y bandera de lleno. El borrado los resetea: empieza una
+// adquisición nueva, y con ella un live time nuevo.
 //-----------------------------------------------------------------------------
 always @(posedge clk_i) begin
   if (!rstn_i)          dropped_o <= 32'h0;
   else if (clr_start)   dropped_o <= drop ? 32'h1 : 32'h0;
   else if (drop)        dropped_o <= dropped_o + 32'h1;
+end
+
+always @(posedge clk_i) begin
+  if (!rstn_i)          suppressed_o <= 32'h0;
+  else if (clr_start)   suppressed_o <= supp ? 32'h1 : 32'h0;
+  else if (supp)        suppressed_o <= suppressed_o + 32'h1;
+end
+
+always @(posedge clk_i) begin
+  if (!rstn_i)          full_o <= 1'b0;
+  else if (clr_start)   full_o <= 1'b0;
+  else if (topea)       full_o <= 1'b1;
 end
 
 endmodule

@@ -46,6 +46,21 @@ chequeo). Todos generan un `.vcd` para inspección con GTKWave/QuestaSim.
 > Los cuatro primeros son del refactor a regiones por módulo; el mapa está en
 > [`../docs/TOP/register_map_top.md`](../docs/TOP/register_map_top.md).
 
+### MCA
+
+| Testbench | Qué verifica |
+|-----------|--------------|
+| `tb_mca_div_restore` | unidad del divisor restaurador: cociente exacto, latencia **fija** de `Q_W` ciclos incluso en los casos de error, y los tres bordes que rompen si no se tratan (`den=0`, `num≥den`, `num=0`). |
+| `tb_mca_hist` | motor de histograma: acumulación, **forwarding** a distancia 1 y 2 (donde es más fácil un off-by-one), saturación sin envolvimiento, barrido de borrado con el puerto de lectura vivo, y la bandera `full` con `keep_counter_if_full` — incluido que congelar **no** se confunda con `dropped`. |
+| `tb_mca_zoom` | el zoom alineado a potencias de 2. El check que gana el sueldo es el **anidamiento exacto**: cada bin grueso es la unión de dos bins finos, que es la propiedad por la que el zoom se alineó así y lo que permite coser espectros de distinto nivel con aritmética entera. Más saturación, y que `z=0` fuerce `k=0` en vez de mandar todo al canal 0 en silencio. |
+| `tb_mca_discriminator` | corte por feature: intervalo interno y su complemento con los **bordes incluidos**, que el selector siga al contenido de la ranura (el check que agarra un mux clavado), e **intervalo vacío** (`min>max`) fijado explícitamente. |
+| `tb_mca_pulse_feature` | segmentador y extractor: ventanas por histéresis y por compuerta fija, los dos estimadores, línea de base fija y automática, rechazos, bordes del PSD, el **bus de features** con sus valores calculados a mano, el **ancho inverso** separando pulsos de distinto ancho a igual amplitud, y el **borde del tiempo muerto** (dos pulsos separados por menos que la latencia del divisor). |
+| `tb_mca_top` | esclavo de bus: contrato de `ack`, registros, aperturas de histograma, y el datapath de punta a punta. |
+
+> Casi todos los valores esperados salen de una **multiplicación a mano** sobre un
+> pulso rectangular, no de reimplementar el DUT: es lo que evita que el test
+> herede el mismo error que el diseño.
+
 ## Fuentes bajo test
 
 `../rtl/mine/{multitrigger_trig_src.sv, trigger_shield.sv,

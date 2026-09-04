@@ -19,6 +19,22 @@ module tb_mca_top;
   // Anchos chicos: el barrido de borrado dura 2^H_AW ciclos.
   localparam integer DW     = 14;
   localparam integer H_AW   = 8;    // 256 canales
+  localparam integer AMP_W  = 16;
+  // CANAL ESPERADO PARA UNA AMPLITUD DE PICO.
+  //
+  // Cambio de semantica del eje: antes era `amp >> h_shift` saturado, o sea que
+  // con h_shift=0 un pulso de 200 cuentas caia en el canal 200. Ahora la feature
+  // se NORMALIZA (el pico se alinea a la izquierda de AMP_W bits) y el eje cubre
+  // siempre el FONDO DE ESCALA completo, con el zoom para acercarse. Entonces:
+  //
+  //     bin = (pico << (AMP_W-DW)) >> (AMP_W-H_AW)
+  //
+  // Se gana que el eje siempre abarca todo el rango de entrada y que los niveles
+  // de zoom quedan exactamente anidados; se pierde el "1 canal = 1 cuenta" que
+  // daba h_shift=0, que el zoom recupera con mas control.
+  function automatic integer canal_de(input integer pico);
+    canal_de = (pico << (AMP_W-DW)) >> (AMP_W-H_AW);
+  endfunction
   localparam integer H2_AW  = 4;    // 16 bins de amplitud
   localparam integer PSD_AW = 4;    // 16 bins de forma
 
@@ -284,25 +300,24 @@ module tb_mca_top;
     // antes del primer disparo, si no el primer pulso no se detecta.
     push(0); push(0); push(0); settle;
 
-    // 3 pulsos de amplitud 200 (thr=50) -> bin 200 del espectro.
-    // La amplitud tiene que superar el umbral Y entrar en 2^H_AW=256 bins.
+    // 3 pulsos de amplitud 200 (thr=50) -> canal_de(200) del espectro.
     pulse_rect(200, 20); settle;
     pulse_rect(200, 20); settle;
     pulse_rect(200, 20); settle;
 
     bus_a_read(20'h00050, d); checkv("cnt_total = 3",    d, 3);
     bus_a_read(20'h00054, d); checkv("cnt_accepted = 3", d, 3);
-    // Todos los bins fuera del 200 tienen que estar en cero: si la lectura
-    // no retuviera el dato, todos devolverian el bin del ultimo evento.
+    // Todos los bins fuera del canal del pico tienen que estar en cero: si la
+    // lectura no retuviera el dato, todos devolverian el bin del ultimo evento.
     nz = 0;
     for (i=0; i<(1<<H_AW); i=i+1) begin
       bus_a_read(20'h10000 + i[19:0]*4, d2);
-      if (i != 200 && d2 !== 32'h0) nz = nz + 1;
+      if (i != canal_de(200) && d2 !== 32'h0) nz = nz + 1;
     end
     checkv("espectro: todos los demas bins en 0", nz, 0);
-    bus_a_read(20'h10000 + 200*4, d);
-    checkv("espectro: bin 200 acumulo 3 cuentas", d, 3);
-    bus_a_read(20'h10000 + 201*4, d);
+    bus_a_read(20'h10000 + canal_de(200)*4, d);
+    checkv("espectro: el canal del pico acumulo 3 cuentas", d, 3);
+    bus_a_read(20'h10000 + (canal_de(200)+1)*4, d);
     checkv("espectro: bin vecino en 0", d, 0);
 
     // El mapa 2D: amplitud 40 con h2_shift=0 satura el eje (H2_AW=4 -> 15)
@@ -320,7 +335,7 @@ module tb_mca_top;
     //-----------------------------------------------------------------------
     bus_a_write(20'h0000C, 32'h00000003);
     repeat (2*(1<<H_AW)) @(negedge clk);
-    bus_a_read(20'h10000 + 200*4, d); checkv("tras borrar: bin 200 en 0", d, 0);
+    bus_a_read(20'h10000 + canal_de(200)*4, d); checkv("tras borrar: el canal del pico en 0", d, 0);
     bus_a_read(20'h00050, d);        checkv("tras borrar: cnt_total en 0", d, 0);
 
     $display("---------------------------------------------");

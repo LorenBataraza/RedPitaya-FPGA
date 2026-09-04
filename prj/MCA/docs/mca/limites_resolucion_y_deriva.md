@@ -258,13 +258,64 @@ dos pulsos idénticos separados 0–64 ns suman un pulso *de la misma forma* y e
 doble de amplitud, y el lugar geométrico predice correctamente su `Q/pico`
 (medido a −0.9σ y +1.6σ: indistinguible).
 
-**Y el número que cierra la discusión:** el apilamiento solo produce **+0.29 %**
-sobre ×50 de tasa, mientras que la placa midió **+1.28 %** sobre ×36. La deriva
-medida es **~4× más grande que lo que el apilamiento explica**, así que hay un
-segundo mecanismo llevándose la mayor parte — y el sospechoso es justamente lo
-único que el MC no modela, el seguidor de línea de base, que es inmune al
-rechazo por forma. *(Comparación indicativa: el MC usa una línea a 1920 cuentas
-con `thr=100` y los extremos de tasa no coinciden con los de la campaña.)*
+**Y el número que cierra la discusión:** el apilamiento solo produce **+0.21 %**
+entre las dos tasas de la campaña, mientras que la placa midió **+1.28 %**. La
+deriva medida es varias veces más grande que lo que el apilamiento explica, así
+que hay un segundo mecanismo llevándose la mayor parte.
+
+### El seguidor de línea de base era el sospechoso — y quedó exonerado
+
+Ésta era la hipótesis obvia, porque el seguidor IIR es lo único del MCA que el
+Monte-Carlo no modelaba. [`monte-carlo/linea_base.py`](../../software/monte-carlo/linea_base.py)
+lo modela y corre el **mismo estímulo** con base fija y con seguidor. El
+resultado es el contrario del esperado:
+
+| Tasa | Base fija (apilamiento solo) | Con seguidor | Base media seguida | Fracción congelada |
+|---|---|---|---|---|
+| 1 995 Hz | 0.000 % | 0.000 % | 0.65 | 38.1 % |
+| 20 000 Hz | +0.063 % | +0.015 % | 1.71 | 42.1 % |
+| 72 444 Hz | **+0.208 %** | **+0.096 %** | 4.88 | 53.4 % |
+| 150 000 Hz | +0.551 % | +0.074 % | 15.69 | 67.7 % |
+
+**El seguidor MEJORA el corrimiento, no lo empeora**: a la tasa alta de la
+campaña lo baja de +0.21 % a +0.10 %. Está haciendo exactamente su trabajo —
+sigue el pedestal (la base media sube de 0.65 a 4.88 cuentas) y lo resta.
+
+| | Corrimiento |
+|---|---|
+| Placa (medido, ×36 de tasa) | **+1.28 %** |
+| MC, apilamiento solo | +0.21 % |
+| MC, apilamiento + seguidor | +0.10 % |
+| **Sin explicar** | **+1.18 %** |
+
+**Con la cadena digital del MCA entera modelada, queda el 92 % del efecto sin
+explicar.** Eso mueve la sospecha *afuera* del MCA digital.
+
+> **Y una advertencia para tasa alta**: a 300 kcps el seguidor se rompe
+> (−2.93 %, base media 147 cuentas, 79.5 % del tiempo congelado). No afecta a la
+> campaña, pero es un modo de falla real que hay que respetar al subir la tasa.
+
+### Qué queda por descartar, en orden de costo
+
+1. **Que no sea una deriva con la TASA sino con el TIEMPO.** `sweep_rate` recorre
+   las tasas de menor a mayor y **no tiene pasada de vuelta**, así que tasa y
+   tiempo están confundidos — el mismo tipo de error que ya invalidó el +6.45 %
+   (confundido con el ancho de pulso). El arreglo es trivial: agregar la pasada
+   de vuelta que `sweep_amplitude` ya tiene. Si el corrimiento se repite al
+   volver, es de la tasa; si no, es del tiempo. **Es la medición más barata y más
+   decisiva que queda.**
+2. **Que sea del generador.** El DG4162 a 2 kHz y a 72 kHz trabaja con ciclos de
+   trabajo muy distintos. Se dirime con el **pulser de referencia digital**: si
+   su pico se queda quieto mientras el pico real se mueve, la deriva es anterior
+   a la inyección, o sea del generador o del frente analógico.
+3. **Que sea del frente analógico** del Red Pitaya (térmica, asentamiento).
+
+> **Consecuencia para el conformado trapezoidal.** §5 de
+> [`decisiones_diseno_mca.md`](decisiones_diseno_mca.md) da el corrimiento con la
+> tasa como *el argumento principal* de la cancelación polo-cero. Si el
+> corrimiento no está en la cadena digital, la PZ no lo va a arreglar. **El
+> trapecio sigue justificándose por resolución, pero su justificación por deriva
+> queda en suspenso hasta cerrar los tres puntos de arriba.**
 
 > **Conclusión: el corte por forma NO reemplaza a la cancelación polo-cero.**
 > Ataca el mecanismo (a), que es ~1/4 de la deriva medida, y de eso saca la mitad.

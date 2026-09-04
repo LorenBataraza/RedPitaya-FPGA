@@ -975,11 +975,16 @@ Con −0.294 ns sobre un período de 8 ns (3.7 %) la placa funciona —el smoke 
 da 29/29 y el conteo de eventos es exacto—, pero **es un bitstream que no
 debería quedar como definitivo** sin resolver eso.
 
+> **Cerrado el 2026-09-04 (§18.1).** Salió por donde se anticipaba —partir el
+> cierre en dos ciclos— pero no como consecuencia de atacarlo: la etapa de
+> pipeline la impuso el refactor de features, y de paso partió este camino.
+> `v3_features_zoom_discr` cierra timing con **+0.006 ns**.
+
 ## 14.5 Qué queda
 
 | Pendiente | Por qué |
 |---|---|
-| Arreglar el camino crítico | −0.294 ns; probar primero con otra semilla, y si persiste partir el cierre en dos ciclos |
+| ~~Arreglar el camino crítico~~ **RESUELTO 2026-09-04** | §18.1: la etapa de pipeline del refactor de features parte también este camino. WNS **+0.006 ns**, 0 endpoints en falla |
 | Separar la INL del generador de la del MCA | la ondulación de ganancia de §14.1b no se puede atribuir sin un patrón de tensión mejor que el DG4162 |
 | Medir la FOM con compuertas fijas | es el método estándar de PSD y esta es su aplicación real; sólo se midió la resolución en amplitud |
 | Re-medir el throughput | la compuerta fija acota la ventana, así que el tiempo muerto por evento debería bajar |
@@ -1237,3 +1242,154 @@ Consultadas el 2026-08-25. Las celdas con "—" son parámetros que el fabricant
 no publica en la hoja de datos, no ceros. Los precios de instrumentación nuclear
 se mueven y varias de estas listas tienen años: verificá antes de ponerlos en un
 informe.
+
+---
+
+# 17. El seguidor de línea de base queda exonerado — 2026-08-16
+
+Fase 0b: modelar offline la única pieza del MCA que el Monte-Carlo de apilamiento
+no modelaba, para partir el corrimiento de centroide con la tasa (+1.28 %, §13)
+en sus mecanismos. Corre en la PC, sin placa:
+[`software/monte-carlo/linea_base.py`](../software/monte-carlo/linea_base.py).
+
+## 17.1 El resultado es el contrario del esperado
+
+El mismo estímulo, con base fija y con seguidor IIR:
+
+| Tasa | Base fija (apilamiento solo) | Con seguidor | Base media seguida | Fracción congelada |
+|---|---|---|---|---|
+| 1 995 Hz | 0.000 % | 0.000 % | 0.65 | 38.1 % |
+| 20 000 Hz | +0.063 % | +0.015 % | 1.71 | 42.1 % |
+| 72 444 Hz | **+0.208 %** | **+0.096 %** | 4.88 | 53.4 % |
+| 150 000 Hz | +0.551 % | +0.074 % | 15.69 | 67.7 % |
+| 300 000 Hz | +0.779 % | **−2.928 %** | 147.18 | 79.5 % |
+
+**El seguidor MEJORA el corrimiento, no lo empeora.** A la tasa alta de la
+campaña lo baja de +0.21 % a +0.10 %: sigue el pedestal (la base media sube de
+0.65 a 4.88 cuentas) y lo resta, que es exactamente su trabajo.
+
+**Reproducible**: una corrida de control con otra estadística (6000 eventos
+contra 15000) da +0.24 % con base fija y +0.07 % con seguidor — mismos números
+dentro de la dispersión del Monte-Carlo, misma conclusión.
+
+Y con la **deriva térmica** medida (0.43 mV en 18 min, `run_formas.py`) inyectada
+como rampa, el seguidor la cancela casi por completo: el centroide pasa de
+1924.73 → 1926.66 con base fija (+0.10 %) y de 1923.74 → 1923.76 con seguidor
+(+0.001 %). Otro punto a su favor.
+
+## 17.2 Y entonces el 92 % del efecto queda sin explicar
+
+| | Corrimiento |
+|---|---|
+| Placa (medido, ×36 de tasa) | **+1.28 %** |
+| MC, apilamiento solo | +0.21 % |
+| MC, apilamiento + seguidor | +0.10 % |
+| **Sin explicar** | **+1.18 %** |
+
+Con la cadena digital del MCA **entera** modelada —segmentación, ventanas,
+estimadores, divisor y ahora el seguidor— queda sin explicar el 92 % del efecto.
+Eso mueve la sospecha **afuera del MCA digital**.
+
+> **A tasa alta el seguidor sí se rompe**: a 300 kcps da −2.93 % con la base media
+> en 147 cuentas y el 79.5 % del tiempo congelado. No afecta a la campaña, pero es
+> un modo de falla real a respetar al subir la tasa.
+
+## 17.3 Lo que queda por descartar, en orden de costo
+
+1. **Que no sea deriva con la TASA sino con el TIEMPO.** `sweep_rate`
+   ([`campanas/testbench_mca.py:943`](../software/campanas/testbench_mca.py#L943))
+   recorre `rates` de menor a mayor y **no tiene pasada de vuelta**: tasa y tiempo
+   están confundidos. Es el mismo tipo de error que ya invalidó el +6.45 %
+   (confundido con el ancho de pulso, §2.3 del doc de diseño). El arreglo es
+   agregar la pasada de vuelta que `sweep_amplitude` ya tiene. **Es la medición
+   más barata y más decisiva que queda.**
+2. **Que sea del generador.** El DG4162 a 2 kHz y a 72 kHz trabaja con ciclos de
+   trabajo muy distintos. Lo dirime un **pulser de referencia digital** inyectado
+   en `mca_dat_i`: si su pico se queda quieto mientras el pico real se mueve, la
+   deriva es anterior a la inyección.
+3. **Que sea del frente analógico** (térmica, asentamiento).
+
+## 17.4 Consecuencia: la justificación del trapecio queda en suspenso
+
+§5 de [`decisiones_diseno_mca.md`](mca/decisiones_diseno_mca.md) da el corrimiento
+con la tasa como **el argumento principal** de la cancelación polo-cero. Si el
+corrimiento no está en la cadena digital, la PZ no lo va a arreglar.
+
+**El conformado trapezoidal sigue justificándose por resolución, pero su
+justificación por deriva queda en suspenso** hasta cerrar los tres puntos de
+§17.3. Es exactamente para lo que servía hacer esto en software antes de gastar
+una síntesis.
+
+---
+
+# 18. Síntesis del refactor de features — 2026-09-04
+
+Build `v3_features_zoom_discr`, parte `xc7z010clg400-1`, Vivado 2020.1. Contiene
+las fases 1–3: bus de 16 features, `mca_zoom`, `mca_discriminator`, `full`
+pegajoso con `keep_counter_if_full`, divisor de 16 bits, y el eje de 1D bajado de
+16384 a 8192 canales.
+
+## 18.1 El resultado
+
+| | v2b (referencia) | Refactor, 1ª build | **Refactor, con pipeline** |
+|---|---|---|---|
+| WNS | −0.294 ns | −0.571 ns | **+0.006 ns** |
+| TNS | −4.195 | −35.935 | **0.000** |
+| Endpoints en falla | 49 | 166 | **0** |
+| Slice LUTs | 5884 (33.4 %) | 7672 (43.6 %) | 7621 (43.3 %) |
+| Slice Registers | 7614 (21.6 %) | — | 8883 (25.2 %) |
+| RAMB36 | 40 / 60 | 32 / 60 | **32 / 60** |
+| DSP | 4 / 80 | 4 / 80 | 4 / 80 |
+
+`All user specified timing constraints are met`. **Es la primera build del MCA que
+cierra timing**: v1 daba −0.114 ns, v2 −0.027 y v2b −0.294 (§14.4), siempre con
+endpoints en falla. El refactor que amenazaba con romperlo terminó arreglándolo,
+porque la etapa de pipeline que hubo que agregar parte también el camino
+`q_tot → desplazador → ventana de amplitud → cnt_rej_amp` que era el peor camino
+desde v1. Eso cierra el pendiente «arreglar el camino crítico» de §14.5.
+
+Los 8 RAMB36 que libera el eje de 8192 aparecen exactos: 40 → 32. Son los que
+habilitan el segundo MCA del proyecto multicanal.
+
+El costo es área: **+1737 LUT (+30 %) y +1269 FF (+17 %)**, que es lo que valen el
+segundo divisor de 16 bits, los tres bloques de zoom, el mux de 16 features por
+eje y la etapa de pipeline. Con la parte al 43 % de LUT hay margen de sobra.
+
+## 18.2 La predicción que la síntesis refutó
+
+El plan decía que el mux de features no iba a tocar el camino crítico, con este
+razonamiento: *«el mux sale de un registro, así que arranca un camino nuevo»*. La
+primera build lo desmintió sin ambigüedad — WNS −0.571 ns y **166** endpoints en
+falla contra 49, y los 166 agrupados en un solo patrón:
+
+```
+i_mca/i_feat/ev_feat_o_reg[N]  →  i_mca/g_hist_*/mem_reg_*
+peor camino: slack -0.571 ns, 10 niveles de lógica
+```
+
+**El error es identificable y conviene dejarlo escrito**: de dónde arranca un
+camino no dice nada: lo que importa es cuánta lógica hay **hasta el próximo
+registro**. Acá el destino es la dirección de una BRAM, y entre medio quedaron el
+mux 16:1, el comparador de ventana del zoom, la rebanada variable y la
+saturación — diez niveles.
+
+El arreglo es una etapa de pipeline entre el zoom y los motores de histograma
+([`mca_top.sv`](../rtl/mine/mca/mca_top.sv)), que cuesta **un ciclo de latencia por
+evento (8 ns contra 3.07 µs de ventana)** y ningún ciclo de tiempo muerto: el
+evento siguiente no espera a que éste llegue a la memoria.
+
+## 18.3 Lo que hay que re-medir en placa
+
+Dos números de las campañas anteriores **dejan de ser comparables a propósito**, y
+hay que volver a medirlos en vez de defenderlos:
+
+| Qué | Por qué |
+|---|---|
+| Todo FWHM **en canales** | el eje pasó de 16384 a 8192: se dividen por 2. Las resoluciones en % no cambian |
+| Throughput (794 kcps) y `cnt_lost_busy` | el divisor pasó de 6 a 16 ciclos: el tiempo muerto por evento sube de 48 ns a **128 ns**. Sobre una ventana de 384 muestras son 390 → 400 ciclos por evento, o sea **−2.5 %** de throughput. Es una predicción y hay que verificarla |
+
+La etapa de pipeline **no** entra en esa cuenta: está aguas abajo de la FSM, que ya
+volvió a `S_IDLE` cuando el evento la atraviesa. Agrega latencia, no tiempo muerto.
+
+La verificación funcional en placa (smoke test, conteo exacto de eventos) está
+pendiente: esta sección reporta síntesis, no hardware.

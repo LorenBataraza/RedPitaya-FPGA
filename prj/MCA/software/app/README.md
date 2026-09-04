@@ -41,9 +41,14 @@ python3 prj/MCA/software/app/mcamon.py --host 10.73.28.27
 Sin placa a mano, todo funciona igual contra un MCA simulado:
 
 ```bash
-python3 app/mca_server.py --fake --port 1001 &
-python3 app/mcamon.py --host 127.0.0.1 --conectar
+python3 app/mca_server.py --fake --port 5001 &
+python3 app/mcamon.py --host 127.0.0.1 --port 5001 --conectar
 ```
+
+> **En la PC hay que usar un puerto ≥ 1024.** El 1001 por defecto es el de
+> `mcpha` y en la Pitaya anda porque ahí se corre como root; en una sesión de
+> usuario, Linux reserva todo lo que está por debajo de 1024 y el `bind` falla
+> con `PermissionError`.
 
 ---
 

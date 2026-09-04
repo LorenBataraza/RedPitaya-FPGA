@@ -308,7 +308,22 @@ class ServidorMCA:
     def servir(self, host='0.0.0.0', port=PORT_DEFAULT):
         srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        srv.bind((host, port))
+        try:
+            srv.bind((host, port))
+        except PermissionError:
+            # El 1001 por defecto es el de mcpha y en la Pitaya funciona porque
+            # ahí se corre como root. En una PC de usuario, no: Linux reserva
+            # todo lo que está por debajo de 1024.
+            srv.close()
+            raise SystemExit(
+                f'no se puede escuchar en el puerto {port}: por debajo de 1024 '
+                f'hace falta root.\n'
+                f'  en la Pitaya  -> ya corrés como root, deberia andar\n'
+                f'  en la PC      -> elegí un puerto libre, p. ej. '
+                f'--port 5001 (y lo mismo en mcamon.py)')
+        except OSError as e:
+            srv.close()
+            raise SystemExit(f'no se puede escuchar en {host}:{port} — {e}')
         srv.listen(4)
         log(f'escuchando en {host}:{port}'
             f"{' (simulado)' if self.fake else ''}")

@@ -276,7 +276,11 @@ def plot(path, out_png=None):
     mu_s, fw_s, res_s = gauss_stats(h)
     ch   = np.arange(len(spec))
     nz   = np.nonzero(spec)[0]
-    v_hw = ch * (1 << meta['h_shift']) / meta['adc_cnt_per_V']
+    # El eje ya NO es `amp >> h_shift`: la feature se normaliza y el canal toma
+    # los h_aw bits altos, asi que la escala depende de h_aw y no de h_shift.
+    # Se pasa por counts_to_volts para tener una sola definicion del eje.
+    v_hw = mu.counts_to_volts(ch, h_aw=meta.get('h_aw', 13)) \
+           * (ADC_CNT_PER_V / meta['adc_cnt_per_V'])
     mu_h, fw_h, res_h = gauss_stats(ch, spec)
     mu_hw_v, _, _     = gauss_stats(v_hw, spec)
     dif = 100 * (mu_hw_v - mu_s) / mu_s if mu_s else float('nan')

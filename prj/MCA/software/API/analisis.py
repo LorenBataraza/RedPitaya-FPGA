@@ -452,16 +452,42 @@ def cv_residuo(t_ns, gap, q=0.001):
     return float(resid.std() / m) if m > 0 else 0.0
 
 
-def counts_to_volts(bins, h_shift=0, amp_src=0, q_shift=0):
+def counts_to_volts(bins, h_shift=0, amp_src=0, q_shift=0,
+                    h_aw=None, dw=14, amp_w=16, zoom=(0, 0)):
     """Convierte índice de canal a volts de amplitud de pico.
 
     Sólo tiene sentido con amp_src=0 (muestra de pico). Con la integral el eje
     es carga, no amplitud, y la escala depende del ancho del pulso.
+
+    **`h_shift` quedó obsoleto y ya no describe el eje.** Antes el canal era
+    `amp >> h_shift`; ahora la feature se normaliza a `amp_w` bits y el eje toma
+    los `h_aw` bits altos de la ventana de zoom, así que la relación es
+
+        pico = (bin << (amp_w - h_aw - z)) + (k << (amp_w - z))   ... >> (amp_w - dw)
+
+    Pasar `h_aw` (lo publica el registro `WIDTHS`, y `MCA.h_aw` lo expone) usa la
+    fórmula correcta. Sin `h_aw` se cae al comportamiento viejo por
+    compatibilidad, porque hay datos guardados con ese metadato — pero para un
+    espectro tomado con el bitstream nuevo el número saldría mal, así que avisa.
     """
     if amp_src:
         raise ValueError('con amp_src=1 el eje es carga: calibrá contra el '
                          'generador en vez de convertir')
-    return np.asarray(bins, dtype=float) * (1 << h_shift) / ADC_CNT_PER_V
+    b = np.asarray(bins, dtype=float)
+    if h_aw is None:
+        import warnings
+        warnings.warn(
+            'counts_to_volts() sin h_aw usa la escala VIEJA (amp >> h_shift), '
+            'que el bitstream actual ya no implementa: el eje ahora normaliza '
+            'la feature y toma los h_aw bits altos. Pasá h_aw=mca.h_aw.',
+            DeprecationWarning, stacklevel=2)
+        return b * (1 << h_shift) / ADC_CNT_PER_V
+
+    z, k = int(zoom[0]), int(zoom[1])
+    z = min(z, amp_w - int(h_aw))
+    k = 0 if z == 0 else (k & ((1 << z) - 1))
+    feat = b * (1 << (amp_w - int(h_aw) - z)) + (k << (amp_w - z))
+    return feat / (1 << (amp_w - int(dw))) / ADC_CNT_PER_V
 
 
 # =============================================================================

@@ -31,6 +31,14 @@ sys.path.insert(0, _AQUI)
 from gen_compat_baseline import FakeMmap                           # noqa: E402
 import API.mca as A                                                # noqa: E402
 
+import struct as _struct
+_U32 = _struct.Struct('<I')
+
+
+def _leer(m, off):
+    """Lee un registro de 32 b del mmap falso, igual que lo hace el driver."""
+    return _U32.unpack_from(m, off)[0]
+
 
 def _handle():
     """Un MCA sobre memoria falsa, con magic/caps/widths precargados."""
@@ -155,3 +163,95 @@ def main():
 
 if __name__ == '__main__':
     raise SystemExit(main())
+
+
+# =============================================================================
+# Opciones nuevas de configure(): selector de feature, zoom y discriminador
+#
+# No tienen baseline contra el que compararse (son de la fase 1-3), así que la
+# cobertura tiene que ser explícita. Lo que importa es que los DEFAULTS
+# reproduzcan el comportamiento histórico —si no, toda la campaña medida deja de
+# ser comparable sin que nadie se entere— y que las configuraciones inválidas
+# fallen fuerte en vez de producir un espectro vacío.
+# =============================================================================
+
+def test_defaults_reproducen_el_comportamiento_historico():
+    m, mca = _handle()
+    mca.configure(verify=False)
+    # sel_1d y sel_2dx siguen a amp_src (0 = pico), sel_2dy es el factor de forma.
+    assert _leer(m, A.R_HIST_SEL) == (A.F_PSD << 8) | (A.F_PEAK << 4) | A.F_PEAK
+    # Zoom en cero en los tres ejes = fondo de escala = como siempre.
+    for off in (A.R_ZOOM_1D, A.R_ZOOM_2DX, A.R_ZOOM_2DY):
+        assert _leer(m, off) == 0
+    # Discriminador APAGADO: deja pasar todo.
+    assert _leer(m, A.R_DISCR_CTRL) == 0
+
+
+def test_amp_src_sigue_moviendo_el_selector():
+    """Compatibilidad: la campaña vieja configura amp_src y nada más."""
+    m, mca = _handle()
+    mca.configure(amp_src=1, verify=False)
+    assert _leer(m, A.R_HIST_SEL) & 0xF == A.F_INT
+    assert (_leer(m, A.R_HIST_SEL) >> 4) & 0xF == A.F_INT
+
+
+def test_sel_explicito_gana_sobre_amp_src():
+    m, mca = _handle()
+    mca.configure(amp_src=0, sel_1d='ancho_inv', sel_2dy='largo', verify=False)
+    v = _leer(m, A.R_HIST_SEL)
+    assert v & 0xF == A.F_INVW
+    assert (v >> 8) & 0xF == A.F_LEN
+
+
+def test_zoom_se_empaqueta_bien():
+    m, mca = _handle()
+    mca.configure(zoom_1d=(3, 5), zoom_2dx=(1, 1), verify=False)
+    assert _leer(m, A.R_ZOOM_1D) == (5 << 8) | 3
+    assert _leer(m, A.R_ZOOM_2DX) == (1 << 8) | 1
+
+
+def test_discriminador_interno_y_externo():
+    m, mca = _handle()
+    mca.configure(discr=('ancho_inv', 100, 200), verify=False)
+    assert _leer(m, A.R_DISCR_MIN) == 100
+    assert _leer(m, A.R_DISCR_MAX) == 200
+    assert _leer(m, A.R_DISCR_CTRL) == (A.F_INVW << 4) | 1        # enable, interno
+
+    m, mca = _handle()
+    mca.configure(discr=('psd', 100, 200, True), verify=False)
+    assert _leer(m, A.R_DISCR_CTRL) == (A.F_PSD << 4) | 2 | 1     # enable, externo
+
+
+def test_discr_vacio_falla_en_vez_de_vaciar_el_espectro():
+    """min > max con intervalo interno rechaza TODO evento.
+
+    En el RTL es la respuesta correcta a un conjunto vacío, pero como
+    configuración es casi siempre un error de tipeo, y el síntoma sería un
+    espectro sin una sola cuenta y ningún mensaje. Se levanta acá.
+    """
+    m, mca = _handle()
+    try:
+        mca.configure(discr=('pico', 500, 100), verify=False)
+        assert False, 'aceptó un intervalo interno vacío'
+    except ValueError as e:
+        assert 'vacio' in str(e) or 'vacío' in str(e)
+    # Pero con intervalo EXTERNO min>max es legítimo: acepta todo.
+    mca.configure(discr=('pico', 500, 100, True), verify=False)
+
+
+def test_feature_invalida_falla():
+    m, mca = _handle()
+    for mala in ('inexistente', 9, 15):
+        try:
+            mca.configure(sel_1d=mala, verify=False)
+            assert False, f'aceptó la feature inválida {mala!r}'
+        except ValueError:
+            pass
+
+
+def test_keep_if_full():
+    m, mca = _handle()
+    mca.configure(keep_if_full=True, verify=False)
+    assert _leer(m, A.R_HIST_CTRL) == 1
+    mca.configure(keep_if_full=False, verify=False)
+    assert _leer(m, A.R_HIST_CTRL) == 0

@@ -47,6 +47,7 @@ class PanelEspectro(QWidget):
         self.baseline = None
         self.n_canales = 16384
         self.h_shift = 0
+        self.h_aw = 13          # 8192 canales, el default del bitstream actual
         self._cargando = False               # evita el eco de los spinbox
         self._roi_sombra = None
         self._lineas_ventana = []
@@ -293,9 +294,14 @@ class PanelEspectro(QWidget):
         self.btn_start.setEnabled(conectado and not running)
         self.btn_stop.setEnabled(conectado and running)
 
-    def configurar_geometria(self, n_canales, h_shift=0):
+    def configurar_geometria(self, n_canales, h_shift=0, h_aw=None):
+        # `h_shift` quedo obsoleto: el eje ya no es `amp >> h_shift` sino los
+        # h_aw bits altos de la feature normalizada. Se conserva el argumento
+        # para no romper llamadores, pero la escala sale de h_aw.
         self.n_canales = max(1, int(n_canales))
         self.h_shift = int(h_shift)
+        self.h_aw = int(h_aw) if h_aw is not None else \
+            max(1, int(n_canales)).bit_length() - 1
         self.hist = None
         self.spn_roi_lo.setMaximum(self.n_canales - 1)
         self.spn_roi_hi.setMaximum(self.n_canales - 1)
@@ -315,6 +321,8 @@ class PanelEspectro(QWidget):
                        int(cfg.get('amp_max', 0xFFFF)) == 0xFFFF)
             self.chk_ventana.setChecked(not abierta)
             self.h_shift = int(cfg.get('h_shift', 0))
+            if cfg.get('h_aw') is not None:
+                self.h_aw = int(cfg['h_aw'])
         finally:
             self._cargando = False
         self._redibujar()

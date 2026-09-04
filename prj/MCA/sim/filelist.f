@@ -34,6 +34,8 @@
 # --- MCA ---
 ../rtl/mine/mca/mca_div_restore.sv
 ../rtl/mine/mca/mca_hist.sv
+../rtl/mine/mca/mca_zoom.sv
+../rtl/mine/mca/mca_discriminator.sv
 ../rtl/mine/mca/mca_pulse_feature.sv
 ../rtl/mine/mca/mca_top.sv
 

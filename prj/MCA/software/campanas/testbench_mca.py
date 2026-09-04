@@ -940,8 +940,95 @@ def compare_estimators(mca, gen, ch=1, seconds=10.0, amp_vpp=0.5, rate_hz=2e3,
 # 5. Barrido de tasa — tiempo muerto, throughput, live time
 # =============================================================================
 
+def _analizar_deriva(ida, vuelta):
+    """Separa el corrimiento con la TASA de la deriva con el TIEMPO.
+
+    El modelo es aditivo, `cen(r,t) = R(r) + D(t)`, y la palanca es que cada
+    tasa se visitó dos veces separadas por `dt = t_vuelta - t_ida`, que es un
+    número CONOCIDO y distinto para cada punto: máximo en la tasa más baja,
+    casi cero en el punto de retorno. Entonces la histéresis `h = D(t_v) - D(t_i)`
+    tiene que ser una recta POR EL ORIGEN contra `dt` si la deriva es temporal, y
+    cero si el corrimiento es genuinamente función de la tasa.
+
+    Lo que esto NO puede separar, y conviene tenerlo escrito antes de leer el
+    resultado: una deriva causada por el CALOR que disipa la propia tasa de
+    cuentas es función del tiempo *y* de la tasa a la vez, y aparecería acá como
+    histéresis igual que una deriva temporal pura. Distinguir eso pide medir la
+    temperatura, o repetir el barrido con el mismo perfil temporal y distinto
+    rango de tasas.
+    """
+    r   = np.array([p['r_in'] for p in ida])
+    c_i = np.array([p['cen'] for p in ida])
+    c_v = np.array([p['cen'] for p in vuelta])
+    t_i = np.array([p['t'] for p in ida])
+    t_v = np.array([p['t'] for p in vuelta])
+    ok  = (np.isfinite(c_i) & np.isfinite(c_v)
+           & np.array([p['ok'] for p in ida], dtype=bool)
+           & np.array([p['ok'] for p in vuelta], dtype=bool))
+
+    out = {'rates': r, 'cen_ida': c_i, 'cen_vuelta': c_v,
+           't_ida': t_i, 't_vuelta': t_v, 'validos': ok,
+           'histeresis_can': c_v - c_i, 'dt_s': t_v - t_i,
+           'pendiente_can_s': float('nan'), 'ordenada_can': float('nan'),
+           'r_pearson': float('nan'), 'sigma_resid_can': float('nan'),
+           'deriva_pct_hora': float('nan'), 'veredicto': None}
+
+    if ok.sum() < 3:
+        print('  deriva: menos de 3 tasas medidas en las DOS pasadas; '
+              'no se puede separar tasa de tiempo')
+        return out
+
+    h, dt = c_v[ok] - c_i[ok], t_v[ok] - t_i[ok]
+    if np.ptp(dt) < 1e-9:
+        print('  deriva: todas las visitas tienen la misma separación temporal; '
+              'la regresión no tiene palanca')
+        return out
+
+    m, b = np.polyfit(dt, h, 1)
+    resid = h - (m * dt + b)
+    # ddof=2: se estimaron dos parámetros. Con 16 puntos la diferencia es del
+    # 7 % sobre sigma, y sigma es el patrón contra el que se decide todo abajo.
+    s = float(np.std(resid, ddof=2)) if h.size > 2 else float('nan')
+    rp = float(np.corrcoef(dt, h)[0, 1]) if np.ptp(h) > 0 else 0.0
+    cen_med = float(np.nanmean(np.concatenate([c_i[ok], c_v[ok]])))
+
+    out.update({'pendiente_can_s': float(m), 'ordenada_can': float(b),
+                'r_pearson': rp, 'sigma_resid_can': s,
+                'deriva_pct_hora': 100.0 * m * 3600.0 / max(cen_med, 1e-9)})
+
+    print(f'  deriva temporal: {m*3600:+.2f} canales/hora '
+          f'({out["deriva_pct_hora"]:+.3f} %/hora), '
+          f'ordenada {b:+.2f} can, r = {rp:+.2f}, '
+          f'dispersión residual {s:.2f} can')
+
+    # ¿La histéresis es distinguible de cero? La escala de comparación es la
+    # dispersión de los residuos, que ES la repetibilidad del centroide medida
+    # por este mismo barrido: no hay que suponerla.
+    salto = abs(m) * float(np.ptp(dt))
+    if not np.isfinite(s) or s <= 0:
+        out['veredicto'] = 'no hay dispersión estimable: no se concluye'
+    elif salto < 2 * s:
+        out['veredicto'] = (
+            'REPRODUCIBLE EN TASA: la ida y la vuelta coinciden dentro del '
+            'ruido, así que el corrimiento medido es función de la tasa y no '
+            'del tiempo. El confundimiento de sweep_rate queda descartado')
+    elif abs(rp) > 0.7:
+        out['veredicto'] = (
+            'DERIVA TEMPORAL: la histéresis crece con la separación entre '
+            'visitas, que es la firma de una deriva con el tiempo. La pendiente '
+            'es la deriva, y el corrimiento con la tasa hay que corregirlo')
+    else:
+        out['veredicto'] = (
+            'HISTÉRESIS SIN ESTRUCTURA TEMPORAL: las pasadas no coinciden pero '
+            'la diferencia no sigue a la separación entre visitas. El modelo '
+            'aditivo no alcanza: puede ser deriva no lineal, o que la historia '
+            'de tasas importe (calentamiento). No concluir desde acá')
+    print(f'  => {out["veredicto"]}')
+    return out
+
+
 def sweep_rate(mca, gen, ch=1, rates=None, seconds=5.0, amp_vpp=0.5,
-               width_s=None, outdir=None, **cfg):
+               width_s=None, ida_y_vuelta=True, outdir=None, **cfg):
     """Tasa registrada vs incidente: throughput, modelo de tiempo muerto,
     exactitud del live time y corrimiento del centroide con la tasa.
 
@@ -951,8 +1038,33 @@ def sweep_rate(mca, gen, ch=1, rates=None, seconds=5.0, amp_vpp=0.5,
     evento la saturación tiene que aparecer cerca de 435 kcps. Sin saturación no
     hay curvatura, y sin curvatura el ajuste de tiempo muerto no significa nada
     (daba tau = 8971 µs, que es ruido del ajuste).
+
+    **La pasada de vuelta separa TASA de TIEMPO** (`ida_y_vuelta=True`, default).
+    Sin ella las dos variables están confundidas: el barrido sube monótonamente,
+    así que "más tasa" y "más tarde" son la misma columna, y el +1.28 % de
+    corrimiento del centroide que reporta §17 de `resultados_validacion_hw.md`
+    admite las dos lecturas. Es el mismo error que ya invalidó el +6.45 %
+    (confundido con el ancho de pulso), y `sweep_amplitude` ya lo resuelve así.
+
+    El discriminante no es comparar el primer punto contra el último, sino la
+    **histéresis contra la separación temporal**. Cada tasa se visita dos veces,
+    en `t_ida` y `t_vuelta`; si el centroide es `cen(r,t) = R(r) + D(t)`, la
+    histéresis `h = cen_vuelta - cen_ida` vale `D(t_v) - D(t_i)`, o sea que con
+    una deriva aproximadamente lineal:
+
+      - **si manda el TIEMPO**: `h` es proporcional a la separación `t_v - t_i`,
+        que es máxima en la tasa más baja (primera y última visita) y se anula
+        en el punto de retorno. La pendiente de esa recta ES la deriva temporal,
+        en canales/hora, y se puede RESTAR para recuperar `R(r)`.
+      - **si manda la TASA**: `h ≈ 0` en todos los puntos, incluidos los de
+        separación temporal grande, y el corrimiento medido es genuino.
+
+    Fijarse en la separación temporal en vez de en un solo par usa los 16 puntos
+    y hace falsable la hipótesis: la deriva pura predice una recta por el origen,
+    no un número suelto. Una ordenada al origen grande dice que el modelo aditivo
+    no alcanza (deriva no lineal, o efecto de la historia de tasas).
     """
-    print('\n=== barrido de tasa (tiempo muerto / throughput) ===')
+    print('\n=== barrido de tasa (tiempo muerto / throughput / deriva) ===')
     # Estimulo en modo PULSE, NO en ARB. El ARB estira la forma completa sobre
     # el periodo de repeticion, asi que al barrer la tasa el pulso cambia de
     # ANCHO al mismo tiempo y la curva de throughput no significa nada. El modo
@@ -963,9 +1075,10 @@ def sweep_rate(mca, gen, ch=1, rates=None, seconds=5.0, amp_vpp=0.5,
     width_s = PULSE_WIDTH_S if width_s is None else width_s
     rates = np.logspace(2, 5.9, 16) if rates is None else np.asarray(rates)
 
+    t0 = time.time()
 
-    r_in, r_out, centroids, lt_frac, anchos, validos = [], [], [], [], [], []
-    for r in rates:
+    def _punto(r):
+        """Mide UNA tasa. Devuelve tambien el instante, que es el dato nuevo."""
         period = 1.0 / float(r)
         # El ancho tiene que escalar con el periodo: set_pulse_periodic exige
         # width < period/2, y con un ancho fijo de 2 us el barrido reventaba con
@@ -986,6 +1099,9 @@ def sweep_rate(mca, gen, ch=1, rates=None, seconds=5.0, amp_vpp=0.5,
             w_real = float(gen.query(f':SOURce{ch}:PULSe:WIDTh?'))
         except Exception:
             f_real, w_real = float('nan'), float('nan')
+        # El instante que corresponde al punto es el CENTRO de la adquisicion,
+        # no su comienzo: con `seconds` grande el sesgo seria medio barrido.
+        t_med = (time.time() - t0) + 0.5 * seconds
         spec, _, cnt = _acquire(mca, seconds)
         rt = max(cnt['realtime_s'], 1e-9)
         r_medida = cnt['total'] / rt
@@ -1000,27 +1116,46 @@ def sweep_rate(mca, gen, ch=1, rates=None, seconds=5.0, amp_vpp=0.5,
         sin_perdidas = (cnt['dropped'] == 0 and cnt['pileup'] == 0)
         coincide = abs(r_medida - r) <= 0.05 * r
         ok = coincide or not sin_perdidas
-        r_in.append(r)
-        r_out.append(cnt['accepted'] / rt)
-        lt_frac.append(cnt['livetime_s'] / rt)
-        anchos.append(w_real if np.isfinite(w_real) else w_s)
-        validos.append(ok)
         try:
-            centroids.append(_pico(spec)['centroid'])
+            cen = _pico(spec)['centroid']
         except ValueError:
-            centroids.append(np.nan)
+            cen = np.nan
         aviso = ''
         if not ok:
             aviso = (f'   <-- INVÁLIDO: sin pérdidas pero entran {r_medida:.0f} Hz, '
                      f'no {r:.0f} (generador en {f_real:.0f} Hz)')
-        print(f'  {r:9.0f} Hz in (w={w_real*1e9:6.0f} ns) -> {r_out[-1]:9.0f} cps '
-              f'out   live {100*lt_frac[-1]:5.1f}%   '
-              f'centroide {centroids[-1]:.1f}{aviso}')
+        print(f'  {r:9.0f} Hz in (w={w_real*1e9:6.0f} ns) -> '
+              f'{cnt["accepted"]/rt:9.0f} cps out   '
+              f'live {100*cnt["livetime_s"]/rt:5.1f}%   '
+              f'centroide {cen:.1f}   t={t_med:6.1f}s{aviso}')
+        return dict(r_in=float(r), r_out=cnt['accepted'] / rt,
+                    lt=cnt['livetime_s'] / rt, cen=cen, t=t_med, ok=ok,
+                    w=w_real if np.isfinite(w_real) else w_s)
+
+    puntos_ida = [_punto(r) for r in rates]
+    puntos_vuelta = []
+    if ida_y_vuelta:
+        print('  --- pasada de VUELTA (bajando): separa tasa de tiempo ---')
+        # Se recorre al reves y se re-ordena, para que el indice i sea la MISMA
+        # tasa en las dos listas y la histeresis se compare punto a punto.
+        puntos_vuelta = [_punto(r) for r in rates[::-1]][::-1]
+
     gen.output(ch, False)
     gen.disable_burst(ch)
 
-    r_in = np.array(r_in); r_out = np.array(r_out)
-    validos = np.array(validos, dtype=bool)
+    r_in     = np.array([p['r_in'] for p in puntos_ida])
+    r_out    = np.array([p['r_out'] for p in puntos_ida])
+    lt_frac  = [p['lt'] for p in puntos_ida]
+    anchos   = [p['w'] for p in puntos_ida]
+    centroids = [p['cen'] for p in puntos_ida]
+    t_ida    = np.array([p['t'] for p in puntos_ida])
+    validos  = np.array([p['ok'] for p in puntos_ida], dtype=bool)
+
+    # --- deriva: tasa contra tiempo -----------------------------------------
+    # Se hace ANTES de filtrar por validez, porque el filtro reordena los
+    # arreglos de la ida y rompe la correspondencia con la vuelta.
+    deriva = _analizar_deriva(puntos_ida, puntos_vuelta) if puntos_vuelta else None
+
     if not validos.all():
         print(f'  {int((~validos).sum())} de {len(validos)} puntos INVÁLIDOS: el '
               f'generador no entregó la tasa pedida. Se excluyen del análisis.')
@@ -1028,13 +1163,15 @@ def sweep_rate(mca, gen, ch=1, rates=None, seconds=5.0, amp_vpp=0.5,
         lt_frac = list(np.array(lt_frac)[validos])
         centroids = list(np.array(centroids)[validos])
         anchos = list(np.array(anchos)[validos])
+        t_ida = t_ida[validos]
     if r_in.size < 2:
         print('  quedan menos de 2 puntos válidos: no hay curva que analizar.')
         _save(outdir, 'sweep_rate', r_in=r_in, r_out=r_out)
         return {'r_in': r_in, 'r_out': r_out, 'validos': validos,
                 'techo_cps': float('nan'), 'rate_techo_hz': float('nan'),
                 'saturo': False, 'deadtime': None,
-                'centroids': np.array(centroids),
+                'centroids': np.array(centroids), 't_s': t_ida,
+                'deriva': deriva, 'centroid_shift_pct': float('nan'),
                 'livetime_frac': np.array(lt_frac)}
 
     # El techo: el maximo de la curva de salida, y a que tasa de entrada ocurre.
@@ -1069,6 +1206,7 @@ def sweep_rate(mca, gen, ch=1, rates=None, seconds=5.0, amp_vpp=0.5,
     cen = np.array(centroids)
     anc = np.array(anchos)
     shift = float('nan')
+    shift_corr = float('nan')
     if cen.size:
         w_nom = anc.max()
         mismo = (np.abs(anc - w_nom) < 1e-9) & ~np.isnan(cen)
@@ -1079,6 +1217,17 @@ def sweep_rate(mca, gen, ch=1, rates=None, seconds=5.0, amp_vpp=0.5,
             print(f'  corrimiento del centroide con ancho CONSTANTE '
                   f'({w_nom*1e9:.0f} ns): {shift:+.2f}% '
                   f'entre {r0:.0f} y {r1:.0f} Hz (x{r1/r0:.0f})')
+            # Y lo mismo DESCONTANDO la deriva temporal medida por la vuelta.
+            # Este es el numero que responde la pregunta abierta de §17: cuanto
+            # del corrimiento sobrevive cuando el tiempo deja de estar
+            # confundido con la tasa.
+            if deriva is not None and np.isfinite(deriva['pendiente_can_s']):
+                m = deriva['pendiente_can_s']
+                cc = cen - m * (t_ida - t_ida[0])
+                shift_corr = 100.0 * (cc[mismo][-1] - cc[mismo][0]) / cc[mismo][0]
+                print(f'  corrimiento DESCONTANDO la deriva temporal: '
+                      f'{shift_corr:+.2f}%  '
+                      f'(el tiempo explicaba {shift - shift_corr:+.2f} pp)')
         else:
             print('  no hay 2 puntos con el mismo ancho: el corrimiento del '
                   'centroide no se puede separar del cambio de ancho')
@@ -1087,12 +1236,23 @@ def sweep_rate(mca, gen, ch=1, rates=None, seconds=5.0, amp_vpp=0.5,
             todo = 100.0 * (cen[ok][-1] - cen[ok][0]) / cen[ok][0]
             print(f'  (sobre TODO el barrido daría {todo:+.2f}%, pero mezcla el '
                   f'cambio de ancho: no citar ese número)')
+
+    extra = {}
+    if deriva is not None:
+        extra = {'centroids_vuelta': deriva['cen_vuelta'],
+                 't_vuelta': deriva['t_vuelta'],
+                 'rates_deriva': deriva['rates'],
+                 'centroids_ida': deriva['cen_ida'],
+                 't_ida_deriva': deriva['t_ida']}
     _save(outdir, 'sweep_rate', r_in=r_in, r_out=r_out, centroids=cen,
-          livetime_frac=np.array(lt_frac), widths=np.array(anchos))
-    return {'r_in': r_in, 'r_out': r_out, 'centroids': cen,
+          livetime_frac=np.array(lt_frac), widths=np.array(anchos),
+          t_s=t_ida, **extra)
+    return {'r_in': r_in, 'r_out': r_out, 'centroids': cen, 't_s': t_ida,
             'livetime_frac': np.array(lt_frac), 'deadtime': dt,
             'techo_cps': techo, 'rate_techo_hz': r_techo, 'saturo': saturo,
-            'centroid_shift_pct': shift, 'widths': anc}
+            'centroid_shift_pct': shift,
+            'centroid_shift_pct_sin_deriva': shift_corr,
+            'deriva': deriva, 'widths': anc}
 
 
 # =============================================================================
@@ -1723,6 +1883,39 @@ def plot_all(outdir):
         ax.legend(); ax.set_title('Throughput')
         fig.savefig(os.path.join(outdir, 'throughput.png'), dpi=120,
                     bbox_inches='tight'); plt.close(fig)
+
+        # Deriva: sólo si hubo pasada de vuelta. Dos paneles, porque son dos
+        # preguntas distintas: el de la izquierda muestra SI hay histéresis, y
+        # el de la derecha si esa histéresis sigue al TIEMPO (que es lo que
+        # decide si el corrimiento con la tasa es real).
+        if 'centroids_vuelta' in d.files:
+            rr  = d['rates_deriva']; ci = d['centroids_ida']
+            cv  = d['centroids_vuelta']
+            gap = d['t_vuelta'] - d['t_ida_deriva']
+            m = np.isfinite(ci) & np.isfinite(cv)
+            fig, (a1, a2) = plt.subplots(1, 2, figsize=(11, 4))
+            a1.semilogx(rr[m], ci[m], 'o-', label='ida (subiendo)')
+            a1.semilogx(rr[m], cv[m], 's--', label='vuelta (bajando)')
+            a1.set_xlabel('tasa incidente [Hz]')
+            a1.set_ylabel('centroide [canal]')
+            a1.set_title('Centroide vs tasa — las dos pasadas')
+            a1.grid(alpha=.3); a1.legend()
+
+            h = (cv - ci)[m]
+            a2.plot(gap[m] / 60.0, h, 'o')
+            if m.sum() >= 3 and np.ptp(gap[m]) > 0:
+                p = np.polyfit(gap[m], h, 1)
+                xs = np.linspace(0, gap[m].max(), 50)
+                a2.plot(xs / 60.0, np.polyval(p, xs), 'r-', lw=1,
+                        label=f'{p[0]*3600:+.1f} can/hora')
+                a2.legend()
+            a2.axhline(0, color='k', lw=.8, ls=':')
+            a2.set_xlabel('separación entre las dos visitas [min]')
+            a2.set_ylabel('histéresis  vuelta − ida  [canales]')
+            a2.set_title('¿La histéresis sigue al tiempo?')
+            a2.grid(alpha=.3)
+            fig.savefig(os.path.join(outdir, 'deriva_tasa_tiempo.png'), dpi=120,
+                        bbox_inches='tight'); plt.close(fig)
 
     d = _load('sweep_rate_poisson')
     if d is not None:

@@ -40,7 +40,9 @@ module mca_top #(
   // --- varios ---
   parameter integer AMP_W  = 16,
   parameter integer QW     = 32,
-  parameter integer LEN_W  = 16
+  parameter integer LEN_W  = 16,
+  parameter integer DIV_W  = 16,   // bits de cociente de los divisores de forma
+  parameter integer NFEAT  = 16    // ranuras del bus de features
 )(
   input                    adc_clk_i   ,
   input                    adc_rstn_i  ,
@@ -81,9 +83,27 @@ reg [AMP_W-1:0]  cfg_amp_min;
 reg [AMP_W-1:0]  cfg_amp_max;
 reg              cfg_amp_src;
 reg [4:0]        cfg_q_shift;
-reg [4:0]        cfg_h_shift;
-reg [4:0]        cfg_h2_shift;
+// DEPRECADOS. Se siguen decodificando —se escriben y se leen— para que el
+// software viejo no vea errores, pero YA NO AFECTAN AL DATAPATH: el eje pasó de
+// `amp >> h_shift` a "feature normalizada, los AW bits altos de la ventana de
+// zoom". Se conservan en vez de borrarse porque hay datos guardados con ese
+// metadato; la conversión canal->volts vive en counts_to_volts(h_aw=...).
+reg [4:0]        cfg_h_shift;      // sin efecto: lo subsume cfg_zoom_1d
+reg [4:0]        cfg_h2_shift;     // sin efecto: lo subsume cfg_zoom_2dx
+// Que feature alimenta cada eje. Los indices son los localparam F_* de
+// mca_pulse_feature: un solo espacio de numeracion para los tres ejes.
+reg [3:0]        cfg_sel_1d, cfg_sel_2dx, cfg_sel_2dy;
+// Zoom por eje: {k[15:8], z[3:0]}. z=0 es fondo de escala, o sea el
+// comportamiento historico.
+reg [3:0]        cfg_z_1d,  cfg_z_2dx,  cfg_z_2dy;
+reg [7:0]        cfg_k_1d,  cfg_k_2dx,  cfg_k_2dy;
 reg [16-1:0]     cfg_dec;
+reg              cfg_keep_full;   // 1 = seguir contando con el histograma lleno
+// Discriminador: una condicion sobre una feature elegida.
+reg              cfg_discr_en, cfg_discr_out;
+reg [3:0]        cfg_discr_sel;
+reg [AMP_W-1:0]  cfg_discr_min, cfg_discr_max;
+reg [31:0]       cnt_rej_discr;
 
 // Pulsos de un ciclo generados por escritura
 reg              clr_pulse;               // borra histogramas y contadores
@@ -132,9 +152,11 @@ wire                bl_stale, feat_busy;
 wire [31:0]         c_total, c_acc, c_rej_amp, c_rej_psd, c_pileup, c_lost;
 wire [QW-1:0]       last_qtot, last_qtail;
 
+wire [NFEAT*AMP_W-1:0] ev_feat;
+
 mca_pulse_feature #(
-  .DW(DW), .QW(QW), .AMP_W(AMP_W), .PSD_AW(PSD_AW), .LEN_W(LEN_W),
-  .EN_PSD(EN_HIST_H_PSD)
+  .DW(DW), .QW(QW), .AMP_W(AMP_W), .PSD_AW(PSD_AW), .DIV_W(DIV_W),
+  .NFEAT(NFEAT), .LEN_W(LEN_W), .EN_PSD(EN_HIST_H_PSD)
 ) i_feat (
   .clk_i(adc_clk_i), .rstn_i(adc_rstn_i),
   .dat_i($signed(dat_q)), .val_i(val_q),
@@ -148,7 +170,7 @@ mca_pulse_feature #(
   .cfg_amp_min_i(cfg_amp_min), .cfg_amp_max_i(cfg_amp_max),
   .cfg_amp_src_i(cfg_amp_src), .cfg_q_shift_i(cfg_q_shift),
   .ev_valid_o(ev_valid), .ev_amp_o(ev_amp), .ev_psd_o(ev_psd),
-  .ev_psd_ok_o(ev_psd_ok),
+  .ev_psd_ok_o(ev_psd_ok), .ev_feat_o(ev_feat),
   .baseline_o(baseline_now), .baseline_stale_o(bl_stale),
   .cnt_total_o(c_total), .cnt_accepted_o(c_acc), .cnt_rej_amp_o(c_rej_amp),
   .cnt_rej_psd_o(c_rej_psd), .cnt_pileup_o(c_pileup), .cnt_lost_busy_o(c_lost),
@@ -157,14 +179,97 @@ mca_pulse_feature #(
 );
 
 //=============================================================================
-// Cálculo de bins, con saturación (nunca envolver: un evento no puede
-// aparecer en el extremo opuesto del eje)
+// De feature a bin: MUX de eje + ZOOM
+//
+// El bus de features es INTERNO: no sale al software. El ARM sigue leyendo las
+// mismas aperturas 0x10000 y 0x20000. Lo unico que cambia del lado del software
+// es un registro que dice que feature alimenta cada eje.
+//
+// El mux 16:1 y el zoom viven DESPUES del registro ev_feat_o del extractor, o
+// sea que arrancan un camino nuevo en vez de alargar el del cierre —que es el
+// que esta en falla de timing (WNS -0.294 ns).
+//
+// La saturacion sigue siendo el contrato: un evento nunca aparece en el extremo
+// opuesto del eje. Con zoom, ademas, los bins de los extremos hacen de
+// indicadores de desborde de la ventana, que con la deriva medida importa (a
+// z=3 un corrimiento del 6.45 % mueve el pico un 41 % del ancho de ventana).
 //=============================================================================
-wire [AMP_W-1:0] h_shifted  = ev_amp >> cfg_h_shift;
-wire [AMP_W-1:0] h2_shifted = ev_amp >> cfg_h2_shift;
+// El mux va como part-select indexada y NO como function. Con una function en
+// un assign continuo, la sensibilidad se arma con los ARGUMENTOS: `ev_feat` se
+// lee del alcance exterior y no entra en la lista, asi que la salida solo se
+// actualizaba al cambiar el selector y se quedaba clavada en el valor de reset.
+// El sintetizador lo resolvia bien y la simulacion no: lo agarro tb_mca_top con
+// las cuentas apareciendo en el canal 0.
+wire [AMP_W-1:0] f_1d  = ev_feat[cfg_sel_1d  * AMP_W +: AMP_W];
+wire [AMP_W-1:0] f_2dx = ev_feat[cfg_sel_2dx * AMP_W +: AMP_W];
+wire [AMP_W-1:0] f_2dy = ev_feat[cfg_sel_2dy * AMP_W +: AMP_W];
 
-wire [H_AW-1:0]  h_bin  = (|h_shifted[AMP_W-1:H_AW])  ? {H_AW{1'b1}}  : h_shifted[H_AW-1:0];
-wire [H2_AW-1:0] h2_bin = (|h2_shifted[AMP_W-1:H2_AW]) ? {H2_AW{1'b1}} : h2_shifted[H2_AW-1:0];
+//=============================================================================
+// Discriminador. Va DESPUES de los divisores para que el selector alcance a las
+// features de forma; el detalle esta en mca_discriminator.sv.
+//=============================================================================
+wire discr_ok;
+
+mca_discriminator #(.FW(AMP_W), .NFEAT(NFEAT)) i_discr (
+  .ev_feat_i(ev_feat), .cfg_en_i(cfg_discr_en), .cfg_sel_i(cfg_discr_sel),
+  .cfg_out_i(cfg_discr_out), .cfg_min_i(cfg_discr_min),
+  .cfg_max_i(cfg_discr_max), .accept_o(discr_ok)
+);
+
+// Un evento rechazado por el discriminador NO entra a ningun motor, y se cuenta
+// aparte de cnt_rej_amp: son dos criterios distintos y hay que poder atribuir
+// la perdida a cada uno.
+wire ev_hist = ev_valid && discr_ok;
+
+always @(posedge adc_clk_i)
+  if (!adc_rstn_i || clr_pulse)   cnt_rej_discr <= 32'h0;
+  else if (ev_valid && !discr_ok) cnt_rej_discr <= cnt_rej_discr + 32'h1;
+
+wire [H_AW-1:0]  h_bin;
+wire [H2_AW-1:0] h2_bin;
+wire [PSD_AW-1:0] h2y_bin;
+
+mca_zoom #(.FW(AMP_W), .AW(H_AW))   i_zoom_1d
+  (.feat_i(f_1d),  .z_i(cfg_z_1d),  .k_i(cfg_k_1d),  .bin_o(h_bin));
+mca_zoom #(.FW(AMP_W), .AW(H2_AW))  i_zoom_2dx
+  (.feat_i(f_2dx), .z_i(cfg_z_2dx), .k_i(cfg_k_2dx), .bin_o(h2_bin));
+mca_zoom #(.FW(AMP_W), .AW(PSD_AW)) i_zoom_2dy
+  (.feat_i(f_2dy), .z_i(cfg_z_2dy), .k_i(cfg_k_2dy), .bin_o(h2y_bin));
+
+//-----------------------------------------------------------------------------
+// ETAPA DE PIPELINE entre el zoom y los motores. Es obligatoria, y el motivo se
+// midio: sin ella el camino ev_feat_o -> mem de mca_hist tiene DIEZ niveles de
+// logica (mux 16:1 + barrel shifter del zoom + comparador + mux de saturacion +
+// decodificacion de direccion) y la sintesis paso de WNS -0.294 ns / 49
+// endpoints a -0.571 / 166, con los 166 en ESE camino.
+//
+// El razonamiento que fallo, por si vuelve a tentar: "el mux sale de un
+// registro, asi que arranca un camino nuevo". Es cierto y es irrelevante — lo
+// que importa no es de donde arranca sino cuanta logica hay HASTA el proximo
+// registro, y el destino es la direccion de una BRAM.
+//
+// Cuesta un ciclo mas de latencia entre el evento y su escritura al histograma.
+// No hay nada que dependa de cuando ocurre esa escritura, asi que es gratis.
+// `inc` y las tres direcciones se registran JUNTOS: si se desalinearan, el
+// evento se contaria en el bin del evento anterior.
+//-----------------------------------------------------------------------------
+reg [H_AW-1:0]   h_bin_q;
+reg [H2_AW-1:0]  h2_bin_q;
+reg [PSD_AW-1:0] h2y_bin_q;
+reg              ev_hist_q, ev_psd_ok_q;
+
+always @(posedge adc_clk_i)
+  if (!adc_rstn_i) begin
+    h_bin_q <= {H_AW{1'b0}}; h2_bin_q <= {H2_AW{1'b0}};
+    h2y_bin_q <= {PSD_AW{1'b0}};
+    ev_hist_q <= 1'b0; ev_psd_ok_q <= 1'b0;
+  end else begin
+    h_bin_q   <= h_bin;
+    h2_bin_q  <= h2_bin;
+    h2y_bin_q <= h2y_bin;
+    ev_hist_q <= ev_hist;
+    ev_psd_ok_q <= ev_psd_ok;
+  end
 
 //=============================================================================
 // Estrobo de lectura de bus: UN ciclo. sys_bus_cdc mantiene ren alto hasta el
@@ -190,19 +295,25 @@ wire wr_stb = sys_wen && !en_sr[0];
 wire [31:0] hist_h_data,  hist_2d_data;
 wire        hist_h_busy,  hist_2d_busy;
 wire [31:0] hist_h_drop,  hist_2d_drop;
+wire        hist_h_full,  hist_2d_full;
+wire [31:0] hist_h_supp,  hist_2d_supp;
 
 generate if (EN_HIST_H) begin : g_hist_h
   mca_hist #(.AW(H_AW), .CW(32)) i_hist_h (
     .clk_i(adc_clk_i), .rstn_i(adc_rstn_i),
-    .inc_i(ev_valid), .inc_addr_i(h_bin),
+    .inc_i(ev_hist_q), .inc_addr_i(h_bin_q),
     .clear_i(clr_pulse), .busy_o(hist_h_busy),
+    .cfg_keep_i(cfg_keep_full), .full_o(hist_h_full),
     .rd_i(rd_stb && (sys_addr[19:16] == 4'h1)), .rd_addr_i(sys_addr[H_AW+1:2]),
-    .rd_data_o(hist_h_data), .dropped_o(hist_h_drop)
+    .rd_data_o(hist_h_data), .dropped_o(hist_h_drop),
+    .suppressed_o(hist_h_supp)
   );
 end else begin : g_no_hist_h
   assign hist_h_data = 32'h0;
   assign hist_h_busy = 1'b0;
   assign hist_h_drop = 32'h0;
+  assign hist_h_full = 1'b0;
+  assign hist_h_supp = 32'h0;
 end endgenerate
 
 generate if (EN_HIST_H_PSD) begin : g_hist_2d
@@ -210,16 +321,20 @@ generate if (EN_HIST_H_PSD) begin : g_hist_2d
     .clk_i(adc_clk_i), .rstn_i(adc_rstn_i),
     // Sólo entran los eventos con factor de forma válido; los rechazados por
     // el divisor siguen contando en el espectro 1D pero no en el mapa 2D.
-    .inc_i(ev_valid && ev_psd_ok), .inc_addr_i({h2_bin, ev_psd}),
+    .inc_i(ev_hist_q && ev_psd_ok_q), .inc_addr_i({h2_bin_q, h2y_bin_q}),
     .clear_i(clr_pulse), .busy_o(hist_2d_busy),
+    .cfg_keep_i(cfg_keep_full), .full_o(hist_2d_full),
     .rd_i(rd_stb && (sys_addr[19:16] == 4'h2)),
     .rd_addr_i(sys_addr[H2_AW+PSD_AW+1:2]),
-    .rd_data_o(hist_2d_data), .dropped_o(hist_2d_drop)
+    .rd_data_o(hist_2d_data), .dropped_o(hist_2d_drop),
+    .suppressed_o(hist_2d_supp)
   );
 end else begin : g_no_hist_2d
   assign hist_2d_data = 32'h0;
   assign hist_2d_busy = 1'b0;
   assign hist_2d_drop = 32'h0;
+  assign hist_2d_full = 1'b0;
+  assign hist_2d_supp = 32'h0;
 end endgenerate
 
 wire clear_busy = hist_h_busy || hist_2d_busy;
@@ -252,7 +367,15 @@ always @(posedge adc_clk_i) begin
     cfg_amp_min <= 16'd0; cfg_amp_max <= 16'hFFFF;
     cfg_amp_src <= 1'b0; cfg_q_shift <= 5'd0;
     cfg_h_shift <= 5'd0; cfg_h2_shift <= 5'd0;
-    cfg_dec <= 16'd1;
+    // Defaults = comportamiento historico: eje 1D con la amplitud de PICO
+    // (§5 del doc de diseno), eje X del 2D tambien amplitud, eje Y el factor de
+    // forma, y zoom en cero (fondo de escala) en los tres.
+    cfg_sel_1d <= 4'd0; cfg_sel_2dx <= 4'd0; cfg_sel_2dy <= 4'd2;
+    cfg_z_1d <= 4'd0; cfg_z_2dx <= 4'd0; cfg_z_2dy <= 4'd0;
+    cfg_k_1d <= 8'd0; cfg_k_2dx <= 8'd0; cfg_k_2dy <= 8'd0;
+    cfg_dec <= 16'd1; cfg_keep_full <= 1'b0;
+    cfg_discr_en <= 1'b0; cfg_discr_out <= 1'b0; cfg_discr_sel <= 4'd0;
+    cfg_discr_min <= {AMP_W{1'b0}}; cfg_discr_max <= {AMP_W{1'b1}};
     clr_pulse <= 1'b0;
   end else begin
     clr_pulse <= 1'b0;
@@ -278,15 +401,41 @@ always @(posedge adc_clk_i) begin
         20'h00038 : begin
                       cfg_amp_src <= sys_wdata[0];
                       cfg_q_shift <= sys_wdata[12:8];
+                      // COMPATIBILIDAD: cfg_amp_src era el selector de
+                      // estimador del eje 1D. Ahora eso lo dice cfg_sel_1d, y
+                      // escribir el registro viejo lo sigue moviendo, asi que
+                      // toda la campana de caracterizacion existente anda sin
+                      // tocarla. F_PEAK = 0, F_INT = 1.
+                      cfg_sel_1d  <= sys_wdata[0] ? 4'd1 : 4'd0;
+                      cfg_sel_2dx <= sys_wdata[0] ? 4'd1 : 4'd0;
                     end
         20'h0003C : cfg_h_shift    <= sys_wdata[4:0];
         20'h00040 : cfg_h2_shift   <= sys_wdata[4:0];
         20'h00044 : cfg_dec        <= sys_wdata[15:0];
+        20'h000A4 : cfg_keep_full  <= sys_wdata[0];
+        20'h00098 : begin
+                      cfg_discr_en  <= sys_wdata[0];
+                      cfg_discr_out <= sys_wdata[1];
+                      cfg_discr_sel <= sys_wdata[7:4];
+                    end
+        20'h0009C : cfg_discr_min <= sys_wdata[AMP_W-1:0];
+        20'h000A0 : cfg_discr_max <= sys_wdata[AMP_W-1:0];
         20'h00048 : cfg_gate_mode  <= sys_wdata[0];
         20'h0004C : begin
           cfg_gate_short <= sys_wdata[LEN_W-1:0];
           cfg_gate_long  <= sys_wdata[16+LEN_W-1:16];
         end
+        // Que feature alimenta cada eje. Escribir aca GANA sobre cfg_amp_src,
+        // porque es el registro nuevo y explicito.
+        20'h00090 : begin
+          cfg_sel_1d  <= sys_wdata[3:0];
+          cfg_sel_2dx <= sys_wdata[7:4];
+          cfg_sel_2dy <= sys_wdata[11:8];
+        end
+        // Zoom por eje: {k[15:8], z[3:0]}. z=0 = fondo de escala.
+        20'h00094 : begin cfg_z_1d  <= sys_wdata[3:0]; cfg_k_1d  <= sys_wdata[15:8]; end
+        20'h000B8 : begin cfg_z_2dx <= sys_wdata[3:0]; cfg_k_2dx <= sys_wdata[15:8]; end
+        20'h000BC : begin cfg_z_2dy <= sys_wdata[3:0]; cfg_k_2dy <= sys_wdata[15:8]; end
         default   : ;
       endcase
     end
@@ -347,8 +496,20 @@ always @(posedge adc_clk_i) begin
       20'h0003C : sys_rdata <= {27'h0, cfg_h_shift};
       20'h00040 : sys_rdata <= {27'h0, cfg_h2_shift};
       20'h00044 : sys_rdata <= {16'h0, cfg_dec};
+      20'h00098 : sys_rdata <= {24'h0, cfg_discr_sel, 2'h0,
+                                cfg_discr_out, cfg_discr_en};
+      20'h0009C : sys_rdata <= {{(32-AMP_W){1'b0}}, cfg_discr_min};
+      20'h000A0 : sys_rdata <= {{(32-AMP_W){1'b0}}, cfg_discr_max};
+      20'h000A4 : sys_rdata <= {31'h0, cfg_keep_full};
+      20'h000AC : sys_rdata <= cnt_rej_discr;
+      20'h000A8 : sys_rdata <= {30'h0, hist_2d_full, hist_h_full};
+      20'h000B0 : sys_rdata <= hist_h_supp + hist_2d_supp;
       20'h00048 : sys_rdata <= {31'h0, cfg_gate_mode};
       20'h0004C : sys_rdata <= {cfg_gate_long, cfg_gate_short};
+      20'h00090 : sys_rdata <= {20'h0, cfg_sel_2dy, cfg_sel_2dx, cfg_sel_1d};
+      20'h00094 : sys_rdata <= {16'h0, cfg_k_1d,  4'h0, cfg_z_1d };
+      20'h000B8 : sys_rdata <= {16'h0, cfg_k_2dx, 4'h0, cfg_z_2dx};
+      20'h000BC : sys_rdata <= {16'h0, cfg_k_2dy, 4'h0, cfg_z_2dy};
 
       // --- contadores de eventos ---
       20'h00050 : sys_rdata <= c_total;

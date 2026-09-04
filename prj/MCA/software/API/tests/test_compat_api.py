@@ -161,8 +161,9 @@ def bloque_superficie(r):
                     f'era {esp["kind"]}, ahora {got["kind"]}',
                     desviacion=(mod, nombre))
             if esp['kind'] == 'function':
-                r.check(got.get('sig') == esp.get('sig'),
-                        f'[A] {mod}.{nombre} cambió de firma',
+                ok, por_que = _firma_compatible(esp.get('sig'), got.get('sig'))
+                r.check(ok, f'[A] {mod}.{nombre} cambió de firma de forma '
+                            f'INCOMPATIBLE ({por_que})',
                         f'era  {esp.get("sig")}\n    ahora {got.get("sig")}')
             elif esp['kind'] == 'class':
                 for m, msp in esp.get('methods', {}).items():
@@ -170,8 +171,10 @@ def bloque_superficie(r):
                     if not r.check(mgot is not None,
                                    f'[A] {mod}.{nombre}.{m}() desapareció'):
                         continue
-                    r.check(mgot.get('sig') == msp.get('sig'),
-                            f'[A] {mod}.{nombre}.{m}() cambió de firma',
+                    ok, por_que = _firma_compatible(msp.get('sig'),
+                                                    mgot.get('sig'))
+                    r.check(ok, f'[A] {mod}.{nombre}.{m}() cambió de firma de '
+                                f'forma INCOMPATIBLE ({por_que})',
                             f'era  {msp.get("sig")}\n    ahora {mgot.get("sig")}')
 
 
@@ -205,6 +208,81 @@ def bloque_constantes(r):
 # C. Trazas de escritura de registros
 # =============================================================================
 
+def _partir_params(sig):
+    """Parte "(a, b=1, c=(0, 0))" en ["a", "b=1", "c=(0, 0)"].
+
+    Hace falta partir por comas de PRIMER NIVEL: un default como `(0, 0)` tiene
+    comas adentro y un split ingenuo lo rompe en dos parametros fantasma.
+    """
+    s = sig.strip()
+    if s.startswith('(') and s.endswith(')'):
+        s = s[1:-1]
+    fuera, actual, prof = [], '', 0
+    for ch in s:
+        if ch in '([{':
+            prof += 1
+        elif ch in ')]}':
+            prof -= 1
+        if ch == ',' and prof == 0:
+            fuera.append(actual.strip()); actual = ''
+        else:
+            actual += ch
+    if actual.strip():
+        fuera.append(actual.strip())
+    return fuera
+
+
+def _firma_compatible(esp, got):
+    """Los parametros del baseline siguen estando, en orden y con el MISMO default.
+
+    El contrato de este archivo es "nada de lo publico cambio de SIGNIFICADO",
+    no "la firma es identica byte a byte". Agregar parametros opcionales al
+    final no rompe a ningun llamador existente, y bloquearlo obligaria a
+    regenerar el baseline en cada mejora — que es justamente lo que vaciaria de
+    valor al test. Lo que sigue siendo una rotura, y se sigue detectando:
+    quitar un parametro, renombrarlo, reordenarlo, o cambiarle el default.
+    """
+    if esp is None or got is None:
+        return esp == got, 'una de las dos firmas no existe'
+    if esp == got:
+        return True, ''
+    pe, pg = _partir_params(esp), _partir_params(got)
+    if len(pg) < len(pe):
+        return False, 'se quitaron parametros'
+    if pg[:len(pe)] != pe:
+        return False, 'los parametros viejos cambiaron de nombre, orden o default'
+    nuevos = pg[len(pe):]
+    sin_default = [x for x in nuevos
+                   if '=' not in x and not x.startswith(('*', '**'))]
+    if sin_default:
+        return False, f'parametros nuevos SIN default: {sin_default}'
+    return True, ''
+
+
+def _es_subsecuencia(esperada, obtenida):
+    """Las escrituras del baseline siguen estando, en ORDEN y con el mismo valor.
+
+    Igual que con las firmas: agregar registros nuevos no cambia el significado
+    de los viejos. Lo que este bloque existe para atrapar —una direccion que se
+    corre, un valor que cambia, dos escrituras que se reordenan, una que
+    desaparece— lo sigue atrapando, porque exige que TODA la secuencia vieja
+    aparezca completa y en el mismo orden relativo.
+    """
+    esperada = np.asarray(esperada)
+    obtenida = np.asarray(obtenida)
+    if len(esperada) == 0:
+        return True
+    if len(obtenida) < len(esperada):
+        return False
+    i = 0
+    for fila in obtenida:
+        if np.array_equal(fila, esperada[i]):
+            i += 1
+            if i == len(esperada):
+                return True
+    return False
+
+
 def bloque_trazas(r):
     gold = _golden()
     _, act = _actual()
@@ -233,8 +311,7 @@ def bloque_trazas(r):
                         f'era  {esp}\n    ahora {got}')
             continue
 
-        igual = (len(esperada) == len(obtenida) and
-                 np.array_equal(esperada, obtenida))
+        igual = _es_subsecuencia(esperada, obtenida)
         r.check(igual,
                 f'[C] la secuencia de escrituras de {nombre} cambió',
                 _diff_traza(esperada, obtenida) if not igual else None)

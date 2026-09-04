@@ -303,6 +303,67 @@ energía, el corte de discriminación no debería ser un umbral único sino una
 es exactamente el insumo para trazarla. Del lado del hardware se mejora ajustando
 `cfg_tail_dly` y la ventana de cola.
 
+#### Dos features de forma, y miden cosas distintas
+
+El RTL calcula **dos** cocientes, en paralelo y con el mismo denominador. Las dos
+son **invariantes de ganancia** (numerador y denominador escalan juntos), así que
+las dos son ejes de forma independientes de la energía — que es la condición para
+que un mapa 2D tenga ejes separables.
+
+| | `Q_cola/Q_total` (`F_PSD`) | `Q/P`, implementado como `P/Q` (`F_INVW`) |
+|---|---|---|
+| Qué mide | La **fracción de carga en la cola**: peso del componente lento, asimetría | El **ancho efectivo**: `Σx / max(x)` es el número equivalente de muestras a altura plena |
+| Unidades | Fracción en `[0,1)` | Muestras (su inverso) |
+| Sensible a | *Dónde* está la carga | *Cuánta* carga hay por unidad de altura |
+| Ruido | Dos integrales, las dos promediadas: buena relación señal-ruido | El denominador es **una muestra** (el pico): arrastra el ruido completo del ADC |
+| Error de base | Entra en numerador (`N_cola·ε`) y denominador (`N_tot·ε`): **se cancela parcialmente** | Entra sólo en el numerador (`N·ε`): **sesgo puro** |
+| Perilla | Depende de dónde se parte (`gate_short`) | No tiene perilla |
+
+Dos pulsos del mismo ancho pero distinto balance cabeza/cola dan **el mismo `Q/P`
+y distinto `Q_cola/Q_total`**. Por eso `Q_cola/Q_total` es el estándar de PSD en
+centelladores orgánicos (Brooks 1959; Knoll cap. 17) y `Q/P` es un discriminante
+de **ancho** — útil para rechazar apilamiento y ruido, no para separar n/γ.
+
+**Y para apilamiento el estándar no sirve.** Medido por Monte-Carlo sobre el
+espectro de una línea a 100 kcps, donde el **40–47 %** de los eventos contiene más
+de un pulso y `cnt_pileup` marca entre 0.00 % y 0.45 %:
+
+| Modo de ventana | Discriminador | Continuo sobre el fotopico | Apilados rechazados |
+|---|---|---|---|
+| 0 (histéresis) | *sin corte* | 32.4 % | — |
+| 0 | **`Q/pico`** | **0.8 %** | **99.1 %** |
+| 0 | `Q_cola/Q_tot` | 28.9 % | 29.6 % |
+| 1 (compuertas) | *sin corte* | 22.7 % | — |
+| 1 | `Q/pico` | 7.2 % | 45.6 % |
+| 1 | `Q_cola/Q_tot` | 22.7 % | **0.0 %** |
+
+`Q_cola/Q_total` rechaza **exactamente nada** en modo compuerta: con
+`gate_short = 32` medido desde el disparo, la cola se lleva el 94 % de la carga,
+el cociente vive en 60/64 y le quedan **tres valores útiles de los 64** del eje.
+No hay rango dinámico para discriminar. Ver
+[`software/monte-carlo/`](../../software/monte-carlo/).
+
+**Y hay una tensión de diseño que conviene tener explícita**: lo que hace bueno
+al modo compuerta para la *resolución* —que el largo no dependa de la señal, ×1.91
+mejor (§14.1b de los resultados)— es exactamente lo que lo deja **ciego al
+apilamiento**, porque la ventana no se estira cuando llega el segundo pulso y las
+dos poblaciones se cruzan en el eje de forma. La combinación que gana para
+apilamiento es **modo histéresis + corte por `Q/pico`**.
+
+**Por qué `P/Q` y no `Q/P`.** El divisor restaurador exige `num < den`, y
+`Q/P > 1` no entra. `P/Q` sí, porque `q_tot = Σxc ≥ max(xc) = peak` siempre. Es la
+misma información, monótona decreciente en vez de creciente. Cuesta un segundo
+`mca_div_restore`, **en paralelo** con el primero: los dos arrancan al cerrar y
+terminan juntos, así que no agrega ni un ciclo de tiempo muerto, y cero DSP.
+
+**El cociente se amplió de 6 a 16 bits** (`DIV_W`). Con 6 no había rango para el
+ancho: los valores útiles de `Q/P` van de ~250 (limpio) a ~1200 (apilado), o sea
+`P/Q ∈ [0.0008, 0.004]`, que con 6 bits se cuantiza a **cero**. Con 16 caen en
+`[52, 262]`, que sí separa las poblaciones. El eje del mapa 2D sigue teniendo
+`PSD_AW` bits tomando los **bits altos** del cociente, y eso es **bit-exacto**
+respecto del comportamiento anterior —`floor(floor(a·2¹⁶/b)/2¹⁰) = floor(a·2⁶/b)`—
+así que ampliar el divisor no movió ni un evento del mapa ya caracterizado.
+
 ### 2.6 Una que no es métrica pero rompe todo
 
 La **constante del seguidor de línea de base** (`cfg_bl_k`): si 2^k·8 ns es

@@ -56,10 +56,12 @@ module mca_pulse_feature #(
   parameter integer DW      = 14,  // ancho de muestra (con signo)
   parameter integer QW      = 32,  // ancho de los acumuladores de carga
   parameter integer AMP_W   = 16,  // ancho de la amplitud emitida
-  parameter integer PSD_AW  = 6,   // bits del eje de factor de forma
+  parameter integer PSD_AW  = 6,   // bits del EJE de factor de forma (mapa 2D)
+  parameter integer DIV_W   = 16,  // bits de COCIENTE de los divisores
+  parameter integer NFEAT   = 16,  // ranuras del bus de features
   parameter integer LEN_W   = 16,  // ancho de los contadores de longitud
   parameter integer BL_KW   = 4,   // bits del exponente k del seguidor IIR
-  parameter integer EN_PSD  = 1    // 0: no instancia el divisor
+  parameter integer EN_PSD  = 1    // 0: no instancia los divisores
 )(
   input                       clk_i            ,
   input                       rstn_i           ,
@@ -93,6 +95,10 @@ module mca_pulse_feature #(
   output reg [AMP_W-1:0]      ev_amp_o         ,
   output reg [PSD_AW-1:0]     ev_psd_o         ,
   output reg                  ev_psd_ok_o      ,  // 0 => no histogramear el 2D
+  // Bus de features: NFEAT ranuras de AMP_W bits, todas del MISMO evento.
+  // Se arma a la salida de S_DIV, no al cerrar, porque los cocientes valen
+  // DIV_W ciclos mas tarde que el resto (ver F_ del cuerpo).
+  output reg [NFEAT*AMP_W-1:0] ev_feat_o       ,
 
   // --- estado y contadores ---
   output     signed [DW-1:0]  baseline_o       ,
@@ -227,33 +233,115 @@ wire amp_ok = (amp_sel >= cfg_amp_min_i) && (amp_sel <= cfg_amp_max_i);
 wire psd_inputs_ok = (q_tot != {QW{1'b0}}) && (q_tail < q_tot);
 
 //-----------------------------------------------------------------------------
-// Divisor del factor de forma
+// Los DOS divisores de forma, en paralelo
+//
+// (1) PSD = Q_cola/Q_total — comparacion de carga (Brooks 1959; Knoll cap. 17).
+//     Mide DONDE esta la carga: el peso de la componente lenta.
+// (2) INVW = Pico/Q_total  — el ancho inverso. Mide CUANTA carga hay por unidad
+//     de altura, o sea el ancho efectivo del pulso.
+//
+// Son ejes de forma INDEPENDIENTES: dos pulsos del mismo ancho pero distinto
+// balance cabeza/cola dan el mismo INVW y distinto PSD. Y el segundo es el que
+// sirve para rechazar apilamiento — medido por Monte-Carlo sobre el espectro de
+// una linea a 100 kcps, PSD rechaza el 29.6 % de los apilados en modo histeresis
+// y EXACTAMENTE NADA en modo compuerta, mientras que el ancho rechaza el 99.1 %.
+// Ver software/monte-carlo/.
+//
+// Por que INVW = P/Q y no Q/P: el divisor restaurador exige num < den, y Q/P > 1
+// no entra. P/Q si, porque q_tot = sum(xc) >= max(xc) = peak SIEMPRE. Es la misma
+// informacion, monotona decreciente en vez de creciente.
+//
+// Corren EN PARALELO: los dos arrancan al cerrar y terminan juntos, asi que el
+// segundo no agrega ni un ciclo de tiempo muerto. Cuestan cero DSP.
+//
+// DIV_W = 16 bits de cociente (antes 6). Con 6 bits el ancho inverso no tenia
+// rango: los valores utiles de Q/P van de ~250 (limpio) a ~1200 (apilado), o sea
+// P/Q en [0.0008, 0.004], que con 6 bits se cuantiza a CERO. Con 16 bits caen en
+// [52, 262], que si separa las poblaciones.
+//
+// El eje del mapa 2D sigue teniendo PSD_AW bits: se toman los PSD_AW bits ALTOS
+// del cociente. Eso es BIT-EXACTO respecto del comportamiento anterior, porque
+// floor(floor(a*2^16/b)/2^10) == floor(a*2^6/b) para enteros positivos. O sea que
+// ampliar el divisor no cambia ni un evento del mapa 2D ya caracterizado.
 //-----------------------------------------------------------------------------
 reg              div_start;
-reg  [QW-1:0]    div_num, div_den;
-wire [PSD_AW-1:0] div_q;
+reg  [QW-1:0]    div_num, div_den, div2_num;
+wire [DIV_W-1:0] div_q, div2_q;
 wire             div_valid, div_err, div_sat, div_busy;
+wire             div2_valid, div2_err, div2_sat;
 
 generate if (EN_PSD) begin : g_div
-  mca_div_restore #(.D_W(QW), .Q_W(PSD_AW)) i_div (
+  mca_div_restore #(.D_W(QW), .Q_W(DIV_W)) i_div (
     .clk_i(clk_i), .rstn_i(rstn_i),
     .start_i(div_start), .num_i(div_num), .den_i(div_den),
     .q_o(div_q), .valid_o(div_valid), .err_o(div_err), .sat_o(div_sat),
     .busy_o(div_busy)
   );
+  // Mismo denominador, mismo arranque, misma latencia: no hace falta mirar su
+  // valid_o, alcanza con el del primero.
+  mca_div_restore #(.D_W(QW), .Q_W(DIV_W)) i_div_w (
+    .clk_i(clk_i), .rstn_i(rstn_i),
+    .start_i(div_start), .num_i(div2_num), .den_i(div_den),
+    .q_o(div2_q), .valid_o(div2_valid), .err_o(div2_err), .sat_o(div2_sat),
+    .busy_o()
+  );
 end else begin : g_nodiv
-  assign div_q     = {PSD_AW{1'b0}};
-  assign div_valid = 1'b0;
-  assign div_err   = 1'b0;
-  assign div_sat   = 1'b0;
-  assign div_busy  = 1'b0;
+  assign div_q      = {DIV_W{1'b0}};
+  assign div_valid  = 1'b0;
+  assign div_err    = 1'b0;
+  assign div_sat    = 1'b0;
+  assign div_busy   = 1'b0;
+  assign div2_q     = {DIV_W{1'b0}};
+  assign div2_valid = 1'b0;
+  assign div2_err   = 1'b0;
+  assign div2_sat   = 1'b0;
 end endgenerate
 
 assign busy_o = (st != S_IDLE);
 
-// Datos del evento retenidos mientras corre el divisor, para que el registro
-// que ven los motores sea coherente.
-reg [AMP_W-1:0] hold_amp;
+// Datos del evento retenidos mientras corren los divisores, para que el registro
+// que ven los motores sea coherente. `len`, `t_peak` y `peak` se pisan apenas
+// llega el pulso SIGUIENTE, asi que hay que congelarlos: sin esto el bus de
+// features mezclaria features de dos eventos distintos, que es exactamente el
+// modo de falla que el registro unico existe para evitar.
+reg [AMP_W-1:0] hold_amp;      // el estimador SELECCIONADO (pico o integral)
+reg [AMP_W-1:0] hold_amp_int;  // la integral, siempre: es su propia ranura
+reg [DW-1:0]    hold_peak;
+reg [LEN_W-1:0] hold_len, hold_tpk;
+
+//-----------------------------------------------------------------------------
+// Indices del bus de features. Fijos y compartidos: el selector de eje del
+// histograma y el discriminador usan ESTA numeracion, asi que no se pueden
+// desincronizar.
+//-----------------------------------------------------------------------------
+localparam integer F_PEAK  = 0;  // amplitud de pico
+localparam integer F_INT   = 1;  // integral de carga (Q_total >> q_shift)
+localparam integer F_PSD   = 2;  // Q_cola/Q_total   — donde esta la carga
+localparam integer F_INVW  = 3;  // Pico/Q_total     — ancho inverso
+localparam integer F_LEN   = 4;  // largo de la ventana, en muestras
+localparam integer F_TRISE = 5;  // muestras del disparo al pico
+// 6..NFEAT-1 reservadas (meseta del trapecio). Se atan a cero: la sintesis las
+// borra enteras, asi que una ranura sin usar no cuesta nada.
+
+// Normalizacion de cada ranura. El contrato del bus es "uint16 con fondo de
+// escala 0xFFFF", asi que las features acotadas se alinean a la IZQUIERDA:
+// extenderlas con cero dejaria una fraccion de DIV_W bits viviendo en los bits
+// BAJOS, y entonces cada eje necesitaria un corrimiento distinto para decir lo
+// mismo. Alineadas, un solo corrimiento sirve para todas.
+//
+// Excepcion honesta: F_INVW, F_LEN y F_TRISE NO se normalizan.
+//   - F_LEN/F_TRISE son contadores sin fondo de escala natural (dependen de
+//     cfg_gate_long).
+//   - F_INVW es una fraccion pero vive cerca de CERO (P/Q ~ 0.001 para un pulso
+//     de 250 muestras): alinearla a la izquierda la mandaria toda al bin 0. Su
+//     escala depende del ancho del pulso, que es justo lo que mide, asi que el
+//     factor no se puede fijar en tiempo de compilacion.
+// Las tres se ajustan con el corrimiento del eje, y esto esta documentado en el
+// mapa de registros para que no sorprenda.
+function automatic [AMP_W-1:0] feat_izq(input [DIV_W-1:0] q);
+  feat_izq = (AMP_W >= DIV_W) ? {q, {(AMP_W-DIV_W){1'b0}}}
+                              : q[DIV_W-1 -: AMP_W];
+endfunction
 
 //-----------------------------------------------------------------------------
 always @(posedge clk_i) begin
@@ -264,9 +352,13 @@ always @(posedge clk_i) begin
     q_tot <= {QW{1'b0}}; q_tail <= {QW{1'b0}};
     bl_acc <= {BL_ACC_W{1'b0}}; bl_hold <= {LEN_W{1'b0}};
     div_start <= 1'b0; div_num <= {QW{1'b0}}; div_den <= {QW{1'b0}};
+    div2_num <= {QW{1'b0}};
     hold_amp <= {AMP_W{1'b0}};
+    hold_amp_int <= {AMP_W{1'b0}}; hold_peak <= {DW{1'b0}};
+    hold_len <= {LEN_W{1'b0}}; hold_tpk <= {LEN_W{1'b0}};
     ev_valid_o <= 1'b0; ev_amp_o <= {AMP_W{1'b0}};
     ev_psd_o <= {PSD_AW{1'b0}}; ev_psd_ok_o <= 1'b0;
+    ev_feat_o <= {(NFEAT*AMP_W){1'b0}};
     baseline_stale_o <= 1'b0;
     cnt_total_o <= 32'h0; cnt_accepted_o <= 32'h0; cnt_rej_amp_o <= 32'h0;
     cnt_rej_psd_o <= 32'h0; cnt_pileup_o <= 32'h0; cnt_lost_busy_o <= 32'h0;
@@ -282,8 +374,9 @@ always @(posedge clk_i) begin
     // cierre: ese CE era el ultimo camino en falla del diseno (-0.096 ns).
     // El divisor engancha sus operandos al ver div_start, asi que cargarlos de
     // mas no cambia nada.
-    div_num <= q_tail;
-    div_den <= q_tot;
+    div_num  <= q_tail;
+    div_den  <= q_tot;
+    div2_num <= {{(QW-DW){1'b0}}, peak};   // ancho inverso: P/Q
 
     //--- seguidor de línea de base: sólo en reposo y fuera del holdoff -------
     // Ojo con `!open_pulse`: en el flanco en que se abre el pulso, `st` TODAVÍA
@@ -349,18 +442,30 @@ always @(posedge clk_i) begin
               cnt_rej_amp_o <= cnt_rej_amp_o + 32'h1;
               st <= S_IDLE;
             end else begin
-              hold_amp <= amp_sel;
+              // Se congelan TODAS las features que el pulso siguiente podria
+              // pisar mientras corren los divisores.
+              hold_amp     <= amp_sel;
+              hold_amp_int <= amp_int;
+              hold_peak    <= peak;
+              hold_len     <= len;
+              hold_tpk     <= t_peak;
               if (EN_PSD != 0) begin
                 // div_num/div_den se cargan incondicionalmente mas abajo: aca
                 // solo se dispara el arranque.
                 div_start <= 1'b1;
                 st        <= S_DIV;
               end else begin
-                // Sin motor de forma: el evento sale directo.
+                // Sin motor de forma: el evento sale directo, con las ranuras
+                // de forma en cero.
                 cnt_accepted_o <= cnt_accepted_o + 32'h1;
                 ev_amp_o    <= amp_sel;
                 ev_psd_o    <= {PSD_AW{1'b0}};
                 ev_psd_ok_o <= 1'b0;
+                ev_feat_o   <= {(NFEAT*AMP_W){1'b0}};
+                ev_feat_o[F_PEAK *AMP_W +: AMP_W] <= {peak, {(AMP_W-DW){1'b0}}};
+                ev_feat_o[F_INT  *AMP_W +: AMP_W] <= amp_int;
+                ev_feat_o[F_LEN  *AMP_W +: AMP_W] <= len;
+                ev_feat_o[F_TRISE*AMP_W +: AMP_W] <= t_peak;
                 ev_valid_o  <= 1'b1;
                 st <= S_IDLE;
               end
@@ -396,17 +501,36 @@ always @(posedge clk_i) begin
 
         if (div_valid) begin
           ev_amp_o <= hold_amp;
+
+          // --- bus de features: se arma ACA, no al cerrar ------------------
+          // Es el unico instante en que TODAS las ranuras son del mismo evento:
+          // pico, largo y tiempo de subida valen desde el cierre (congelados en
+          // los hold_), y los dos cocientes recien ahora.
+          ev_feat_o <= {(NFEAT*AMP_W){1'b0}};
+          ev_feat_o[F_PEAK *AMP_W +: AMP_W] <= {hold_peak, {(AMP_W-DW){1'b0}}};
+          ev_feat_o[F_INT  *AMP_W +: AMP_W] <= hold_amp_int;
+          ev_feat_o[F_LEN  *AMP_W +: AMP_W] <= hold_len;
+          ev_feat_o[F_TRISE*AMP_W +: AMP_W] <= hold_tpk;
+          // El ancho inverso NO se alinea a la izquierda (ver feat_izq): vive
+          // cerca de cero y su escala depende del ancho del pulso.
+          ev_feat_o[F_INVW *AMP_W +: AMP_W] <=
+              div2_sat ? {AMP_W{1'b1}} : {{(AMP_W-DIV_W){1'b0}}, div2_q};
+
           if (div_err || div_sat || !psd_inputs_ok) begin
             // El evento sigue siendo bueno en amplitud: entra al espectro 1D,
-            // pero no al mapa 2D.
+            // pero no al mapa 2D. La ranura de forma queda en cero.
             cnt_rej_psd_o  <= cnt_rej_psd_o + 32'h1;
             cnt_accepted_o <= cnt_accepted_o + 32'h1;
             ev_psd_o    <= {PSD_AW{1'b0}};
             ev_psd_ok_o <= 1'b0;
           end else begin
             cnt_accepted_o <= cnt_accepted_o + 32'h1;
-            ev_psd_o    <= div_q;
+            // El eje del mapa 2D toma los PSD_AW bits ALTOS del cociente de
+            // DIV_W. Es BIT-EXACTO respecto de un divisor de PSD_AW bits:
+            // floor(floor(a*2^DIV_W/b) / 2^(DIV_W-PSD_AW)) == floor(a*2^PSD_AW/b).
+            ev_psd_o    <= div_q[DIV_W-1 -: PSD_AW];
             ev_psd_ok_o <= 1'b1;
+            ev_feat_o[F_PSD*AMP_W +: AMP_W] <= feat_izq(div_q);
           end
           ev_valid_o <= 1'b1;
           st <= S_IDLE;
