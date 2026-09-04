@@ -10,7 +10,8 @@ Código:
 
 | Archivo | Qué es |
 |---|---|
-| [`../software/mca_utils.py`](../../software/mca_utils.py) | driver (`class MCA`) + helpers de análisis **puros** |
+| [`API/mca.py`](../../software/API/mca.py) | driver (`class MCA`) + registros + API de lectura y guardado |
+| [`API/analisis.py`](../../software/API/analisis.py) | helpers de análisis **puros** (sin hardware) |
 | [`../software/testbench_mca.py`](../../software/testbench_mca.py) | suite de caracterización: sólo lo que necesita hardware |
 | [`../software/tests/test_mca_hw.py`](../../software/tests/test_mca_hw.py) | smoke test del bus y los registros, **sin generador** |
 | [`../software/tests/test_mca_datapath.py`](../../software/tests/test_mca_datapath.py) | camino de datos completo, con señal |
@@ -253,7 +254,7 @@ cuatro órdenes de magnitud más largos que un pulso de detector.
 ### Arribos Poisson (`sweep_rate_poisson` / `run_poisson_loss.py`)
 
 El estímulo lo arma
-[`poisson_train_wave`](../../software/rigol_dg4162.py): sortea `N ~ Poisson(λT)`
+[`poisson_train_wave`](../../software/API/rigol_dg4162.py): sortea `N ~ Poisson(λT)`
 y pone las N posiciones **uniformes** en el ciclo, que es exactamente un proceso
 de Poisson condicionado a N — y además deja la **costura** del lazo del ARB
 limpia (un `cumsum` de exponenciales deja ahí un hueco determinista que se
@@ -307,7 +308,7 @@ lo único que cambia es la forma.
 | `trapezoidal` | rampa, techo plano, rampa | 1.000 |
 | `bipolar` | `(1−u/2)·u·e^{−u}` — doble diferenciación, cruza por cero | 0.979 |
 
-Están en [`rigol_dg4162.py`](../../software/rigol_dg4162.py) (`FORMAS_KNOLL`,
+Están en [`rigol_dg4162.py`](../../software/API/rigol_dg4162.py) (`FORMAS_KNOLL`,
 `shaped_train_wave`), que es donde ya vivían los constructores de onda: son
 funciones puras de numpy y se validan sin instrumento.
 
@@ -394,7 +395,7 @@ medición: es la verificación cruzada de que el eje de carga está bien escalad
 - [`register_map_mca.md`](register_map_mca.md) — los offsets que usa el driver.
 - [`decisiones_diseno_mca.md`](decisiones_diseno_mca.md) — por qué el hardware es
   como es.
-- [`bus_sistema_redpitaya.md`](../bus_sistema_redpitaya.md) — el bus, el timeout de
+- [`bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) — el bus, el timeout de
   32 ciclos y la clase de cuelgue que `test_mca_hw.py` verifica que no ocurra.
 - [`testbenches_escritura_archivos.md`](../testbenches_escritura_archivos.md) — la
   otra suite de software.

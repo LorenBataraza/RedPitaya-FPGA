@@ -24,7 +24,7 @@
 // register incondicional y responde a los 4 ciclos para CUALQUIER dirección,
 // mapeada o no. Un esclavo que no hace ack no produce sólo una lectura mala:
 // deja el CDC del slot desincronizado para siempre (ver
-// docs/bus_sistema_redpitaya.md §7.1).
+// docs/TOP/bus_sistema_redpitaya.md §7.1).
 //=============================================================================
 
 module integration_cfg #(

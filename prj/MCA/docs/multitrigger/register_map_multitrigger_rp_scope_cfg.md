@@ -1,4 +1,24 @@
-# Mapa de registros — `multitrigger_rp_scope_cfg`
+# Mapa de registros — `multitrigger_rp_scope_cfg` (HISTÓRICO)
+
+> **Este mapa quedó obsoleto con la separación en regiones.** El módulo
+> `multitrigger_rp_scope_cfg` se partió en dos esclavos con slot propio:
+>
+> - **OSC** → slot 1 (`0x4010_0000`), [`osc_cfg.sv`](../../rtl/mine/osc/osc_cfg.sv)
+> - **MULTITRIGGER** → slot 3 (`0x4030_0000`), [`multitrigger_cfg.sv`](../../rtl/mine/multitrigger/multitrigger_cfg.sv)
+>
+> Los mapas vigentes son [`register_map_multitrigger.md`](register_map_multitrigger.md)
+> y [`../osc/register_map_osc.md`](../osc/register_map_osc.md); el mapa de slots
+> completo está en [`../TOP/register_map_top.md`](../TOP/register_map_top.md).
+>
+> Los offsets del OSC que se listan acá **siguen siendo válidos**: viven en la
+> ventana de compatibilidad legacy del slot 1, que existe para que `librp` y las
+> 111 llamadas a la API `rp` del software sigan funcionando. Los del
+> multitrigger (`0x210`, `0x214`, `0x218`, `0x21C`, `0x240`–`0x24C`) **se
+> mudaron** y ya no responden en el slot 1.
+>
+> Se conserva este documento como referencia del mapa original.
+
+---
 
 Módulo: [`prj/MCA/rtl/mine/multitrigger_rp_scope_cfg.sv`](../../rtl/mine/multitrigger/multitrigger_rp_scope_cfg.sv)
 
@@ -7,7 +27,9 @@ bus* de la Pitaya. Las direcciones son `sys_addr[19:0]` (offset dentro del
 bloque del scope), siempre *word-aligned* (múltiplos de 4).
 
 Base física del bloque: `0x4010_0000`, tamaño `0x30000` (ver
-[`multitrigger_utils.py`](../../software/multitrigger_utils.py), `SCOPE_PHYS` /
+[`API/osciloscope.py`](../../software/API/osciloscope.py) y
+[`API/multitrigger.py`](../../software/API/multitrigger.py) — referencia de la
+API en [`docs/API/referencia_api.md`](../API/referencia_api.md). `SCOPE_PHYS` /
 `SCOPE_SIZE`).
 
 Parámetros relevantes: `CHN` (0/1, selecciona qué mitad del estado se

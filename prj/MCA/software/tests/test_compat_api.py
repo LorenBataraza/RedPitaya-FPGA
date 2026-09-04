@@ -30,6 +30,7 @@ import json
 import os
 import sys
 import tempfile
+import textwrap
 
 import numpy as np
 
@@ -44,15 +45,32 @@ import gen_compat_baseline as gen                                  # noqa: E402
 # Andamiaje
 # =============================================================================
 
+# Desviaciones INTENCIONADAS del refactor: cambios de superficie que se
+# decidieron a propósito y que no deben hacer fallar el test. Cada una lleva su
+# motivo. Lo que NO esté acá listado sigue siendo un fallo — la lista es un
+# registro que se lee en el diff del commit, no una alfombra para esconder
+# regresiones.
+DESVIACIONES = {
+    ('multitrigger_utils', 'rp'): (
+        'era el módulo `rp` importado a nivel de módulo; ahora es un proxy que '
+        'lo importa en el primer uso. Sin esto API/osciloscope.py entero era '
+        'inimportable desde la PC, y con él la configuración, los registros y '
+        'todo test offline. `mt.rp.loquesea` sigue funcionando en la placa.'),
+}
+
+
 class Resultado:
     def __init__(self):
         self.fallos = []
         self.ok = 0
         self.saltados = []
+        self.desviaciones = []
 
-    def check(self, cond, msg, detalle=None):
+    def check(self, cond, msg, detalle=None, desviacion=None):
         if cond:
             self.ok += 1
+        elif desviacion in DESVIACIONES:
+            self.desviaciones.append((desviacion, DESVIACIONES[desviacion]))
         else:
             self.fallos.append((msg, detalle))
         return cond
@@ -120,13 +138,25 @@ def bloque_superficie(r):
         if not r.check(mod in act, f'[A] el módulo {mod} ya no importa'):
             continue
         for nombre, esp in nombres.items():
+            if esp['kind'] == 'submodule':
+                # `from paquete.sub import ...` tiene que seguir resolviendo:
+                # un shim que sólo reexporta en el __init__ no lo consigue.
+                try:
+                    __import__(nombre)
+                    r.check(True, '')
+                except ImportError as e:
+                    r.check(False, f'[A] {nombre} ya no se puede importar', str(e))
+                continue
+
             got = act[mod].get(nombre)
             if not r.check(got is not None,
-                           f'[A] {mod}.{nombre} desapareció de la superficie pública'):
+                           f'[A] {mod}.{nombre} desapareció de la superficie pública',
+                           desviacion=(mod, nombre)):
                 continue
             r.check(got['kind'] == esp['kind'],
                     f'[A] {mod}.{nombre} cambió de tipo',
-                    f'era {esp["kind"]}, ahora {got["kind"]}')
+                    f'era {esp["kind"]}, ahora {got["kind"]}',
+                    desviacion=(mod, nombre))
             if esp['kind'] == 'function':
                 r.check(got.get('sig') == esp.get('sig'),
                         f'[A] {mod}.{nombre} cambió de firma',
@@ -316,6 +346,11 @@ def correr():
 
     for msg in r.saltados:
         print(f'SALTADO  {msg}')
+
+    for (mod, nombre), motivo in r.desviaciones:
+        print(f'DESVIACIÓN INTENCIONADA  {mod}.{nombre}')
+        for linea in textwrap.wrap(motivo, 72):
+            print(f'    {linea}')
 
     if r.fallos:
         print()

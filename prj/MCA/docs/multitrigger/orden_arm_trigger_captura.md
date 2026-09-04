@@ -36,7 +36,7 @@ La causa raíz es confundir dos señales que son **independientes**:
 1. **`set_trig_src` (OR-mask, reg `0x240`/`0x244`)** — qué fuentes de trigger
    están *vivas*. Vive en [`multitrigger_trig_src.sv`](../../rtl/mine/multitrigger/multitrigger_trig_src.sv).
 2. **`adc_arm_do` / `adc_we` (reg `0x00` bit0)** — la FSM de captura
-   ([`rp_bram_sm.v`](../../../../rtl_250/classic/rp_bram_sm.v)) está *armada y
+   ([`rp_bram_sm.v`](../../../../rtl/classic/rp_bram_sm.v)) está *armada y
    escribiendo al buffer*.
 
 La lógica de trigger reacciona a los flancos **apenas se carga la máscara** — no
@@ -48,10 +48,10 @@ ya estaba armada cuando llega el pulso.
 Al disparar (`adc_trig`), en modo **single-shot** (`adc_we_keep=0`):
 
 - **Auto-clear** de la máscara:
-  [`multitrigger_trig_src.sv:67`](../rtl/mine/multitrigger_trig_src.sv#L67) —
+  [`multitrigger_trig_src.sv:67`](../../rtl/mine/multitrigger/multitrigger_trig_src.sv#L67) —
   `set_trig_src <= 0`. Es de un solo tiro.
 - **Trigger-protect**:
-  [`:73`](../rtl/mine/multitrigger_trig_src.sv#L73) — `adc_trg_dis <= 1`. Bloquea
+  [`:73`](../../rtl/mine/multitrigger/multitrigger_trig_src.sv#L73) — `adc_trg_dis <= 1`. Bloquea
   la máscara hasta que se limpie (`0x94` o el `trigger_shield`).
 
 En modo **continuo** (`adc_we_keep=1`) la máscara **no** se auto-limpia (la
@@ -62,13 +62,13 @@ condición de la línea 67 tiene `!adc_we_keep_i`); solo se engancha `adc_trg_di
 La FSM de captura registra el trigger **solo mientras está armada**:
 
 - `adc_wp_trig_o <= adc_wp_o` cuando `adc_trig_i && !adc_dly_do`
-  ([`rp_bram_sm.v:91`](../../../rtl_250/classic/rp_bram_sm.v#L91)). Guarda el
+  ([`rp_bram_sm.v:91`](../../../../rtl/classic/rp_bram_sm.v#L91)). Guarda el
   puntero de escritura en el momento del trigger (referencia pre/post).
 - `adc_trg_rd <= 1` en el flanco de `adc_trig_i`
-  ([`:107`](../../../rtl_250/classic/rp_bram_sm.v#L107)); se **borra con
-  `adc_arm_do` o `adc_rst_do`** ([`:109`](../../../rtl_250/classic/rp_bram_sm.v#L109)).
+  ([`:107`](../../../../rtl/classic/rp_bram_sm.v#L107)); se **borra con
+  `adc_arm_do` o `adc_rst_do`** ([`:109`](../../../../rtl/classic/rp_bram_sm.v#L109)).
 - Tras el trigger cuenta `set_dly` muestras post-trigger y **detiene la escritura**
-  (`adc_we <= 0`, [`:67`](../../../rtl_250/classic/rp_bram_sm.v#L67)): eso es lo
+  (`adc_we <= 0`, [`:67`](../../../../rtl/classic/rp_bram_sm.v#L67)): eso es lo
   que **congela** el buffer para leerlo coherente.
 
 ### El race, paso a paso
@@ -139,9 +139,20 @@ robusto al orden** (aún así conviene respetar arm→fuente).
 > (reg `0x240`/`0x244`).** Igual que `rp_AcqStart` antes de
 > `rp_AcqSetTriggerSrc`.
 
-En [`multitrigger_utils.py`](../../software/multitrigger_utils.py) esto ya está
-resuelto dentro de `arm_for_adc_trigger` (arma y después llama a `set_or_mask`).
-Si armás "a mano" por escritura directa, respetá el orden.
+En [`API/multitrigger.py`](../../software/API/multitrigger.py) esto ya está
+resuelto dentro de `multitrigger_arm(osc, mt, ...)`, que arma y después llama a
+`set_or_mask`. Si armás "a mano" por escritura directa, respetá el orden.
+
+> La función recibe **los dos handles** porque la secuencia cruza los dos
+> bloques: histéresis (`0x20`/`0x24`) y arm (`0x00`) son del osciloscopio, shield
+> (`0x210`) y máscara OR (`0x240`/`0x244`) son del multitrigger. Así la
+> dependencia está en la firma en vez de escondida dentro de una clase.
+>
+> **El orden está congelado por un test.**
+> [`tests/test_compat_api.py`](../../software/tests/test_compat_api.py) guarda la
+> secuencia ordenada de escrituras de esta función y la compara en cada corrida,
+> sobre un mmap falso: reordenarla falla en la PC en segundos, con un diff que
+> señala las líneas movidas, en vez de fallar en la placa y sólo con señal viva.
 
 ### Snippet 1 — captura single-shot por flanco de ADC (recomendado)
 

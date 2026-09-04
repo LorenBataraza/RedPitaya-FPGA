@@ -80,7 +80,7 @@ def main():
     # ---------------------------------------------------------------- 3
     # El test importante: TODA dirección del slot tiene que responder. Un
     # esclavo que no hace ack deja el CDC del slot trabado (ver
-    # docs/bus_sistema_redpitaya.md §7.1); acá se verifica contra el bus real.
+    # docs/TOP/bus_sistema_redpitaya.md §7.1); acá se verifica contra el bus real.
     print('\n[3] Barrido de direcciones (ninguna puede colgar el bus)')
     t0 = time.time()
     n = 0

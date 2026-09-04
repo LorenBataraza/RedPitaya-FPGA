@@ -19,7 +19,7 @@ prj/MCA/.Xil/
 
 # Quito work de sim
 prj/MCA/sim/work/*
-prj/MCA/software/__pycache__/*
+__pycache__/
 prj/MCA/sim/*.vcd
 
 # Quito datos medidos. 

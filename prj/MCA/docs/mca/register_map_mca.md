@@ -2,7 +2,8 @@
 
 **Base:** `0x4070_0000` (slot 7 del bus de sistema) · **Tamaño de mmap:** `0x30000`
 **RTL:** [`prj/MCA/rtl/mine/mca/mca_top.sv`](../../rtl/mine/mca/mca_top.sv)
-**Driver:** [`prj/MCA/software/mca_utils.py`](../../software/mca_utils.py)
+**Driver:** [`prj/MCA/software/API/mca.py`](../../software/API/mca.py)
+**API:** [referencia de `API.mca`](../API/referencia_api.md#1-apimca--analizador-multicanal) — qué función toca cada registro
 **Bitstream:** `mca_red_pitaya.bit` (top `mca_red_pitaya_top`) — **no** el del scope
 
 Todos los registros son de 32 bits y viven en el dominio `adc_clk` (125 MHz).

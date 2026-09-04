@@ -23,14 +23,15 @@ import pytest
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(_HERE, "..", "..")))
 
-# `multitrigger_utils` importa `rp`, la librería de RedPitaya que sólo existe en
-# la placa. RingSource sólo le pide la constante BIT_ADC_P0, así que se stubea
-# para poder correr estos tests en la PC.
-if "multitrigger_utils" not in sys.modules:
-    import types
-    _stub = types.ModuleType("multitrigger_utils")
-    _stub.BIT_ADC_P0 = 1 << 1
-    sys.modules["multitrigger_utils"] = _stub
+# Acá había un stub de `multitrigger_utils` en sys.modules, porque ese módulo
+# hacía `import rp` (la librería de RedPitaya, que sólo existe en la placa) y
+# eso lo volvía inimportable en la PC. Ya no hace falta: RingSource toma
+# BIT_ADC_P0 de `API.multitrigger`, que no importa `rp` en absoluto.
+#
+# Y además el stub hacía daño: se quedaba en sys.modules para el resto del
+# proceso, así que cualquier otro test del mismo `pytest` veía ese módulo falso
+# en vez del real. Con `pytest tests/fase0/ tests/test_compat_api.py` eso daba
+# cuatro fallos fantasma.
 
 from mca.ring_source import (  # noqa: E402
     ADC_CNT_PER_V, HDR_BYTES, MAGIC, R_CTRL, R_MAGIC, R_N_SLOTS, R_PRE,

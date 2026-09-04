@@ -41,6 +41,10 @@
       "Annotator": {
         "kind": "class",
         "methods": {
+          "__init__": {
+            "kind": "method",
+            "sig": "(self, /, *args, **kwargs)"
+          },
           "meta": {
             "kind": "method",
             "sig": "(self)"
@@ -132,7 +136,47 @@
             "kind": "method",
             "sig": "(self, run_dir, free_q, full_q, stats, meta_base=None, compress=False, wave_dtype=<class 'numpy.int16'>, wave_scale=8192, min_free_mb=200.0, disk_check_every=8, name='mca-writer')"
           },
+          "daemon": {
+            "kind": "property"
+          },
+          "getName": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "ident": {
+            "kind": "property"
+          },
+          "isDaemon": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "is_alive": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "join": {
+            "kind": "method",
+            "sig": "(self, timeout=None)"
+          },
+          "name": {
+            "kind": "property"
+          },
+          "native_id": {
+            "kind": "property"
+          },
           "run": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "setDaemon": {
+            "kind": "method",
+            "sig": "(self, daemonic)"
+          },
+          "setName": {
+            "kind": "method",
+            "sig": "(self, name)"
+          },
+          "start": {
             "kind": "method",
             "sig": "(self)"
           }
@@ -152,6 +196,14 @@
           "sample_into": {
             "kind": "method",
             "sig": "(self, batch, i)"
+          },
+          "start": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "stop": {
+            "kind": "method",
+            "sig": "(self)"
           }
         }
       },
@@ -222,7 +274,47 @@
             "kind": "method",
             "sig": "(self, source, free_q, full_q, stats, annotators=(), poll_timeout_s=1.0, name='mca-reader')"
           },
+          "daemon": {
+            "kind": "property"
+          },
+          "getName": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "ident": {
+            "kind": "property"
+          },
+          "isDaemon": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "is_alive": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "join": {
+            "kind": "method",
+            "sig": "(self, timeout=None)"
+          },
+          "name": {
+            "kind": "property"
+          },
+          "native_id": {
+            "kind": "property"
+          },
           "run": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "setDaemon": {
+            "kind": "method",
+            "sig": "(self, daemonic)"
+          },
+          "setName": {
+            "kind": "method",
+            "sig": "(self, name)"
+          },
+          "start": {
             "kind": "method",
             "sig": "(self)"
           },
@@ -243,6 +335,27 @@
       "load_chunk": {
         "kind": "function",
         "sig": "(path)"
+      },
+      "mca.annotators": {
+        "kind": "submodule"
+      },
+      "mca.events": {
+        "kind": "submodule"
+      },
+      "mca.reader": {
+        "kind": "submodule"
+      },
+      "mca.ring_source": {
+        "kind": "submodule"
+      },
+      "mca.session": {
+        "kind": "submodule"
+      },
+      "mca.sources": {
+        "kind": "submodule"
+      },
+      "mca.storage": {
+        "kind": "submodule"
       },
       "scope_regs": {
         "kind": "function",
@@ -371,7 +484,20 @@
       },
       "MCANotPresent": {
         "kind": "class",
-        "methods": {}
+        "methods": {
+          "__init__": {
+            "kind": "method",
+            "sig": "(self, /, *args, **kwargs)"
+          },
+          "add_note": {
+            "kind": "method",
+            "sig": "<sin firma>"
+          },
+          "with_traceback": {
+            "kind": "method",
+            "sig": "<sin firma>"
+          }
+        }
       },
       "MCA_PHYS": {
         "kind": "const",
@@ -897,6 +1023,197 @@
       "time": {
         "kind": "module",
         "name": "time"
+      }
+    },
+    "rigol_dg4162": {
+      "ARB_MAX_POINTS": {
+        "kind": "const",
+        "value": 16384
+      },
+      "ARB_MAX_SRATE": {
+        "kind": "const",
+        "value": 500000000.0
+      },
+      "FORMAS_KNOLL": {
+        "kind": "other",
+        "type": "dict"
+      },
+      "MIN_RISE_PTS": {
+        "kind": "const",
+        "value": 4
+      },
+      "RigolDG4162": {
+        "kind": "class",
+        "methods": {
+          "__init__": {
+            "kind": "method",
+            "sig": "(self, transport, read_timeout=None)"
+          },
+          "assert_ok": {
+            "kind": "method",
+            "sig": "(self, ctx='')"
+          },
+          "check_error": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "clear": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "clear_errors": {
+            "kind": "method",
+            "sig": "(self, max_n=32)"
+          },
+          "close": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "disable_burst": {
+            "kind": "method",
+            "sig": "(self, ch=1, check_errors=False)"
+          },
+          "drain": {
+            "kind": "method",
+            "sig": "(self)"
+          },
+          "load_arb": {
+            "kind": "method",
+            "sig": "(self, samples, ch=1, check_errors=True, normalize=True)"
+          },
+          "output": {
+            "kind": "method",
+            "sig": "(self, ch, on, check_errors=False)"
+          },
+          "query": {
+            "kind": "method",
+            "sig": "(self, cmd, delay=0.05, timeout=None)"
+          },
+          "reset": {
+            "kind": "method",
+            "sig": "(self, settle_s=1.0, timeout=15.0)"
+          },
+          "set_am_noise": {
+            "kind": "method",
+            "sig": "(self, ch=1, depth_pct=100.0, check_errors=True)"
+          },
+          "set_arb": {
+            "kind": "method",
+            "sig": "(self, ch=1, freq_hz=1000.0, amp_vpp=1.0, offset_v=0.0, phase_deg=0.0, check_errors=False)"
+          },
+          "set_mod_off": {
+            "kind": "method",
+            "sig": "(self, ch=1, check_errors=False)"
+          },
+          "set_pulse_pair_burst": {
+            "kind": "method",
+            "sig": "(self, ch=1, gap_s=1e-05, width_s=2e-07, amp_vpp=1.0, offset_v=0.5, burst_period_s=0.01, check_errors=False)"
+          },
+          "set_pulse_period": {
+            "kind": "method",
+            "sig": "(self, ch=1, period_s=0.0001, check_errors=False)"
+          },
+          "set_pulse_periodic": {
+            "kind": "method",
+            "sig": "(self, ch=1, period_s=0.0001, width_s=2e-07, amp_vpp=1.0, offset_v=0.5, check_errors=False)"
+          },
+          "set_pulse_width": {
+            "kind": "method",
+            "sig": "(self, ch=1, width_s=2e-07, check_errors=False)"
+          },
+          "tcp": {
+            "kind": "classmethod",
+            "sig": "(cls, host, port=5555)"
+          },
+          "usb": {
+            "kind": "classmethod",
+            "sig": "(cls, vid=6833, pid=1601, serial=None)"
+          },
+          "usbtmc": {
+            "kind": "classmethod",
+            "sig": "(cls, device='/dev/usbtmc0')"
+          },
+          "vxi11": {
+            "kind": "classmethod",
+            "sig": "(cls, host)"
+          },
+          "write": {
+            "kind": "method",
+            "sig": "(self, cmd)"
+          }
+        }
+      },
+      "_escala_para_fwhm": {
+        "kind": "function",
+        "sig": "(forma, fwhm_pts, **kw)"
+      },
+      "_fwhm_pts": {
+        "kind": "function",
+        "sig": "(y)"
+      },
+      "apply_poisson_train": {
+        "kind": "function",
+        "sig": "(gen, rate_hz, width_s, ch=1, amp_vpp=0.5, offset_v=None, seed=0, check_errors=False, **kw)"
+      },
+      "detector_pulse": {
+        "kind": "function",
+        "sig": "(n_pts=64, t_rise=4.0, tau=16.0, amplitude=1.0, t0=2.0)"
+      },
+      "forma_bipolar": {
+        "kind": "function",
+        "sig": "(u)"
+      },
+      "forma_cr": {
+        "kind": "function",
+        "sig": "(u, r=0.05)"
+      },
+      "forma_cr_rc": {
+        "kind": "function",
+        "sig": "(u)"
+      },
+      "forma_cr_rc_n": {
+        "kind": "function",
+        "sig": "(u, n=4)"
+      },
+      "forma_trapezoidal": {
+        "kind": "function",
+        "sig": "(u, plano=1.0)"
+      },
+      "forma_triangular": {
+        "kind": "function",
+        "sig": "(u)"
+      },
+      "poisson_train_wave": {
+        "kind": "function",
+        "sig": "(rate_hz, width_s, n_events=64, n_pts_max=16384, t_rise_frac=0.25, tau_frac=0.6, amplitude=1.0, amp_range=None, tau_choices=None, headroom=3.0, fixed_n=False, min_rise_pts=4, srate_max=500000000.0, seed=0, tail_tol=0.01)"
+      },
+      "pulse_train_wave": {
+        "kind": "function",
+        "sig": "(width_s, rate_hz, n_pts_max=16384, t_rise_frac=0.25, tau_frac=0.6, amplitude=1.0, amp_range=None, tau_choices=None, n_pulses=None, pts_per_fwhm=64, srate_max=500000000.0, seed=0, tail_tol=0.02)"
+      },
+      "select": {
+        "kind": "module",
+        "name": "select"
+      },
+      "shaped_train_wave": {
+        "kind": "function",
+        "sig": "(forma, width_s, rate_hz, n_pts_max=16384, amplitude=1.0, n_pulses=None, pts_per_fwhm=64, srate_max=500000000.0, tail_tol=0.02, **forma_kw)"
+      },
+      "sliding_pulser_wave": {
+        "kind": "function",
+        "sig": "(n_pulses=128, pts_per_pulse=128, tau=16.0, t_rise=4.0, amp_min=0.1, amp_max=1.0, seed=0)"
+      },
+      "socket": {
+        "kind": "module",
+        "name": "socket"
+      },
+      "time": {
+        "kind": "module",
+        "name": "time"
+      },
+      "two_population_wave": {
+        "kind": "function",
+        "sig": "(n_pulses=64, pts_per_pulse=128, tau_a=12.0, tau_b=40.0, frac_b=0.5, amplitude=1.0, t_rise=4.0, seed=0)"
       }
     }
   },

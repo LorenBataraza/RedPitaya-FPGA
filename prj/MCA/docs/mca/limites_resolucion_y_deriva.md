@@ -341,7 +341,7 @@ corridas largas.
   cuesta **2× BRAM**. No se justifica — el presupuesto de BRAM es el recurso
   escaso del 7010 (40 de 60 usados).
 - **Rebanadas de tiempo fijo en software**: da lo mismo con costo cero.
-  [`MCA.acquire_chunks()`](../../software/mca_utils.py) ya existe pero *acumula*
+  [`MCA.acquire_chunks()`](../../software/API/mca.py) ya existe pero *acumula*
   en el mismo histograma; falta una variante que lea-y-borre por rebanada y
   devuelva la serie temporal de espectros.
 

@@ -24,6 +24,7 @@ JSON en el commit — que es exactamente el registro que se quiere.
 """
 
 import argparse
+import ast
 import inspect
 import json
 import os
@@ -42,9 +43,12 @@ GOLDEN_NPZ    = os.path.join(_AQUI, 'compat_golden.npz')
 
 _U32 = struct.Struct('<I')
 
-# Módulos cuya superficie se congela. Son los tres puntos de entrada públicos
-# que el refactor convierte en shims sobre API/.
-MODULOS = ('mca_utils', 'multitrigger_utils', 'mca')
+# Módulos cuya superficie se congela: los puntos de entrada públicos que el
+# refactor convierte en shims sobre API/. `rigol_dg4162` se movió entero sin
+# partirlo, pero entra igual — mover un fichero sin dejar shim rompe a todo el
+# que hacía `import rigol_dg4162 as rg`, y eso pasó de verdad durante el
+# refactor: lo cazó la suite offline, no este test, porque faltaba de la lista.
+MODULOS = ('mca_utils', 'multitrigger_utils', 'mca', 'rigol_dg4162')
 
 
 # =============================================================================
@@ -151,9 +155,17 @@ def describir(obj):
         return {'kind': 'module', 'name': obj.__name__}
 
     if inspect.isclass(obj):
+        # Se recorre el MRO (dir + getattr), no vars(): lo que importa para
+        # compatibilidad es lo que hace un call site, y un call site escribe
+        # `sc.acq_base(...)` sin saber ni importarle si el método está en la
+        # clase o en una base. Con vars() un shim que hereda daría 16 falsos
+        # positivos de "método desaparecido" por métodos que sí funcionan.
         metodos = {}
-        for mn, mv in sorted(vars(obj).items()):
+        for mn in sorted(dir(obj)):
             if mn.startswith('_') and mn not in ('__init__', '__enter__', '__exit__'):
+                continue
+            mv = inspect.getattr_static(obj, mn, None)
+            if mv is None:
                 continue
             if isinstance(mv, (staticmethod, classmethod)):
                 metodos[mn] = {'kind': type(mv).__name__, 'sig': _firma(mv.__func__)}
@@ -175,13 +187,79 @@ def describir(obj):
     return {'kind': 'other', 'type': type(obj).__name__}
 
 
+def privados_usados_fuera(nombre_mod):
+    """Nombres PRIVADOS del módulo que el resto del árbol referencia igual.
+
+    `from X import *` no exporta nombres con guion bajo, así que un shim que
+    sólo haga star-import los pierde en silencio. Y sí hay código que los usa:
+    `tests/pile-up/pileup.py` importa `_fwhm_pts` de rigol_dg4162, y tres tests
+    más lo llaman como `rg._fwhm_pts`. Eso rompió de verdad durante el refactor
+    y el test no lo vio, porque sólo miraba nombres públicos.
+
+    Se resuelve el alias con ast (`import rigol_dg4162 as rg` -> `rg._x`) en vez
+    de con grep, que no sabría a qué módulo pertenece cada prefijo.
+    """
+    encontrados = set()
+    for raiz, _, ficheros in os.walk(_SOFT):
+        if '__pycache__' in raiz or os.sep + 'API' in raiz:
+            continue
+        for f in ficheros:
+            if not f.endswith('.py'):
+                continue
+            ruta = os.path.join(raiz, f)
+            if os.path.basename(ruta) == nombre_mod + '.py':
+                continue                      # el módulo no se cuenta a sí mismo
+            try:
+                arbol = ast.parse(open(ruta, encoding='utf-8').read())
+            except (SyntaxError, UnicodeDecodeError):
+                continue
+
+            alias = set()
+            for n in ast.walk(arbol):
+                if isinstance(n, ast.Import):
+                    for a in n.names:
+                        if a.name == nombre_mod:
+                            alias.add(a.asname or a.name)
+                elif isinstance(n, ast.ImportFrom) and n.module == nombre_mod:
+                    encontrados |= {a.name for a in n.names
+                                    if a.name.startswith('_')}
+            for n in ast.walk(arbol):
+                if (isinstance(n, ast.Attribute)
+                        and isinstance(n.value, ast.Name)
+                        and n.value.id in alias
+                        and n.attr.startswith('_')):
+                    encontrados.add(n.attr)
+    return sorted(encontrados)
+
+
+def submodulos(nombre_mod):
+    """Submódulos importables como `<mod>.<sub>`, si el módulo es un paquete.
+
+    Un shim de paquete que sólo reexporta en su `__init__` NO hace importable
+    `paquete.submodulo`, y hay código que lo importa así: `run_acquire.py` hace
+    `from mca.storage import ...`, `tests/tiempo-muerto/run_poisson_loss.py`
+    hace `from mca.session import ...`. Eso también rompió durante el refactor.
+    """
+    mod = sys.modules.get(nombre_mod) or __import__(nombre_mod)
+    if not hasattr(mod, '__path__'):
+        return []
+    d = list(mod.__path__)[0]
+    return sorted(f[:-3] for f in os.listdir(d)
+                  if f.endswith('.py') and not f.startswith('_'))
+
+
 def superficie(nombre_mod):
-    """Superficie pública de un módulo: lo que `import *` dejaría visible."""
+    """Superficie pública del módulo, más los privados que otros sí usan."""
     mod = __import__(nombre_mod)
     nombres = getattr(mod, '__all__', None)
     if nombres is None:
         nombres = [n for n in dir(mod) if not n.startswith('_')]
-    return {n: describir(getattr(mod, n)) for n in sorted(nombres)}
+    nombres = list(nombres) + [n for n in privados_usados_fuera(nombre_mod)
+                               if hasattr(mod, n)]
+    sup = {n: describir(getattr(mod, n)) for n in sorted(set(nombres))}
+    for sub in submodulos(nombre_mod):
+        sup[f'{nombre_mod}.{sub}'] = {'kind': 'submodule'}
+    return sup
 
 
 # =============================================================================

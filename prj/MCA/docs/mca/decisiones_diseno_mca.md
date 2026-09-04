@@ -16,7 +16,7 @@ Documentos hermanos, para no duplicar:
 | [`register_map_mca.md`](register_map_mca.md) | el **qué**: offsets y bits |
 | [`resultados_validacion_hw.md`](../resultados_validacion_hw.md) | los **números medidos** y sus salvedades |
 | [`testbenches_software_mca.md`](testbenches_software_mca.md) | el **método** de cada medición |
-| [`bus_sistema_redpitaya.md`](../bus_sistema_redpitaya.md) | el bus sobre el que cuelga |
+| [`bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) | el bus sobre el que cuelga |
 | [`figuras/`](figuras/README.md) | las **figuras** que explican INL, DNL, FWHM y el bineado |
 
 ---
@@ -551,7 +551,7 @@ con `bus_m.ack`, así que sin ack el handshake queda trabado y ese slot no acept
 más transacciones. Al ARM lo rescata el timeout de 32 ciclos de
 `rtl/axi4_slave.sv:193`, pero la lectura devuelve un valor sin sentido y sin
 ninguna indicación de error. El mecanismo completo está en
-[`bus_sistema_redpitaya.md`](../bus_sistema_redpitaya.md) §7.1.
+[`bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) §7.1.
 
 El scope tiene un bug latente exactamente de esa clase: ata
 `bram_ack[2]/[3] = 0` para los canales no construidos
@@ -692,7 +692,7 @@ re-sincronizar ante un cambio de upstream sea mecánico.
 
 ### El top del MCA
 
-[`mca_red_pitaya_top.sv`](../../rtl/mine/mca_red_pitaya_top.sv) es una copia de
+[`mca_red_pitaya_top.sv`](../../rtl/mine/tops/mca_red_pitaya_top.sv) es una copia de
 `red_pitaya_top.sv` con cuatro diferencias: `mca_top` en el slot 7, `i_scope`
 con `EN_FILT(0)`, y **sin ASG (slot 2) ni PID (slot 3)**.
 
@@ -784,7 +784,7 @@ valores mezclados durante ~4 ciclos. `mca_utils.MCA.configure()` escribe con
 Misma separación que ya existía entre `multitrigger_utils.py` (driver) y
 `testbench_multitrigger.py` (mediciones):
 
-- [`mca_utils.py`](../../software/mca_utils.py) — `class MCA` (mmap de `/dev/mem`,
+- [`API/mca.py`](../../software/API/mca.py) — `class MCA` (mmap de `/dev/mem`,
   `identify()`, `configure()`, `acquire()`) más helpers de análisis **puros**
   (`gauss_fit_peak`, `energy_calibration`, `dnl`, `fom`, `deadtime_fit`). Los
   helpers no tocan hardware a propósito: se validan contra `.npz` guardados, sin
@@ -858,7 +858,7 @@ direcciones leídas de a una funcionan. El `memcpy` emite accesos anchos o en
 ráfaga que `axi4_slave` rechaza, y el *external abort* resultante no da SIGBUS
 sino reinicio. `mca_utils._read_words()` lee de a 32 bits por eso: cuesta
 ~110 ms por espectro, irrelevante para un MCA. Detalle en
-[`bus_sistema_redpitaya.md`](../bus_sistema_redpitaya.md) §7.3.
+[`bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) §7.3.
 
 **2. El seguidor de línea de base puede comerse el pulso.** Si su constante de
 tiempo (2^`cfg_bl_k` muestras) es comparable a la duración del pulso, lo persigue

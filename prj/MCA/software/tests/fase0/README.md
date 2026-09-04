@@ -88,6 +88,6 @@ Dos reglas que ya costaron caro en este proyecto y siguen valiendo acá:
 - **Lectura de registros**: `unpack_from` de a 32 b alineados.
 
 La restricción de *no* leer en bulk aplicaba a la **BRAM por GP0** (un slice
-grande reinicia la placa, ver `docs/bus_sistema_redpitaya.md`). Sobre la región
+grande reinicia la placa, ver `docs/TOP/bus_sistema_redpitaya.md`). Sobre la región
 de DDR **sí** se puede hacer `np.frombuffer` de a bloques: es memoria normal, no
 un esclavo AXI de 32 b. Ésa es, precisamente, la ganancia.

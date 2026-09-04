@@ -21,7 +21,7 @@
 //
 // Acá el ack sale de un shift register incondicional: NO existe ninguna ruta de
 // ack por motor, así que un motor apagado por parámetro no puede colgar el bus.
-// Su apertura simplemente devuelve 0. Ver docs/bus_sistema_redpitaya.md §7.1.
+// Su apertura simplemente devuelve 0. Ver docs/TOP/bus_sistema_redpitaya.md §7.1.
 //
 // CONTADORES DE 64 BITS. Leer lo y después hi puede partirse: a 125 MHz el
 // contador avanza entre las dos lecturas. Leer la palabra BAJA congela la

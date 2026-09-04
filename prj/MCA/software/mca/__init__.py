@@ -1,34 +1,25 @@
-"""Pipeline de adquisicion y guardado del MCA (lado servidor, en la Pitaya).
+"""SHIM de compatibilidad — el pipeline vive en `API/osciloscope_store/`.
 
-Cubre los bloques 1 y 3 del diseno del servidor: **lectura de evento** y
-**rutina de guardado**. El dashboard y el handler de configuracion son hilos
-aparte que se enganchan mas adelante (`AcquisitionSession.stats` es el punto de
-enganche del primero; el directorio de chunks completos, el del segundo).
+Este paquete se llamaba `mca` pero NO es el analizador multicanal: es el
+pipeline de adquisición y guardado del flujo de eventos del osciloscopio
+(`ReaderThread`, `ChunkWriter`, `AcquisitionSession`). El refactor lo movió a
+`API/osciloscope_store/`, que dice lo que hace.
 
-Arquitectura y numeros medidos: ../../docs/arquitectura_adquisicion_software.md
+Se mantiene este shim para no tocar los ~40 importadores, los notebooks ni los
+scripts que ya corren en la placa. Código nuevo: importar de `API`::
 
-Uso tipico en la placa:
+    from API.osciloscope_store import AcquisitionSession, BramSource
 
-    from multitrigger_utils import MultiTriggerScope
-    from mca import BramSource, AcquisitionSession
-
-    sc  = MultiTriggerScope.open()
-    src = BramSource(sc, pre=8, post=24, thr=0.5)
-    with AcquisitionSession(src, '/home/jupyter/DATOS/corrida_01') as s:
-        s.wait(duration_s=30)
-    print(s.summary())
-
-Offline, en la PC (sin placa ni modulo `rp`):
-
-    from mca import FakeSource, AcquisitionSession
+Retirar el shim y migrar los call sites es un paso posterior.
 """
 
-from .annotators import Annotator, CachedAnnotator, ConstantAnnotator
-from .events import EventBatch, SCHEMA_VERSION, bytes_per_event
-from .reader import ReaderThread
-from .session import AcquisitionSession, scope_regs
-from .sources import BramSource, FakeSource
-from .storage import ChunkWriter, load_chunk
+from API.osciloscope_store import (                                # noqa: F401
+    Annotator, CachedAnnotator, ConstantAnnotator,
+    EventBatch, SCHEMA_VERSION, bytes_per_event,
+    ReaderThread, ChunkWriter, load_chunk,
+    AcquisitionSession, scope_regs,
+    BramSource, FakeSource,
+)
 
 __all__ = [
     'Annotator', 'CachedAnnotator', 'ConstantAnnotator',

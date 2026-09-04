@@ -11,10 +11,10 @@ acá está la **verificación**.
 
 | Archivo | Rol |
 |---|---|
-| [`../software/mca/events.py`](../software/mca/events.py) | esquema del evento y `EventBatch` preasignado |
-| [`../software/mca/reader.py`](../software/mca/reader.py) | hilo lector |
-| [`../software/mca/storage.py`](../software/mca/storage.py) | hilo escritor: un `.npz` por chunk |
-| [`../software/mca/session.py`](../software/mca/session.py) | orquestador |
+| [`../software/API/osciloscope_store/events.py`](../software/API/osciloscope_store/events.py) | esquema del evento y `EventBatch` preasignado |
+| [`../software/API/osciloscope_store/reader.py`](../software/API/osciloscope_store/reader.py) | hilo lector |
+| [`../software/API/osciloscope_store/storage.py`](../software/API/osciloscope_store/storage.py) | hilo escritor: un `.npz` por chunk |
+| [`../software/API/osciloscope_store/session.py`](../software/API/osciloscope_store/session.py) | orquestador |
 | [`../software/tests/test_mca_pipeline.py`](../software/tests/test_mca_pipeline.py) | **el test**: corre en la PC, sin placa |
 | [`../software/tests/bench_reader_budget.py`](../software/tests/bench_reader_budget.py) | los benchmarks que fijan los defaults |
 

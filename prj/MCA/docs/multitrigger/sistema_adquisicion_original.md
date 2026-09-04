@@ -348,7 +348,7 @@ que es de dónde sale la mayor parte del τ.
 > y con `N_CH=2` esos bits están atados a cero
 > ([`rp_scope_com.v:448`](../../../../rtl/classic/rp_scope_com.v#L448)). Una
 > lectura a esas direcciones **nunca recibe ack**. Qué significa eso para el CDC
-> del bus está en [`bus_sistema_redpitaya.md` §7.1](../bus_sistema_redpitaya.md).
+> del bus está en [`bus_sistema_redpitaya.md` §7.1](../TOP/bus_sistema_redpitaya.md).
 > Es la razón por la que el `event_ring` y el `mca` usan un ack de **latencia
 > fija incondicional**.
 
@@ -494,7 +494,7 @@ Los pulsos de comando (`arm`, `reset`, `trig_sw`, `trig_dis_clr`) se generan com
   — qué agrega el multitrigger sobre este mapa.
 - [`arquitectura_adquisicion_software.md`](arquitectura_adquisicion_software.md) —
   la atribución por fases del τ = 252.7 µs, medida en placa.
-- [`../bus_sistema_redpitaya.md`](../bus_sistema_redpitaya.md) — el bus, el CDC y
+- [`../bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) — el bus, el CDC y
   el contrato del `ack`.
 - [`../event_ring/logica_de_captura_y_axi.md`](../event_ring/logica_de_captura_y_axi.md)
   — el reemplazo del camino de eventos.

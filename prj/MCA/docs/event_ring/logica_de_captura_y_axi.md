@@ -628,7 +628,7 @@ Ninguna ruta de `ack` depende de un sub-bloque, así que ningún estado interno
 puede colgar el slot del bus. Es la lección directa del bug latente de
 `bram_ack[2]/[3]` en el scope
 ([`sistema_adquisicion_original.md` §4](../multitrigger/sistema_adquisicion_original.md#4-rp_acq_bram--el-buffer-y-su-lectura),
-[`bus_sistema_redpitaya.md` §7.1](../bus_sistema_redpitaya.md)).
+[`bus_sistema_redpitaya.md` §7.1](../TOP/bus_sistema_redpitaya.md)).
 
 ---
 
@@ -654,7 +654,7 @@ puede colgar el slot del bus. Es la lección directa del bug latente de
 - [`salida_por_red.md`](salida_por_red.md) — qué hace el PS con los slots.
 - [`../multitrigger/sistema_adquisicion_original.md`](../multitrigger/sistema_adquisicion_original.md)
   — la máquina que esto reemplaza.
-- [`../bus_sistema_redpitaya.md`](../bus_sistema_redpitaya.md) — el bus, el CDC y
+- [`../bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) — el bus, el CDC y
   el contrato del `ack`.
 - [`../../software/tests/tiempo-muerto/README.md`](../../software/tests/tiempo-muerto/README.md)
   — los modelos de tiempo muerto y las mediciones.

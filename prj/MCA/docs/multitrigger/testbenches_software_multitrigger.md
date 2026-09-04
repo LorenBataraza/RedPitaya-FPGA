@@ -5,7 +5,8 @@ trampas hay que esquivar para que el número signifique algo**. Casi todo el
 documento son cosas que costó descubrir midiendo en la placa.
 
 Código: [`../software/testbench_multitrigger.py`](../../software/testbench_multitrigger.py)
-Driver: [`../software/multitrigger_utils.py`](../../software/multitrigger_utils.py)
+Driver: [`API/osciloscope.py`](../../software/API/osciloscope.py) + [`API/multitrigger.py`](../../software/API/multitrigger.py)
+API: [`docs/API/referencia_api.md`](../API/referencia_api.md)
 
 ---
 
@@ -280,7 +281,7 @@ así que **todo se puede reanalizar sin volver a medir**.
 - **El camino de datos del ADC** más allá de `pulse_metrics`: calibración,
   ecualizador y decimación no se verifican acá.
 - **El esclavo de bus del scope**, incluido el bug latente de `bram_ack[2]/[3]`
-  descrito en [`bus_sistema_redpitaya.md`](../bus_sistema_redpitaya.md).
+  descrito en [`bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md).
 - **La lógica de trigger en sí**: eso lo cubren los testbenches de RTL de
   [`../sim/`](../../sim/), que reproducen el race arm-vs-máscara documentado en
   [`orden_arm_trigger_captura.md`](orden_arm_trigger_captura.md).

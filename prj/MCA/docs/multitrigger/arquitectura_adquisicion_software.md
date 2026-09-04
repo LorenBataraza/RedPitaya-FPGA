@@ -8,7 +8,7 @@ arm→máscara y la FSM de captura, y a
 [`register_map_multitrigger_rp_scope_cfg.md`](register_map_multitrigger_rp_scope_cfg.md).
 
 > **Estado:** la Parte 3 (rendimiento) está medida y cerrada. Las Partes 2 y 5
-> describen el pipeline a construir; la implementación vive en `software/mca/`.
+> describen el pipeline a construir; la implementación vive en `software/API/osciloscope_store/`.
 
 ---
 
@@ -50,7 +50,7 @@ motivó la regla):
 
 **`adc_rst_do` no limpia `adc_trg_dis`.** Son registros de módulos distintos: el reset
 de la FSM vive en `rp_bram_sm`, y el bit de trigger-protect en
-[`multitrigger_trig_src.sv:71`](../rtl/mine/multitrigger_trig_src.sv#L71), que sólo baja
+[`multitrigger_trig_src.sv:71`](../../rtl/mine/multitrigger/multitrigger_trig_src.sv#L71), que sólo baja
 con `trig_dis_clr` (0x94) o con el `trigger_shield`. Sin el pulso a 0x94,
 `src_mask = set_trig_src & {!adc_trg_dis} = 0` y **no dispara nunca**, con la máscara
 aparentemente bien escrita.
@@ -59,23 +59,23 @@ aparentemente bien escrita.
 
 | Copia | Dónde | Rol |
 |---|---|---|
-| `trg_src` | [cfg:202](../rtl/mine/multitrigger_rp_scope_cfg.sv#L202) | combinacional, vale sólo el ciclo del write |
-| `set_trig_src` | [trig_src:48](../rtl/mine/multitrigger_trig_src.sv#L48) | **la que dispara**; se carga sólo con `new_trg_src` |
-| `trg_src_stored` | [cfg:151](../rtl/mine/multitrigger_rp_scope_cfg.sv#L151) | **sólo readback**, no drivea nada |
+| `trg_src` | [cfg:202](../../rtl/mine/multitrigger/multitrigger_rp_scope_cfg.sv#L202) | combinacional, vale sólo el ciclo del write |
+| `set_trig_src` | [trig_src:48](../../rtl/mine/multitrigger/multitrigger_trig_src.sv#L48) | **la que dispara**; se carga sólo con `new_trg_src` |
+| `trg_src_stored` | [cfg:151](../../rtl/mine/multitrigger/multitrigger_rp_scope_cfg.sv#L151) | **sólo readback**, no drivea nada |
 
 O sea que 0x240 puede leer `0xFFFFFFFF` mientras la máscara viva está en 0 (auto-limpiada
 por un trigger single-shot). Para el estado real hay que mirar `trg_state` @0x04.
 
 **`set_dly` nunca puede ser 0.** La condición de parada en
-[`rp_bram_sm.v:67`](../../../rtl_250/classic/rp_bram_sm.v#L67) compara `adc_dly_cnt == 1`
-**exacto**, y el decremento en [`:134`](../../../rtl_250/classic/rp_bram_sm.v#L134) no
+[`rp_bram_sm.v:67`](../../../../rtl/classic/rp_bram_sm.v#L67) compara `adc_dly_cnt == 1`
+**exacto**, y el decremento en [`:134`](../../../../rtl/classic/rp_bram_sm.v#L134) no
 tiene piso. Con `set_dly=0` el contador nunca vale 1 (arranca en 0 y hace underflow a
 `0xFFFFFFFF`), así que `adc_we` no cae nunca: **el buffer no se congela**. Con `decim=1`
 quedan ~2³² muestras (~34 s) de post-trigger; con `decim>1` el `adc_dly_do` pulsa y
 limpia la máscara. Los dos sabores terminan en deadlock. Usar siempre `delay >= 1`.
 
 > La misma condición está replicada en el camino AXI
-> ([`rp_axi_sm.v:114`](../../../rtl_250/classic/rp_axi_sm.v#L114)): si algún día se usa
+> ([`rp_axi_sm.v:114`](../../../../rtl/classic/rp_axi_sm.v#L114)): si algún día se usa
 > el modo HP, `set_axi_dly` (0x58) también tiene que ser ≥ 1.
 
 ---
@@ -230,7 +230,7 @@ y reinicia la placa.**
 > repo a propósito: no conviene tener en `tests/` algo que tumba la placa.
 
 Es exactamente el peligro que ya documenta el comentario de
-[`w32`](../software/multitrigger_utils.py#L393): el esclavo AXI de la PL sólo atiende
+[`w32`](../../software/API/osciloscope.py#L230): el esclavo AXI de la PL sólo atiende
 accesos de 32 bits alineados. `unpack_from` (un load de 4 bytes alineado) es seguro y es
 el camino del lazo de polling; un `memcpy` de 128 bytes emite accesos que el esclavo no
 reconoce (multi-word `LDM`/`LDRD`, o anchos que no maneja), la transacción no completa,
@@ -360,7 +360,7 @@ Hasta ~2 kHz la eficiencia es ≥99 %.
 > de eficiencia vale hasta rehacerla con arribos Poisson**; para eso está
 > [`run_poisson_loss.py`](../../software/tests/tiempo-muerto/run_poisson_loss.py) (este lector) y
 > `testbench_mca.sweep_rate_poisson` (el MCA), los dos con el estímulo de
-> [`poisson_train_wave`](../../software/rigol_dg4162.py).
+> [`poisson_train_wave`](../../software/API/rigol_dg4162.py).
 
 Atribución del ciclo, medida por fase (fuente a 1 kHz, el `poll` es sólo espera):
 
@@ -459,8 +459,8 @@ incluso con los stalls de 5.3 ms del GIL.
   casi todo overhead de Python, no de bus.
 - `rp_AcqGetDataPosV` **resuelve el wrap circular sola** (`start > end` en una llamada da
   bit a bit lo mismo que partirlo en dos). O sea que
-  [`capture_window_np`](../software/multitrigger_utils.py#L706) está bien y el partido
-  manual de [`guardado_mariana.py:228`](../software/guardado_mariana.py#L228) es
+  [`capture_window_np`](../../software/API/osciloscope.py#L450) está bien y el partido
+  manual de [`guardado_mariana.py:228`](../../software/guardado_mariana.py#L228) es
   innecesario. *(Una versión anterior de este bench decía lo contrario; el error estaba en
   el bench: usaba `rp_AcqGetOldestDataV` como referencia, que devuelve el buffer rotado
   para arrancar en la muestra más vieja y por lo tanto no se indexa por posición
@@ -496,13 +496,13 @@ umbral de 200 mV.
 
 Por eso `BramSource` usa **single-shot** y re-arma por software después de cada
 lectura. El freeze (`adc_we <= 0`,
-[`rp_bram_sm.v:67`](../../../rtl_250/classic/rp_bram_sm.v#L67)) existe exactamente para
+[`rp_bram_sm.v:67`](../../../../rtl/classic/rp_bram_sm.v#L67)) existe exactamente para
 esto, y el precio es que entre el trigger y el re-arm el scope está ciego: **ese hueco
 es el dead-time real del método**.
 
 > El modo continuo sigue siendo válido para lo que fue pensado: contar eventos y medir
 > Δt por `wp_trig` sin leer las formas de onda (que es lo que hace
-> [`capture_n_events`](../software/multitrigger_utils.py#L773)). Lo que no se puede es
+> [`capture_n_events`](../../software/API/osciloscope.py#L517)). Lo que no se puede es
 > leer ventanas.
 
 ## Parte 4 — Los tres niveles de pérdida
@@ -517,7 +517,7 @@ Sólo dos de los tres quedan registrados, y conviene tenerlo claro al reportar r
 
 La tercera es la limitación de fondo del modo BRAM: el lector simplemente no ve el
 evento. Sólo se puede **estimar** contra una fuente de tasa conocida, que es lo que hacen
-[`efficiency`](../software/multitrigger_utils.py#L850) y los barridos de `sweep_periods`
+[`efficiency`](../../software/API/osciloscope.py#L731) y los barridos de `sweep_periods`
 en [`testbench_multitrigger.py`](../../software/testbench_multitrigger.py). Con 91 µs de
 lectura por evento, cualquier par de pulsos separado por menos que eso cuenta como uno
 solo.
@@ -546,13 +546,13 @@ streaming por el puerto HP no baja la latencia evento→RAM (de hecho la sube un
 
 | Etapa | Dónde |
 |---|---|
-| `rp_axi_sm` por canal | [scope_com:459](../rtl/mine/rp_scope_multitrigger_com.sv#L459) |
-| Sale al top | [red_pitaya_top.sv:590](../rtl/mine/red_pitaya_top.sv#L590) → `axi0_sys`/`axi1_sys` |
-| `axi_master` → AXI4 full | [red_pitaya_ps.sv:84](../rtl/red_pitaya_ps.sv#L84) → `hp0_saxi` |
-| Puertos HP habilitados | [ip/systemZ20.tcl:827](../ip/systemZ20.tcl#L827) — `PCW_USE_S_AXI_HP0..3`, 64 b |
+| `rp_axi_sm` por canal | [scope_com:459](../../rtl/mine/multitrigger/rp_scope_multitrigger_com.sv#L459) |
+| Sale al top | [red_pitaya_top.sv:590](../../rtl/mine/tops/red_pitaya_top.sv#L590) → `axi0_sys`/`axi1_sys` |
+| `axi_master` → AXI4 full | [red_pitaya_ps.sv:84](../../rtl/red_pitaya_ps.sv#L84) → `hp0_saxi` |
+| Puertos HP habilitados | [ip/systemZ20.tcl:827](../../ip/systemZ20.tcl#L827) — `PCW_USE_S_AXI_HP0..3`, 64 b |
 
 Está apagado por una sola compuerta:
-[`rp_axi_sm.v:112`](../../../rtl_250/classic/rp_axi_sm.v#L112) —
+[`rp_axi_sm.v:112`](../../../../rtl/classic/rp_axi_sm.v#L112) —
 `if (adc_arm_do_i && set_axi_en_i)` — y `set_axi_en` (0x5C / 0x7C) **nunca se escribe
 desde el software**. No hace falta re-sintetizar.
 
@@ -576,7 +576,7 @@ Lo que falta:
 
 No está cableada y **probablemente no convenga**. `PCW_IRQ_F2P_INTR` está habilitado pero
 con una sola línea, ya tomada por el XADC
-([ip/systemZ20.tcl:878](../ip/systemZ20.tcl#L878)), y no hay ningún nodo UIO en el
+([ip/systemZ20.tcl:878](../../ip/systemZ20.tcl#L878)), y no hay ningún nodo UIO en el
 devicetree. Habilitarlo es: pulso nuevo en el RTL + `xlconcat` en el BD + nodo UIO +
 re-síntesis. Y el resultado sería **peor en latencia**: un `read()` bloqueante sobre
 `/dev/uioN` tarda ~5-20 µs entre el IRQ y que el proceso corra (GIC + context switch),

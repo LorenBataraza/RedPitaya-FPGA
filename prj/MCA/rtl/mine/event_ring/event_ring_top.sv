@@ -10,7 +10,7 @@
 // ACK DE LATENCIA FIJA, igual que mca_top: el ack sale de un shift register
 // incondicional, sin ninguna ruta de ack por sub-bloque. Un esclavo que no hace
 // ack no produce solo una lectura mala — deja el CDC del slot desincronizado y
-// ese slot no acepta mas transacciones (ver docs/bus_sistema_redpitaya.md 7.1,
+// ese slot no acepta mas transacciones (ver docs/TOP/bus_sistema_redpitaya.md 7.1,
 // y el bug latente de bram_ack[2]/[3] en el scope).
 //
 // UN SOLO DOMINIO DE RELOJ. En rp_scope_multitrigger_com.sv:686 hay

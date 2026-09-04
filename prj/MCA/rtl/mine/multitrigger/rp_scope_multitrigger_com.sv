@@ -136,14 +136,32 @@ module rp_scope_multitrigger_com #(
    output     [     16-1: 0] trg_state_o    , // 
    input      [     16-1: 0] trg_state_i    , // Trigger state? Se conecta a la configuración. 
 
-   // System bus
-   input      [     32-1: 0] sys_addr       ,  // bus saddress
-   input      [     32-1: 0] sys_wdata      ,  // bus write data
-   input                     sys_wen        ,  // bus write enable
-   input                     sys_ren        ,  // bus read enable
-   output     [     32-1: 0] sys_rdata      ,  // bus read data
-   output                    sys_err        ,  // bus error indicator
-   output                    sys_ack           // bus acknowledge signal
+   // Ruteo del datapath, desde integration_cfg (region de TOP, slot 6).
+   // En reset valen TAP_NATIVE/enable=1, o sea el cableado de siempre.
+   input      [      2-1: 0] route_osc_tap_i  ,
+   input                     route_osc_en_i   ,
+   input      [      2-1: 0] route_mtrg_tap_i ,
+   input                     route_mtrg_en_i  ,
+   input      [      2-1: 0] route_mca_tap_i  ,
+   input                     route_mca_en_i   ,
+
+   // System bus del OSC (slot 1, 0x4010_0000)
+   input      [     32-1: 0] sys_osc_addr   ,
+   input      [     32-1: 0] sys_osc_wdata  ,
+   input                     sys_osc_wen    ,
+   input                     sys_osc_ren    ,
+   output     [     32-1: 0] sys_osc_rdata  ,
+   output                    sys_osc_err    ,
+   output                    sys_osc_ack    ,
+
+   // System bus del MULTITRIGGER (slot 3, 0x4030_0000)
+   input      [     32-1: 0] sys_mtrg_addr  ,
+   input      [     32-1: 0] sys_mtrg_wdata ,
+   input                     sys_mtrg_wen   ,
+   input                     sys_mtrg_ren   ,
+   output     [     32-1: 0] sys_mtrg_rdata ,
+   output                    sys_mtrg_err   ,
+   output                    sys_mtrg_ack
 );
 
 wire [    N_CH-1: 0] axi_clk           ;
@@ -180,6 +198,10 @@ wire [     17-1: 0]  trig_snapshot     ;
 assign adc_trg_dis_act = ev_adc_trg_dis;
 
 wire [       4-1: 0] axi_en_pulse      ;
+
+// Puente legacy osc_cfg -> multitrigger_cfg (offsets 0x004 y 0x094 del slot 1)
+wire [       4-1: 0] legacy_trig_sw    ;
+wire [       4-1: 0] legacy_trig_dis_clr;
 wire [       4-1: 0] new_trg_src       ; // Indica cuando el trig_src actualiza la entrada 
 
 wire [   4*32 -1: 0] trg_src           ;  // máscara de fuentes 32b/canal
@@ -239,7 +261,10 @@ wire [       4-1: 0] adc_dv_del   ;
 wire [       4-1: 0] adc_dv_bram  ;
 wire [       4-1: 0] adc_dv_del_p ;
 
-assign sys_en = sys_wen | sys_ren;
+// Las aperturas BRAM viven en el slot del OSC, así que el enable de lectura de
+// rp_acq_bram sale de ESE bus. (El ack del esclavo ya no depende de bram_ack:
+// osc_cfg usa latencia fija — ver su cabecera.)
+assign sys_en = sys_osc_wen | sys_osc_ren;
 
 // Estados de salida
 assign adc_state_o = adc_state[15:0]; 
@@ -391,11 +416,8 @@ end
 
 assign adc_dec_in = set_filt_byp[GV] ? adc_filt_in : adc_filtered;
 
-// Toma para el MCA: mismo nodo que alimenta a rp_decim y a rp_adc_trig, y
-// respeta set_filt_byp. Es un alias de una señal que ya existe, asi que no
-// agrega logica; con los puertos sin conectar en red_pitaya_top se poda todo.
-assign mca_dat[(GV+1)*DW-1:GV*DW] = adc_dec_in;
-assign mca_val[GV]                = adc_rstn_i[GV];
+// Las tomas para MCA / multitrigger / OSC ya no se cablean acá: las eligen
+// los dsp_tap_mux de más abajo, a partir de los ROUTE_* de la región de TOP.
 
 rp_decim #(
   .DW  (  DW    )
@@ -447,7 +469,58 @@ rp_delay #(
 );
 
 
-// Este módulo convierte los datos del adc en las senales de trigger a partir 
+//---------------------------------------------------------------------------
+// RUTEO DEL DATAPATH
+//
+// Los tres consumidores eligen de qué nodo toman sus muestras. Los taps son:
+//
+//   NATIVO   como estaba cableado antes del refactor (valor de RESET)
+//   ADC      adc_calib_in : crudo, ANTES de calibración y ecualizador
+//   DEC_IN   adc_dec_in   : post-calib/filtro, PRE-decimación, 125 MSPS
+//   BRAM_IN  adc_bram_in  : después de todo el DSP (decimación + delay)
+//
+// Ojo con el nativo del multitrigger: es adc_dly_in (post-decimación pero
+// PRE-delay), que NO es ninguno de los tres taps. Por eso el valor 0 existe.
+//
+// El camino a DDR por AXI (rp_axi_sm) NO se rutea: sigue siempre en su nodo
+// nativo. O sea que ROUTE_OSC afecta la captura en BRAM pero no las capturas
+// rp_AcqAxi*. Está así a propósito, para no duplicar el mux en un segundo
+// dominio de datos; si hiciera falta, es agregar un cuarto dsp_tap_mux.
+//---------------------------------------------------------------------------
+wire [DW-1:0] osc_dat, mtrg_dat, mca_tap_dat;
+wire          osc_val, mtrg_val, mca_tap_val;
+
+dsp_tap_mux #(.DW(DW)) i_tap_osc (
+  .tap_sel_i (route_osc_tap_i), .en_i(route_osc_en_i),
+  .nat_dat_i (adc_bram_in[(GV+1)*DW-1:GV*DW]), .nat_val_i (adc_dv_bram[GV]),
+  .adc_dat_i (adc_calib_in                  ), .adc_val_i (1'b1           ),
+  .dec_dat_i (adc_dec_in                    ), .dec_val_i (1'b1           ),
+  .bram_dat_i(adc_bram_in[(GV+1)*DW-1:GV*DW]), .bram_val_i(adc_dv_bram[GV]),
+  .dat_o(osc_dat), .val_o(osc_val)
+);
+
+dsp_tap_mux #(.DW(DW)) i_tap_mtrg (
+  .tap_sel_i (route_mtrg_tap_i), .en_i(route_mtrg_en_i),
+  .nat_dat_i (adc_dly_in                    ), .nat_val_i (dec_val_65     ),
+  .adc_dat_i (adc_calib_in                  ), .adc_val_i (1'b1           ),
+  .dec_dat_i (adc_dec_in                    ), .dec_val_i (1'b1           ),
+  .bram_dat_i(adc_bram_in[(GV+1)*DW-1:GV*DW]), .bram_val_i(adc_dv_bram[GV]),
+  .dat_o(mtrg_dat), .val_o(mtrg_val)
+);
+
+dsp_tap_mux #(.DW(DW)) i_tap_mca (
+  .tap_sel_i (route_mca_tap_i), .en_i(route_mca_en_i),
+  .nat_dat_i (adc_dec_in                    ), .nat_val_i (adc_rstn_i[GV] ),
+  .adc_dat_i (adc_calib_in                  ), .adc_val_i (1'b1           ),
+  .dec_dat_i (adc_dec_in                    ), .dec_val_i (1'b1           ),
+  .bram_dat_i(adc_bram_in[(GV+1)*DW-1:GV*DW]), .bram_val_i(adc_dv_bram[GV]),
+  .dat_o(mca_tap_dat), .val_o(mca_tap_val)
+);
+
+assign mca_dat[(GV+1)*DW-1:GV*DW] = mca_tap_dat;
+assign mca_val[GV]                = mca_tap_val;
+
+// Este módulo convierte los datos del adc en las senales de trigger a partir
 // de un disparador smith
 rp_adc_trig #(
   .DW  (  DW     )
@@ -457,8 +530,8 @@ rp_adc_trig #(
   .adc_rstn_i     ( adc_rstn_i[GV]  ),  // ADC reset - active low
 
    // Connection to AXI master
-  .adc_dat_i      ( adc_dly_in                      ),
-  .adc_dv_i       ( dec_val_65                         ),
+  .adc_dat_i      ( mtrg_dat                        ),
+  .adc_dv_i       ( mtrg_val                        ),
   .set_tresh_i    ( set_tresh[(GV+1)*DW-1:GV*DW]    ),
   .set_hyst_i     ( set_hyst[(GV+1)*DW-1:GV*DW]     ),
 
@@ -506,12 +579,12 @@ rp_acq_bram #(
 
    // Connection to AXI master
   .bram_wp_i      ( adc_wp_act[(GV+1)*RSZ-1:GV*RSZ] ),
-  .bram_dat_i     ( adc_bram_in[(GV+1)*DW-1:GV*DW]  ),
-  .bram_val_i     ( adc_dv_bram[GV]                 ), // 
+  .bram_dat_i     ( osc_dat                         ), // ruteado por ROUTE_OSC
+  .bram_val_i     ( osc_val                         ), //
   .bram_we_i      ( adc_we[GV]                      ), // Write enable  
   .bram_ack_i     ( sys_en                          ), // 
 
-  .bram_rp_i      ( sys_addr[RSZ+1:2]               ), // Read pointer
+  .bram_rp_i      ( sys_osc_addr[RSZ+1:2]           ), // Read pointer
   .bram_dat_o     ( bram_rd_dat[(GV+1)*DW-1:GV*DW]  ), // 
   .bram_ack_o     ( bram_ack[GV]                    )
 );
@@ -611,55 +684,55 @@ rp_ext_trig #(
   .asg_trig_n_o   ( asg_trig_n      )
 );
 
-multitrigger_rp_scope_cfg #(
-  .CHN (  CHN    ),
-  .DW  (  DW     )
-) i_cfg (
-   // global signals
-  .adc_clk_i          ( adc_clk_i[0]    ),  // ADC clock
-  .adc_rstn_i         ( adc_rstn_i[0]   ),  // ADC reset - active low
+//===========================================================================
+// Los dos esclavos de configuración.
+//
+// Antes había uno solo (multitrigger_rp_scope_cfg) que mezclaba el mapa del
+// scope con el del multitrigger en el mismo casez y el mismo sys_ack. Ahora
+// cada región tiene su slot y su ack propio.
+//
+// El puente legacy los une: librp escribe el SW-trigger en 0x004 y el
+// trig_dis_clr en 0x094 del slot 1, así que osc_cfg los sigue decodificando y
+// se los pasa a multitrigger_cfg ya decodificados por canal.
+//===========================================================================
+osc_cfg #(
+  .EN_LEGACY_MAP ( 1      ),   // 0 = saca el mapa viejo cuando el SW migre
+  .CHN           ( CHN    ),
+  .N_CH          ( N_CH   ),
+  .DW            ( DW     ),
+  .RSZ           ( RSZ    )
+) i_osc_cfg (
+  .adc_clk_i          ( adc_clk_i[0]    ),
+  .adc_rstn_i         ( adc_rstn_i[0]   ),
 
-  // System bus
-  .sys_addr           ( sys_addr        ),  // Input
-  .sys_wdata          ( sys_wdata       ),
-  .sys_wen            ( sys_wen         ),
-  .sys_ren            ( sys_ren         ),
-  .sys_rdata          ( sys_rdata       ),
-  .sys_err            ( sys_err         ),
-  .sys_ack            ( sys_ack         ),
+  // System bus del slot 1
+  .sys_addr           ( sys_osc_addr    ),
+  .sys_wdata          ( sys_osc_wdata   ),
+  .sys_wen            ( sys_osc_wen     ),
+  .sys_ren            ( sys_osc_ren     ),
+  .sys_rdata          ( sys_osc_rdata   ),
+  .sys_err            ( sys_osc_err     ),
+  .sys_ack            ( sys_osc_ack     ),
 
-  // 
   .adc_state_i        ( adc_state       ),
   .axi_state_i        ( axi_state       ),
   .trg_state_i        ( trg_state       ),
-  
-  // ADC Externo 
   .adc_state_ext_i    ( adc_state_i     ),
   .axi_state_ext_i    ( axi_state_i     ),
   .trg_state_ext_i    ( trg_state_i     ),
 
-  // 
   .adc_wp_cur_i       ( adc_wp_cur      ),
   .adc_wp_trig_i      ( adc_wp_trig     ),
   .adc_we_cnt_i       ( adc_we_cnt      ),
-
   .axi_wp_cur_i       ( axi_wp_cur      ),
   .axi_wp_trig_i      ( axi_wp_trig     ),
-
   .bram_rd_dat_i      ( bram_rd_dat     ),
-  .bram_ack_i         ( bram_ack        ),
 
-    // TODO cambiar rp_conf
   .adc_arm_do_o       ( adc_arm_do      ),
-
   .adc_rst_do_o       ( adc_rst_do      ),
-  .adc_trig_sw_o      ( adc_trig_sw     ),
   .adc_we_keep_o      ( adc_we_keep     ),
-  .trig_dis_clr_o     ( trig_dis_clr    ),
   .indep_mode_o       ( indep_mode      ),
   .axi_en_pulse_o     ( axi_en_pulse    ),
-  .new_trg_src_o      ( new_trg_src     ),  // Las fuentes a tomar se decide de forma externa.
-  .trg_src_o          ( trg_src         ),
   .set_dec1_o         ( set_dec1        ),
   .filt_rstn_o        ( filt_rstn       ),
   .set_tresh_o        ( set_tresh       ),
@@ -671,10 +744,8 @@ multitrigger_rp_scope_cfg #(
   .set_filt_bb_o      ( set_filt_bb     ),
   .set_filt_kk_o      ( set_filt_kk     ),
   .set_filt_pp_o      ( set_filt_pp     ),
-
   .set_calib_offset_o ( set_calib_offset),
   .set_calib_gain_o   ( set_calib_gain  ),
-
   .set_filt_byp_o     ( set_filt_byp    ),
   .set_deb_len_o      ( set_deb_len     ),
   .set_axi_start_o    ( set_axi_start   ),
@@ -682,15 +753,46 @@ multitrigger_rp_scope_cfg #(
   .set_axi_dly_o      ( set_axi_dly     ),
   .set_axi_en_o       ( set_axi_en      ),
 
-  .shield_src_o       ( shield_src      ),
-  .shield_dst_o       ( shield_dst      ),
-  .shield_dur_o       ( shield_dur      ),
+  // Puente legacy hacia el slot 3
+  .legacy_trig_sw_o      ( legacy_trig_sw      ),
+  .legacy_trig_dis_clr_o ( legacy_trig_dis_clr )
+);
 
-  // Debug readbacks
+multitrigger_cfg #(
+  .N_CH     ( N_CH ),
+  .SRC_W    ( 32   ),
+  .SHIELD_N ( 4    )
+) i_mtrg_cfg (
+  .adc_clk_i          ( adc_clk_i[0]    ),
+  .adc_rstn_i         ( adc_rstn_i[0]   ),
+
+  // System bus del slot 3
+  .sys_addr           ( sys_mtrg_addr   ),
+  .sys_wdata          ( sys_mtrg_wdata  ),
+  .sys_wen            ( sys_mtrg_wen    ),
+  .sys_ren            ( sys_mtrg_ren    ),
+  .sys_rdata          ( sys_mtrg_rdata  ),
+  .sys_err            ( sys_mtrg_err    ),
+  .sys_ack            ( sys_mtrg_ack    ),
+
+  .trg_state_i        ( trg_state       ),
   .adc_trg_dis_act_i  ( adc_trg_dis_act ),
+  .adc_we_keep_i      ( adc_we_keep     ),
+  .indep_mode_i       ( indep_mode      ),
   .shield_cnt_i       ( shield_cnt      ),
   .shield_active_i    ( shield_active   ),
-  .trig_snapshot_i    ( trig_snapshot   )
+  .trig_snapshot_i    ( trig_snapshot   ),
+
+  .legacy_trig_sw_i      ( legacy_trig_sw      ),
+  .legacy_trig_dis_clr_i ( legacy_trig_dis_clr ),
+
+  .adc_trig_sw_o      ( adc_trig_sw     ),
+  .trig_dis_clr_o     ( trig_dis_clr    ),
+  .new_trg_src_o      ( new_trg_src     ),
+  .trg_src_o          ( trg_src         ),
+  .shield_src_o       ( shield_src      ),
+  .shield_dst_o       ( shield_dst      ),
+  .shield_dur_o       ( shield_dur      )
 );
 
 assign axi_clk    = adc_clk_i ;

@@ -994,7 +994,7 @@ Fase 0 de la expansión del MCA: antes de gastar una síntesis en una tabla de
 calibración, contestar en software si la corrección sirve y de qué tamaño tiene
 que ser la tabla. Todo offline, sobre datos ya medidos.
 
-Implementación en [`software/mca_utils.py`](../software/mca_utils.py) (sección
+Implementación en [`software/API/analisis.py`](../software/API/analisis.py) (sección
 *Linealización del eje de amplitud*) y verificación en
 [`software/tests/test_linealizacion.py`](../software/tests/test_linealizacion.py).
 

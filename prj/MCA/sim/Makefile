@@ -17,7 +17,11 @@ WORK ?= work
 # Fuentes RTL: se leen de filelist.f para que no se desincronicen.
 RTL_SRCS := $(shell grep -v '^\#' filelist.f | grep -v '^$$')
 
-TBS := tb_multitrigger_trig_src \
+TBS := tb_integration_cfg \
+       tb_slots_integration \
+       tb_osc_cfg \
+       tb_multitrigger_cfg \
+       tb_multitrigger_trig_src \
        tb_trigger_shield \
        tb_multitrigger_event_logic \
        tb_trig_capture \

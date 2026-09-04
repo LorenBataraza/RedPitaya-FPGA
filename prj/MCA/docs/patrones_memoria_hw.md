@@ -22,7 +22,7 @@ Documentos hermanos:
 | [`multitrigger/arquitectura_adquisicion_software.md`](multitrigger/arquitectura_adquisicion_software.md) | el presupuesto de latencia y el techo medido |
 | [`multitrigger/orden_arm_trigger_captura.md`](multitrigger/orden_arm_trigger_captura.md) | la FSM de captura K=1 y su race |
 | [`event_ring/diseno_y_register_map.md`](event_ring/diseno_y_register_map.md) | el ring de slots que reemplaza al K=1 |
-| [`bus_sistema_redpitaya.md`](bus_sistema_redpitaya.md) | el bus y su CDC por slot |
+| [`bus_sistema_redpitaya.md`](TOP/bus_sistema_redpitaya.md) | el bus y su CDC por slot |
 
 ---
 
@@ -96,7 +96,7 @@ Acá sí se llena, sí se pierde, y hay que modelarla.
 | **Derandomizador** | absorber la ráfaga de **Poisson** antes de un readout de latencia fija | ocupación de cola vs tiempo muerto | el ring completo |
 | **Ping-pong / doble banco** | productor llena A, consumidor vacía B | 2 × ventana | *(ausente — el ring lo generaliza)* |
 | **Control por créditos** | frenar al productor antes de desbordar | umbral = latencia del lazo | `occupied = wr_slot - rd_slot` en [`event_ring_top.sv:122`](../rtl/mine/event_ring/event_ring_top.sv#L122) |
-| **Cola de batches en software** | desacoplar lector de escritor | profundidad × tamaño de batch | `free_q`/`full_q` en [`reader.py`](../software/mca/reader.py) |
+| **Cola de batches en software** | desacoplar lector de escritor | profundidad × tamaño de batch | `free_q`/`full_q` en [`reader.py`](../software/API/osciloscope_store/reader.py) |
 
 ### Las tres reglas que gobiernan este grupo
 
@@ -234,7 +234,7 @@ Tanto [`mca_top.sv`](../rtl/mine/mca/mca_top.sv) como
 del bus con un shift register **incondicional**, sin ninguna ruta de ack por
 sub-bloque. No es una simplificación: un esclavo que no hace ack no produce sólo
 una lectura mala, **deja el CDC del slot desincronizado** y ese slot no acepta
-más transacciones (ver [`bus_sistema_redpitaya.md`](bus_sistema_redpitaya.md)
+más transacciones (ver [`bus_sistema_redpitaya.md`](TOP/bus_sistema_redpitaya.md)
 §7.1). Es una falla que se manifiesta como un cuelgue del bus, muy lejos de su
 causa.
 
@@ -411,5 +411,5 @@ Cosas que este mapeo dejó a la vista y todavía no se hicieron:
   `n = k/τ` (3.96, 7.91, 11.9, 15.8, 19.8 kHz) para confirmar la firma de K=1 no
   paralizable y medir `τ` por la posición de los escalones.
 - **Validar M/D/1/K en software.** Limitar artificialmente `free_q` a K = 1, 2,
-  4, 8 en [`reader.py`](../software/mca/reader.py) y contrastar la familia de
+  4, 8 en [`reader.py`](../software/API/osciloscope_store/reader.py) y contrastar la familia de
   curvas medida contra la fórmula. No requiere tocar RTL.

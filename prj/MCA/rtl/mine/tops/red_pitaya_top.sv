@@ -596,13 +596,28 @@ rp_scope_multitrigger_com#(
   .axi_werr_i   ({axi1_sys.werr,   axi0_sys.werr}  ),
   .axi_wrdy_i   ({axi1_sys.wrdy,   axi0_sys.wrdy}  ),
   // System bus
-  .sys_addr      (sys[1].addr ),
-  .sys_wdata     (sys[1].wdata),
-  .sys_wen       (sys[1].wen  ),
-  .sys_ren       (sys[1].ren  ),
-  .sys_rdata     (sys[1].rdata),
-  .sys_err       (sys[1].err  ),
-  .sys_ack       (sys[1].ack  )
+  // Ruteo del datapath, desde la region de TOP
+  .route_osc_tap_i (route_osc_tap ), .route_osc_en_i (route_osc_en ),
+  .route_mtrg_tap_i(route_mtrg_tap), .route_mtrg_en_i(route_mtrg_en),
+  .route_mca_tap_i (route_mca_tap ), .route_mca_en_i (route_mca_en ),
+
+  // System bus del OSC — slot 1, 0x4010_0000
+  .sys_osc_addr  (sys[1].addr ),
+  .sys_osc_wdata (sys[1].wdata),
+  .sys_osc_wen   (sys[1].wen  ),
+  .sys_osc_ren   (sys[1].ren  ),
+  .sys_osc_rdata (sys[1].rdata),
+  .sys_osc_err   (sys[1].err  ),
+  .sys_osc_ack   (sys[1].ack  ),
+
+  // System bus del MULTITRIGGER — slot 7, 0x4070_0000
+  .sys_mtrg_addr (sys[7].addr ),
+  .sys_mtrg_wdata(sys[7].wdata),
+  .sys_mtrg_wen  (sys[7].wen  ),
+  .sys_mtrg_ren  (sys[7].ren  ),
+  .sys_mtrg_rdata(sys[7].rdata),
+  .sys_mtrg_err  (sys[7].err  ),
+  .sys_mtrg_ack  (sys[7].ack  )
 );
 
 // (bloque rp_scope_com clásico eliminado; se usa i_scope multitrigger)
@@ -747,9 +762,42 @@ red_pitaya_daisy  #(
   .sys_ack_o       (  sys[6].ack                 )
 );
   `else
-  sys_bus_stub sys_bus_stub_6 (sys[6]);
+////////////////////////////////////////////////////////////////////////////////
+//  Region de TOP (integracion) — slot 6, base 0x4060_0000
+//
+//  OJO: aca el MULTITRIGGER va al slot 7, no al 3.
+//  Este top conserva el ASG (slot 2) y el PID (slot 3), asi que el slot 3
+//  canonico no esta libre. El registro SLOTS (0x4060_0024) publica el mapa
+//  real de ESTE bitstream: el software lo lee en vez de asumirlo.
+////////////////////////////////////////////////////////////////////////////////
+integration_cfg #(
+  .MAGIC    (32'h494E5447),           // "INTG"
+  .VERSION  (32'h0001_0000),
+  .GITH     (GITH),
+  .EN_OSC(1), .EN_MTRG(1), .EN_MCA(0), .EN_RING(0), .EN_ASG(1), .EN_PID(1),
+  .SLOT_OSC(1), .SLOT_RING(2), .SLOT_MTRG(7), .SLOT_TOP(6), .SLOT_MCA(7),
+  .N_CH(2), .DW(14), .RSZ(14), .EN_FILT(1),
+  .H_AW(14), .H2_AW(7), .PSD_AW(6)
+) i_integration (
+  .adc_clk_i  (adc_clk ),
+  .adc_rstn_i (adc_rstn),
+  .route_osc_tap_o (route_osc_tap ), .route_osc_en_o (route_osc_en ),
+  .route_mtrg_tap_o(route_mtrg_tap), .route_mtrg_en_o(route_mtrg_en),
+  .route_mca_tap_o (route_mca_tap ), .route_mca_en_o (route_mca_en ),
+  .route_ring_tap_o(              ), .route_ring_en_o(             ),
+  .ctrl_run_o  (top_run  ),
+  .ctrl_clear_o(top_clear),
+  .ctrl_srst_o (top_srst ),
+  .pll_locked_i(pll_locked),
+  .sys_addr   (sys[6].addr ),
+  .sys_wdata  (sys[6].wdata),
+  .sys_wen    (sys[6].wen  ),
+  .sys_ren    (sys[6].ren  ),
+  .sys_rdata  (sys[6].rdata),
+  .sys_err    (sys[6].err  ),
+  .sys_ack    (sys[6].ack  )
+);
   `endif
-  sys_bus_stub sys_bus_stub_7 (sys[7]);
 
 `else
 IOBUF i_iobuf (.O(trig_ext), .IO(exp_p_io[0]), .I(1'b0), .T(1'b1) );

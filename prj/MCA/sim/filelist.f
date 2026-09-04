@@ -5,10 +5,30 @@
 # nunca rtl_250). Hoy son funcionalmente identicas —el diff son comentarios— pero
 # divergen apenas alguien toque una. Se compila la que se sintetiza.
 
+# --- integracion (region de TOP, slot 6) ---
+../rtl/mine/integration/integration_cfg.sv
+../rtl/mine/integration/dsp_tap_mux.sv
+
 # --- multitrigger ---
 ../rtl/mine/multitrigger/multitrigger_trig_src.sv
 ../rtl/mine/multitrigger/trigger_shield.sv
 ../rtl/mine/multitrigger/multitrigger_event_logic.v
+../rtl/mine/multitrigger/multitrigger_cfg.sv
+../rtl/mine/multitrigger/multitrigger_rp_scope_cfg.sv
+
+# --- OSC (slot 1) ---
+../rtl/mine/osc/osc_cfg.sv
+
+# --- datapath del scope (integracion de las tres regiones) ---
+../rtl/mine/multitrigger/rp_scope_multitrigger_com.sv
+../../../rtl/divide.v
+../../../rtl/classic/rp_scope_calib.v
+../../../rtl/classic/rp_decim.v
+../../../rtl/classic/rp_delay.v
+../../../rtl/classic/rp_adc_trig.v
+../../../rtl/classic/rp_acq_bram.v
+../../../rtl/classic/rp_axi_sm.v
+../../../rtl/classic/rp_ext_trig.v
 ../../../rtl/classic/rp_bram_sm.v
 
 # --- MCA ---

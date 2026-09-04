@@ -1,0 +1,85 @@
+m255
+K4
+z2
+13
+!s112 1.1
+!i10d 8192
+!i10e 25
+!i10f 100
+cModel Technology
+Z0 d/home/lorenzo/PI/RedPitaya-FPGA/prj/MCA
+vevent_ring_red_pitaya_top
+Z1 DXx6 sv_std 3 std 0 22 d=_JfHTnXCN[H5FjiaJJc0
+Z2 !s110 1788461906
+!i10b 1
+!s100 Ql9nT]2m_V[PF`hTm@J]U3
+I2z=09[A6]K0on?:o>HIUi3
+Z3 VDg1SIo80bB@j0V0VzS_@n1
+!s105 event_ring_red_pitaya_top_sv_unit
+S1
+R0
+Z4 w1788461906
+8rtl/mine/tops/event_ring_red_pitaya_top.sv
+Frtl/mine/tops/event_ring_red_pitaya_top.sv
+Z5 L0 69
+Z6 OL;L;10.7c;67
+r1
+!s85 0
+31
+Z7 !s108 1788461906.000000
+!s107 rtl/mine/tops/event_ring_red_pitaya_top.sv|
+!s90 -sv|-quiet|-work|work_chk|+define+Z10|rtl/mine/tops/event_ring_red_pitaya_top.sv|
+!i113 0
+Z8 o-quiet -sv -work work_chk -L mtiAvm -L mtiRnm -L mtiOvm -L mtiUvm -L mtiUPF -L infact
+Z9 !s92 -quiet -sv -work work_chk +define+Z10 -L mtiAvm -L mtiRnm -L mtiOvm -L mtiUvm -L mtiUPF -L infact
+Z10 tCvgOpt 0
+vmca_red_pitaya_top
+R1
+R2
+!i10b 1
+!s100 @m@[5adU9Q^z[PKdD9Mb@1
+IU[8=KQz6:ULIKJ9n=9c2m1
+R3
+!s105 mca_red_pitaya_top_sv_unit
+S1
+R0
+w1788461551
+8rtl/mine/tops/mca_red_pitaya_top.sv
+Frtl/mine/tops/mca_red_pitaya_top.sv
+R5
+R6
+r1
+!s85 0
+31
+R7
+!s107 rtl/mine/tops/mca_red_pitaya_top.sv|
+!s90 -sv|-quiet|-work|work_chk|+define+Z10|rtl/mine/tops/mca_red_pitaya_top.sv|
+!i113 0
+R8
+R9
+R10
+vred_pitaya_top
+R1
+R2
+!i10b 1
+!s100 DWL2NJaTOe]D159N`=S=e0
+IN3dj?XjcI]F3506XiL`gO0
+R3
+!s105 red_pitaya_top_sv_unit
+S1
+R0
+R4
+8rtl/mine/tops/red_pitaya_top.sv
+Frtl/mine/tops/red_pitaya_top.sv
+L0 52
+R6
+r1
+!s85 0
+31
+R7
+!s107 rtl/mine/tops/red_pitaya_top.sv|
+!s90 -sv|-quiet|-work|work_chk|+define+Z10|rtl/mine/tops/red_pitaya_top.sv|
+!i113 0
+R8
+R9
+R10
