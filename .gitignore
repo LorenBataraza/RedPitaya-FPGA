@@ -7,7 +7,7 @@ synReport.*
 # ...menos el golden del test de compatibilidad: es dato de referencia, no
 # salida de medicion. Sin versionarlo, tests/test_compat_api.py no corre en un
 # clon limpio.
-!prj/MCA/software/tests/compat_golden.npz
+!prj/MCA/software/API/tests/datos_ref/compat_golden.npz
 
 
 
@@ -30,10 +30,11 @@ prj/MCA/software/datos/
 
 # Archivos Caché
 prj/MCA/docs/mca/figuras/__pycache__/
-prj/MCA/software/tests/__pycache__
 
 # Quito figuras y videos
 *.png
+# ...menos la figura del benchmark de lectura, que la citan los docs.
+!prj/MCA/software/API/bench/bench_read_vs_length.png
 *.jpg
 *.mp4
 

@@ -191,7 +191,7 @@ class BramSource:
 
         `end_pos` es INCLUSIVO y la API resuelve el wrap circular sola (start >
         end en una sola llamada da bit a bit lo mismo que partirlo en dos:
-        verificado en tests/bench_reader_budget.py).
+        verificado en API/bench/bench_reader_budget.py).
         """
         import rp
 

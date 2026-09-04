@@ -4,7 +4,7 @@ Todas las funciones públicas por módulo, y **a qué registro pega cada una**. 
 nomenclatura de tres capas está en [`README.md`](README.md).
 
 Los mapas de registros completos (con la semántica de cada bit) viven aparte:
-[MCA](../mca/register_map_mca.md) · [scope/multitrigger](../multitrigger/register_map_multitrigger_rp_scope_cfg.md) · [event_ring](../event_ring/diseno_y_register_map.md).
+[MCA](../mca/register_map_mca.md) · [OSC](../osc/register_map_osc.md) · [multitrigger](../multitrigger/register_map_multitrigger.md) · [event_ring](../event_ring/diseno_y_register_map.md).
 
 ---
 
@@ -56,7 +56,7 @@ Todos toman el handle: `mca_get_thr(h)` / `mca_set_thr(h, 200)`.
 `0x00C`). Los `set_` hacen **read-modify-write**, así que poner uno no borra sus
 vecinos. Es seguro porque el RTL relee esos registros enteros
 (`mca_top.sv:340,346,351`). Lo verifica
-[`test_api_mca.py::test_rmw_no_pisa_campos_vecinos`](../../software/tests/test_api_mca.py).
+[`test_api_mca.py::test_rmw_no_pisa_campos_vecinos`](../../software/API/tests/test_api_mca.py).
 
 > **`bl_k` tiene que ser MUCHO más largo que el pulso.** La constante es 2^k
 > muestras (8 ns cada una). Si es comparable al pulso, el seguidor lo persigue y
@@ -341,7 +341,7 @@ para leer rho en vivo.
 > **rho no es la fracción perdida.** Con arribos periódicos se puede estar 28 %
 > ocupado y no perder ni un evento. Para la pérdida con fuente Poisson,
 > `rho/(1+rho)`; ver
-> [`tests/tiempo-muerto/README.md`](../../software/tests/tiempo-muerto/README.md).
+> [`../docs/mca/tiempo_muerto.md`](../../software/../docs/mca/tiempo_muerto.md).
 
 ---
 
@@ -394,7 +394,7 @@ hardware (`mca_read_counters()` → `livetime_s`/`deadtime_s`). La medición dir
 complementaria es el `DeadTimeAnnotator` de
 [`API.osciloscope_store`](#5-apiosciloscope_store--guardado-continuo). Todo el
 detalle y la validación por Monte-Carlo:
-[`tests/tiempo-muerto/README.md`](../../software/tests/tiempo-muerto/README.md).
+[`../docs/mca/tiempo_muerto.md`](../../software/../docs/mca/tiempo_muerto.md).
 
 ---
 

@@ -56,7 +56,7 @@ class MultiTriggerScope(Osciloscope):
     Compone un `MultiTrigger` sobre EL MISMO mapeo, así que las escrituras de
     los dos módulos salen por el mismo mmap y en el mismo orden que antes del
     refactor — que es justo lo que verifican las trazas de
-    `tests/test_compat_api.py`.
+    `API/tests/test_compat_api.py`.
 
     Código nuevo: usar `Osciloscope` + `MultiTrigger` por separado.
     """

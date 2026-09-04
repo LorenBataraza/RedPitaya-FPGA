@@ -237,7 +237,7 @@ Son **dos mecanismos** y conviene separarlos porque responden a cosas distintas:
   al lado. Es a nivel de evento. A 100 kcps sólo el **53–59 %** de los eventos
   están limpios y `cnt_pileup` marca entre **0.00 % y 0.45 %**: casi todo el
   apilamiento entra al espectro. Ver
-  [`tests/pile-up/`](../../software/tests/pile-up/).
+  [`monte-carlo/`](../../software/monte-carlo/).
 - **(b) Pedestal de línea de base.** El nivel medio sube porque las colas se
   solapan, y eso afecta también a los eventos **limpios**. Rechazar no lo toca:
   sacar un evento no cambia el nivel sobre el que están parados los demás.

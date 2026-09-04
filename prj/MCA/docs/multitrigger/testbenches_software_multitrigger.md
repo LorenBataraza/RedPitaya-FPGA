@@ -4,7 +4,7 @@ Qué mide la suite de caracterización del scope, cómo lo mide y —sobre todo�
 trampas hay que esquivar para que el número signifique algo**. Casi todo el
 documento son cosas que costó descubrir midiendo en la placa.
 
-Código: [`../software/testbench_multitrigger.py`](../../software/testbench_multitrigger.py)
+Código: [`campanas/testbench_multitrigger.py`](../../software/campanas/testbench_multitrigger.py)
 Driver: [`API/osciloscope.py`](../../software/API/osciloscope.py) + [`API/multitrigger.py`](../../software/API/multitrigger.py)
 API: [`docs/API/referencia_api.md`](../API/referencia_api.md)
 
@@ -210,7 +210,7 @@ La parte ingeniosa de la suite, y la única forma de ver el régimen de ~24 ns.
 
 Un pulso de ancho W genera un flanco de subida y uno de bajada separados
 **exactamente** por W. Armando con `OR_MASK = BIT_ADC_P0 | BIT_ADC_N0`, el
-`trig_snapshot` (@0x218) guarda cuál fue el último evento aceptado:
+`trig_snapshot` (@`0x4030_0018`) guarda cuál fue el último evento aceptado:
 
 | snapshot | significa |
 |---|---|

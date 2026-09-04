@@ -263,7 +263,7 @@ def deadtime_fit(rate_in, rate_out):
 #
 # La primera determina tau y además `n`; la segunda sólo ACOTA tau, y a cambio
 # da la pérdida exacta sin pasar por ningún modelo. Ver
-# `tests/tiempo-muerto/README.md` para por qué el estímulo periódico engaña.
+# `../docs/mca/tiempo_muerto.md` para por qué el estímulo periódico engaña.
 
 
 def _intervalos_limpios(t_ns, gap):
@@ -307,7 +307,7 @@ def tau_poisson(t_ns, gap, q=0.001):
     lo arruina. Se paga algo de sesgo y se gana robustez.
 
     Validado por Monte-Carlo contra un K=1 de tau conocido
-    (`tests/tiempo-muerto/test_deadtime_estimadores.py`): tau dentro de ±3 % y
+    (`API/tests/test_deadtime_estimadores.py`): tau dentro de ±3 % y
     `n` dentro de ±5 % en el rango rho = 0.05 … 2.
 
     **Requiere arribos de Poisson.** Con el Rigol en PULSE no aplica: un tren
@@ -363,7 +363,7 @@ def tau_periodico(t_ns, gap, T_s, tol=0.15):
     Ese bracket no es debilidad del estimador: el modelo es **discontinuo en
     tau** y con un solo `k` poblado la información no está en los datos. Es el
     mismo "cualquier tau entre 200 y 250 µs da la misma predicción" que ya
-    reporta `tests/tiempo-muerto/README.md`. Lo que lo aprieta es barrer T e
+    reporta `../docs/mca/tiempo_muerto.md`. Lo que lo aprieta es barrer T e
     **intersecar los brackets**.
 
     Caso especial útil: cuando `tau/T` cae cerca de un entero se pueblan DOS `k`
@@ -741,7 +741,7 @@ def propagar_calibracion_muestra(ondas, f, estimadores, baseline=0.0):
                   creciente; se verifica sobre el rango que realmente aparece.
     `estimadores` dict nombre -> callable(ondas_2d, baseline) -> array de un
                   valor por evento. Acá se pasan las réplicas bit-exactas del
-                  RTL de tests/estimadores/estimadores.py; se inyectan en vez de
+                  RTL de API/modelo_rtl/estimadores.py; se inyectan en vez de
                   importarse para que este módulo no dependa de los tests.
 
     Devuelve dict nombre -> {'crudo', 'calibrado', 'ratio_medio'}.

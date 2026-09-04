@@ -245,18 +245,18 @@ g.output(1, True)
 
 ```bash
 cd prj/MCA/software
-python tests/test_compat_api.py     # nada público cambió respecto al baseline
-python tests/test_api_mca.py        # accesores por campo y guardado
-python -m pytest tests/test_api_mca.py tests/test_compat_api.py tests/fase0/ -q
+python API/tests/test_compat_api.py     # nada público cambió respecto al baseline
+python API/tests/test_api_mca.py        # accesores por campo y guardado
+python -m pytest API/tests/test_api_mca.py API/tests/test_compat_api.py API/tests/placa/ -q
 ```
 
 **En la placa**, tras el rsync habitual:
 
 ```bash
-python tests/diag_mca_hw.py         # identify + magic + un espectro completo
-python tests/test_mca_hw.py
-python testbench_mca.py --list
-python tests/fase0/hw_ring_swtrig.py
+python API/tests/placa/diag_mca_hw.py         # identify + magic + un espectro completo
+python API/tests/placa/test_mca_hw.py
+python campanas/testbench_mca.py --list
+python API/tests/placa/hw_ring_swtrig.py
 ```
 
 `diag_mca_hw.py` es el chequeo que importa: si lee el espectro entero sin colgar

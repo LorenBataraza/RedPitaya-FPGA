@@ -381,7 +381,7 @@ class ServidorMCA:
 def selftest(srv):
     """identify + clear + 1 s + espectro completo, con /proc/uptime a los lados.
 
-    Es la misma guarda que usa tests/diag_mca_hw.py: si la placa se reinicia
+    Es la misma guarda que usa API/tests/placa/diag_mca_hw.py: si la placa se reinicia
     durante la lectura, el uptime del final es menor que el del principio.
     """
     def uptime():

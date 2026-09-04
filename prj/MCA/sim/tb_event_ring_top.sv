@@ -271,7 +271,7 @@ module tb_event_ring_top;
     checkv("footer de cada slot = seq del ultimo evento que le toco", errs, 0);
 
     // Volcar el ring lleno para el decodificador de Python (Fase 0)
-    dump_ring("../software/tests/fase0/ring_dump.hex");
+    dump_ring("../software/API/tests/datos_ref/ring_dump.hex");
 
     //======================================================================
     $display("[4] RAFAGA sin drenaje: absorbe, despues cuenta la perdida");

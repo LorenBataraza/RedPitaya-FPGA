@@ -57,11 +57,11 @@ one object`) también son **preexistentes**: el IO ruteado es idéntico al de v1
 ```bash
 fpgautil -b mca_red_pitaya.bit.bin
 python3 test_mca_hw.py                          # 29 PASS / 0 FAIL
-python3 testbench_mca.py sweep_gate --outdir <dir>
+python3 campanas/testbench_mca.py sweep_gate --outdir <dir>
 ```
 
 Predicción del análisis offline sobre 7054 pulsos reales
-([`../../software/tests/estimadores/`](../../software/tests/estimadores/)):
+([`../../software/API/modelo_rtl/`](../../software/API/modelo_rtl/)):
 mínimo cerca de **384 muestras** y una mejora de **~3.5×** sobre la histéresis
 (0.528 % → 0.149 %). Si sale menos de 1.2×, `sweep_gate` lo avisa solo.
 

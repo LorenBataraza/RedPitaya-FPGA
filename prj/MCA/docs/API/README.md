@@ -2,7 +2,7 @@
 
 **Código:** [`prj/MCA/software/API/`](../../software/API/)
 **Contrato de nombres:** las tres capas de abajo
-**Tests:** [`tests/test_compat_api.py`](../../software/tests/test_compat_api.py) · [`tests/test_api_mca.py`](../../software/tests/test_api_mca.py) — los dos corren en la PC, sin placa
+**Tests:** [`API/tests/test_compat_api.py`](../../software/API/tests/test_compat_api.py) · [`API/tests/test_api_mca.py`](../../software/API/tests/test_api_mca.py) — los dos corren en la PC, sin placa
 
 Antes, el software estaba organizado por *fichero histórico*: `mca_utils.py`
 mezclaba el driver del MCA con los helpers de análisis, `multitrigger_utils.py`
@@ -61,8 +61,8 @@ formatos estructurados (`save_file_`).
 | Módulo | Bloque | Base | Registros |
 |---|---|---|---|
 | [`API.mca`](../../software/API/mca.py) | analizador multicanal | `0x4070_0000` (slot 7) | [mapa](../mca/register_map_mca.md) |
-| [`API.osciloscope`](../../software/API/osciloscope.py) | osciloscopio clásico | `0x4010_0000` (slot 1) | [mapa](../multitrigger/register_map_multitrigger_rp_scope_cfg.md) |
-| [`API.multitrigger`](../../software/API/multitrigger.py) | máscaras OR, shield, snapshot | `0x4010_0000` (slot 1, `0x210`–`0x24C`) | [mapa](../multitrigger/register_map_multitrigger_rp_scope_cfg.md) |
+| [`API.osciloscope`](../../software/API/osciloscope.py) | osciloscopio clásico | `0x4010_0000` (slot 1) | [mapa](../osc/register_map_osc.md) |
+| [`API.multitrigger`](../../software/API/multitrigger.py) | máscaras OR, shield, snapshot | `0x4010_0000` (slot 1, `0x210`–`0x24C`) — **desactualizado**, ver aviso | [mapa](../multitrigger/register_map_multitrigger.md) |
 | [`API.osciloscope_ring`](../../software/API/osciloscope_ring.py) | event_ring en DDR | `0x4020_0000` (slot 2) | [mapa](../event_ring/diseno_y_register_map.md) |
 | [`API.osciloscope_store`](../../software/API/osciloscope_store/) | guardado continuo del flujo de eventos | — | [arquitectura](../multitrigger/arquitectura_adquisicion_software.md) |
 | [`API.mca_net`](../../software/API/mca_net.py) | protocolo de red del MCA (JSON + binario) | — | — |
@@ -71,11 +71,21 @@ formatos estructurados (`save_file_`).
 | [`API.fpga`](../../software/API/fpga.py) | bring-up de la PL | — | — |
 | [`API.rigol_dg4162`](../../software/API/rigol_dg4162.py) | generador externo | — | — |
 
-> **El osciloscopio y el multitrigger comparten slot pero son dos módulos.**
-> `osciloscope_` cubre lo que ya existía en el diseño original de RedPitaya
-> (umbral, decimación, delay, histéresis, filtros, calibración, punteros de
-> escritura, BRAM); `multitrigger_` cubre lo que **añadió este proyecto**. Son
-> dos APIs sobre el mismo bloque físico, no dos bloques.
+> **El osciloscopio y el multitrigger son dos módulos, y desde el refactor del
+> mapa de registros también son dos SLOTS distintos.** `osciloscope_` cubre lo
+> que ya existía en el diseño original de RedPitaya (umbral, decimación, delay,
+> histéresis, filtros, calibración, punteros de escritura, BRAM) y vive en el
+> slot 1; `multitrigger_` cubre lo que **añadió este proyecto** y se mudó al
+> slot 3 (`0x4030_0000`).
+>
+> ⚠️ **El hardware ya se mudó, el Python todavía no.** `API/multitrigger.py`
+> sigue escribiendo los offsets `0x210`–`0x24C` sobre el slot 1, donde ya no
+> los decodifica nadie. **No lanza excepción**: el esclavo hace `ack` de todo su
+> slot, así que las escrituras se aceptan y no hacen nada. El osciloscopio sí
+> sigue funcionando, por la ventana de compatibilidad legacy del slot 1.
+> Mapas nuevos: [OSC](../osc/register_map_osc.md) ·
+> [multitrigger](../multitrigger/register_map_multitrigger.md) ·
+> [TOP](../TOP/register_map_top.md).
 
 ---
 

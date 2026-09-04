@@ -2,7 +2,8 @@
 
 Cómo llega una escritura de `/dev/mem` desde el ARM hasta un registro en la PL,
 qué contrato tiene que cumplir un esclavo, y cuáles son los modos de falla —
-incluido uno que está latente en el diseño actual.
+incluido uno que estuvo latente en este diseño hasta el refactor de registros
+(§7.1).
 
 Referencia para escribir bloques nuevos. El ejemplo trabajado es
 [`mca_top.sv`](../../rtl/mine/mca/mca_top.sv); las decisiones de ese bloque están
@@ -110,7 +111,9 @@ cambiar `SN` y no basta con elegir una dirección más alta.
     │   y multiplexa rdata/err/ack de vuelta.
     │
     ├── sys_bus_cdc ──► sys[0]  ─► red_pitaya_hk
-    ├── sys_bus_cdc ──► sys[1]  ─► rp_scope_multitrigger_com
+    ├── sys_bus_cdc ──► sys[1]  ─► rp_scope_multitrigger_com  (contiene osc_cfg)
+    ├── sys_bus_cdc ──► sys[3]  ─► multitrigger_cfg
+    ├── sys_bus_cdc ──► sys[6]  ─► integration_cfg
     │        ...                        (un CDC por slot)
     └── sys_bus_cdc ──► sys[7]  ─► mca_top          @ adc_clk
 ```
@@ -352,9 +355,9 @@ La causa es §7.2: el `memcpy` que hay detrás de la copia emite accesos anchos
 como *external abort* y en esta placa **no da SIGBUS: reinicia el sistema**, sin
 dejar nada en dmesg (sólo se nota porque `/proc/uptime` se resetea).
 
-Reproducible con `prj/MCA/software/tests/diag_mca_hw.py`, pasos `bulk` y `word`.
+Reproducible con `prj/MCA/software/API/tests/placa/diag_mca_hw.py`, pasos `bulk` y `word`.
 
-> **Ojo con el código existente.** `tests/bench_reader_budget.py` usa el mismo
+> **Ojo con el código existente.** `API/bench/bench_reader_budget.py` usa el mismo
 > patrón (`np.frombuffer` + slicing) sobre las aperturas del scope. Que no haya
 > dado problemas puede deberse a que las rebanadas son chicas y el memcpy no
 > llega a usar instrucciones anchas — conviene revisarlo.
@@ -366,7 +369,7 @@ No es del bus, pero se manifiesta acá y cuesta caro. `pack_into` hace un
 el esclavo AXI no los reconoce, la transacción no se completa y el puente GP0
 tira un *external abort* → **SIGBUS** (en Jupyter: "el kernel murió"). Hay que
 escribir por asignación de slice, que es un `memcpy` alineado de 4 bytes. Ver
-`multitrigger_utils.py:393-403` y `tests/test_rw_dev_mem.py`.
+`multitrigger_utils.py:393-403` y `API/tests/placa/test_rw_dev_mem.py`.
 
 ---
 
@@ -462,7 +465,7 @@ una vez por segundo es gratis; leer formas de onda por evento no.
 
 Para lecturas masivas conviene armar una vista de numpy sobre el mmap **una sola
 vez** (crearla cuesta ~200 µs) y después rebanar, en vez de llamar `r32()` en un
-lazo. Ver `tests/bench_reader_budget.py:193-201`.
+lazo. Ver `API/bench/bench_reader_budget.py:193-201`.
 
 Si hiciera falta ancho de banda real, la salida es **AXI-HP** (DMA a DDR), que
 es un camino totalmente distinto: los cuatro puertos HP están hoy tomados por el
@@ -472,15 +475,18 @@ scope (HP0/HP1) y el ASG (HP2/HP3).
 
 ## 11. Receta para agregar un esclavo
 
-1. **Elegir slot.** El 7 (`0x4070_0000`) es el candidato natural: su
-   `sys_bus_stub` es incondicional. El 6 está dentro de un `` `ifdef Z20_G2 ``.
-2. **Reemplazar el stub** en el top:
+1. **Elegir slot.** Mirar antes el mapa de §2: en `mca_red_pitaya_top` los slots
+   1, 3, 6 y 7 ya están tomados (OSC, MULTITRIGGER, TOP y MCA), y el 0, 4 y 5
+   son de RedPitaya. **El único libre es el 2**, reservado para el `event_ring`
+   y vacío en el build del MCA. Si hace falta uno más hay que empezar por
+   liberar alguno: los ocho son todo el espacio que hay.
+2. **Reemplazar el stub** en el top (acá con el slot 2 de ejemplo):
    ```systemverilog
    mi_bloque i_mi_bloque (
      .adc_clk_i(adc_clk), .adc_rstn_i(adc_rstn),
-     .sys_addr (sys[7].addr ), .sys_wdata(sys[7].wdata),
-     .sys_wen  (sys[7].wen  ), .sys_ren  (sys[7].ren  ),
-     .sys_rdata(sys[7].rdata), .sys_err  (sys[7].err  ), .sys_ack(sys[7].ack)
+     .sys_addr (sys[2].addr ), .sys_wdata(sys[2].wdata),
+     .sys_wen  (sys[2].wen  ), .sys_ren  (sys[2].ren  ),
+     .sys_rdata(sys[2].rdata), .sys_err  (sys[2].err  ), .sys_ack(sys[2].ack)
    );
    ```
 3. **Implementar el contrato de §8.** Sin CDC propio: ya se está en `adc_clk`.
@@ -489,7 +495,7 @@ scope (HP0/HP1) y el ASG (HP2/HP3).
 5. **Testbench con BFM** que sostenga `ren` hasta el ack y **falle si no llega en
    ≤20 ciclos**, barriendo todas las direcciones del slot. `tb_mca_top.sv` sirve
    de plantilla.
-6. **Software**: `mmap` en `0x4070_0000`, escrituras por asignación de slice
+6. **Software**: `mmap` en la base del slot elegido, escrituras por slice
    (§7.3), y verificar el magic antes de nada.
 
 ---

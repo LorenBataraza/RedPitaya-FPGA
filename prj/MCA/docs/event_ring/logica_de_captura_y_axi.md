@@ -656,7 +656,7 @@ puede colgar el slot del bus. Es la lección directa del bug latente de
   — la máquina que esto reemplaza.
 - [`../bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) — el bus, el CDC y
   el contrato del `ack`.
-- [`../../software/tests/tiempo-muerto/README.md`](../../software/tests/tiempo-muerto/README.md)
+- [`../../software/../docs/mca/tiempo_muerto.md`](../../software/../docs/mca/tiempo_muerto.md)
   — los modelos de tiempo muerto y las mediciones.
 - RTL: [`event_window_capture.sv`](../../rtl/mine/event_ring/event_window_capture.sv),
   [`event_stage_fifo.sv`](../../rtl/mine/event_ring/event_stage_fifo.sv),

@@ -26,7 +26,7 @@ Mapa de slots: [`../TOP/register_map_top.md`](../TOP/register_map_top.md).
 | Offset | R/W | Campo | Antes vivía en |
 |---|---|---|---|
 | `0x000` | R | `MAGIC` = `0x4D545247` (`"MTRG"`) | — |
-| `0x004` | R | `CAPS` `{SHIELD_N[19:16], SRC_W[15:8], N_CH[3:0]}` | — |
+| `0x004` | R | `CAPS` `{SHIELD_N[15:12], SRC_W[11:4], N_CH[3:0]}` | — |
 | `0x010` | RW | `SHIELD_CFG` | `0x4010_0210` |
 | `0x014` | R | `SHIELD_STAT` `{active[16], cnt[15:0]}` | `0x4010_0214` |
 | `0x018` | R | `SNAPSHOT` (17 b, sticky) | `0x4010_0218` |

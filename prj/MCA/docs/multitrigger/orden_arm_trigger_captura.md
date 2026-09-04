@@ -19,11 +19,15 @@ Una captura disparada por **flanco de ADC** nunca congelaba el buffer:
 cambio el **SW trigger** funcionaba perfecto. Registros medidos en HW con la
 señal viva (Rigol 100 kHz en IN1):
 
+Los offsets están dados en el mapa **actual**: el multitrigger tiene slot propio
+(`0x4030_0000`) desde el refactor de registros. La medición original se tomó con
+el mapa viejo, donde estos registros vivían en el slot 1 como `0x218`/`0x21C`.
+
 ```
-0x00 (adc_state) = 0x0101   -> adc_we=1 (armada), adc_trg_rd=0 (NUNCA disparó)
-0x218 (snapshot) = 0x0002   -> adc_p0 (el flanco SÍ se detectó)
-0x21C (dis+wekp) = 0x0000   -> adc_trg_dis limpio (el shield lo limpió)
-0x1C  (wp_trig)  = 0        -> la FSM no registró ningún trigger
+slot1 0x000 (adc_state) = 0x0101  -> adc_we=1 (armada), adc_trg_rd=0 (NUNCA disparó)
+slot3 0x018 (snapshot)  = 0x0002  -> adc_p0 (el flanco SÍ se detectó)
+slot3 0x01C (dis+wekp)  = 0x0000  -> adc_trg_dis limpio (el shield lo limpió)
+slot1 0x01C (wp_trig)   = 0       -> la FSM no registró ningún trigger
 ```
 
 `adc_trg_rd = 0` con `snapshot = adc_p0` es la firma del bug: **el evento de
@@ -33,7 +37,7 @@ trigger ocurrió, pero fuera de la ventana en que la `bram_sm` podía registrarl
 
 La causa raíz es confundir dos señales que son **independientes**:
 
-1. **`set_trig_src` (OR-mask, reg `0x240`/`0x244`)** — qué fuentes de trigger
+1. **`set_trig_src` (OR-mask, `0x4030_0040`/`0x044`)** — qué fuentes de trigger
    están *vivas*. Vive en [`multitrigger_trig_src.sv`](../../rtl/mine/multitrigger/multitrigger_trig_src.sv).
 2. **`adc_arm_do` / `adc_we` (reg `0x00` bit0)** — la FSM de captura
    ([`rp_bram_sm.v`](../../../../rtl/classic/rp_bram_sm.v)) está *armada y
@@ -135,8 +139,8 @@ robusto al orden** (aún así conviene respetar arm→fuente).
 
 ### La regla
 
-> **Armar la `bram_sm` (reg `0x00`) ANTES de habilitar la OR-mask
-> (reg `0x240`/`0x244`).** Igual que `rp_AcqStart` antes de
+> **Armar la `bram_sm` (slot 1, reg `0x00`) ANTES de habilitar la OR-mask
+> (slot 3, `0x040`/`0x044`).** Igual que `rp_AcqStart` antes de
 > `rp_AcqSetTriggerSrc`.
 
 En [`API/multitrigger.py`](../../software/API/multitrigger.py) esto ya está
@@ -144,12 +148,12 @@ resuelto dentro de `multitrigger_arm(osc, mt, ...)`, que arma y después llama a
 `set_or_mask`. Si armás "a mano" por escritura directa, respetá el orden.
 
 > La función recibe **los dos handles** porque la secuencia cruza los dos
-> bloques: histéresis (`0x20`/`0x24`) y arm (`0x00`) son del osciloscopio, shield
-> (`0x210`) y máscara OR (`0x240`/`0x244`) son del multitrigger. Así la
+> bloques: histéresis (`0x20`/`0x24`) y arm (`0x00`) son del osciloscopio (slot 1),
+> shield (`0x010`) y máscara OR (`0x040`/`0x044`) son del multitrigger (slot 3). Así la
 > dependencia está en la firma en vez de escondida dentro de una clase.
 >
 > **El orden está congelado por un test.**
-> [`tests/test_compat_api.py`](../../software/tests/test_compat_api.py) guarda la
+> [`API/tests/test_compat_api.py`](../../software/API/tests/test_compat_api.py) guarda la
 > secuencia ordenada de escrituras de esta función y la compara en cada corrida,
 > sobre un mmap falso: reordenarla falla en la PC en segundos, con un diff que
 > señala las líneas movidas, en vez de fallar en la placa y sólo con señal viva.
@@ -162,7 +166,7 @@ from multitrigger_utils import MultiTriggerScope, BIT_ADC_P0, decode_snap
 sc = MultiTriggerScope.open()
 sc.verify_bitstream(raise_on_fail=True)          # confirmar el diseño cargado
 
-# arma (0x00) + habilita la mascara (0x240) EN ESE ORDEN, internamente:
+# arma (slot1 0x00) + habilita la mascara (slot3 0x040) EN ESE ORDEN:
 sc.arm_for_adc_trigger(mask_ch0=BIT_ADC_P0, mask_ch1=BIT_ADC_P0,
                        thr=0.5, hyst=0.02, delay=N_BUF // 2,
                        we_keep_both=False, auto_rearm=False)   # single-shot
@@ -174,7 +178,7 @@ for _ in range(1000):
     if sc.r32(0x1C) != 0:            # wp_trig latcheo -> capturo
         break
     time.sleep(0.001)
-assert sc.r32(0x1C) != 0, 'no capturo: revisar senal / dis_we @0x21C'
+assert sc.r32(0x1C) != 0, 'no capturo: revisar senal / dis_we @slot3 0x01C'
 
 d1, d2 = sc.read_buffers()
 sc.disarm()

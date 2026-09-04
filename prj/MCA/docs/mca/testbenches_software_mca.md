@@ -12,12 +12,12 @@ Código:
 |---|---|
 | [`API/mca.py`](../../software/API/mca.py) | driver (`class MCA`) + registros + API de lectura y guardado |
 | [`API/analisis.py`](../../software/API/analisis.py) | helpers de análisis **puros** (sin hardware) |
-| [`../software/testbench_mca.py`](../../software/testbench_mca.py) | suite de caracterización: sólo lo que necesita hardware |
-| [`../software/tests/test_mca_hw.py`](../../software/tests/test_mca_hw.py) | smoke test del bus y los registros, **sin generador** |
-| [`../software/tests/test_mca_datapath.py`](../../software/tests/test_mca_datapath.py) | camino de datos completo, con señal |
-| [`../software/tests/diag_mca_hw.py`](../../software/tests/diag_mca_hw.py) | diagnóstico incremental, un paso por invocación |
-| [`../software/tests/test_wave_builders.py`](../../software/tests/test_wave_builders.py) | estímulo y análisis, **en la PC sin instrumento** |
-| [`../software/tests/test_formas_pulso.py`](../../software/tests/test_formas_pulso.py) | familias de forma de Knoll y la descomposición común/diferencial, **en la PC sin instrumento** |
+| [`campanas/testbench_mca.py`](../../software/campanas/testbench_mca.py) | suite de caracterización: sólo lo que necesita hardware |
+| [`../software/API/tests/placa/test_mca_hw.py`](../../software/API/tests/placa/test_mca_hw.py) | smoke test del bus y los registros, **sin generador** |
+| [`../software/API/tests/placa/test_mca_datapath.py`](../../software/API/tests/placa/test_mca_datapath.py) | camino de datos completo, con señal |
+| [`../software/API/tests/placa/diag_mca_hw.py`](../../software/API/tests/placa/diag_mca_hw.py) | diagnóstico incremental, un paso por invocación |
+| [`../software/API/tests/test_wave_builders.py`](../../software/API/tests/test_wave_builders.py) | estímulo y análisis, **en la PC sin instrumento** |
+| [`../software/API/tests/test_formas_pulso.py`](../../software/API/tests/test_formas_pulso.py) | familias de forma de Knoll y la descomposición común/diferencial, **en la PC sin instrumento** |
 
 ---
 
@@ -43,10 +43,10 @@ Convenciones que hacen la suite reutilizable:
   `--gen-ch`.
 
 ```bash
-python3 testbench_mca.py --list
-python3 testbench_mca.py single_peak
-python3 testbench_mca.py all --outdir datos/mca_2026-08-11
-python3 testbench_mca.py --plot-only --outdir datos/mca_2026-08-11   # sin placa
+python3 campanas/testbench_mca.py --list
+python3 campanas/testbench_mca.py single_peak
+python3 campanas/testbench_mca.py all --outdir datos/mca_2026-08-11
+python3 campanas/testbench_mca.py --plot-only --outdir datos/mca_2026-08-11   # sin placa
 ```
 
 ---
@@ -154,7 +154,7 @@ contador roto. El aviso de `_acquire()` que compara los dos es lo que produjo el
 
 ---
 
-## 4. Los tests de placa (`software/tests/`)
+## 4. Los tests de placa (`software/API/tests/placa/`)
 
 Son la otra mitad de la verificación: mientras `testbench_mca.py` mide
 *parámetros*, éstos verifican que el bloque **funciona**.
@@ -223,10 +223,10 @@ partida en tres scripts que comparten `--outdir`:
 
 | Runner | Qué corre |
 |---|---|
-| [`run_campana.py`](../../software/run_campana.py) | `baseline_k` **primero**, después `single_peak`, `cross_check`, `compare_estimators` → `resumen.json` + `plot_all` |
-| [`run_resto.py`](../../software/run_resto.py) | `sweep_amplitude`, `pulse_pair`, `sweep_rate` → `resumen_resto.json` |
-| [`run_resto2.py`](../../software/run_resto2.py) | `sweep_threshold`, `psd_fom`, `dnl` → `resumen_resto2.json` |
-| [`run_formas.py`](../../software/run_formas.py) | `formas_inl` + el análisis común/diferencial → `resumen_formas.json`, `inl_formas.png`, `pico_vs_carga.png` (~20 min; ver §8) |
+| [`run_campana.py`](../../software/campanas/run_campana.py) | `baseline_k` **primero**, después `single_peak`, `cross_check`, `compare_estimators` → `resumen.json` + `plot_all` |
+| [`run_resto.py`](../../software/campanas/run_resto.py) | `sweep_amplitude`, `pulse_pair`, `sweep_rate` → `resumen_resto.json` |
+| [`run_resto2.py`](../../software/campanas/run_resto2.py) | `sweep_threshold`, `psd_fom`, `dnl` → `resumen_resto2.json` |
+| [`run_formas.py`](../../software/campanas/run_formas.py) | `formas_inl` + el análisis común/diferencial → `resumen_formas.json`, `inl_formas.png`, `pico_vs_carga.png` (~20 min; ver §8) |
 
 Cada uno deja los `.npz` crudos en el mismo directorio y un JSON con los números
 resumidos. La campaña del 2026-08-11 está en
@@ -273,15 +273,15 @@ Dos límites que conviene tener a mano:
   pico del espectro se mueve entre realizaciones.
 
 Verificado sin hardware por
-[`test_poisson_wave.py`](../../software/tests/tiempo-muerto/test_poisson_wave.py) (intervalos
+[`test_poisson_wave.py`](../../software/API/tests/test_poisson_wave.py) (intervalos
 exponenciales por KS, `var(N)=media(N)`, la costura sesgada por longitud como
 corresponde a Poisson, pile-up contra `1−e^{−2λw}`) y por
-[`test_poisson_sweep_sim.py`](../../software/tests/tiempo-muerto/test_poisson_sweep_sim.py),
+[`test_poisson_sweep_sim.py`](../../software/campanas/tests/test_poisson_sweep_sim.py),
 que corre el barrido entero contra un servidor K=1 simulado y recupera
 `ρ/(1+ρ)` con 0.45 pp de error medio, contra 18.75 pp del modelo periódico.
 
 Los cambios están verificados sin hardware por
-[`test_wave_builders.py`](../../software/tests/test_wave_builders.py), que
+[`test_wave_builders.py`](../../software/API/tests/test_wave_builders.py), que
 comprueba que el ancho y la tasa del estímulo son los pedidos, que las
 combinaciones imposibles fallan con mensaje, y que `dnl()` recupera una DNL
 inyectada del 3 % sobre una envolvente no plana (contra la media global el mismo

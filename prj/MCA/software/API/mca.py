@@ -182,7 +182,7 @@ class MCA:
         # previo que sobre memoria de dispositivo sale como stores de a byte,
         # el esclavo AXI de la PL no los reconoce y el puente GP0 tira un
         # external abort -> SIGBUS. Ver multitrigger_utils.w32 y
-        # tests/test_rw_dev_mem.py.
+        # API/tests/placa/test_rw_dev_mem.py.
         self._mmap[off:off + 4] = _U32.pack(v & 0xFFFFFFFF)
 
     def r32(self, off):
@@ -201,7 +201,7 @@ class MCA:
 
         El error de AXI se propaga como *external abort*, y en esta placa no da
         SIGBUS sino que **REINICIA el sistema**. Verificado con
-        tests/diag_mca_hw.py: el paso `bulk` (copia numpy de 16384 palabras)
+        API/tests/placa/diag_mca_hw.py: el paso `bulk` (copia numpy de 16384 palabras)
         reinicia la Pitaya; el paso `word` lee exactamente el mismo rango de a
         una y funciona.
 

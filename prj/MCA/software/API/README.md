@@ -55,6 +55,6 @@ importadores, los notebooks y los scripts que corren en la placa no se tocaron.
 
 ```bash
 cd prj/MCA/software
-python tests/test_compat_api.py   # nada público cambió respecto al baseline
-python tests/test_api_mca.py      # accesores por campo, RMW y guardado
+python API/tests/test_compat_api.py   # nada público cambió respecto al baseline
+python API/tests/test_api_mca.py      # accesores por campo, RMW y guardado
 ```

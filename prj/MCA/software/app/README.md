@@ -129,17 +129,17 @@ En la PC, sin placa:
 
 ```bash
 cd prj/MCA/software
-python3 tests/test_mca_net.py       # framing: payloads de 64 KB, truncados, errores
-python3 tests/test_mca_remote.py    # la superficie mca_* entera, por socket
-python3 tests/test_mcamon_gui.py    # la GUI de punta a punta, sin pantalla
-python3 tests/test_compat_api.py    # nada público de API/mca.py cambió
+python3 API/tests/test_mca_net.py       # framing: payloads de 64 KB, truncados, errores
+python3 app/tests/test_mca_remote.py    # la superficie mca_* entera, por socket
+python3 app/tests/test_mcamon_gui.py    # la GUI de punta a punta, sin pantalla
+python3 API/tests/test_compat_api.py    # nada público de API/mca.py cambió
 ```
 
 En la placa:
 
 ```bash
 python3 app/mca_server.py --selftest   # identify + 1 s + espectro, con /proc/uptime
-python3 tests/diag_mca_hw.py           # el camino de lectura sigue intacto
+python3 API/tests/placa/diag_mca_hw.py           # el camino de lectura sigue intacto
 ```
 
 ---

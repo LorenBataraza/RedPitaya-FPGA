@@ -101,7 +101,7 @@ Así los cuerpos que llaman `rp.rp_AcqGetDataPosV(...)` quedaron **verbatim** �
 hubo que reescribir cada llamada— y el error, si falta la librería, sale donde se
 usa y no donde se importa.
 
-Efecto colateral bueno: `tests/fase0/test_ring_source.py` metía un
+Efecto colateral bueno: `API/tests/test_ring_source.py` metía un
 `multitrigger_utils` falso en `sys.modules` para poder correr en la PC. Ese stub
 ya no hace falta, y además **hacía daño**: se quedaba para todo el proceso, así
 que cualquier otro test del mismo `pytest` veía el módulo falso en vez del real.
@@ -163,7 +163,7 @@ cero. En la placa eso cambia el comportamiento del seguidor de línea de base
 Antes de escribirlo se verificó en el RTL que esos registros **releen lo
 escrito** (`mca_top.sv:340,346,351` devuelven el valor con ceros en los huecos),
 que es lo que hace seguro el read-modify-write. Lo cubre
-[`test_api_mca.py::test_rmw_no_pisa_campos_vecinos`](../../software/tests/test_api_mca.py).
+[`test_api_mca.py::test_rmw_no_pisa_campos_vecinos`](../../software/API/tests/test_api_mca.py).
 
 ---
 

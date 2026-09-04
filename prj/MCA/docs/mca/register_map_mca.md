@@ -102,7 +102,7 @@ la cola cruza el umbral, que es la parte más chata del pulso — o sea que lo
 decide el ruido. Medido offline sobre 7054 pulsos reales, la resolución de la
 integral pasa de **0.528 %** (histéresis) a **0.149 %** (compuerta fija), y
 también mejora 1.8× sobre la muestra de pico. Ver
-[`../../software/tests/estimadores/`](../../software/tests/estimadores/).
+[`../../software/API/modelo_rtl/`](../../software/API/modelo_rtl/).
 
 ### El estimador de amplitud (`cfg_amp_src`) es el parámetro más importante
 
@@ -196,10 +196,11 @@ espejo.
 **Ack de latencia fija.** El esclavo hace ack a los 4 ciclos para *cualquier*
 dirección, desde un shift register incondicional. No existe ninguna ruta de ack
 por motor, así que un motor apagado por parámetro no puede colgar el bus: su
-apertura simplemente devuelve 0. Es deliberado — el scope tiene un bug latente
-justo de esa clase (`multitrigger_rp_scope_cfg.sv:506-507` nunca hace ack para
-los canales no construidos y el bus se cuelga hasta el timeout de 32 ciclos de
-`rtl/axi4_slave.sv:193`). `tb_mca_top.sv` es la regresión contra eso.
+apertura simplemente devuelve 0. Es deliberado — el scope tuvo un bug
+justo de esa clase (el viejo `multitrigger_rp_scope_cfg.sv:506-507` no hacía ack
+para los canales no construidos y el bus se colgaba hasta el timeout de 32
+ciclos de `rtl/axi4_slave.sv:193`); `osc_cfg.sv` lo arregló copiando este mismo
+patrón. `tb_mca_top.sv` es la regresión contra eso.
 
 **Escritura.** `sys_bus_cdc` sostiene `wen` hasta el ack (~5 ciclos), así que el
 RTL usa un estrobo de un ciclo: sin él cada transacción ejecutaría la escritura

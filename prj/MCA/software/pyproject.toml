@@ -1,0 +1,41 @@
+# Configuración de pytest para el software del MCA.
+#
+# NO es un paquete instalable: no hay tabla [project] ni build-system a
+# propósito. Este fichero existe sólo para que `pytest` sepa dos cosas que
+# hasta ahora resolvía cada test por su cuenta con un `sys.path.insert`:
+#
+#   - dónde está la raíz del árbol (`pythonpath`), para que `import API.mca`,
+#     `import mca_utils` y `import app.mca_server` funcionen desde cualquier
+#     test sin trucos de path;
+#   - qué NO hay que colectar en una PC (`norecursedirs`), porque los tests de
+#     placa hacen `import rp` al importarse y ese módulo sólo existe en la
+#     Red Pitaya: sin esto, un `pytest` pelado en la PC no falla un test, falla
+#     la COLECCIÓN y no corre nada.
+#
+# `pythonpath` es nativo desde pytest 7.0 (instalado acá: 7.2.1).
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+pythonpath = ["."]
+testpaths  = ["API/tests", "app/tests", "monte-carlo", "campanas/tests"]
+
+# Directorios que nunca se recorren. `datos` y `_out_*` son salidas de medición
+# y simulación; el resto es ruido de herramientas.
+#
+# `placa` y `bench` son los que hacen que un `pytest` pelado en la PC sea
+# seguro: sus ficheros hacen `import rp` al importarse, así que sin esto la
+# COLECCIÓN falla y no corre ningún test, ni siquiera los offline. Excluirlos
+# por directorio es más robusto que enumerar ficheros: un test de placa nuevo
+# queda cubierto por estar donde va.
+norecursedirs = [
+    "placa", "bench",
+    "datos", "datos_ref", "_out_*", "__pycache__", ".pytest_cache",
+    ".git", "*.egg-info", ".ipynb_checkpoints",
+]
+
+addopts = ["-q", "-ra"]
+
+markers = [
+    "placa: necesita la Red Pitaya (no se colecta en la PC)",
+    "rigol: necesita además el generador DG4162",
+]

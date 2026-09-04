@@ -37,9 +37,16 @@ TBS := tb_integration_cfg \
 
 TB_SRCS := $(addsuffix .sv,$(TBS))
 
-.PHONY: all compile clean wave $(TBS)
+.PHONY: all compile clean wave help $(TBS)
 
 all: $(TBS)
+
+help:              ## lista los testbenches disponibles
+	@echo "testbenches de RTL (QuestaSim):"
+	@printf '  %s\n' $(TBS)
+	@echo ""
+	@echo "  make            todos            make <tb>       uno solo"
+	@echo "  make wave TB=<tb>   GUI con ondas    make clean"
 
 # Compila RTL + todos los TB en la libreria work
 compile: $(WORK)/.compiled

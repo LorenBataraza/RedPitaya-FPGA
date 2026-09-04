@@ -15,8 +15,8 @@ acá está la **verificación**.
 | [`../software/API/osciloscope_store/reader.py`](../software/API/osciloscope_store/reader.py) | hilo lector |
 | [`../software/API/osciloscope_store/storage.py`](../software/API/osciloscope_store/storage.py) | hilo escritor: un `.npz` por chunk |
 | [`../software/API/osciloscope_store/session.py`](../software/API/osciloscope_store/session.py) | orquestador |
-| [`../software/tests/test_mca_pipeline.py`](../software/tests/test_mca_pipeline.py) | **el test**: corre en la PC, sin placa |
-| [`../software/tests/bench_reader_budget.py`](../software/tests/bench_reader_budget.py) | los benchmarks que fijan los defaults |
+| [`../software/API/tests/test_mca_pipeline.py`](../software/API/tests/test_mca_pipeline.py) | **el test**: corre en la PC, sin placa |
+| [`../software/API/bench/bench_reader_budget.py`](../software/API/bench/bench_reader_budget.py) | los benchmarks que fijan los defaults |
 
 ---
 
@@ -65,7 +65,7 @@ Corre **en la PC, sin placa**, usando `FakeSource`. Cubre la mecánica que no
 depende del hardware.
 
 ```bash
-cd prj/MCA/software && python3 tests/test_mca_pipeline.py
+cd prj/MCA/software && python3 API/tests/test_mca_pipeline.py
 ```
 
 Imprime `[PASS]`/`[FAIL]` por chequeo y `RESULT: PASS|FAIL` al final, con exit
@@ -155,7 +155,7 @@ escritor tiene tiempo de sobra.
 
 `test_capture_window_np.py`, `bench_buffer_read.py` y `bench_read_vs_length.py`
 verifican el **otro extremo** del camino (leer del ADC, no escribir a disco) y
-ya están descritos en [`../software/tests/README.md`](../software/tests/README.md).
+ya están descritos en [`../software/API/bench/README.md`](../software/API/bench/README.md).
 
 Vale repetir acá el aviso operativo, porque aplica a todo lo que se corra en la
 placa:

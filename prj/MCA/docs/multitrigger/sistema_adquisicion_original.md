@@ -428,7 +428,7 @@ ningún contador**. Es invisible, no sólo perdido.
 Con arribos periódicos eso da el modelo D/D/1/1 —`m = n/⌈nτ⌉`, escalones— y con
 arribos Poisson da `P_loss = ρ/(1+ρ)`. La discusión de los modelos y las
 mediciones están en
-[`software/tests/tiempo-muerto/README.md`](../../software/tests/tiempo-muerto/README.md).
+[`software/../docs/mca/tiempo_muerto.md`](../../software/../docs/mca/tiempo_muerto.md).
 
 ### Qué se hereda y qué no
 

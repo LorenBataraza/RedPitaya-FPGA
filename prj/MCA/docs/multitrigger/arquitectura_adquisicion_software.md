@@ -5,7 +5,8 @@ adquisición, la arquitectura del pipeline de lectura y guardado, y **el anális
 rendimiento medido en la placa**. Complementa a
 [`orden_arm_trigger_captura.md`](orden_arm_trigger_captura.md), que explica el orden
 arm→máscara y la FSM de captura, y a
-[`register_map_multitrigger_rp_scope_cfg.md`](register_map_multitrigger_rp_scope_cfg.md).
+[`register_map_multitrigger.md`](register_map_multitrigger.md) y
+[`../osc/register_map_osc.md`](../osc/register_map_osc.md).
 
 > **Estado:** la Parte 3 (rendimiento) está medida y cerrada. Las Partes 2 y 5
 > describen el pipeline a construir; la implementación vive en `software/API/osciloscope_store/`.
@@ -26,7 +27,7 @@ motivó la regla):
   │                  0x08/0x0C  ← threshold (cuentas, 8192/V)      │
   │                  0x10/0x110 ← set_dly   (>= 1, ver abajo)      │
   │  hyst            0x20/0x24  ← histéresis en cuentas            │
-  │  shield          0x210 ← {dur, dst, src}   (auto re-arm)       │
+  │  shield     slot3 0x010 ← {dur, dst, src}  (auto re-arm)       │
   └────────────────────────────────────────────────────────────────┘
                      │  la máscara sigue en 0: NADA puede disparar
                      v
@@ -37,7 +38,7 @@ motivó la regla):
   └────────────────────────────────────────────────────────────────┘
                      v
   ┌─ 3. HABILITAR FUENTE ──────────────────────────────────────────┐
-  │  0x240/0x244 ← OR_MASK   -> new_trg_src -> set_trig_src        │
+  │  slot3 0x040/0x044 ← OR_MASK -> new_trg_src -> set_trig_src    │
   │  DESDE ACÁ la ventana de captura está abierta                  │
   └────────────────────────────────────────────────────────────────┘
                      v
@@ -55,16 +56,17 @@ con `trig_dis_clr` (0x94) o con el `trigger_shield`. Sin el pulso a 0x94,
 `src_mask = set_trig_src & {!adc_trg_dis} = 0` y **no dispara nunca**, con la máscara
 aparentemente bien escrita.
 
-**El readback de 0x240 miente.** Hay tres copias de la máscara y sólo una dispara:
+**El readback de la OR_MASK miente.** Hay tres copias de la máscara y sólo una dispara:
 
 | Copia | Dónde | Rol |
 |---|---|---|
-| `trg_src` | [cfg:202](../../rtl/mine/multitrigger/multitrigger_rp_scope_cfg.sv#L202) | combinacional, vale sólo el ciclo del write |
+| `trg_src` | [multitrigger_cfg](../../rtl/mine/multitrigger/multitrigger_cfg.sv#L108) | combinacional, vale sólo el ciclo del write |
 | `set_trig_src` | [trig_src:48](../../rtl/mine/multitrigger/multitrigger_trig_src.sv#L48) | **la que dispara**; se carga sólo con `new_trg_src` |
-| `trg_src_stored` | [cfg:151](../../rtl/mine/multitrigger/multitrigger_rp_scope_cfg.sv#L151) | **sólo readback**, no drivea nada |
+| `trg_src_stored` | [multitrigger_cfg](../../rtl/mine/multitrigger/multitrigger_cfg.sv#L135) | **sólo readback**, no drivea nada |
 
-O sea que 0x240 puede leer `0xFFFFFFFF` mientras la máscara viva está en 0 (auto-limpiada
-por un trigger single-shot). Para el estado real hay que mirar `trg_state` @0x04.
+O sea que `0x4030_0040` puede leer `0xFFFFFFFF` mientras la máscara viva está en 0 (auto-limpiada
+por un trigger single-shot). Para el estado real hay que mirar `TRG_STATE` @`0x4030_0028` (o el `0x04`
+legacy del slot 1, que sigue funcionando).
 
 **`set_dly` nunca puede ser 0.** La condición de parada en
 [`rp_bram_sm.v:67`](../../../../rtl/classic/rp_bram_sm.v#L67) compara `adc_dly_cnt == 1`
@@ -106,7 +108,7 @@ Un solo hilo toca el scope. El escritor sólo ve arrays de NumPy.
 |---|---|---|---|
 | `t_ns` | int64 | (C,) | `perf_counter_ns()` — eje temporal largo |
 | `wp` | int32 | (C,) | `wp_trig` @0x1C — Δt fino, 8 ns de resolución |
-| `snap` | uint32 | (C,) | `trig_snapshot` @0x218 — qué fuente disparó |
+| `snap` | uint32 | (C,) | `trig_snapshot` @slot3 0x018 — qué fuente disparó |
 | `gap` | uint8 | (C,) | eventos descartados justo antes de éste |
 | `wave` | float32 → int16 | (C, n_ch, S) | ventanas crudas (ver nota de dtype) |
 
@@ -171,9 +173,9 @@ evento.
 ## Parte 3 — Análisis de rendimiento (medido)
 
 Todo lo que sigue está **medido en la placa**, no estimado:
-[`tests/bench_reader_budget.py`](../../software/tests/bench_reader_budget.py),
+[`API/bench/bench_reader_budget.py`](../../software/API/bench/bench_reader_budget.py),
 `REPS=200`, Pitaya `rp-f08768`, Python 3.10.12, Zynq con 2× Cortex-A9, 461 MB de RAM.
-Resultados crudos en `tests/bench_reader_budget.npz`.
+Resultados crudos en `API/bench/bench_reader_budget.npz`.
 
 ### Presupuesto del lector, por evento
 
@@ -331,7 +333,7 @@ Hasta ~2 kHz la eficiencia es ≥99 %.
 > | 20 kHz | 6 | 3333 | 3684 |
 >
 > El ajuste está en
-> [`plot_modelos_tasa.py`](../../software/tests/tiempo-muerto/plot_modelos_tasa.py) (corre en la PC,
+> [`plot_modelos_tasa.py`](../../software/campanas/plot_modelos_tasa.py) (corre en la PC,
 > sin placa). Con τ **constante** el modelo son mesetas discretas y el punto de
 > 20 kev/s no lo puede acertar ningún τ: cae justo entre `k=5` (4000) y `k=6`
 > (3333). Dejando que el servicio tenga dispersión —que la tiene: `read`,
@@ -358,7 +360,7 @@ Hasta ~2 kHz la eficiencia es ≥99 %.
 >
 > O sea: a 2 kev/s la eficiencia real no es 99 % sino ~67 %. **Ninguna medición
 > de eficiencia vale hasta rehacerla con arribos Poisson**; para eso está
-> [`run_poisson_loss.py`](../../software/tests/tiempo-muerto/run_poisson_loss.py) (este lector) y
+> [`run_poisson_loss.py`](../../software/campanas/run_poisson_loss.py) (este lector) y
 > `testbench_mca.sweep_rate_poisson` (el MCA), los dos con el estímulo de
 > [`poisson_train_wave`](../../software/API/rigol_dg4162.py).
 
@@ -380,7 +382,7 @@ ufuncs). O sea que **el cuello de botella no es el bus AXI: es el intérprete**.
 
 ### Cuánto daría reescribir el lector en C
 
-Medido, no estimado: [`tests/bench_reader_c.c`](../../software/tests/bench_reader_c.c)
+Medido, no estimado: [`API/bench/bench_reader_c.c`](../../software/API/bench/bench_reader_c.c)
 hace exactamente las mismas transacciones AXI que el lector de Python, sin intérprete
 en el medio (20000 repeticiones):
 
@@ -460,7 +462,7 @@ incluso con los stalls de 5.3 ms del GIL.
 - `rp_AcqGetDataPosV` **resuelve el wrap circular sola** (`start > end` en una llamada da
   bit a bit lo mismo que partirlo en dos). O sea que
   [`capture_window_np`](../../software/API/osciloscope.py#L450) está bien y el partido
-  manual de [`guardado_mariana.py:228`](../../software/guardado_mariana.py#L228) es
+  manual de [`guardado_mariana.py:228`](../../software/campanas/guardado_mariana.py#L228) es
   innecesario. *(Una versión anterior de este bench decía lo contrario; el error estaba en
   el bench: usaba `rp_AcqGetOldestDataV` como referencia, que devuelve el buffer rotado
   para arrancar en la muestra más vieja y por lo tanto no se indexa por posición
@@ -518,7 +520,7 @@ Sólo dos de los tres quedan registrados, y conviene tenerlo claro al reportar r
 La tercera es la limitación de fondo del modo BRAM: el lector simplemente no ve el
 evento. Sólo se puede **estimar** contra una fuente de tasa conocida, que es lo que hacen
 [`efficiency`](../../software/API/osciloscope.py#L731) y los barridos de `sweep_periods`
-en [`testbench_multitrigger.py`](../../software/testbench_multitrigger.py). Con 91 µs de
+en [`testbench_multitrigger.py`](../../software/campanas/testbench_multitrigger.py). Con 91 µs de
 lectura por evento, cualquier par de pulsos separado por menos que eso cuenta como uno
 solo.
 
@@ -614,4 +616,4 @@ ssh pitaya 'cd /home/jupyter/RedPitaya/remote_soft/tests && python3 bench_reader
 
 No necesita el Rigol: congela el buffer con un SW trigger. **No correr con un kernel de
 Jupyter activo** — pelean por `/dev/mem` y da SIGBUS (ver
-[`tests/README.md`](../../software/tests/README.md)).
+[`tests/README.md`](../../software/API/bench/README.md)).

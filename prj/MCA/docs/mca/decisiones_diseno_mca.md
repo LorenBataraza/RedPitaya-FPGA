@@ -553,12 +553,14 @@ más transacciones. Al ARM lo rescata el timeout de 32 ciclos de
 ninguna indicación de error. El mecanismo completo está en
 [`bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) §7.1.
 
-El scope tiene un bug latente exactamente de esa clase: ata
+El scope **tenía** un bug exactamente de esa clase: ataba
 `bram_ack[2]/[3] = 0` para los canales no construidos
-(`rp_scope_multitrigger_com.sv:572-573`) y `multitrigger_rp_scope_cfg.sv:506-507`
-lo usa como ack de las aperturas de los canales 2 y 3. Cualquier lectura en
-`0x4013_0000`–`0x4014_FFFF` dispara el escenario. No está activo hoy sólo porque
-el driver mapea `SCOPE_SIZE = 0x30000` y nunca llega ahí.
+(`rp_scope_multitrigger_com.sv:572-573`) y el viejo
+`multitrigger_rp_scope_cfg.sv:506-507` lo usaba como ack de las aperturas de los
+canales 2 y 3, así que cualquier lectura en `0x4013_0000`–`0x4014_FFFF` colgaba
+el slot. **Está ARREGLADO**: `osc_cfg.sv` reemplazó a ese módulo y saca el ack
+de un shift register incondicional, igual que el MCA. Ver
+[`../osc/register_map_osc.md`](../osc/register_map_osc.md).
 
 En el MCA, un motor apagado por parámetro simplemente devuelve 0 en su apertura;
 no hay forma de colgar el bus.
@@ -693,8 +695,12 @@ re-sincronizar ante un cambio de upstream sea mecánico.
 ### El top del MCA
 
 [`mca_red_pitaya_top.sv`](../../rtl/mine/tops/mca_red_pitaya_top.sv) es una copia de
-`red_pitaya_top.sv` con cuatro diferencias: `mca_top` en el slot 7, `i_scope`
-con `EN_FILT(0)`, y **sin ASG (slot 2) ni PID (slot 3)**.
+`red_pitaya_top.sv` con cinco diferencias: `mca_top` en el slot 7, `i_scope` con
+`EN_FILT(0)`, **sin ASG (slot 2) ni PID (slot 3)**, y —desde el refactor del
+mapa de registros— `multitrigger_cfg` en el slot 3 e `integration_cfg` en el 6.
+Que el ASG y el PID no estén es justamente lo que deja libre el slot 3 para el
+multitrigger; en `red_pitaya_top`, que sí los conserva, el multitrigger va al
+slot 7 (ver [`../TOP/register_map_top.md`](../TOP/register_map_top.md)).
 
 Conserva a propósito la lista de puertos y los nombres de instancia `i_ams` y
 `sys_bus_interconnect`, **porque el XDC engancha por esos nombres**
@@ -789,7 +795,7 @@ Misma separación que ya existía entre `multitrigger_utils.py` (driver) y
   (`gauss_fit_peak`, `energy_calibration`, `dnl`, `fom`, `deadtime_fit`). Los
   helpers no tocan hardware a propósito: se validan contra `.npz` guardados, sin
   la placa. Están verificados contra datos sintéticos de parámetros conocidos.
-- [`testbench_mca.py`](../../software/testbench_mca.py) — un test por parámetro de
+- [`testbench_mca.py`](../../software/campanas/testbench_mca.py) — un test por parámetro de
   §2, con CLI y graficado. **Qué mide cada uno y qué resultados son creíbles está
   en [`testbenches_software_mca.md`](testbenches_software_mca.md)**; acá van sólo
   las decisiones que condicionan el diseño.
@@ -838,7 +844,7 @@ que valida el *diseño*:
 | El segmentador a alta tasa | sigue al generador **exacto hasta 794 kcps**, sin perder un evento |
 | El divisor y el mapa 2D (§6) | **FOM 1.532**, y 1.31→1.58 por rebanadas de amplitud |
 
-El smoke test (`tests/test_mca_hw.py`) da **29 PASS / 0 FAIL**, y la simulación
+El smoke test (`API/tests/placa/test_mca_hw.py`) da **29 PASS / 0 FAIL**, y la simulación
 9 testbenches / 163 checks.
 
 La medición de conteo es la que cierra el lazo: segmentador, contadores y

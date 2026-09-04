@@ -122,7 +122,7 @@ def _fb_to_np(fb, n):
 
     Usa np.frombuffer sobre el puntero del buffer (fb.cast()) en vez del loop
     `np.fromiter((fb[i] for i in range(n)))`: ~800x más rápido (medido en
-    tests/bench_read_vs_length.py; 105 ms -> 0.12 ms para 16384 samples), porque
+    API/bench/bench_read_vs_length.py; 105 ms -> 0.12 ms para 16384 samples), porque
     evita n accesos SWIG desde Python. `.copy()` es obligatorio: la memoria del
     fBuffer se reusa/libera.
     """
@@ -229,7 +229,7 @@ class Osciloscope:
         # *external abort* -> SIGBUS -> se muere el proceso (en Jupyter: "el
         # kernel murió", con el fault en dmesg apuntando a *pte=40100xxx).
         # Verificado en la placa: la asignación por slice (un memcpy de 4 bytes
-        # alineado) funciona; pack_into aborta. Ver tests/test_rw_dev_mem.py.
+        # alineado) funciona; pack_into aborta. Ver API/tests/placa/test_rw_dev_mem.py.
         self._mmap[off:off+4] = _U32.pack(v & 0xFFFFFFFF)
 
     def r32(self, off):
@@ -430,7 +430,7 @@ class Osciloscope:
         """Lee los dos buffers ADC como numpy arrays float32 (volts).
 
         Conversión con _fb_to_np (np.frombuffer del puntero); ~800x más rápido que
-        el loop np.fromiter (tests/bench_read_vs_length.py). Devuelve float32
+        el loop np.fromiter (API/bench/bench_read_vs_length.py). Devuelve float32
         (antes float64): sobra para datos de 14 bit y el análisis castea igual.
         """
         fb1 = rp.fBuffer(n_buf); rp.rp_AcqGetOldestDataV(rp.RP_CH_1, n_buf, fb1)

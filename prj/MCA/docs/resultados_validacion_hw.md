@@ -55,7 +55,7 @@ del 2026-08-11 por la noche).
 
 | Medición | Resultado | Interpretación |
 |---|---|---|
-| Smoke test (`tests/test_mca_hw.py`) | **29 PASS / 0 FAIL** | bus, registros, borrado, relojes |
+| Smoke test (`API/tests/placa/test_mca_hw.py`) | **29 PASS / 0 FAIL** | bus, registros, borrado, relojes |
 | Barrido de 646 direcciones | ninguna cuelga el bus, **6.1 µs** c/u | valida el ack de latencia fija |
 | Borrado de 16384 canales | **0.2 ms** | |
 | `livetime + deadtime = realtime` | exacto | |
@@ -106,7 +106,7 @@ energía donde la histéresis gane. La ventaja es mayor a energía baja.
 
 Único bloque donde **todos** los estimadores se calculan sobre los mismos datos
 crudos, así que las relaciones entre ellos son directamente comparables
-([`../software/tests/estimadores/`](../software/tests/estimadores/)):
+([`../software/API/modelo_rtl/`](../software/API/modelo_rtl/)):
 
 | Estimador | Resolución | Relativo al pico |
 |---|---|---|
@@ -422,7 +422,7 @@ calibrados para 336 µs. `run_campana.py` ya lo hace en ese orden y propaga el
 resultado.
 
 Los cambios están verificados sin hardware por
-[`../software/tests/test_wave_builders.py`](../software/tests/test_wave_builders.py):
+[`../software/API/tests/test_wave_builders.py`](../software/API/tests/test_wave_builders.py):
 que el ancho y la tasa del estímulo son los pedidos, que las combinaciones
 imposibles fallan con un mensaje que dice qué ajustar, y que `dnl()` recupera
 una DNL inyectada del 3 % sobre una envolvente no plana (contra la media global
@@ -440,7 +440,7 @@ El método de cada test, y cuáles de sus resultados son creíbles, está en
 cd /home/jupyter/RedPitaya/remote_soft/mca
 /opt/redpitaya/bin/fpgautil -b ./mca_red_pitaya.bit.bin
 python3 test_mca_hw.py                       # smoke test, sin generador
-python3 run_campana.py datos/mca_$(date +%Y%m%d_%H%M%S)
+python3 campanas/run_campana.py datos/mca_$(date +%Y%m%d_%H%M%S)
 ```
 
 Para volver al bitstream del scope:
@@ -586,7 +586,7 @@ mantiene. Se cruzarían por debajo de ~0.2 µs, que es donde el ARB ya no llega.
 ### …y por qué la integral perdía: era la VENTANA, no la integral
 
 El análisis offline sobre 7054 pulsos crudos
-([`../../software/tests/estimadores/`](../software/tests/estimadores/))
+([`../../software/API/modelo_rtl/`](../software/API/modelo_rtl/))
 cierra la pregunta, calculando todos los estimadores **sobre los mismos pulsos**:
 
 | Estimador | Resolución |
@@ -650,7 +650,7 @@ provoca—, así que `sweep_rate` ahora **lo detecta** con un criterio físico:
 > generador no está entregando lo que se le pidió.
 
 Esos puntos se marcan `INVÁLIDO` y se excluyen del análisis. **Workaround:**
-correr cada test en su propio proceso (`python3 testbench_mca.py <test>`).
+correr cada test en su propio proceso (`python3 campanas/testbench_mca.py <test>`).
 
 **2. La cola de errores SCPI es FIFO y `assert_ok` saca uno solo.** `set_am_noise`
 manda 5 comandos y este firmware los rechaza todos; los 4 errores que quedaban
@@ -674,9 +674,9 @@ bien. Lo arregla `RigolDG4162.clear_errors()`, que vacía la cola.
 cd /home/jupyter/RedPitaya/remote_soft/mca
 OUT=datos/mca_$(date +%Y%m%d_%H%M%S)
 python3 test_mca_hw.py                          # smoke test, sin generador
-python3 run_campana.py $OUT                     # baseline_k PRIMERO, luego el resto
+python3 campanas/run_campana.py $OUT                     # baseline_k PRIMERO, luego el resto
 for t in sweep_amplitude pulse_pair sweep_rate sweep_threshold psd_fom; do
-    python3 testbench_mca.py $t --outdir $OUT
+    python3 campanas/testbench_mca.py $t --outdir $OUT
 done
 python3 run_dnl.py $OUT
 ```
@@ -786,9 +786,9 @@ trazable.
 
 ```bash
 # en la placa, ~20 min
-python3 run_formas.py datos/formas_$(date +%Y%m%d_%H%M%S)
+python3 campanas/run_formas.py datos/formas_$(date +%Y%m%d_%H%M%S)
 # re-analizar y re-graficar en la PC, sin hardware:
-python3 run_formas.py datos/formas_20260814_203920 --plot-only
+python3 campanas/run_formas.py datos/formas_20260814_203920 --plot-only
 ```
 
 ---
@@ -908,7 +908,7 @@ lindo.
 
 ## 14.2 Lo que confirma del análisis offline
 
-La predicción de [`../software/tests/estimadores/`](../software/tests/estimadores/),
+La predicción de [`../software/API/modelo_rtl/`](../software/API/modelo_rtl/),
 hecha sobre 7054 pulsos crudos **sin tocar la placa**, era:
 
 | | offline | en placa |
@@ -996,7 +996,7 @@ que ser la tabla. Todo offline, sobre datos ya medidos.
 
 Implementación en [`software/API/analisis.py`](../software/API/analisis.py) (sección
 *Linealización del eje de amplitud*) y verificación en
-[`software/tests/test_linealizacion.py`](../software/tests/test_linealizacion.py).
+[`software/API/tests/test_linealizacion.py`](../software/API/tests/test_linealizacion.py).
 
 ## 15.1 El modelo y la condición de inversión
 
@@ -1079,7 +1079,7 @@ grabe está ajustando ruido de calibración.
 
 Verificado sobre 2048 ventanas de pulso reales de
 `datos/e2e_20260528_013404/principal/`, replayando las réplicas bit-exactas del
-RTL de [`tests/estimadores/`](../software/tests/estimadores/):
+RTL de [`API/modelo_rtl/`](../software/API/modelo_rtl/):
 
 Con una corrección **en el dominio de muestra** `x → f(x)` monótona creciente:
 
@@ -1099,7 +1099,7 @@ pretender representar ninguna `f(x)` de muestra.
 
 ```bash
 cd prj/MCA/software
-python3 tests/test_linealizacion.py       # 6 bloques, no necesita placa
+python3 API/tests/test_linealizacion.py       # 6 bloques, no necesita placa
 ```
 
 Los tests 5 y 6 se saltean con aviso si no están los `.npz` de `datos/`.

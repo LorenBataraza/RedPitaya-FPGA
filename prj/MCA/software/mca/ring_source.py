@@ -1,6 +1,6 @@
 """SHIM de compatibilidad — el event_ring vive en `API/osciloscope_ring.py`.
 
-`tests/fase0/test_ring_source.py` importa este submódulo por nombre
+`API/tests/test_ring_source.py` importa este submódulo por nombre
 (`from mca.ring_source import RingSource, R_CTRL, ...`), así que el shim del
 paquete no alcanza: hace falta también el módulo.
 

@@ -28,7 +28,7 @@
 // la cola cruza el umbral, que es la parte más chata del pulso, así que lo
 // decide el ruido. Medido offline sobre 7054 pulsos reales, la resolución de la
 // integral pasa de 0.528 % (histéresis) a 0.149 % (compuerta fija). Ver
-// software/tests/estimadores/.
+// software/API/modelo_rtl/estimadores.py.
 //
 // Los eventos marcados como apilamiento se cuentan pero NO se histogramean,
 // porque su integral y su pico están contaminados por el segundo pulso.

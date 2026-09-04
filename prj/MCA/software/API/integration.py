@@ -171,7 +171,7 @@ class Integration:
         # Asignación por slice, NO struct.pack_into: pack_into hace un memset
         # previo que sobre memoria de dispositivo sale como stores de a byte,
         # el esclavo AXI no los reconoce y el puente GP0 tira un external abort
-        # -> SIGBUS. Ver tests/test_rw_dev_mem.py.
+        # -> SIGBUS. Ver API/tests/placa/test_rw_dev_mem.py.
         self._mmap[off:off+4] = _U32.pack(v & 0xFFFFFFFF)
 
     def r32(self, off):

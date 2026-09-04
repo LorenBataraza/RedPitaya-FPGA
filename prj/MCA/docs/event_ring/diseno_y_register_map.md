@@ -165,7 +165,7 @@ cd prj/MCA/sim && make        # 13 TB, todos con RESULT: PASS
 | `tb_event_ring_top` | punta a punta: wrap del ring, geometría congelada, **absorción de ráfaga + invariante de pérdida**, parada ordenada, contrapresión de AXI |
 
 El TB de integración además vuelca la DDR a
-`software/tests/fase0/ring_dump.hex`, que `test_ring_format.py` decodifica con el
+`software/API/tests/datos_ref/ring_dump.hex`, que `test_ring_format.py` decodifica con el
 mismo Python que usará el lector: un error de endianness o de intercalado se cae
 en la PC, sin placa.
 

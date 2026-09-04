@@ -41,7 +41,7 @@ Un shim de verdad total necesita más que un `from X import *`:
 1. **Los submódulos del paquete.** `from mca.storage import ...` no funciona si
    el shim sólo reexporta en el `__init__`. Hay siete ficheros en `mca/` por eso.
 2. **Los nombres privados que otros usan.** `import *` no exporta nada que
-   empiece por guion bajo, y `tests/pile-up/pileup.py` importa `_fwhm_pts` de
+   empiece por guion bajo, y `monte-carlo/pileup.py` importa `_fwhm_pts` de
    rigol, más tres tests que llaman `rg._fwhm_pts`. Van importados a mano.
 3. **Los imports incidentales.** El módulo original hacía `import ctypes` y
    `_fb_to_np` lo usaba; al trocear el fichero el import se quedó atrás.
@@ -55,17 +55,17 @@ test.
 
 ## 2. El test de compatibilidad
 
-[`tests/test_compat_api.py`](../../software/tests/test_compat_api.py) compara el
+[`API/tests/test_compat_api.py`](../../software/API/tests/test_compat_api.py) compara el
 árbol actual contra un **baseline congelado antes de mover nada**
-(`tests/compat_baseline.json` + `tests/compat_golden.npz`, producidos por
-[`tests/gen_compat_baseline.py`](../../software/tests/gen_compat_baseline.py)).
+(`API/tests/datos_ref/compat_baseline.json` + `API/tests/datos_ref/compat_golden.npz`, producidos por
+[`API/tests/gen_compat_baseline.py`](../../software/API/tests/gen_compat_baseline.py)).
 
 **Corre entero en la PC, sin placa.** Ése es el requisito de diseño: un test de
 compatibilidad que necesita la Pitaya no se corre, y si no se corre no sirve.
 
 ```bash
 cd prj/MCA/software
-python tests/test_compat_api.py
+python API/tests/test_compat_api.py
 ```
 
 ```
@@ -149,14 +149,24 @@ commit, no una alfombra.
 hace falta —porque se amplió lo que se congela, o porque un cambio de API es
 deliberado— se regenera desde un worktree en el commit pre-refactor:
 
+**Ojo con las rutas:** en el worktree pre-refactor el generador vive en
+`software/tests/` y escribe los dos ficheros ahí al lado; en el árbol de hoy
+vive en `software/API/tests/` y los escribe en `software/API/tests/datos_ref/`.
+El generador siempre escribe *relativo a sí mismo*, así que hay que copiarlo a
+la ruta vieja, correrlo allá, y traer el resultado a la ruta nueva.
+
 ```bash
 git worktree add --detach /tmp/pre_refactor <commit-pre-refactor>
-cp prj/MCA/software/tests/gen_compat_baseline.py \
-   /tmp/pre_refactor/prj/MCA/software/tests/
-cd /tmp/pre_refactor/prj/MCA/software && python tests/gen_compat_baseline.py
-cp tests/compat_baseline.json tests/compat_golden.npz \
-   <repo>/prj/MCA/software/tests/
-cd <repo> && git worktree remove /tmp/pre_refactor
+VIEJO=/tmp/pre_refactor/prj/MCA/software
+
+# el generador de HOY, corriendo sobre el arbol de ANTES
+cp prj/MCA/software/API/tests/gen_compat_baseline.py $VIEJO/tests/
+cd $VIEJO && python3 tests/gen_compat_baseline.py     # deja los .json/.npz en tests/
+
+# y de vuelta a donde los busca el test actual
+cd - && cp $VIEJO/tests/compat_baseline.json $VIEJO/tests/compat_golden.npz \
+          prj/MCA/software/API/tests/datos_ref/
+git worktree remove --force /tmp/pre_refactor
 ```
 
 El diff de `compat_baseline.json` en el commit **es** el registro de qué cambió
@@ -195,20 +205,20 @@ momento en que conviene renombrarlo.
 
 | Test | Qué cubre | Placa |
 |---|---|---|
-| [`test_compat_api.py`](../../software/tests/test_compat_api.py) | que la superficie **vieja** no cambió | no |
-| [`test_api_mca.py`](../../software/tests/test_api_mca.py) | lo que el refactor **añadió**: accesores por campo, RMW, metadata, guardado | no |
-| [`tests/fase0/`](../../software/tests/fase0/) | formato del ring y `RingSource` | no |
-| `tests/diag_mca_hw.py` | camino de lectura completo del MCA | **sí** |
-| `tests/test_mca_hw.py`, `testbench_mca.py` | campañas de caracterización | **sí** |
+| [`test_compat_api.py`](../../software/API/tests/test_compat_api.py) | que la superficie **vieja** no cambió | no |
+| [`test_api_mca.py`](../../software/API/tests/test_api_mca.py) | lo que el refactor **añadió**: accesores por campo, RMW, metadata, guardado | no |
+| [`API/tests/placa/`](../../software/API/tests/placa/) | formato del ring y `RingSource` | no |
+| `API/tests/placa/diag_mca_hw.py` | camino de lectura completo del MCA | **sí** |
+| `API/tests/placa/test_mca_hw.py`, `testbench_mca.py` | campañas de caracterización | **sí** |
 
 Los tres primeros corren juntos:
 
 ```bash
-python -m pytest tests/test_api_mca.py tests/test_compat_api.py tests/fase0/ -q
+python -m pytest API/tests/test_api_mca.py API/tests/test_compat_api.py API/tests/placa/ -q
 ```
 
 El chequeo que sólo puede hacerse en la placa es
-[`diag_mca_hw.py`](../../software/tests/diag_mca_hw.py): si lee el espectro
+[`diag_mca_hw.py`](../../software/API/tests/placa/diag_mca_hw.py): si lee el espectro
 completo sin colgarse, confirma que la lectura palabra a palabra sobrevivió el
 movimiento sin que nadie la "optimizara" a un slice — que en esta placa no da
 SIGBUS sino que **reinicia el sistema**.

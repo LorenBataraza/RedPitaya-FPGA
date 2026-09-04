@@ -73,7 +73,7 @@ def decode_snap(s):
 #
 # El fichero original no tenía constantes de offset: cada dirección era un
 # literal hex inline (`self.w32(0x240, mask)`). Nombrarlas es lo que permite
-# que tests/test_compat_api.py verifique los valores contra el baseline.
+# que API/tests/test_compat_api.py verifique los valores contra el baseline.
 
 R_CMD         = 0x000           # compartido con el scope: arm / rst / we_keep
 R_TRIG_DIS_CLR = 0x094          # compartido: desbloquea adc_trg_dis
@@ -134,7 +134,7 @@ class MultiTrigger:
         # Asignación por slice, NO struct.pack_into: pack_into hace un memset
         # previo que sobre memoria de dispositivo sale como stores de a byte,
         # el esclavo AXI no los reconoce y el puente GP0 tira un external abort
-        # -> SIGBUS. Ver tests/test_rw_dev_mem.py.
+        # -> SIGBUS. Ver API/tests/placa/test_rw_dev_mem.py.
         self._mmap[off:off+4] = _U32.pack(v & 0xFFFFFFFF)
 
     def r32(self, off):
