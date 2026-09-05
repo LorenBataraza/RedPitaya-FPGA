@@ -17,10 +17,37 @@ prj/MCA/project/redpitaya.hw
 prj/MCA/project/redpitaya.cache
 prj/MCA/.Xil/
 
-# Quito work de sim
-prj/MCA/sim/work/*
+# Quito salidas de simulacion. Antes esto solo cubria prj/MCA/sim/work/*, asi
+# que se colaron a git 130 archivos de las librerias work_er/ work_mb/ work_ml/
+# work_mut/ work_mw/ mas el transcript.
+#
+# OJO: nada de un patron `work/` a secas. modulos/<m>/work/ es el punto de
+# entrada del modulo y tiene un Makefile que SI se versiona; lo que se ignora
+# son las librerias de Questa (questa*/) y las salidas, por nombre.
 __pycache__/
-prj/MCA/sim/*.vcd
+questa/
+questa_cov/
+questa_lint/
+work_*/
+transcript
+*.wlf
+*.vcd
+*.ucdb
+modelsim.ini
+prj/MCA/sim/work/
+prj/MCA/work/
+
+# Salidas de los modulos: sim (logs, ondas, cobertura) y sintesis OOC.
+prj/MCA/modulos/*/work/logs/
+prj/MCA/modulos/*/work/waves/
+prj/MCA/modulos/*/work/cov/
+prj/MCA/modulos/*/work/rpt/
+prj/MCA/modulos/*/syn/outputs/
+prj/MCA/modulos/*/syn/logs/
+prj/MCA/modulos/*/lint/work/
+prj/MCA/sim/logs/
+prj/MCA/sim/waves/
+prj/MCA/sim/cov/
 
 # Quito datos medidos. 
 prj/MCA/software/datos/

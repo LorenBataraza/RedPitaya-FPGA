@@ -113,6 +113,11 @@ add_files -fileset constrs_1      $path_sdc/red_pitaya.xdc
 }
 
 add_files                               $path_rtl
+
+# RTL repartido en modulos/<m>/rtl/ (solo prj/MCA por ahora). El guard deja la
+# linea inerte para cualquier otro proyecto. Ver prj/MCA/rtl_files.tcl.
+if {[file exists rtl_files.tcl]} { source rtl_files.tcl }
+
 add_files                               $path_bd
 
 set ip_files [glob -nocomplain $path_ip/*.xci]
