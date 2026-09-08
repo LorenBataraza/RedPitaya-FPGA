@@ -1247,6 +1247,14 @@ informe.
 
 # 17. El seguidor de línea de base queda exonerado — 2026-08-16
 
+> ⚠ **REVERTIDO POR MEDICIÓN EL 2026-09-08 — leer §19.3 antes que esta sección.**
+> Midiendo `baseline_now` **en la placa y con el MCA corriendo**, la base resulta
+> tener un pedestal de −41 cuentas entre 2 y 72 kHz que predice +20.5 canales de
+> corrimiento contra los +22.5 medidos: explica el **91 %** del efecto. La
+> exoneración de abajo es correcta *sobre su propio modelo* y equivocada sobre el
+> instrumento — el modelo offline no reproduce el pedestal. Lo que sigue se
+> conserva porque el razonamiento y su refutación son el contenido útil.
+
 Fase 0b: modelar offline la única pieza del MCA que el Monte-Carlo de apilamiento
 no modelaba, para partir el corrimiento de centroide con la tasa (+1.28 %, §13)
 en sus mecanismos. Corre en la PC, sin placa:
@@ -1296,13 +1304,13 @@ Eso mueve la sospecha **afuera del MCA digital**.
 
 ## 17.3 Lo que queda por descartar, en orden de costo
 
-1. **Que no sea deriva con la TASA sino con el TIEMPO.** `sweep_rate`
-   ([`campanas/testbench_mca.py:943`](../software/campanas/testbench_mca.py#L943))
-   recorre `rates` de menor a mayor y **no tiene pasada de vuelta**: tasa y tiempo
-   están confundidos. Es el mismo tipo de error que ya invalidó el +6.45 %
-   (confundido con el ancho de pulso, §2.3 del doc de diseño). El arreglo es
-   agregar la pasada de vuelta que `sweep_amplitude` ya tiene. **Es la medición
-   más barata y más decisiva que queda.**
+1. ~~**Que no sea deriva con la TASA sino con el TIEMPO.**~~ **DESCARTADO
+   2026-09-08, ver §19.2.** Se agregó la pasada de vuelta y se midió: a 182 Hz las
+   dos visitas están separadas 159 s y el centroide coincide en **0.0 canales**,
+   donde una deriva temporal habría dado −5.2. El corrimiento con la tasa se
+   reprodujo en **+1.17 %** (contra el +1.28 % publicado, otro bitstream y otro
+   eje) y descontar la deriva ajustada no lo mueve. Tasa y tiempo ya no están
+   confundidos.
 2. **Que sea del generador.** El DG4162 a 2 kHz y a 72 kHz trabaja con ciclos de
    trabajo muy distintos. Lo dirime un **pulser de referencia digital** inyectado
    en `mca_dat_i`: si su pico se queda quieto mientras el pico real se mueve, la
@@ -1319,6 +1327,14 @@ corrimiento no está en la cadena digital, la PZ no lo va a arreglar.
 justificación por deriva queda en suspenso** hasta cerrar los tres puntos de
 §17.3. Es exactamente para lo que servía hacer esto en software antes de gastar
 una síntesis.
+
+> **Al 2026-09-08 esta sección quedó dada vuelta.** El punto 1 de §17.3 está
+> cerrado (§19.2: el corrimiento es con la TASA, no con el tiempo), y §19.3
+> muestra que **sí está en la cadena digital**: el pedestal de la línea de base
+> por undershoot de la cola explica el 91 % del efecto. O sea que **la
+> justificación por deriva de la cancelación polo-cero no está en suspenso —
+> está confirmada**, y con el mecanismo identificado. La PZ existe exactamente
+> para eliminar ese undershoot.
 
 ---
 
@@ -1391,5 +1407,160 @@ hay que volver a medirlos en vez de defenderlos:
 La etapa de pipeline **no** entra en esa cuenta: está aguas abajo de la FSM, que ya
 volvió a `S_IDLE` cuando el evento la atraviesa. Agrega latencia, no tiempo muerto.
 
-La verificación funcional en placa (smoke test, conteo exacto de eventos) está
-pendiente: esta sección reporta síntesis, no hardware.
+La verificación funcional en placa se hizo el 2026-09-08 y está en §19.
+
+---
+
+# 19. El refactor en placa, y la deriva medida — 2026-09-08
+
+Primera sesión con `v3_features_zoom_discr` cargado en la Pitaya.
+
+## 19.1 El refactor funciona en silicio
+
+`campanas/preparar_placa.py`: **16/16**. `API/tests/placa/test_mca_hw.py`: **30 PASS,
+0 FAIL**.
+
+| | |
+|---|---|
+| `magic` | `0x4D434131` |
+| Eje | `h_aw = 13` → **8192 canales** |
+| Mapa 2D | 128 × 64 |
+| Registros nuevos (`0x090`–`0x0BC`) | los 8 escribibles **retienen**; los 3 de sólo lectura decodifican |
+
+Que los registros del bloque nuevo retengan en hardware es lo que confirma que el
+refactor está en el bitstream y no sólo en la síntesis.
+
+**Un fallo real, en el test y no en el hardware**: `test_mca_hw.py` tenía clavado
+`H_AW = 14`. Se corrigió a 13 y se le agregó la comprobación del bus de features,
+para que el smoke test también atrape un bitstream equivocado.
+
+## 19.2 La deriva: la hipótesis temporal queda FALSADA
+
+Barrido de tasa con pasada de vuelta, 16 tasas × 2 pasadas × 5 s, ancho nominal
+2 µs, `datos/deriva_20260908/`.
+
+**El corrimiento con la tasa se reproduce**: **+1.17 %** entre 1995 y 72444 Hz
+(×36), sobre los 7 puntos donde el generador entregó el ancho pedido. El valor
+publicado era **+1.28 %** sobre el mismo ×36 — medido con el bitstream anterior y
+el eje de 16384. Dos bitstreams, dos ejes, dos sesiones: el efecto es real.
+
+**Y no es deriva con el tiempo.** La histéresis `vuelta − ida` no sigue a la
+separación entre visitas; la falsación es directa:
+
+| Tasa | Separación entre visitas | Histéresis |
+|---|---|---|
+| 182 Hz | **159 s** (la máxima) | **0.0 canales** |
+| 12–72 kHz | 49–82 s | **+10.8 canales** (la máxima) |
+| 794 kHz | 5.5 s (la mínima) | −0.1 canales |
+
+Una deriva temporal de la pendiente ajustada (−118 canales/hora) habría dado
+**−5.2 canales** a 182 Hz. Dio 0.0. La correlación histéresis-vs-separación es
+**r = −0.34**, y descontar la deriva ajustada deja el corrimiento en +1.22 %, o
+sea que el tiempo no explica **nada** del +1.17 %.
+
+**El confundimiento tasa/tiempo de §17.3 punto 1 queda cerrado.** El sospechoso
+pasa a ser el generador o el frente analógico (§17.3, puntos 2 y 3).
+
+## 19.3 El pedestal de la línea de base EXPLICA el corrimiento con la tasa
+
+Éste es el resultado principal de la sesión, y **da vuelta la conclusión de
+§17.1**. Se midió `baseline_now` (`0x024`) **en vuelo**, a mitad de cada punto y
+con el MCA corriendo (ver §19.5, por qué el instante no es un detalle).
+
+La base cae de forma monótona con la tasa: **−59 cuentas a 182 Hz, −163 a
+794 kHz**. Sobre el tramo de ancho nominal, que es donde se cita el corrimiento:
+
+| | 1995 Hz | 72444 Hz | Δ |
+|---|---|---|---|
+| Línea de base | −60 cuentas | −101 cuentas | **−41 cuentas** |
+| Centroide | 1915.4 | 1937.9 | **+22.5 canales** |
+
+La amplitud es `x = dat − baseline`, así que una base más NEGATIVA da una
+amplitud medida **mayor**. El eje convierte 1 canal = 2 cuentas de ADC
+(`F_PEAK` se alinea a la izquierda con `<<2` y el eje de 8192 toma `>>3`), o sea
+que −41 cuentas de base predicen **+20.5 canales** de centroide.
+
+**Medido: +22.5. Predicho por la base: +20.5. Coinciden dentro del 9 %.**
+
+El pedestal de la línea de base explica el **91 %** del +1.17 %. El 92 % que §17.2
+daba por inexplicado no lo era: faltaba medir la base *con el instrumento
+corriendo*.
+
+**El mecanismo es el undershoot de la cola**, que el propio doc de diseño
+anticipaba: el holdoff «es esconderse del undershoot, no cancelarlo». A tasa alta
+una fracción creciente de las muestras entre pulsos cae en el undershoot de la
+cola anterior y arrastra el promedio hacia abajo. La saturación de la base arriba
+de 132 kHz (−159, −160, −162, −163) es consistente con una cola de unos pocos µs.
+
+**Consecuencia de diseño: la cancelación polo-cero recupera su justificación por
+deriva.** §17.4 la había dejado «en suspenso» porque el corrimiento no parecía
+estar en la cadena digital. Sí lo está, es el undershoot, y la PZ existe
+exactamente para eliminarlo.
+
+## 19.4 La histéresis NO es el seguidor de base — mi hipótesis, refutada
+
+Sobre la histéresis en arco de 10.9 canales había propuesto que el seguidor
+arrastraba estado del punto anterior. **La medición en vuelo lo desmiente**: a
+igual tasa, la base de la ida y la de la vuelta coinciden dentro de **≤ 5 cuentas
+(típico 0–2)**, mientras el centroide difiere **10.9 canales = 21.8 cuentas**. La
+base explica como mucho 1 canal de los 10.9.
+
+Lo que queda en pie:
+
+- la histéresis **es reproducible**: 10.86 y 10.92 canales en dos corridas
+  independientes, con los centroides de la ida repitiendo punto a punto dentro de
+  **0.15 canales**. No es ruido;
+- viene acompañada de una asimetría de **live time** que el FPGA cuenta durante la
+  corrida y no depende de cuándo se lea nada: hasta **+12.5 pp** a 132 kHz, con
+  `corr(histéresis, Δlive) = +0.40`. A igual tasa y con la misma base, los eventos
+  **duraron menos viniendo desde arriba**.
+
+Misma tasa, misma base, distinto tiempo muerto ⇒ lo que cambió está **aguas
+arriba del MCA**: lo que el generador entrega según su propia historia de
+consignas. Es §17.3 punto 2, y el instrumento para dirimirlo es el que ese punto
+ya proponía: el **pulser de referencia digital**, inmune al generador.
+
+## 19.5 Tres defectos del análisis que encontraron los datos reales
+
+Los dos daban resultados creíbles y equivocados, y los dos están corregidos con
+un escenario de verdad-de-campo que los reproduce
+([`test_deriva_sweep_sim.py`](../software/campanas/tests/test_deriva_sweep_sim.py),
+4 escenarios).
+
+1. **El veredicto salió al revés.** El criterio comparaba la histéresis contra la
+   dispersión de los residuos del ajuste lineal. Con una histéresis en arco el
+   ajuste sale plano y sus residuos son enormes —el residuo se come el arco— así
+   que el patrón estaba inflado por el efecto mismo que se quería detectar: 10.8
+   canales se declararon «dentro del ruido». Un segundo intento (usar los puntos
+   de mayor separación temporal) falla igual cuando hay pocas tasas. Ahora se
+   compara contra **el efecto de tasa medido**, que no es un estimador de ruido y
+   además es lo que decide: una histéresis del 1 % del efecto no cambia ninguna
+   conclusión, una del 49 % sí.
+2. **El número principal salió `None`.** El filtro de «ancho constante» tomaba
+   `max` de los anchos entregados en vez del **pedido**. El DG4162 tiene un ancho
+   mínimo atado al período y a 182 Hz devolvió 17173 ns, así que el máximo pasó a
+   ser un punto único y el corrimiento salió NaN: tres minutos de campaña sin
+   reportar su resultado.
+3. **La línea de base se leía en el instante equivocado.** La primera versión
+   leía `baseline_now` *después* de `acquire()`. Con `run=0` la FSM no abre
+   pulsos, el congelamiento nunca se activa y el seguidor promedia el tren
+   entero: a 132–794 kHz daba +619…+650 cuentas contra una media de tren de
+   +819, o sea que seguía al **ciclo de trabajo** y no a la base. Y no se
+   arregla leyendo más rápido — la constante del seguidor es 2¹² muestras =
+   33 µs, así que cualquier demora de software posterior al `stop` ya es
+   infinita para él. Leída **en vuelo** la misma cantidad da −59…−163 cuentas y
+   es la que explica el corrimiento (§19.3). Un número creíble, con el signo
+   cambiado, por leerlo un instante después de lo debido.
+
+El reanálisis no necesita placa: `testbench_mca.py --reanalizar --outdir …`
+recalcula todo desde el `.npz`.
+
+## 19.6 Qué queda
+
+| Pendiente | Estado |
+|---|---|
+| Corrimiento con la tasa | **explicado** (§19.3): pedestal de la base por undershoot de la cola |
+| ¿Deriva con el tiempo? | **descartado** (§19.2) |
+| Histéresis de 10.9 canales | **abierto**: no es tiempo ni base; apunta al generador. Lo dirime el pulser de referencia digital |
+| Throughput y `cnt_lost_busy` | sin re-medir: el barrido llegó a 794 kcps **sin saturar**, así que no hay curvatura para ajustar tiempo muerto. Hay que extender `rates` |
+| FWHM en canales | sin re-medir con el eje de 8192 |

@@ -82,6 +82,15 @@ class Resultado:
         self.saltados.append(msg)
 
 
+# Métodos que no son del proyecto sino del INTÉRPRETE, y que por lo tanto
+# aparecen o desaparecen según la versión de Python en la que se corra. El
+# baseline se generó en la PC (3.11) y el software se usa en la Pitaya (3.10):
+# `BaseException.add_note()` existe desde 3.11, así que las clases de excepción
+# del proyecto lo "pierden" al correr en la placa. No es una regresión de la
+# API, es otro intérprete. Se ignoran por nombre en vez de filtrar por clase
+# base para que la lista sea explícita y se lea en el diff.
+_METODOS_DEL_INTERPRETE = {'add_note'}
+
 _CACHE = {}
 
 
@@ -167,6 +176,8 @@ def bloque_superficie(r):
                         f'era  {esp.get("sig")}\n    ahora {got.get("sig")}')
             elif esp['kind'] == 'class':
                 for m, msp in esp.get('methods', {}).items():
+                    if m in _METODOS_DEL_INTERPRETE:
+                        continue
                     mgot = got.get('methods', {}).get(m)
                     if not r.check(mgot is not None,
                                    f'[A] {mod}.{nombre}.{m}() desapareció'):
@@ -346,8 +357,16 @@ def bloque_analisis(r):
                        f'era {esp.shape}, ahora {got.shape}'):
             continue
         try:
+            # La tolerancia es 1e-7, no 1e-9, PORQUE EL BASELINE SE GENERÓ EN
+            # OTRA ARQUITECTURA. En la Pitaya (armv7l, numpy 1.21) contra la PC
+            # (x86-64, numpy 1.24) el rebinning de `linearize_spectrum` difiere
+            # en 4 de 16384 canales por 6e-9 relativo: orden de magnitud del
+            # redondeo de float64, no un cambio de algoritmo. Un cambio real de
+            # comportamiento mueve los números MUCHO más que esto, así que 1e-7
+            # no afloja lo que el test busca y sí lo hace correr en la placa,
+            # que es donde el software se usa.
             np.testing.assert_allclose(got.astype(float), esp.astype(float),
-                                       rtol=1e-9, atol=1e-12, equal_nan=True)
+                                       rtol=1e-7, atol=1e-12, equal_nan=True)
             r.check(True, '')
         except AssertionError as e:
             r.check(False, f'[D] {k} cambió de valor', str(e).strip())

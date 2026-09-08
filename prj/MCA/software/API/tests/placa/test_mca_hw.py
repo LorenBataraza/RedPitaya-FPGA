@@ -57,9 +57,19 @@ def main():
     check('magic = 0x4D434131', info['magic'] == mu.MAGIC, hex(info['magic']))
     check('espectro 1D presente', info['hist_h'])
     check('mapa 2D presente', info['hist_h_psd'])
-    check('H_AW = 14 (16384 canales)', m.h_aw == 14, f'H_AW={m.h_aw}')
+    # H_AW=13 desde el bitstream del bus de features; antes era 14. NO es un
+    # invariante del diseño sino una decision medida (9.2-10.3 bits efectivos y
+    # el criterio de 4-10 canales/FWHM justifican 3800-9500 canales, no 16384),
+    # y libera 8 de los 16 RAMB36 del espectro. Se afirma el valor igual, en vez
+    # de leerlo del propio registro, porque un smoke test que acepta cualquier
+    # geometria no detectaria un bitstream equivocado -- que es justo lo que
+    # este test tiene que atrapar.
+    check('H_AW = 13 (8192 canales)', m.h_aw == 13,
+          f'H_AW={m.h_aw}' + (' <- bitstream VIEJO' if m.h_aw == 14 else ''))
     check('H2_AW = 7, PSD_AW = 6', (m.h2_aw, m.psd_aw) == (7, 6),
           f'{m.h2_aw},{m.psd_aw}')
+    check('bus de features presente (zoom, discriminador)', info['features'],
+          'sí' if info['features'] else 'NO: el bitstream es el anterior')
 
     # ---------------------------------------------------------------- 2
     print('\n[2] Escritura y relectura de registros')

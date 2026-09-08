@@ -105,7 +105,7 @@ software/
 │   ├── fpga.py
 │   └── rigol_dg4162.py
 │
-├── app/                    ← la aplicación cliente/servidor (ver app/README.md)
+├── app/                    ← la aplicación cliente/servidor (ver ../APP/)
 │   ├── mca_server.py       ← corre en la Pitaya
 │   └── mcamon.py           ← corre en la PC
 │

@@ -6,6 +6,8 @@
 #   make mc             las simulaciones Monte-Carlo
 #   make campana-mca    la campaña de caracterización del MCA (placa + Rigol)
 #   make gui-demo       la GUI andando contra un MCA falso, sin placa
+#   make gui-placa      la GUI contra la Pitaya de verdad
+#   make remoto-e2e-app el e2e de la app con pulsos del Rigol
 #
 # "testbench" es ambigua en este proyecto y acá se desambigua: los testbenches
 # de RTL (SystemVerilog, QuestaSim) NO están en este fichero. Corren con
@@ -25,6 +27,13 @@ CH       ?= 0
 GEN_CH   ?= 1
 DURACION ?= 60
 THR      ?= 0.2
+
+# Estímulo del Rigol (estimulo-*, placa-e2e-app). TASA en pulsos/s y AMP en Vpp
+# con la convención de la campaña: base en AMP/2 y pico en AMP, o sea altura de
+# pulso AMP/2 -> ~2458 cuentas de ADC con AMP=0.6 en LV.
+TASA     ?= 3000
+AMP      ?= 0.6
+SEGUNDOS ?= 10
 
 # Detección de placa: el módulo `rp` sólo existe en la Red Pitaya. Se mira el
 # directorio en vez de importar, para no pagar el import en cada invocación.
@@ -46,15 +55,18 @@ export PYTHONPATH := $(RAIZ):$(PYTHONPATH)
 .DEFAULT_GOAL := help
 
 .PHONY: help test test-api test-app test-mc test-campanas test-modelo \
-        compat baseline lint \
+        test-liviano compat baseline lint \
         mc mc-rapido mc-apilamiento mc-linea-base mc-pico-carga mc-figuras \
         campana-lista campana-mca campana-campana campana-resto campana-formas \
         campana-e2e campana-poisson campana-deriva adquirir \
         graficos-mca graficos-formas graficos-tasa analisis-estimadores \
         placa placa-mem placa-buffer placa-mca placa-diag placa-ring \
-        placa-rigol placa-e2e placa-preparar placa-cargar bench exige-placa \
-        gui gui-demo test-gui exige-gui servidor servidor-falso \
-        sync remoto-test remoto-placa remoto-bench \
+        placa-rigol placa-e2e placa-e2e-app placa-preparar placa-cargar \
+        estimulo-on estimulo-psd estimulo-off bench exige-placa \
+        gui gui-demo gui-placa test-gui exige-gui servidor servidor-falso \
+        remoto-servidor remoto-servidor-off remoto-e2e-app \
+        remoto-estimulo-on remoto-estimulo-psd remoto-estimulo-off \
+        sync sync-dry remoto-test remoto-placa remoto-bench \
         bitstream remoto-preparar remoto-deriva \
         clean clean-pyc distclean
 
@@ -69,12 +81,20 @@ help:              ## esta ayuda
 	@echo "  esta máquina es placa: $(if $(EN_PLACA),SÍ,no)"
 	@echo "  variables: OUT=$(OUT)"
 	@echo "             CH=$(CH)  GEN_CH=$(GEN_CH)  PITAYA=$(PITAYA)  PUERTO=$(PUERTO)"
+	@echo "             TASA=$(TASA) Hz  AMP=$(AMP) Vpp  SEGUNDOS=$(SEGUNDOS)"
 	@echo ""
 	@echo "  los testbenches de RTL (QuestaSim) van aparte:  make -C ../sim"
 
 # --------------------------------------------------- tests que corren en PC --
 test: test-api test-app test-mc test-campanas   ## toda la suite offline (PC)
 	@echo "OK: suite offline completa"
+
+# Lo mismo SIN las simulaciones Monte-Carlo. La Pitaya tiene 461 MB de RAM y el
+# motor de apilamiento llega a ~380 MB de RSS: el OOM killer se lleva el proceso
+# a mitad de la corrida. No es un fallo del código —son simulaciones, no tocan
+# hardware y su lugar es la PC— así que `remoto-test` corre esto y no `test`.
+test-liviano: test-api test-app test-campanas   ## la suite offline sin Monte-Carlo
+	@echo "OK: suite offline (sin Monte-Carlo)"
 
 test-api:          ## tests offline de API/ (driver, red, pipeline, análisis)
 	$(PYTEST) $(PFLAGS) API/tests
@@ -206,6 +226,25 @@ placa-rigol: exige-placa   ## (P,R) camino de datos del MCA con señal real
 placa-e2e: exige-placa     ## (P,R) adquisición end-to-end, deja datos en datos/
 	$(PY) API/tests/placa/test_mca_e2e.py
 
+# El único test que cierra el lazo entero: generador -> IN1 -> MCA -> servidor
+# -> socket -> MCARemote. Levanta su propio servidor en un puerto de loopback,
+# así que no pelea con el del 1001 si hay una GUI conectada.
+placa-e2e-app: exige-placa ## (P,R) LA APLICACIÓN contra pulsos reales del Rigol
+	$(PY) app/tests/placa/e2e_rigol_app.py --rate $(TASA) --amp $(AMP) \
+	  --segundos $(SEGUNDOS) --channel $(CH) --gen-ch $(GEN_CH) \
+	  --outdir $(OUT)
+
+# --- el estímulo, suelto: sobrevive al proceso que lo prendió ----------------
+estimulo-on: exige-placa   ## (P,R) enciende el tren de pulsos. TASA= AMP=
+	$(PY) campanas/estimulo.py on --rate $(TASA) --amp $(AMP) --ch $(GEN_CH)
+
+estimulo-psd: exige-placa  ## (P,R) dos poblaciones (misma altura, distinta cola)
+	$(PY) campanas/estimulo.py on --dos-poblaciones --rate $(TASA) \
+	  --amp $(AMP) --ch $(GEN_CH)
+
+estimulo-off: exige-placa  ## (P,R) apaga la salida del generador
+	$(PY) campanas/estimulo.py off --ch $(GEN_CH)
+
 bench: exige-placa         ## (P) benchmarks de lectura del buffer (no son pass/fail)
 	$(PY) API/bench/bench_buffer_read.py
 	$(PY) API/bench/bench_read_vs_length.py
@@ -254,20 +293,111 @@ servidor-falso:    ## sólo el servidor con MCA falso. PUERTO=n
 	$(PY) app/mca_server.py --fake --port $(PUERTO)
 
 # -------------------------------------------------------- PC -> Red Pitaya ---
-sync:              ## rsync del árbol a la Pitaya (sin datos/, sin notebooks)
-	rsync -az --delete \
+# SIN --delete, a propósito. La placa tiene ficheros que el repo NO tiene —el
+# bitstream cargado, `campana.py`, una docena de `diag_rate*.py`— y un
+# --delete los borra sin aviso. Si de verdad querés limpiar lo que sobra,
+# mirá primero qué se llevaría:
+#
+#   make sync-dry
+#
+# y recién entonces decidilo a mano. Un despliegue no debería poder destruir
+# trabajo que sólo vive en el destino.
+sync:              ## rsync del árbol a la Pitaya (aditivo: NO borra nada)
+	rsync -az \
 	  --exclude 'datos/' --exclude '__pycache__/' --exclude '.pytest_cache/' \
-	  --exclude '*.ipynb' --exclude '*.npz' \
+	  --exclude '*.ipynb' --exclude '.ipynb_checkpoints/' --exclude '*.npz' \
 	  $(RAIZ)/ $(PITAYA):$(REMOTO)/
 
+sync-dry:          ## qué borraría un sync con --delete (no toca nada)
+	@echo "ficheros que sólo existen en la placa y un --delete se llevaría:"
+	@rsync -az --delete --dry-run --itemize-changes \
+	  --exclude 'datos/' --exclude '__pycache__/' --exclude '.pytest_cache/' \
+	  --exclude '*.ipynb' --exclude '.ipynb_checkpoints/' --exclude '*.npz' \
+	  $(RAIZ)/ $(PITAYA):$(REMOTO)/ | grep '^\*deleting' || echo "  (ninguno)"
+
+# `test-liviano`, no `test`: las simulaciones Monte-Carlo no entran en la RAM
+# de la placa (ver el comentario de test-liviano).
 remoto-test: sync  ## corre la suite offline EN la Pitaya (sanity del deploy)
-	ssh $(PITAYA) 'make -C $(REMOTO) test'
+	ssh $(PITAYA) 'make -C $(REMOTO) test-liviano'
 
 remoto-placa: sync ## corre la batería de placa EN la Pitaya
 	ssh $(PITAYA) 'make -C $(REMOTO) placa'
 
 remoto-bench: sync ## corre los benchmarks EN la Pitaya
 	ssh $(PITAYA) 'make -C $(REMOTO) bench'
+
+remoto-e2e-app: sync ## (R) el e2e de la aplicación EN la Pitaya, y trae los datos
+	ssh $(PITAYA) 'make -C $(REMOTO) placa-e2e-app TASA=$(TASA) AMP=$(AMP) \
+	  SEGUNDOS=$(SEGUNDOS) CH=$(CH) GEN_CH=$(GEN_CH) OUT=$(OUT)'
+	@mkdir -p $(dir $(OUT))
+	rsync -az $(PITAYA):$(REMOTO)/$(OUT)/ $(OUT)/
+	@echo "datos en $(OUT)/"
+
+remoto-estimulo-on: sync  ## (R) enciende el generador EN la Pitaya. TASA= AMP=
+	ssh $(PITAYA) 'make -C $(REMOTO) estimulo-on TASA=$(TASA) AMP=$(AMP) GEN_CH=$(GEN_CH)'
+
+remoto-estimulo-psd: sync ## (R) dos poblaciones EN la Pitaya (para el mapa 2D)
+	ssh $(PITAYA) 'make -C $(REMOTO) estimulo-psd TASA=$(TASA) AMP=$(AMP) GEN_CH=$(GEN_CH)'
+
+remoto-estimulo-off:      ## (R) apaga el generador EN la Pitaya
+	ssh $(PITAYA) 'make -C $(REMOTO) estimulo-off GEN_CH=$(GEN_CH)'
+
+# --------------------------------------------------- la app contra la placa ---
+#
+# Dos trampas distintas, con dos soluciones distintas:
+#
+# Para PARAR: `pkill -f "[m]ca_server.py"`. pgrep/pkill -f comparan contra la
+# línea de comando entera, y la del propio ssh contiene el patrón; con los
+# corchetes la expresión regular sigue casando el proceso buscado pero no a sí
+# misma. Sin esto, pkill se lleva la sesión de ssh y deja el servidor vivo
+# (pasó, y el diagnóstico es confuso: el comando "funciona" y no hace nada).
+#
+# Para SABER SI YA CORRE no alcanza el truco: el mismo comando que pregunta
+# lleva adentro el `app/mca_server.py` con el que arrancaría, o sea una
+# aparición SIN corchetes que se casa sola. El guard daba siempre "ya está
+# corriendo" y nunca levantaba nada. Se pregunta por el puerto escuchando, que
+# es además la condición que de verdad importa.
+#
+# Y para ARRANCARLO hace falta `ssh -f`. El idioma habitual —`setsid nohup cmd
+# </dev/null >log 2>&1 &`— NO alcanza acá: medido en la placa, el servidor
+# quedaba con `1 -> pipe` y `2 -> pipe` en /proc/<pid>/fd, o sea reteniendo las
+# tuberías de ssh, y ssh no volvía nunca (el `</dev/null` sí se aplicaba: fd 0
+# era /dev/null, los otros dos no). Con `-f` ssh se va al fondo del lado local
+# después de autenticar y el problema desaparece.
+#
+# El `> /dev/null` del `ssh -f` es lo mismo un nivel más arriba: ese ssh queda
+# vivo del lado local y hereda el stdout de make, así que quien lea la salida
+# por una tubería (un script, CI) espera para siempre aunque make ya terminó.
+#
+# El precio es un ssh local vivo mientras dure el servidor; se va solo con
+# `remoto-servidor-off`. Si esto tiene que sobrevivir a reinicios, lo que
+# corresponde es una unidad de systemd en la placa, no más Makefile.
+PUERTO_PLACA ?= 1001
+
+# La IP se la preguntamos a ssh en vez de repetirla acá: el alias `pitaya` ya
+# la tiene y cambia seguido, así que una segunda copia se desactualiza sola.
+IP_PITAYA ?= $(shell ssh -G $(PITAYA) 2>/dev/null | awk '/^hostname /{print $$2}')
+
+remoto-servidor: sync ## (P) levanta mca_server en la Pitaya y lo deja corriendo
+	@ssh $(PITAYA) 'ss -ltn 2>/dev/null | grep -q ":$(PUERTO_PLACA) "' \
+	  && echo "ya había un servidor escuchando en el $(PUERTO_PLACA)" \
+	  || { ssh -f $(PITAYA) 'cd $(REMOTO) && exec python3 app/mca_server.py \
+	         --port $(PUERTO_PLACA) < /dev/null > /tmp/mca_server.log 2>&1' \
+	         > /dev/null 2>&1; \
+	       sleep 2; ssh $(PITAYA) 'tail -2 /tmp/mca_server.log'; }
+
+remoto-servidor-off:  ## (P) para el mca_server de la Pitaya
+	@ssh $(PITAYA) 'pkill -f "[m]ca_server.py" && echo "servidor detenido" \
+	   || echo "no había servidor corriendo"'
+
+gui-placa: exige-gui remoto-servidor ## LA GUI contra la Pitaya (levanta el servidor)
+	@test -n "$(IP_PITAYA)" || { \
+	  echo "ERROR: no pude sacar la IP de '$(PITAYA)' de la config de ssh."; \
+	  echo "       pasala a mano:  make gui-placa IP_PITAYA=10.73.28.27"; \
+	  exit 1; }
+	@echo "mcamon -> $(IP_PITAYA):$(PUERTO_PLACA)  (el servidor queda corriendo"
+	@echo " al salir; pararlo con: make remoto-servidor-off)"
+	$(PY) app/mcamon.py --host $(IP_PITAYA) --port $(PUERTO_PLACA) --conectar
 
 # --------------------------------------------------- despliegue del bitstream
 bitstream:         ## copia el .bit.bin a la Pitaya (SOBREESCRIBE; no lo carga)

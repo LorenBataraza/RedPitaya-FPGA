@@ -114,8 +114,40 @@ def _pulse_train(gen, ch, rate_hz, amp_vpp, width_s=None, offset_v=None,
     return info
 
 
-def _acquire(mca, seconds):
-    spec, m2d, cnt = mca.acquire(seconds)
+def _acquire_con_base(mca, seconds):
+    """Como `_acquire`, pero muestrea la línea de base A MITAD DE LA CORRIDA.
+
+    El instante importa y costó una medición descubrirlo. Leer `baseline_now`
+    después de `acquire()` NO da la base que usó el extractor: con `run=0` la
+    FSM no abre pulsos, el congelamiento nunca se activa y el seguidor promedia
+    el tren entero. Medido: a 132-794 kHz la lectura daba +619..+650 cuentas
+    contra una media de tren de +819 — o sea que estaba siguiendo el ciclo de
+    trabajo, no la base. La constante del seguidor es 2^12 muestras = 33 us, así
+    que cualquier demora de software posterior al stop ya es infinita para él;
+    no hay forma de arreglarlo leyendo "rápido después".
+
+    Con el MCA corriendo, en cambio, el seguidor está congelado durante cada
+    pulso y su holdoff, así que promedia sólo muestras de base: eso SÍ es lo que
+    el extractor resta.
+    """
+    mca.stop()
+    mca.clear()
+    mca.start()
+    time.sleep(seconds / 2.0)
+    try:
+        bl = float(mca.last_event()['baseline'])       # EN VUELO
+    except Exception:
+        bl = float('nan')
+    time.sleep(seconds / 2.0)
+    mca.stop()
+    m2d = mca.map2d() if getattr(mca, '_has_2d', False) else None
+    cnt = mca.counters()
+    _avisos(cnt)
+    return mca.spectrum(), m2d, cnt, bl
+
+
+def _avisos(cnt):
+    """Los dos avisos de pérdida, compartidos por las dos formas de adquirir."""
     # OJO con la normalizacion: `dropped` suma los eventos que llegaron con el
     # extractor OCUPADO (que nunca entraron a `total`) mas los descartes del
     # barrido de borrado (que si estan en `total`). Compararlo contra `total` da
@@ -131,6 +163,11 @@ def _acquire(mca, seconds):
               f"({100*cnt['pileup']/max(cnt['total'],1):.0f}% de los contados) "
               f"cerraron por maxlen y NO entraron al histograma. "
               f"Subi cfg_maxlen o usa cfg_dec.")
+
+
+def _acquire(mca, seconds):
+    spec, m2d, cnt = mca.acquire(seconds)
+    _avisos(cnt)
     return spec, m2d, cnt
 
 
@@ -940,7 +977,7 @@ def compare_estimators(mca, gen, ch=1, seconds=10.0, amp_vpp=0.5, rate_hz=2e3,
 # 5. Barrido de tasa — tiempo muerto, throughput, live time
 # =============================================================================
 
-def _analizar_deriva(ida, vuelta):
+def _analizar_deriva(ida, vuelta, width_s=None):
     """Separa el corrimiento con la TASA de la deriva con el TIEMPO.
 
     El modelo es aditivo, `cen(r,t) = R(r) + D(t)`, y la palanca es que cada
@@ -986,45 +1023,141 @@ def _analizar_deriva(ida, vuelta):
 
     m, b = np.polyfit(dt, h, 1)
     resid = h - (m * dt + b)
-    # ddof=2: se estimaron dos parámetros. Con 16 puntos la diferencia es del
-    # 7 % sobre sigma, y sigma es el patrón contra el que se decide todo abajo.
+    # ddof=2: se estimaron dos parámetros.
     s = float(np.std(resid, ddof=2)) if h.size > 2 else float('nan')
     rp = float(np.corrcoef(dt, h)[0, 1]) if np.ptp(h) > 0 else 0.0
     cen_med = float(np.nanmean(np.concatenate([c_i[ok], c_v[ok]])))
 
+    h_max = float(np.max(np.abs(h)))
+
+    # ESCALA de comparación: el propio efecto que el barrido está midiendo, o
+    # sea el recorrido del centroide con la tasa sobre los puntos de ancho
+    # NOMINAL. No es un estimador de ruido, y ésa es la gracia — dos intentos
+    # anteriores de estimar el ruido dieron la conclusión al revés:
+    #
+    #   1. la dispersión de los residuos del ajuste lineal: un arco (histéresis
+    #      cero en las puntas, máxima en el medio) deja un ajuste plano y unos
+    #      residuos ENORMES, porque el residuo se come el arco entero. El patrón
+    #      quedaba inflado justo por el efecto a detectar, y 10.8 canales de
+    #      histéresis se declararon "dentro del ruido";
+    #   2. la dispersión de los puntos de mayor separación temporal: mejor, pero
+    #      supone que ahí la histéresis es plana. Con pocas tasas esos puntos
+    #      caen DENTRO del arco y vuelve a inflarse.
+    #
+    # Comparar contra el efecto medido esquiva las dos trampas y además es lo
+    # que decide de verdad: una histéresis del 1 % del efecto no cambia ninguna
+    # conclusión; una del 50 % dice que el número no se puede citar solo.
+    w = np.array([p.get('w', np.nan) for p in ida])[ok]
+    nom = np.abs(w - float(width_s)) < 1e-9 if width_s else np.ones(w.shape, bool)
+    if nom.sum() < 2:
+        nom = np.ones(w.shape, bool)     # sin ancho nominal, todo el barrido
+    escala = float(np.ptp(c_i[ok][nom]))
+    escala = max(escala, 1e-9)
+    frac = h_max / escala
+
     out.update({'pendiente_can_s': float(m), 'ordenada_can': float(b),
                 'r_pearson': rp, 'sigma_resid_can': s,
+                'histeresis_max_can': h_max, 'efecto_tasa_can': escala,
+                'histeresis_frac_efecto': frac,
                 'deriva_pct_hora': 100.0 * m * 3600.0 / max(cen_med, 1e-9)})
 
     print(f'  deriva temporal: {m*3600:+.2f} canales/hora '
           f'({out["deriva_pct_hora"]:+.3f} %/hora), '
-          f'ordenada {b:+.2f} can, r = {rp:+.2f}, '
-          f'dispersión residual {s:.2f} can')
+          f'ordenada {b:+.2f} can, r = {rp:+.2f}')
+    print(f'  histéresis máxima {h_max:.2f} can contra un efecto de tasa de '
+          f'{escala:.2f} can  ->  {100*frac:.0f} % del efecto')
 
-    # ¿La histéresis es distinguible de cero? La escala de comparación es la
-    # dispersión de los residuos, que ES la repetibilidad del centroide medida
-    # por este mismo barrido: no hay que suponerla.
+    # El ORDEN de las preguntas importa, y es la otra mitad del error anterior:
+    # antes se preguntaba primero "¿es despreciable?" con un patrón inflado, y
+    # una deriva temporal genuina podía colarse por ahí. Se pregunta primero por
+    # la firma POSITIVA (la recta contra dt) y sólo después por la nula.
     salto = abs(m) * float(np.ptp(dt))
-    if not np.isfinite(s) or s <= 0:
-        out['veredicto'] = 'no hay dispersión estimable: no se concluye'
-    elif salto < 2 * s:
-        out['veredicto'] = (
-            'REPRODUCIBLE EN TASA: la ida y la vuelta coinciden dentro del '
-            'ruido, así que el corrimiento medido es función de la tasa y no '
-            'del tiempo. El confundimiento de sweep_rate queda descartado')
-    elif abs(rp) > 0.7:
+    if not np.isfinite(h_max):
+        out['veredicto'] = 'no hay histéresis estimable: no se concluye'
+    elif abs(rp) > 0.7 and salto > 0.2 * escala:
         out['veredicto'] = (
             'DERIVA TEMPORAL: la histéresis crece con la separación entre '
             'visitas, que es la firma de una deriva con el tiempo. La pendiente '
             'es la deriva, y el corrimiento con la tasa hay que corregirlo')
+    elif frac < 0.20:
+        out['veredicto'] = (
+            f'REPRODUCIBLE EN TASA: la ida y la vuelta coinciden ({h_max:.2f} '
+            f'canales de histéresis, {100*frac:.0f} % del efecto medido), así '
+            f'que el corrimiento es función de la tasa y no del tiempo. El '
+            f'confundimiento de sweep_rate queda descartado')
     else:
         out['veredicto'] = (
-            'HISTÉRESIS SIN ESTRUCTURA TEMPORAL: las pasadas no coinciden pero '
-            'la diferencia no sigue a la separación entre visitas. El modelo '
-            'aditivo no alcanza: puede ser deriva no lineal, o que la historia '
-            'de tasas importe (calentamiento). No concluir desde acá')
+            f'HISTÉRESIS SIN ESTRUCTURA TEMPORAL: las pasadas difieren hasta '
+            f'{h_max:.1f} canales, el {100*frac:.0f} % del efecto que se está '
+            f'midiendo, pero la diferencia NO sigue a la separación entre '
+            f'visitas (r = {rp:+.2f}) y es ~0 justo donde esa separación es '
+            f'máxima. Eso FALSA la deriva temporal, y deja como sospechosa la '
+            f'HISTORIA de tasas: el estado que el instrumento arrastra del '
+            f'punto anterior. No es ni tasa pura ni tiempo puro')
     print(f'  => {out["veredicto"]}')
     return out
+
+
+def reanalizar_deriva(outdir, width_s=None):
+    """Rehace el análisis de deriva sobre un `sweep_rate.npz` ya medido.
+
+    Existe porque el análisis se equivocó dos veces sobre datos que estaban
+    bien, y arreglarlo no puede costar otra sesión de placa: el barrido guarda
+    las dos pasadas con sus instantes, así que todo lo que sigue es aritmética.
+    También sirve para reprocesar campañas viejas con el criterio corregido.
+
+        python3 campanas/testbench_mca.py --reanalizar --outdir datos/deriva_...
+    """
+    width_s = PULSE_WIDTH_S if width_s is None else width_s
+    z = np.load(os.path.join(outdir, 'sweep_rate.npz'))
+    if 'centroids_vuelta' not in z.files:
+        print(f'  {outdir}: no tiene pasada de vuelta, no hay deriva que analizar')
+        return None
+
+    # El ancho por punto se guarda sólo para la ida ya FILTRADA por validez, así
+    # que para el arreglo completo se recupera casando por tasa. Las campañas
+    # nuevas traen `widths_deriva` y se usa directo.
+    if 'widths_deriva' in z.files:
+        anc_d = z['widths_deriva']
+    else:
+        anc_d = np.full(z['rates_deriva'].shape, np.nan)
+        for k, rr in enumerate(z['rates_deriva']):
+            j = np.flatnonzero(np.isclose(z['r_in'], rr))
+            if j.size:
+                anc_d[k] = z['widths'][j[0]]
+
+    def _pts(cen, t, r):
+        return [dict(r_in=float(a), cen=float(c), t=float(u), ok=np.isfinite(c),
+                     r_out=np.nan, lt=np.nan, w=float(wv))
+                for a, c, u, wv in zip(r, cen, t, anc_d)]
+
+    print(f'\n=== reanálisis de {outdir} ===')
+    deriva = _analizar_deriva(_pts(z['centroids_ida'], z['t_ida_deriva'],
+                                   z['rates_deriva']),
+                              _pts(z['centroids_vuelta'], z['t_vuelta'],
+                                   z['rates_deriva']), width_s)
+
+    # Corrimiento con la tasa sobre los puntos de ancho NOMINAL (el pedido).
+    cen, anc, r_in = z['centroids'], z['widths'], z['r_in']
+    t = z['t_s'] if 't_s' in z.files else np.zeros_like(cen)
+    mismo = (np.abs(anc - width_s) < 1e-9) & np.isfinite(cen)
+    shift = shift_corr = float('nan')
+    if mismo.sum() >= 2:
+        c0, c1 = cen[mismo][0], cen[mismo][-1]
+        r0, r1 = r_in[mismo][0], r_in[mismo][-1]
+        shift = 100.0 * (c1 - c0) / c0
+        print(f'  corrimiento con ancho nominal ({width_s*1e9:.0f} ns): '
+              f'{shift:+.2f}% entre {r0:.0f} y {r1:.0f} Hz (x{r1/r0:.0f}), '
+              f'{int(mismo.sum())} puntos')
+        if deriva and np.isfinite(deriva['pendiente_can_s']):
+            cc = cen - deriva['pendiente_can_s'] * (t - t[0])
+            shift_corr = 100.0 * (cc[mismo][-1] - cc[mismo][0]) / cc[mismo][0]
+            print(f'  descontando la deriva temporal: {shift_corr:+.2f}%')
+    else:
+        print(f'  el generador entregó el ancho pedido en {int(mismo.sum())} '
+              f'punto(s); anchos: {np.unique(np.round(anc*1e9)).astype(int)} ns')
+    return {'deriva': deriva, 'centroid_shift_pct': shift,
+            'centroid_shift_pct_sin_deriva': shift_corr}
 
 
 def sweep_rate(mca, gen, ch=1, rates=None, seconds=5.0, amp_vpp=0.5,
@@ -1102,7 +1235,14 @@ def sweep_rate(mca, gen, ch=1, rates=None, seconds=5.0, amp_vpp=0.5,
         # El instante que corresponde al punto es el CENTRO de la adquisicion,
         # no su comienzo: con `seconds` grande el sesgo seria medio barrido.
         t_med = (time.time() - t0) + 0.5 * seconds
-        spec, _, cnt = _acquire(mca, seconds)
+        # LÍNEA DE BASE en vuelo. Es la medición que dirime el hallazgo de
+        # §19.3: la histéresis de 10.8 canales no sigue ni a la tasa ni al
+        # tiempo, y el sospechoso es el estado que el instrumento arrastra del
+        # punto anterior. Con ventana por histéresis el largo del evento depende
+        # de dónde cruza la cola el umbral, o sea de la base. Si `bl` sigue a la
+        # HISTORIA y no a la tasa, es el seguidor. Ver `_acquire_con_base` para
+        # por qué hay que leerla CORRIENDO y no después.
+        spec, _, cnt, bl = _acquire_con_base(mca, seconds)
         rt = max(cnt['realtime_s'], 1e-9)
         r_medida = cnt['total'] / rt
 
@@ -1127,9 +1267,9 @@ def sweep_rate(mca, gen, ch=1, rates=None, seconds=5.0, amp_vpp=0.5,
         print(f'  {r:9.0f} Hz in (w={w_real*1e9:6.0f} ns) -> '
               f'{cnt["accepted"]/rt:9.0f} cps out   '
               f'live {100*cnt["livetime_s"]/rt:5.1f}%   '
-              f'centroide {cen:.1f}   t={t_med:6.1f}s{aviso}')
+              f'centroide {cen:.1f}   base {bl:+5.0f}   t={t_med:6.1f}s{aviso}')
         return dict(r_in=float(r), r_out=cnt['accepted'] / rt,
-                    lt=cnt['livetime_s'] / rt, cen=cen, t=t_med, ok=ok,
+                    lt=cnt['livetime_s'] / rt, cen=cen, t=t_med, ok=ok, bl=bl,
                     w=w_real if np.isfinite(w_real) else w_s)
 
     puntos_ida = [_punto(r) for r in rates]
@@ -1154,7 +1294,8 @@ def sweep_rate(mca, gen, ch=1, rates=None, seconds=5.0, amp_vpp=0.5,
     # --- deriva: tasa contra tiempo -----------------------------------------
     # Se hace ANTES de filtrar por validez, porque el filtro reordena los
     # arreglos de la ida y rompe la correspondencia con la vuelta.
-    deriva = _analizar_deriva(puntos_ida, puntos_vuelta) if puntos_vuelta else None
+    deriva = (_analizar_deriva(puntos_ida, puntos_vuelta, width_s)
+              if puntos_vuelta else None)
 
     if not validos.all():
         print(f'  {int((~validos).sum())} de {len(validos)} puntos INVÁLIDOS: el '
@@ -1208,8 +1349,18 @@ def sweep_rate(mca, gen, ch=1, rates=None, seconds=5.0, amp_vpp=0.5,
     shift = float('nan')
     shift_corr = float('nan')
     if cen.size:
-        w_nom = anc.max()
+        # El ancho nominal es el PEDIDO, no `anc.max()`. Con el máximo de lo
+        # entregado esto se rompió con datos reales: el DG4162 tiene un ancho
+        # mínimo atado al período y a 182 Hz devolvió 17173 ns en vez de los
+        # 2000 pedidos, así que el máximo pasó a ser un punto ÚNICO, `mismo`
+        # quedó con un solo elemento y el corrimiento salió NaN — la campaña
+        # midió tres minutos y no reportó su número principal.
+        w_nom = float(width_s)
         mismo = (np.abs(anc - w_nom) < 1e-9) & ~np.isnan(cen)
+        if mismo.sum() < 2:
+            print(f'  AVISO: el generador entregó el ancho pedido '
+                  f'({w_nom*1e9:.0f} ns) en {mismo.sum()} punto(s). Anchos '
+                  f'entregados: {np.unique(np.round(anc*1e9)).astype(int)} ns')
         if mismo.sum() >= 2:
             c0, c1 = cen[mismo][0], cen[mismo][-1]
             r0, r1 = r_in[mismo][0], r_in[mismo][-1]
@@ -1243,7 +1394,18 @@ def sweep_rate(mca, gen, ch=1, rates=None, seconds=5.0, amp_vpp=0.5,
                  't_vuelta': deriva['t_vuelta'],
                  'rates_deriva': deriva['rates'],
                  'centroids_ida': deriva['cen_ida'],
-                 't_ida_deriva': deriva['t_ida']}
+                 't_ida_deriva': deriva['t_ida'],
+                 # SIN filtrar por validez, a diferencia de `widths`: es lo que
+                 # `reanalizar_deriva` necesita para elegir los puntos de ancho
+                 # nominal sin tener que casarlos por tasa.
+                 'widths_deriva': np.array([p['w'] for p in puntos_ida]),
+                 # Las dos columnas que dirimen §19.3: si la base y el live time
+                 # difieren entre pasadas a IGUAL tasa, lo que manda es la
+                 # historia y no la tasa.
+                 'baseline_ida': np.array([p['bl'] for p in puntos_ida]),
+                 'baseline_vuelta': np.array([p['bl'] for p in puntos_vuelta]),
+                 'livetime_ida': np.array([p['lt'] for p in puntos_ida]),
+                 'livetime_vuelta': np.array([p['lt'] for p in puntos_vuelta])}
     _save(outdir, 'sweep_rate', r_in=r_in, r_out=r_out, centroids=cen,
           livetime_frac=np.array(lt_frac), widths=np.array(anchos),
           t_s=t_ida, **extra)
@@ -1901,15 +2063,26 @@ def plot_all(outdir):
             a1.set_title('Centroide vs tasa — las dos pasadas')
             a1.grid(alpha=.3); a1.legend()
 
+            # Coloreado por TASA, que es la variable que ordena el arco. Sin
+            # eso el panel parece una nube: con eso se ve que la histéresis
+            # sigue a la tasa y no a la separación temporal, que es justo la
+            # conclusión.
             h = (cv - ci)[m]
-            a2.plot(gap[m] / 60.0, h, 'o')
+            sc = a2.scatter(gap[m] / 60.0, h, c=np.log10(rr[m]),
+                            cmap='viridis', s=45, zorder=3)
+            cb = fig.colorbar(sc, ax=a2)
+            cb.set_label('log10(tasa [Hz])')
             if m.sum() >= 3 and np.ptp(gap[m]) > 0:
                 p = np.polyfit(gap[m], h, 1)
                 xs = np.linspace(0, gap[m].max(), 50)
                 a2.plot(xs / 60.0, np.polyval(p, xs), 'r-', lw=1,
-                        label=f'{p[0]*3600:+.1f} can/hora')
-                a2.legend()
-            a2.axhline(0, color='k', lw=.8, ls=':')
+                        label=f'ajuste: {p[0]*3600:+.1f} can/hora')
+            # La predicción de la hipótesis temporal es una recta POR EL ORIGEN.
+            # Dibujarla es lo que hace visible que los datos la contradicen: los
+            # puntos de mayor separación —donde el efecto sería máximo— valen 0.
+            a2.plot([0, gap[m].max() / 60.0], [0, 0], 'k:', lw=.8,
+                    label='sin deriva temporal')
+            a2.legend(fontsize=8)
             a2.set_xlabel('separación entre las dos visitas [min]')
             a2.set_ylabel('histéresis  vuelta − ida  [canales]')
             a2.set_title('¿La histéresis sigue al tiempo?')
@@ -2296,7 +2469,15 @@ def main(argv=None):
     ap.add_argument('--gen-ch', type=int, default=1, help='canal del Rigol')
     ap.add_argument('--plot-only', action='store_true',
                     help='sólo graficar un --outdir ya medido (no usa hardware)')
+    ap.add_argument('--reanalizar', action='store_true',
+                    help='rehacer el análisis de deriva de un --outdir medido')
     args = ap.parse_args(argv)
+
+    if args.reanalizar:
+        if not args.outdir:
+            ap.error('--reanalizar necesita --outdir')
+        reanalizar_deriva(args.outdir)
+        return 0
 
     if args.list or not args.test and not args.plot_only:
         print('tests disponibles:')

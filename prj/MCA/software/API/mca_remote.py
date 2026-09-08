@@ -249,7 +249,13 @@ class FakeMCA(MCA):
         amp_max = self._reg[R_AMP_MAX] & 0xFFFF
 
         amp = self._rng.normal(self._centro, self._sigma, n)
-        amp = np.clip(amp, 0, 0xFFFF).astype(np.int64)
+        # np.intp, NO np.int64: `amp` termina usándose como array de ÍNDICES
+        # (bincount, y la fila de np.add.at más abajo). En la Pitaya —armv7l, 32
+        # bits— np.intp es int32, y numpy rechaza indexar con int64 por casting
+        # "safe": "Cannot cast array data from dtype('int64') to dtype('int32')".
+        # En la PC no se nota porque ahí intp ya es int64. Las amplitudes son
+        # 0..0xFFFF, así que int32 sobra.
+        amp = np.clip(amp, 0, 0xFFFF).astype(np.intp)
 
         # Apilamiento: un puñado de eventos se cierran por maxlen y no entran.
         n_pile = int(self._rng.binomial(n, 0.01))
@@ -274,7 +280,7 @@ class FakeMCA(MCA):
         psd = np.where(self._rng.random(amp.size) < 0.5,
                        self._rng.normal(0.25 * n2, 0.05 * n2, amp.size),
                        self._rng.normal(0.65 * n2, 0.05 * n2, amp.size))
-        psd = np.clip(psd, 0, n2 - 1).astype(np.int64)
+        psd = np.clip(psd, 0, n2 - 1).astype(np.intp)   # índice: intp, ver arriba
         fila = np.clip(amp >> max(h2_shift, 9), 0, self._m2d.shape[0] - 1)
         np.add.at(self._m2d, (fila, psd), 1)
 

@@ -422,10 +422,28 @@ def _ventanas_modo0(x, thr, hyst, maxlen):
 
 
 def _rangos(i0s, largos):
-    """Índices planos de todas las ventanas concatenadas, sin lazo Python."""
+    """Índices planos de todas las ventanas concatenadas, sin lazo Python.
+
+    Devuelve np.intp, NO np.int64: los dos salen de acá para usarse como
+    ÍNDICES —`xc[idx]`, `np.add.reduceat(xg, ini)`, `prev[ini] = -1`— y en la
+    Pitaya (armv7l, 32 bits) np.intp es int32. Indexar con int64 ahí falla con
+    "Cannot cast array data from dtype('int64') to dtype('int32')". En la PC no
+    se nota porque intp ya es int64.
+
+    OJO: esto vale para los ÍNDICES. Los valores de este módulo —`local`, `off`,
+    las integrales de carga— siguen en int64 a propósito: `local` se compara
+    contra `1 << 40`, que no entra en int32, y las integrales pueden desbordar.
+    """
+    # Se normaliza acá y no en el llamador para que la función sea correcta
+    # sola: `largos` no es sólo un valor, es el CONTADOR de np.repeat, y numpy
+    # también exige intp ahí.
+    i0s    = np.asarray(i0s, dtype=np.intp)
+    largos = np.asarray(largos, dtype=np.intp)
+
     tot = int(largos.sum())
-    ini = np.concatenate(([0], np.cumsum(largos)[:-1])).astype(np.int64)
-    idx = np.repeat(i0s - ini, largos) + np.arange(tot, dtype=np.int64)
+    ini = np.concatenate(([0], np.cumsum(largos)[:-1])).astype(np.intp)
+    idx = (np.repeat(i0s - ini, largos)
+           + np.arange(tot, dtype=np.intp)).astype(np.intp)
     return idx, ini
 
 
@@ -444,6 +462,9 @@ def _rasgos(xc, i0s, largos, tail_dly=None, corta=None):
     if i0s.size == 0:
         z = np.zeros(0, dtype=np.int64)
         return z, z, z, z
+    # `largos` es el contador de los cuatro np.repeat de abajo: intp, igual que
+    # en _rangos. En 32 bits numpy no acepta int64 ahí.
+    largos = np.asarray(largos, dtype=np.intp)
     idx, ini = _rangos(i0s, largos)
     xg = xc[idx]
     off = np.repeat(np.arange(i0s.size, dtype=np.int64), largos)   # id de ventana

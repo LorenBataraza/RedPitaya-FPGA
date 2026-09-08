@@ -593,6 +593,14 @@ de registros y entran al esquema por `source.scalar_fields`, sin tocar reader ni
 
 ### Bloques pendientes del servidor
 
+> **El dashboard y el handler de configuración ya existen**, aunque para el MCA
+> y no para este pipeline: son `mca_server.py` y la GUI `mcamon`, documentados
+> en [`docs/APP/`](../APP/). El protocolo que quedó es el que se describe acá —
+> JSON entrante para la configuración, y el delta de histograma por TCP— con la
+> diferencia de que el espectro viaja como bloque binario y no dentro del JSON.
+> Lo que sigue pendiente es engancharlos a **este** pipeline, el de formas de
+> onda, que es lo que describe el resto de esta sección.
+
 - **Dashboard** (cada M eventos, hilo aparte): emite el último pulso y el delta de
   histograma por TCP. No compite de verdad — son fracciones de Hz de trabajo real.
 - **Handler de configuración** (hilo aparte): parsea el JSON entrante y aplica sólo las
