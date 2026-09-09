@@ -1,10 +1,11 @@
 # Software del MCA
 
 ```bash
-make help          # todos los objetivos
-make test          # la suite offline, en la PC (sin placa, sin Rigol)
-make placa         # lo que necesita la Red Pitaya
-make mc            # las simulaciones Monte-Carlo
+make help              # todos los objetivos
+make verificar         # la suite offline, en la PC (sin placa, sin Rigol)
+make verificar-placa   # lo que necesita la Red Pitaya
+make montecarlo        # las simulaciones Monte-Carlo
+make placa-estado      # ¿responde la placa? ¿qué bitstream tiene?
 ```
 
 Los testbenches de **RTL** van aparte: `make -C ../sim`, o `make rtl` desde
@@ -36,13 +37,13 @@ los scripts ya desplegados en la placa.
 
 ## Qué corre dónde
 
-`make test` da lo mismo en la PC y en la Pitaya, y las dos pasan — por eso
-`make remoto-test` sirve de sanity check del deploy:
+`make verificar` da lo mismo en la PC y en la Pitaya, y las dos pasan — por eso
+`make verificar-remoto` sirve de sanity check del deploy:
 
 ```bash
-make sync           # rsync del árbol a la Pitaya
-make remoto-test    # la suite offline, allá
-make remoto-placa   # la batería que necesita hardware
+make placa-sync              # rsync del árbol a la Pitaya
+make verificar-remoto        # la suite offline, allá
+make verificar-placa-remoto  # la batería que necesita hardware
 ```
 
 Los tests de placa **no se pueden ni importar** en la PC (hacen `import rp` al
@@ -58,6 +59,6 @@ que gana el sueldo — un `0x240` que se vuelve `0x244` no rompe nada en la PC,
 rompe en la placa escribiendo al registro equivocado.
 
 ```bash
-make compat     # verifica contra el baseline
-make baseline   # lo REGENERA (revisar el diff antes de commitear)
+make verificar-compat     # verifica contra el baseline
+make baseline-regenerar   # lo REGENERA (revisar el diff antes de commitear)
 ```

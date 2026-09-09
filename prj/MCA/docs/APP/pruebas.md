@@ -1,7 +1,7 @@
 # Pruebas de la aplicación
 
 **Código:** [`API/tests/`](../../software/API/tests/) · [`app/tests/`](../../software/app/tests/) · [`app/tests/placa/`](../../software/app/tests/placa/)
-**Cómo se corren:** `make test` en la PC · `make placa-e2e-app` en la placa
+**Cómo se corren:** `make verificar` en la PC · `make verificar-placa-app` en la placa
 **Qué prueban:** los cuatro niveles de abajo, y en la última sección lo que **no**
 
 Cuatro niveles, cada uno con una pregunta distinta. La utilidad de la lista está
@@ -125,20 +125,32 @@ entienda solo, y que los ficheros queden escritos.
 
 ```bash
 # en la placa
-make placa-e2e-app TASA=4000 SEGUNDOS=8
+make verificar-placa-app TASA=4000 SEGUNDOS=8
 
 # desde la PC: sincroniza, corre allá, y trae los datos
-make remoto-e2e-app TASA=4000 SEGUNDOS=8 OUT=datos/e2e
+make verificar-placa-app-remoto TASA=4000 SEGUNDOS=8 OUT=datos/e2e
 ```
 
 Y para dejar el generador encendido por fuera de una corrida —mirar el espectro
 crecer en la GUI, depurar umbrales a mano—:
 
 ```bash
-make estimulo-on TASA=3000 AMP=0.6     # tren de pulsos
-make estimulo-psd TASA=30000           # dos poblaciones, para el mapa 2D y la FOM
-make estimulo-off
+make rigol-pulsos TASA=3000 AMP=0.6   # tren de pulsos
+make rigol-psd TASA=30000             # dos poblaciones, para el mapa 2D y la FOM
+make rigol-poisson TASA=30000         # arribos exponenciales
+make rigol-off
 ```
+
+> **El tren periódico es un estímulo benigno y eso sesga lo que se mide.** Con
+> arribos deterministas y un servidor sin cola no se pierde nada mientras el
+> período supere el tiempo de servicio. Medido en placa a 30 kHz, 6 s: el tren
+> periódico entrega 180037 eventos y se aceptan **los 180037**; con Poisson a
+> la misma tasa entran 188850 y se registran 168231, o sea un **10.9 % que se
+> pierde por fusión de pulsos vecinos**. Ninguna de las dos corridas incrementa
+> el contador `pileup`: dos pulsos separados por menos que el ancho no son dos
+> eventos apilados para el discriminador, son **uno solo**. La pérdida no
+> aparece como un contador, aparece como cuentas que faltan y como un pico
+> suma. Es la razón de que `rigol-poisson` exista.
 
 > **El estímulo de dos poblaciones necesita tasa alta.** `pulse_train_wave` mete
 > tantos pulsos por forma como permita el ciclo de trabajo, y con colas

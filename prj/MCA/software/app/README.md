@@ -13,16 +13,30 @@
 
 ## Arrancarlo
 
+**La sesión entera** — servidor en la placa, estímulo en el Rigol, GUI acá:
+
+```bash
+make -C .. app                          # tren de pulsos a 3 kHz
+make -C .. app ESTIMULO=poisson TASA=30000
+make -C .. app ESTIMULO=ninguno         # no toca el generador
+make -C .. app-off                      # apaga el generador y para el servidor
+```
+
+`ESTIMULO` es `pulsos` (default), `psd` (dos poblaciones, para el mapa 2D),
+`poisson` (arribos exponenciales) o `ninguno`. Al cerrar la ventana el servidor
+y el generador **quedan andando**, a propósito: una medida larga sobrevive a
+cerrar la GUI. `app-off` cierra las dos cosas.
+
 **Sin placa**, contra un MCA simulado — levanta servidor y GUI de una:
 
 ```bash
-make -C .. gui-demo
+make -C .. app-demo
 ```
 
-**Contra la Pitaya** — levanta el servidor allá si no estaba y abre la GUI acá:
+**Contra la Pitaya sin tocar el generador** (dejarlo como esté):
 
 ```bash
-make -C .. gui-placa
+make -C .. app-placa
 ```
 
 **A mano**, si hace falta separarlo:

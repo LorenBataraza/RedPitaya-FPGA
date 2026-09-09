@@ -1,7 +1,7 @@
 # mcamon — la aplicación cliente/servidor del MCA
 
 **Código:** [`prj/MCA/software/app/`](../../software/app/)
-**Puesta en marcha:** `make gui-demo` sin placa · `make gui-placa` contra la Pitaya
+**Puesta en marcha:** `make app` la sesión entera · `make app-demo` sin placa
 **Tests:** los cuatro niveles de [`pruebas.md`](pruebas.md), tres corren sin hardware
 
 Un servidor en la Pitaya que expone [`API/mca.py`](../../software/API/mca.py)

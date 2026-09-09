@@ -17,7 +17,7 @@ El servidor se levanta como subproceso en 127.0.0.1: no se conecta al del puerto
     python3 app/tests/placa/e2e_rigol_app.py --outdir datos/e2e_app
     python3 app/tests/placa/e2e_rigol_app.py --rate 5000 --segundos 20
 
-Requiere: bitstream del MCA cargado (`make placa-preparar`), Rigol por USB, y
+Requiere: bitstream del MCA cargado (`make verificar-placa-bitstream`), Rigol por USB, y
 que ningún otro proceso tenga /dev/mem abierto.
 """
 

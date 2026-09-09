@@ -313,7 +313,7 @@ def main():
     with open(os.path.join(out, 'resumen.json'), 'w') as f:
         json.dump(resumen, f, indent=2, ensure_ascii=False, default=float)
     print(f'\nlisto en {time.perf_counter()-t0:.0f} s -> {out}')
-    print(f'ahora: make mc-figuras DIR={out}')
+    print(f'ahora: make montecarlo-figuras DIR={out}')
 
 
 if __name__ == '__main__':

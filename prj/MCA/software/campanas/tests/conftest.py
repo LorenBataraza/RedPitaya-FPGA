@@ -2,7 +2,7 @@
 
 Los tests de esta carpeta están escritos para correr de dos formas: sueltos
 (`python3 test_x.py`, que imprime todas las comprobaciones y sale con código 1
-si alguna falló) y bajo pytest (`make test-campanas`). El estilo suelto usa un
+si alguna falló) y bajo pytest (`make verificar-campanas`). El estilo suelto usa un
 `check(nombre, cond)` que **registra** la falla en la lista `FALLAS` del módulo
 en vez de lanzar, para poder imprimir el cuadro completo en vez de cortar en la
 primera.

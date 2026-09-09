@@ -294,7 +294,7 @@ def main():
     with open(os.path.join(out, 'resumen.json'), 'w') as f:
         json.dump(resumen, f, indent=2, ensure_ascii=False, default=float)
     print(f'listo en {time.perf_counter()-t_ini:.0f} s -> {out}')
-    print(f'ahora: make mc-figuras DIR={out}')
+    print(f'ahora: make montecarlo-figuras DIR={out}')
     return out
 
 

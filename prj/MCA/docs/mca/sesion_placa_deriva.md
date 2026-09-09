@@ -29,7 +29,7 @@ existe en el bitstream nuevo y es **inerte** con el discriminador deshabilitado:
 
 ```bash
 # desde la PC: copia el .bit.bin, verifica el md5, sincroniza y PROGRAMA la PL
-make -C software remoto-preparar
+make -C software placa-cargar-remoto
 
 # o, ya estando en la Pitaya:
 python3 campanas/preparar_placa.py --cargar      # programa y verifica
@@ -40,9 +40,9 @@ Tiene que terminar en `PLACA LISTA`, con el eje en **8192 canales** y los 8
 registros nuevos verificados uno por uno. Si dice `bus de features: NO`, el
 bitstream cargado es el viejo y **no hay que seguir**.
 
-> `make sync` **no** copia el bitstream a propósito: recargar la PL corta el bus
+> `make placa-sync` **no** copia el bitstream a propósito: recargar la PL corta el bus
 > AXI, y eso no debe pasar como efecto secundario de sincronizar unos `.py`. El
-> despliegue es `make bitstream` (copia y verifica md5) o `remoto-preparar`
+> despliegue es `make placa-bitstream` (copia y verifica md5) o `placa-cargar-remoto`
 > (copia, programa y verifica).
 
 ---
@@ -78,7 +78,7 @@ alcanza.
 make -C software campana-deriva OUT=datos/deriva_$(date +%Y%m%d_%H%M%S)
 
 # o desde la PC, con el rsync de vuelta que imprime al terminar
-make -C software remoto-deriva OUT=datos/deriva_20260904
+make -C software campana-deriva-remoto OUT=datos/deriva_20260904
 ```
 
 `run_deriva.py` llama a `mca.exigir_features()` antes de medir, así que no puede
@@ -132,9 +132,9 @@ zoom, el discriminador y el `full` pegajoso están verificados sólo en simulaci
 (19 testbenches, ~1500 comprobaciones) y en síntesis.
 
 ```bash
-make -C software placa-mca       # smoke test del bus y los registros
-make -C software placa-rigol     # camino de datos con señal real
-make -C software placa-e2e       # espectro HW contra espectro SW
+make -C software verificar-placa-mca       # smoke test del bus y los registros
+make -C software verificar-placa-datapath     # camino de datos con señal real
+make -C software verificar-placa-e2e       # espectro HW contra espectro SW
 ```
 
 Lo mínimo que hay que confirmar con señal, más allá de que corra:
@@ -153,12 +153,12 @@ Lo mínimo que hay que confirmar con señal, más allá de que corra:
 
 ## 4. Orden sugerido de la sesión
 
-1. `make -C software remoto-preparar` → tiene que decir **PLACA LISTA**
-2. `make -C software placa-mca` y `placa-rigol` → el refactor anda con señal
-3. `make -C software remoto-deriva OUT=…` → **el experimento** (~3 min)
+1. `make -C software placa-cargar-remoto` → tiene que decir **PLACA LISTA**
+2. `make -C software verificar-placa-mca` y `verificar-placa-datapath` → el refactor anda con señal
+3. `make -C software campana-deriva-remoto OUT=…` → **el experimento** (~3 min)
 4. `campana-resto` → throughput y FWHM nuevos
 5. Traer los datos y regraficar sin placa:
-   `make -C software graficos-mca DIR=datos/…`
+   `make -C software graficar-mca DIR=datos/…`
 
 Anotar en `resultados_validacion_hw.md` §18.3 los dos números re-medidos, y el
 veredicto de la deriva donde corresponda según cuál haya salido.

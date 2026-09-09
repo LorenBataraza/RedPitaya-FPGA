@@ -22,7 +22,7 @@ Uso, en la Pitaya::
 
 Desde la PC, todo junto (copia el bitstream, sincroniza y verifica)::
 
-    make -C software placa-preparar
+    make -C software verificar-placa-bitstream
 """
 import argparse
 import os
