@@ -49,10 +49,12 @@ def log(*a):
 
 class ServidorMCA:
 
-    def __init__(self, fake=False, bitstream=BITSTREAM_MCA):
+    def __init__(self, fake=False, bitstream=BITSTREAM_MCA, fake_h_aw=14):
         self.fake = fake
+        self.fake_h_aw = fake_h_aw
         self.bitstream = bitstream
         self.h = None
+        self.ig = None                  # slot 6: opcional, puede no estar
         self.motivo_ausente = None      # por qué no hay handle, para el cliente
 
         self._lock = threading.Lock()   # protege TODO acceso al handle
@@ -73,9 +75,9 @@ class ServidorMCA:
         """Abre el MCA. Si no se puede, deja el motivo para que el cliente lo
         muestre y pueda pedir la carga del bitstream."""
         if self.fake:
-            self.h = FakeMCA()
+            self.h = FakeMCA(h_aw=self.fake_h_aw)
             self.motivo_ausente = None
-            log('MCA simulado (--fake)')
+            log(f'MCA simulado (--fake), {1 << self.fake_h_aw} canales')
             return
         try:
             # Sondear ANTES de mapear: si la PL no está programada, la primera
@@ -97,6 +99,25 @@ class ServidorMCA:
             self.h = None
             self.motivo_ausente = f'{type(e).__name__}: {e}'
             log('sin MCA:', self.motivo_ausente)
+        self._abrir_integracion()
+
+    def _abrir_integracion(self):
+        """El slot 6, si está. Que falte NO es un error.
+
+        Cualquier bitstream anterior al refactor de registros no lo trae, y el
+        MCA anda igual: lo único que se pierde es el ruteo y el descubrimiento.
+        Por eso esto no toca `motivo_ausente` ni deja el servidor sin handle.
+        """
+        if self.fake:
+            self.ig = None              # el MCA falso no simula el slot 6
+            return
+        try:
+            from API.integration import integration_open
+            self.ig = integration_open()
+            log('integración (slot 6) abierta')
+        except Exception as e:                                  # noqa: BLE001
+            self.ig = None
+            log(f'sin integración (slot 6): {type(e).__name__}: {e}')
 
     def cerrar(self):
         self._parar.set()
@@ -104,6 +125,11 @@ class ServidorMCA:
             if self.h is not None:
                 mca_close(self.h)
                 self.h = None
+            if self.ig is not None:
+                try:
+                    self.ig.close()
+                finally:
+                    self.ig = None
 
     def _handle(self):
         if self.h is None:
@@ -151,6 +177,10 @@ class ServidorMCA:
                      'running': self.h.running,
                      'protocol': PROTOCOL_VERSION, 'fake': self.fake,
                      'fpga_state': self._fpga_state(),
+                     # Igual que `has_2d`: el cliente arma la interfaz con lo
+                     # que el bitstream traiga, en vez de suponerlo. Sin el
+                     # slot 6 no hay pestaña de Integración.
+                     'has_integracion': self.ig is not None,
                      'bitstream': self.bitstream})
         return info
 
@@ -272,6 +302,55 @@ class ServidorMCA:
         except Exception as e:                                # noqa: BLE001
             return f'?: {e}'
 
+    # ---------- integración (slot 6) ----------
+
+    def _ig(self):
+        if self.ig is None:
+            raise RuntimeError(
+                'este bitstream no trae la región de TOP en el slot 6: no hay '
+                'ruteo ni descubrimiento (el MCA anda igual)')
+        return self.ig
+
+    def op_integracion_get(self):
+        """Todo el estado del slot 6 de una: la pestaña se dibuja con esto.
+
+        Va en UNA operación y no en cinco porque el cliente las quiere todas
+        juntas para pintar la pestaña, y cinco viajes por refresco sobre un
+        socket que además comparte con el espectro no compra nada.
+        """
+        ig = self._ig()
+        info = {'modules': ig.modules(), 'slots': ig.slots(),
+                'caps': ig.caps(), 'routes': ig.routes(),
+                'status': ig.status(), 'run': ig.get_run()}
+        # La geometría que publica esta región es una SEGUNDA copia de la del
+        # MCA y puede estar desactualizada. Se informa si coincide para que el
+        # cliente pueda mostrarlo, en vez de que la discrepancia quede latente.
+        if self.h is not None:
+            ok, motivo = ig.geometria_coincide(self.h)
+            info['geometria_coincide'] = ok
+            info['geometria_motivo'] = motivo
+        return info
+
+    def op_integracion_set_route(self, consumidor, tap, enable):
+        self._ig().set_route(str(consumidor), int(tap), bool(enable))
+        return self.op_integracion_get()
+
+    def op_integracion_reset_routes(self):
+        self._ig().reset_routes()
+        return self.op_integracion_get()
+
+    def op_integracion_ctrl(self, que):
+        ig = self._ig()
+        acciones = {'run_on':  lambda: ig.set_run(True),
+                    'run_off': lambda: ig.set_run(False),
+                    'clear':   ig.clear,
+                    'srst':    ig.soft_reset}
+        if que not in acciones:
+            raise ValueError(f'control desconocido: {que!r}; '
+                             f'hay: {sorted(acciones)}')
+        acciones[que]()
+        return self.op_integracion_get()
+
     # ---------- despacho ----------
 
     _OPS = {
@@ -290,6 +369,11 @@ class ServidorMCA:
         'read.last_event':    ('op_read_last_event', ()),
         'fpga.state':         ('op_fpga_state', ()),
         'fpga.load_bitstream': ('op_fpga_load_bitstream', ('path',)),
+        'integracion.get':          ('op_integracion_get', ()),
+        'integracion.set_route':    ('op_integracion_set_route',
+                                     ('consumidor', 'tap', 'enable')),
+        'integracion.reset_routes': ('op_integracion_reset_routes', ()),
+        'integracion.ctrl':         ('op_integracion_ctrl', ('que',)),
     }
 
     def despachar(self, op, args):
@@ -433,9 +517,15 @@ def main():
                    help='MCA simulado, para desarrollar sin placa')
     p.add_argument('--bitstream', default=BITSTREAM_MCA)
     p.add_argument('--selftest', action='store_true')
+    # Sólo con --fake. Existe para poder ejercitar al cliente contra las dos
+    # geometrías reales: 14 es el bitstream viejo (16384 canales) y 13 el nuevo
+    # (8192). El cliente no debería notar la diferencia, y hasta que esto se
+    # pudo variar, no había forma de comprobarlo sin la placa.
+    p.add_argument('--fake-h-aw', type=int, default=14, metavar='N',
+                   help='canales del MCA simulado, como exponente (13 = 8192)')
     a = p.parse_args()
 
-    srv = ServidorMCA(fake=a.fake, bitstream=a.bitstream)
+    srv = ServidorMCA(fake=a.fake, bitstream=a.bitstream, fake_h_aw=a.fake_h_aw)
     if a.selftest:
         try:
             return selftest(srv)

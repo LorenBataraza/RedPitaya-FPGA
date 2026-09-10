@@ -255,3 +255,97 @@ def test_keep_if_full():
     assert _leer(m, A.R_HIST_CTRL) == 1
     mca.configure(keep_if_full=False, verify=False)
     assert _leer(m, A.R_HIST_CTRL) == 0
+
+
+# =============================================================================
+# amplitud <-> canal: el espejo de mca_zoom.sv
+# =============================================================================
+#
+# Existe porque NO hay otra forma de ubicar en el eje del espectro un valor que
+# vive en cuentas de amplitud: los limites de la ventana de aceptacion, los del
+# discriminador, o un umbral que se quiera dibujar encima del histograma.
+#
+# La conversion se hacia con `h_shift`, que el bitstream nuevo dejo DEPRECADO
+# ("se sigue leyendo y escribiendo, pero ya no afecta al datapath"). Con
+# h_shift=0 el canal salia igual a la amplitud: 2^(AMP_W-h_aw) veces de mas, un
+# factor 8 sobre un eje de 8192 canales.
+
+def test_canal_de_amplitud_sin_zoom_es_el_corrimiento_de_los_bits_altos():
+    for h_aw in (13, 14):
+        corr = A.AMP_W - h_aw
+        for v in (0, 1, 1000, 4095, 32768, 65535):
+            esperado = min(v >> corr, (1 << h_aw) - 1)
+            assert A.mca_canal_de_amplitud(v, h_aw) == esperado, (v, h_aw)
+
+
+def test_canal_de_amplitud_satura_no_envuelve():
+    """El contrato del RTL: fuera de la ventana el evento va a un extremo.
+
+    Es lo que hace que los bines de los bordes sirvan de indicadores visibles de
+    desborde. Si envolviera, un evento por encima de la ventana aparecería en el
+    canal 0 y seria indistinguible de uno por debajo.
+    """
+    h_aw = 13
+    # ventana z=1, k=1  ->  [32768, 65536)
+    assert A.mca_canal_de_amplitud(0, h_aw, z=1, k=1) == 0
+    assert A.mca_canal_de_amplitud(32767, h_aw, z=1, k=1) == 0
+    # ventana z=1, k=0  ->  [0, 32768)
+    assert A.mca_canal_de_amplitud(65535, h_aw, z=1, k=0) == (1 << h_aw) - 1
+    assert A.mca_canal_de_amplitud(32768, h_aw, z=1, k=0) == (1 << h_aw) - 1
+
+
+def test_canal_de_amplitud_los_bins_anidan_exacto():
+    """Un bin de nivel z es la union de DOS de nivel z+1, sin resto.
+
+    Es la propiedad que justifica el zoom alineado a potencias de 2 frente a un
+    offset libre: espectros tomados con ventanas distintas se cosen con
+    aritmetica entera, sin resamplear y sin agregar DNL.
+    """
+    h_aw = 13
+    for v in range(0, 65536, 97):            # barrido con paso primo
+        c0 = A.mca_canal_de_amplitud(v, h_aw, z=0, k=0)
+        k1 = v >> (A.AMP_W - 1)              # en que mitad cae
+        c1 = A.mca_canal_de_amplitud(v, h_aw, z=1, k=k1)
+        # El canal de z=0 se parte en dos al pasar a z=1: el de la mitad que le
+        # toca tiene que ser el doble, mas 0 o 1.
+        assert c1 >> 1 == c0 - k1 * (1 << (h_aw - 1)) or c0 in (0, (1 << h_aw) - 1)
+
+
+def test_z_se_satura_igual_que_el_rtl():
+    """`z` no puede pasar de AMP_W - h_aw: mas alla no quedan bits que rebanar.
+
+    El RTL lo satura en silencio; el software lo satura ANTES de escribir, para
+    que lo que se lee de vuelta sea lo que de verdad quedo configurado.
+    """
+    m, mca = _handle()
+    z_max = A.AMP_W - mca.h_aw
+    A.mca_set_zoom_1d_z(mca, z_max + 5)
+    assert A.mca_get_zoom_1d_z(mca) == z_max
+
+
+def test_amplitud_de_canal_es_inversa_por_izquierda():
+    for h_aw in (13, 14):
+        for z in range(0, 4):
+            for k in range(0, 1 << z):
+                for canal in (0, 1, 100, (1 << h_aw) - 1):
+                    v = A.mca_amplitud_de_canal(canal, h_aw, z, k)
+                    assert A.mca_canal_de_amplitud(v, h_aw, z, k) == canal
+
+
+def test_get_config_relee_los_campos_nuevos():
+    """`configure()` los escribia y NADA los leia de vuelta.
+
+    La consecuencia no era cosmetica: `mca_get_metadata` se arma sobre
+    `mca_get_config`, asi que un espectro guardado con zoom no registraba el
+    zoom y su eje quedaba irreconstruible.
+    """
+    m, mca = _handle()
+    mca.configure(zoom_1d=(2, 1), sel_1d='integral', keep_if_full=False,
+                  discr=('pico', 100, 500), verify=False)
+    cfg = A.mca_get_config(mca)
+    assert cfg['zoom_1d_z'] == 2
+    assert cfg['zoom_1d_k'] == 1
+    assert cfg['sel_1d'] == A.F_INT
+    assert cfg['keep_if_full'] == 0
+    assert cfg['discr_en'] == 1
+    assert cfg['discr_min'] == 100 and cfg['discr_max'] == 500

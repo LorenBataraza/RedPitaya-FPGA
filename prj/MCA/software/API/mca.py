@@ -152,6 +152,9 @@ CAP_HIST_H_PSD = 1 << 1
 FS_HZ          = 125e6          # muestreo del ADC
 ADC_CNT_PER_V  = 8192           # cuentas por volt (mismo que multitrigger_utils)
 
+# Ancho del bus de features
+AMP_W          = 16
+
 _U32 = struct.Struct('<I')
 
 
@@ -181,7 +184,6 @@ class MCA:
         self.h_aw   = h_aw
         self.h2_aw  = h2_aw
         self.psd_aw = psd_aw
-
         self._has_2d = bool(caps & CAP_HIST_H_PSD)
 
     # ---------- apertura ----------
@@ -665,6 +667,31 @@ _CAMPOS = {
     'gate_short': (R_GATE_LEN,  0, 0xFFFF),
     'gate_long':  (R_GATE_LEN, 16, 0xFFFF),
     'channel':    (R_CTRL,      8, 0x1),
+    # --- fase 1-3: se ESCRIBÍAN con configure() y no se releían -------------
+    #
+    # Faltaban acá, así que no aparecían en `mca_get_config` ni, por lo tanto,
+    # en `mca_get_metadata`. La consecuencia es peor que no poder mostrarlos en
+    # una GUI: un espectro guardado con zoom registraba "8192 canales" sin
+    # registrar SOBRE QUÉ VENTANA de amplitud, y su eje queda irreconstruible.
+    #
+    # Contra el bitstream viejo estas direcciones no están mapeadas y leen 0,
+    # que es exactamente "sin zoom, fondo de escala": el default es seguro y
+    # quien lee no necesita saber contra cuál de los dos corre.
+    'sel_1d':       (R_HIST_SEL,   0, 0xF),
+    'sel_2dx':      (R_HIST_SEL,   4, 0xF),
+    'sel_2dy':      (R_HIST_SEL,   8, 0xF),
+    'zoom_1d_z':    (R_ZOOM_1D,    0, 0xF),
+    'zoom_1d_k':    (R_ZOOM_1D,    8, 0xFF),
+    'zoom_2dx_z':   (R_ZOOM_2DX,   0, 0xF),
+    'zoom_2dx_k':   (R_ZOOM_2DX,   8, 0xFF),
+    'zoom_2dy_z':   (R_ZOOM_2DY,   0, 0xF),
+    'zoom_2dy_k':   (R_ZOOM_2DY,   8, 0xFF),
+    'discr_en':     (R_DISCR_CTRL, 0, 0x1),
+    'discr_ext':    (R_DISCR_CTRL, 1, 0x1),
+    'discr_sel':    (R_DISCR_CTRL, 4, 0xF),
+    'discr_min':    (R_DISCR_MIN,  0, 0xFFFF),
+    'discr_max':    (R_DISCR_MAX,  0, 0xFFFF),
+    'keep_if_full': (R_HIST_CTRL,  0, 0x1),
 }
 
 
@@ -778,6 +805,132 @@ def mca_set_dec(h, v):
 
 def mca_get_dec(h):
     return _leer_campo(h, 'dec')
+
+
+# ---------- campos de fase 1-3 ----------
+#
+# Los tres selectores de eje van por `_feat_idx`, que rechaza un índice sin
+# productor: una ranura reservada vale cero y el síntoma sería el espectro
+# entero en el canal 0, sin ningún error. Ver el docstring de `_feat_idx`.
+
+def mca_get_sel_1d(h):       return _leer_campo(h, 'sel_1d')
+def mca_set_sel_1d(h, v):    _escribir_campo(h, 'sel_1d', _feat_idx(v, F_PEAK))
+def mca_get_sel_2dx(h):      return _leer_campo(h, 'sel_2dx')
+def mca_set_sel_2dx(h, v):   _escribir_campo(h, 'sel_2dx', _feat_idx(v, F_PEAK))
+def mca_get_sel_2dy(h):      return _leer_campo(h, 'sel_2dy')
+def mca_set_sel_2dy(h, v):   _escribir_campo(h, 'sel_2dy', _feat_idx(v, F_PSD))
+
+def mca_get_zoom_1d_k(h):    return _leer_campo(h, 'zoom_1d_k')
+def mca_set_zoom_1d_k(h, v): _escribir_campo(h, 'zoom_1d_k', v)
+def mca_get_zoom_2dx_k(h):   return _leer_campo(h, 'zoom_2dx_k')
+def mca_set_zoom_2dx_k(h, v): _escribir_campo(h, 'zoom_2dx_k', v)
+def mca_get_zoom_2dy_k(h):   return _leer_campo(h, 'zoom_2dy_k')
+def mca_set_zoom_2dy_k(h, v): _escribir_campo(h, 'zoom_2dy_k', v)
+
+def mca_get_discr_en(h):     return bool(_leer_campo(h, 'discr_en'))
+def mca_set_discr_en(h, v):  _escribir_campo(h, 'discr_en', 1 if v else 0)
+def mca_get_discr_ext(h):    return bool(_leer_campo(h, 'discr_ext'))
+def mca_set_discr_ext(h, v): _escribir_campo(h, 'discr_ext', 1 if v else 0)
+def mca_get_discr_sel(h):    return _leer_campo(h, 'discr_sel')
+def mca_set_discr_sel(h, v): _escribir_campo(h, 'discr_sel', _feat_idx(v, F_PEAK))
+def mca_get_discr_min(h):    return _leer_campo(h, 'discr_min')
+def mca_set_discr_min(h, v): _escribir_campo(h, 'discr_min', v)
+def mca_get_discr_max(h):    return _leer_campo(h, 'discr_max')
+def mca_set_discr_max(h, v): _escribir_campo(h, 'discr_max', v)
+
+def mca_get_keep_if_full(h):    return bool(_leer_campo(h, 'keep_if_full'))
+def mca_set_keep_if_full(h, v): _escribir_campo(h, 'keep_if_full', 1 if v else 0)
+
+
+def _z_max(h_aw, amp_w=AMP_W):
+    """Zoom máximo útil: más allá no quedan bits que rebanar.
+
+    Es la misma saturación que hace el RTL (`mca_zoom.sv`: "z SE SATURA a
+    FW-AW"), replicada acá para que el software no pida algo que el hardware va
+    a recortar en silencio.
+    """
+    return max(0, int(amp_w) - int(h_aw))
+
+
+def mca_set_zoom_1d_z(h, v):
+    """Nivel de zoom del eje 1D. La ventana es 2^-z del fondo de escala.
+
+    Se satura a `AMP_W - h_aw` igual que el RTL, en vez de dejar pasar un valor
+    que el hardware va a recortar sin avisar.
+    """
+    _escribir_campo(h, 'zoom_1d_z', min(int(v), _z_max(h.h_aw)))
+
+
+def mca_get_zoom_1d_z(h):    return _leer_campo(h, 'zoom_1d_z')
+
+
+def mca_set_zoom_2dx_z(h, v):
+    _escribir_campo(h, 'zoom_2dx_z', min(int(v), _z_max(h.h2_aw)))
+
+
+def mca_get_zoom_2dx_z(h):   return _leer_campo(h, 'zoom_2dx_z')
+
+
+def mca_set_zoom_2dy_z(h, v):
+    _escribir_campo(h, 'zoom_2dy_z', min(int(v), _z_max(h.psd_aw)))
+
+
+def mca_get_zoom_2dy_z(h):   return _leer_campo(h, 'zoom_2dy_z')
+
+
+# ---------- amplitud <-> canal ----------
+
+def mca_canal_de_amplitud(valor, h_aw, z=0, k=0, amp_w=AMP_W):
+    """Canal del histograma en el que cae una amplitud de `amp_w` bits.
+
+    Es el espejo en software de `mca_zoom.sv`, y existe porque **no hay otra
+    forma de ubicar en el eje un valor que vive en cuentas de amplitud** — los
+    límites de la ventana de aceptación (`amp_min`/`amp_max`), los del
+    discriminador, o un umbral que se quiera dibujar sobre el espectro.
+
+    La ventana del zoom es `[k*2^(amp_w-z), (k+1)*2^(amp_w-z))` y el bin son los
+    `h_aw` bits siguientes a los `z` bits altos::
+
+        dentro de la ventana  <=>  los z bits ALTOS de la amplitud valen k
+        bin                    =   los h_aw bits siguientes
+
+    **Satura, no envuelve**: un valor por encima de la ventana cae en el último
+    canal y uno por debajo en el canal 0. Es el contrato del RTL
+    (`mca_zoom.sv:29-32`) y es lo que hace que los bines de los extremos sirvan
+    de indicadores de desborde.
+
+    NO confundir con `h_shift`, que gobernaba esto en el bitstream viejo y hoy
+    está deprecado: se sigue leyendo y escribiendo pero **ya no afecta al
+    datapath** (ver `docs/mca/register_map_mca.md`). Usar `h_shift` acá daba el
+    canal equivocado por un factor de `2^(amp_w-h_aw)`.
+    """
+    h_aw = int(h_aw)
+    z = min(int(z), _z_max(h_aw, amp_w))
+    k = int(k) & ((1 << z) - 1) if z > 0 else 0     # el RTL enmascara k a z bits
+    n_canales = 1 << h_aw
+
+    ancho = 1 << (int(amp_w) - z)                   # ancho de la ventana
+    lo = k * ancho
+    v = int(valor)
+    if v < lo:
+        return 0
+    if v >= lo + ancho:
+        return n_canales - 1
+    return ((v - lo) >> (int(amp_w) - z - h_aw)) & (n_canales - 1)
+
+
+def mca_amplitud_de_canal(canal, h_aw, z=0, k=0, amp_w=AMP_W):
+    """La inversa: el borde INFERIOR de la amplitud que cae en ese canal.
+
+    Es una inversa por izquierda —el canal cubre un rango de amplitudes— así que
+    `mca_canal_de_amplitud(mca_amplitud_de_canal(c, ...), ...) == c`, pero no al
+    revés. Sirve para etiquetar el eje en cuentas o en volts.
+    """
+    h_aw = int(h_aw)
+    z = min(int(z), _z_max(h_aw, amp_w))
+    k = int(k) & ((1 << z) - 1) if z > 0 else 0
+    ancho = 1 << (int(amp_w) - z)
+    return k * ancho + (int(canal) << (int(amp_w) - z - h_aw))
 
 
 def mca_configure(h, **kw):

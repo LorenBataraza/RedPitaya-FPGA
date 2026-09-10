@@ -52,7 +52,7 @@ OPS = (
     'identify',             # -> caps, widths, n_channels, map2d_shape, fpga_state
     'r32',                  # off            -> val
     'w32',                  # off, val
-    'config.get',           # -> los 19 campos de _CAMPOS
+    'config.get',           # -> todos los campos de _CAMPOS
     'config.set',           # fields         -> config releída
     'ctrl.start',           # seconds=None, clear_first=False
     'ctrl.stop',
@@ -64,6 +64,11 @@ OPS = (
     'read.last_event',
     'fpga.state',
     'fpga.load_bitstream',  # path
+    # --- slot 6, opcional: un bitstream viejo no lo trae y el MCA anda igual ---
+    'integracion.get',          # -> modules, slots, caps, routes, status, run
+    'integracion.set_route',    # consumidor, tap, enable  -> el get de vuelta
+    'integracion.reset_routes',
+    'integracion.ctrl',         # que: run_on|run_off|clear|srst
 )
 
 

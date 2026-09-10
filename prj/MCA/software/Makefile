@@ -9,6 +9,7 @@
 #   make app-demo             la GUI andando contra un MCA falso, sin placa
 #   make app-placa            la GUI contra la Pitaya, sin tocar el generador
 #   make placa-estado         ¿dónde estoy? ¿responde la placa? ¿qué PL tiene?
+#   make release              el paquete instalable: bitstream + software + instalador
 #
 # Los nombres van por familias, y el prefijo dice de cuál es cada objetivo:
 #
@@ -16,6 +17,7 @@
 #   montecarlo-*  simulaciones                    rigol-*      el generador
 #   campana-*     medidas sobre hardware          app-*        cliente y servidor
 #   graficar-*    reprocesado de lo ya medido     limpiar-*    borrado por categoría
+#   release-*     el paquete instalable y su publicación en GitHub
 #
 # Y el sufijo `-remoto` compone: `verificar-placa-app` corre EN la Pitaya,
 # `verificar-placa-app-remoto` sincroniza, lo corre allá por ssh y trae los datos.
@@ -74,6 +76,26 @@ REMOTOS  := $(shell grep -oE '^[a-z0-9-]+-remoto:' $(RAIZ)/Makefile | tr -d ':')
 BIT_LOCAL  ?= $(RAIZ)/../out/mca_red_pitaya.bit.bin
 BIT_REMOTO ?= /root/mca_red_pitaya.bit.bin
 
+# release-*: el paquete instalable, para quien sólo quiere USAR el sistema y no
+# los 300 MB del repo. La versión sale de un fichero y NO de `git describe` a
+# propósito: esto es un fork y los tags que ya tiene (`2.07-48`) son de
+# RedPitaya. El tag que publica `release-publicar` se deriva de acá y va
+# prefijado (`mca-v...`) para que las dos numeraciones no se pisen nunca.
+VERSION  ?= $(shell cat $(RAIZ)/../VERSION 2>/dev/null || echo 0.0.0)
+PAQUETE  := mca-$(VERSION)
+TAG      := mca-v$(VERSION)
+DIST     ?= $(RAIZ)/dist
+STAGING  := $(DIST)/.staging
+GIT_SHA  := $(shell git -C $(RAIZ) rev-parse --short HEAD 2>/dev/null || echo desconocido)
+GIT_RAMA := $(shell git -C $(RAIZ) rev-parse --abbrev-ref HEAD 2>/dev/null || echo -)
+SUCIO    := $(shell git -C $(RAIZ)/.. status --porcelain 2>/dev/null | head -1)
+
+# `gh` elige el repo mirando los remotos, y acá hay dos: origin (el fork) y
+# upstream (RedPitaya). Publicar contra el equivocado no es un error que se
+# quiera descubrir después, así que va explícito.
+GH_REPO  ?= LorenBataraza/RedPitaya-FPGA
+NOTAS    ?= $(DIST)/NOTAS.md
+
 # PUERTO: el de la GUI y el servidor falso en ESTA máquina. En la placa se corre
 # como root y vale el 1001 por defecto (el de mcpha); en una PC de usuario Linux
 # reserva todo lo que está por debajo de 1024, así que acá se usa uno alto.
@@ -99,7 +121,7 @@ export PYTHONPATH := $(RAIZ):$(PYTHONPATH)
         montecarlo-linea-base montecarlo-pico-carga montecarlo-figuras \
         campana-lista campana-mca campana-campana campana-resto campana-formas \
         campana-e2e campana-poisson campana-deriva campana-adquirir \
-        campana-deriva-remoto \
+        campana-adquirir-remoto campana-deriva-remoto \
         graficar-mca graficar-formas graficar-tasa analizar-estimadores \
         rigol-pulsos rigol-psd rigol-poisson rigol-off \
         rigol-pulsos-remoto rigol-psd-remoto rigol-poisson-remoto \
@@ -109,6 +131,8 @@ export PYTHONPATH := $(RAIZ):$(PYTHONPATH)
         app-servidor-remoto app-servidor-off-remoto \
         placa-estado placa-sync placa-sync-dry placa-bitstream placa-cargar \
         placa-cargar-remoto \
+        release release-verificar release-publicar release-instalar-remoto \
+        release-limpiar \
         bench bench-remoto exige-placa exige-gui \
         limpiar limpiar-pyc limpiar-cache limpiar-simulaciones limpiar-datos \
         limpiar-todo
@@ -287,8 +311,20 @@ campana-e2e: exige-placa       ## (P,R) espectro HW contra espectro SW, mismo es
 campana-poisson: exige-placa   ## (P,R) pérdidas del lector con arribos Poisson
 	$(PY) campanas/run_poisson_loss.py
 
-campana-adquirir: exige-placa  ## (P) adquisición continua a chunks. DURACION= THR=
-	$(PY) campanas/run_acquire.py --duration $(DURACION) --thr $(THR)
+# `--out $(OUT)` y no el default de run_acquire.py (/home/jupyter/RedPitaya/DATOS):
+# escribiendo bajo el árbol del repo, `campana-adquirir-remoto` puede traerse los
+# datos con el mismo rsync que el resto de la familia. Fuera del árbol no hay
+# forma de recuperarlos sin un comando a mano, y era el único camino de datos del
+# proyecto que no tenía vuelta.
+campana-adquirir: exige-placa  ## (P) adquisición continua a chunks. DURACION= THR= OUT=
+	$(PY) campanas/run_acquire.py --duration $(DURACION) --thr $(THR) --out $(OUT)
+
+campana-adquirir-remoto: placa-sync  ## (P) adquiere EN la Pitaya y trae los chunks. DURACION= THR= OUT=
+	ssh $(PITAYA) 'make -C $(REMOTO) campana-adquirir DURACION=$(DURACION) \
+	  THR=$(THR) OUT=$(OUT)'
+	@mkdir -p $(dir $(OUT))
+	rsync -az $(PITAYA):$(REMOTO)/$(OUT)/ $(OUT)/
+	@echo "datos en $(OUT)/"
 
 campana-deriva-remoto: placa-sync  ## corre el experimento de deriva EN la Pitaya. OUT=
 	ssh $(PITAYA) 'make -C $(REMOTO) campana-deriva OUT=$(OUT)'
@@ -628,6 +664,179 @@ placa-cargar: exige-placa  ## (P) programa la PL con $(BIT_REMOTO) y verifica
 
 placa-cargar-remoto: placa-bitstream placa-sync  ## copia bitstream+software, PROGRAMA la PL y verifica
 	ssh $(PITAYA) 'make -C $(REMOTO) placa-cargar'
+
+# =============================================================================
+# release-*  ·  el paquete instalable
+# =============================================================================
+#
+# Para quien sólo quiere USAR el sistema. El repo son ~300 MB de clone y 5000
+# ficheros de RTL, netlists y checkpoints de Vivado; lo que hace falta para
+# medir son ~2 MB. El paquete los junta y —esto es lo importante— los junta
+# APAREADOS: el bitstream y el software que sabe hablarle salen del mismo
+# commit y viajan en el mismo tarball. Un bitstream viejo no falla, ignora en
+# silencio las escrituras a registros que no mapea.
+#
+#   make release              arma dist/mca-<v>.tar.gz
+#   make release-verificar    lo desempaqueta y corre la suite offline ADENTRO
+#   make release-publicar     lo sube a GitHub como release (pide CONFIRMAR=si)
+#
+# La versión se edita a mano en prj/MCA/VERSION. El procedimiento completo,
+# incluida la parte de GitHub, está en docs/publicar_release.md.
+
+release: ## arma el paquete instalable en dist/. Versión en ../VERSION
+	@test -f $(BIT_LOCAL) || { \
+	  echo "ERROR: no existe $(BIT_LOCAL)."; \
+	  echo "       un paquete sin bitstream no sirve para nada: es justo lo que"; \
+	  echo "       no se puede reconstruir del otro lado. Corré la síntesis."; \
+	  exit 1; }
+	@if [ -n "$(SUCIO)" ]; then \
+	   echo ""; \
+	   echo "  AVISO: hay cambios sin commitear en el árbol."; \
+	   echo "         el paquete queda marcado '$(GIT_SHA)-sucio' y NO es"; \
+	   echo "         reproducible desde el repo. Sirve para probarlo acá;"; \
+	   echo "         make release-publicar lo va a rechazar."; \
+	   echo ""; \
+	 fi
+	@rm -rf $(STAGING)
+	@mkdir -p $(STAGING)/$(PAQUETE)/out
+	@# El payload sale del ÁRBOL DE TRABAJO y no de `git archive`, por dos cosas
+	@# que git no tiene: el bitstream no está versionado, y datos_ref/ guarda un
+	@# .npz que el .gitignore del repo excluye por patrón. Las exclusiones van
+	@# por categoría —medidas, salidas de simulación, caches, cuadernos— así que
+	@# un fichero nuevo queda incluido por estar donde va, sin tocar esta lista.
+	@rsync -a --include 'compat_golden.npz' \
+	  --exclude 'datos/' --exclude 'jupyters_viejos/' \
+	  --exclude 'release/' --exclude 'dist/' --exclude '_out_*/' \
+	  --exclude '__pycache__/' --exclude '.pytest_cache/' --exclude '*.pyc' \
+	  --exclude '*.ipynb' --exclude '.ipynb_checkpoints/' --exclude '*.npz' \
+	  $(RAIZ)/ $(STAGING)/$(PAQUETE)/software/
+	@cp $(BIT_LOCAL) $(STAGING)/$(PAQUETE)/out/
+	@cp $(RAIZ)/release/LEEME.md $(STAGING)/$(PAQUETE)/
+	@install -m 755 $(RAIZ)/release/instalar.sh $(STAGING)/$(PAQUETE)/
+	@# VERSION viaja DENTRO del paquete: cuando dentro de seis meses una placa
+	@# dé un número raro, la pregunta va a ser "¿qué tiene instalado?", y la
+	@# respuesta tiene que estar en la placa y no en la memoria de nadie.
+	@{ echo "paquete    $(PAQUETE)"; \
+	   echo "commit     $(GIT_SHA)$(if $(SUCIO),-sucio) (rama $(GIT_RAMA))"; \
+	   echo "armado     $$(date -Iseconds)"; \
+	   echo "bitstream  mca_red_pitaya.bit.bin"; \
+	   echo "           $$(stat -c%s $(BIT_LOCAL)) bytes"; \
+	   echo "           md5 $$(md5sum $(BIT_LOCAL) | cut -d' ' -f1)"; \
+	   echo "eje         $$(grep -oP 'H_AW_ESPERADO = \K[0-9]+' $(RAIZ)/campanas/preparar_placa.py) bits de histograma esperados"; \
+	 } > $(STAGING)/$(PAQUETE)/VERSION
+	@# Un manifiesto de todo el contenido, que el instalador verifica antes de
+	@# copiar nada. Una descarga truncada instala un árbol a medias que falla
+	@# después, lejos de acá y sin relación aparente con la instalación.
+	@cd $(STAGING)/$(PAQUETE) && find . -type f ! -name MANIFIESTO.sha256 \
+	  | LC_ALL=C sort | xargs sha256sum > MANIFIESTO.sha256
+	@mkdir -p $(DIST)
+	@tar czf $(DIST)/$(PAQUETE).tar.gz -C $(STAGING) $(PAQUETE)
+	@cd $(DIST) && sha256sum $(PAQUETE).tar.gz > SHA256SUMS
+	@$(MAKE) --no-print-directory _release-notas
+	@rm -rf $(STAGING)
+	@echo ""
+	@echo "  $(DIST)/$(PAQUETE).tar.gz   $$(du -h $(DIST)/$(PAQUETE).tar.gz | cut -f1)"
+	@echo "  $(DIST)/SHA256SUMS"
+	@echo "  $(DIST)/NOTAS.md            (editables antes de publicar)"
+	@echo ""
+	@echo "  probalo:   make release-verificar"
+	@echo "  instalalo: make release-instalar-remoto"
+	@echo "  publicalo: make release-publicar CONFIRMAR=si"
+
+# Las notas de la release, con lo mínimo que hay que saber para instalarla. Se
+# regeneran en cada `make release`, así que si las editás, publicá antes de
+# volver a armar — o pasá NOTAS=<fichero> a release-publicar.
+_release-notas:
+	@{ echo "## MCA para Red Pitaya — $(PAQUETE)"; \
+	   echo ""; \
+	   echo "Bitstream y software apareados, salidos del commit \`$(GIT_SHA)\`"; \
+	   echo "(rama \`$(GIT_RAMA)\`)."; \
+	   echo ""; \
+	   echo '```bash'; \
+	   echo "curl -LO https://github.com/$(GH_REPO)/releases/download/$(TAG)/$(PAQUETE).tar.gz"; \
+	   echo "tar xzf $(PAQUETE).tar.gz && cd $(PAQUETE)"; \
+	   echo "sudo ./instalar.sh --cargar"; \
+	   echo '```'; \
+	   echo ""; \
+	   echo "Requiere Red Pitaya OS 2.00+, \`python3\` y \`numpy\`. El instalador"; \
+	   echo "verifica el paquete contra su manifiesto y comprueba las dependencias"; \
+	   echo "antes de copiar nada; sin \`--cargar\` no toca la PL."; \
+	   echo ""; \
+	   echo "La documentación no va en el paquete:"; \
+	   echo "[\`prj/MCA/docs/\`](https://github.com/$(GH_REPO)/tree/$(GIT_RAMA)/prj/MCA/docs)."; \
+	 } > $(DIST)/NOTAS.md
+
+release-verificar: ## desempaqueta el paquete y corre la suite offline ADENTRO
+	@test -f $(DIST)/$(PAQUETE).tar.gz || { \
+	  echo "ERROR: no hay $(DIST)/$(PAQUETE).tar.gz — corré 'make release'"; exit 1; }
+	@# Contra el tarball y no contra staging/: lo que hay que demostrar es que
+	@# lo que se publica alcanza para correr, no que el árbol de acá alcanza.
+	@# Un fichero olvidado en las exclusiones se ve exactamente así.
+	@T=$$(mktemp -d) && trap "rm -rf $$T" EXIT && \
+	 tar xzf $(DIST)/$(PAQUETE).tar.gz -C $$T && \
+	 echo "== manifiesto ==" && \
+	 ( cd $$T/$(PAQUETE) && sha256sum -c --quiet MANIFIESTO.sha256 ) && \
+	 echo "  $$(wc -l < $$T/$(PAQUETE)/MANIFIESTO.sha256) ficheros, ok" && \
+	 echo "" && echo "== la suite offline, en el paquete ==" && \
+	 $(MAKE) --no-print-directory -C $$T/$(PAQUETE)/software verificar-liviano && \
+	 echo "" && echo "== el instalador ==" && \
+	 sh -n $$T/$(PAQUETE)/instalar.sh && echo "  sintaxis ok" && \
+	 $$T/$(PAQUETE)/instalar.sh --help > /dev/null && echo "  --help ok" && \
+	 echo "" && echo "OK: el paquete se sostiene solo."
+
+release-instalar-remoto: ## copia el paquete a la Pitaya y lo instala (NO carga la PL)
+	@test -f $(DIST)/$(PAQUETE).tar.gz || { \
+	  echo "ERROR: no hay $(DIST)/$(PAQUETE).tar.gz — corré 'make release'"; exit 1; }
+	scp $(DIST)/$(PAQUETE).tar.gz $(PITAYA):/tmp/
+	@# Sin --cargar: reprogramar la PL corta el bus AXI, y eso no puede pasar
+	@# como efecto secundario de un despliegue. Va aparte y explícito.
+	ssh $(PITAYA) 'cd /tmp && rm -rf $(PAQUETE) && tar xzf $(PAQUETE).tar.gz \
+	   && cd $(PAQUETE) && sudo ./instalar.sh'
+	@echo ""
+	@echo "  instalado, sin tocar la PL. Para programarla:"
+	@echo "    ssh $(PITAYA) 'sudo /opt/mca/instalar.sh --cargar'"
+
+# Publicar es irreversible en la práctica —alguien puede haber bajado el
+# tarball entre que se sube y se borra— así que pide confirmación explícita y
+# rechaza todo lo que haría el paquete no reproducible.
+release-publicar:  ## sube dist/ a GitHub como release $(TAG). Pide CONFIRMAR=si
+	@command -v gh >/dev/null || { \
+	  echo "ERROR: falta gh (https://cli.github.com). Alternativa a mano en"; \
+	  echo "       docs/publicar_release.md"; exit 1; }
+	@gh auth status >/dev/null 2>&1 || { \
+	  echo "ERROR: gh no está autenticado.  gh auth login"; exit 1; }
+	@test -f $(DIST)/$(PAQUETE).tar.gz || { \
+	  echo "ERROR: no hay $(DIST)/$(PAQUETE).tar.gz — corré 'make release'"; exit 1; }
+	@if [ -n "$(SUCIO)" ]; then \
+	   echo "ERROR: hay cambios sin commitear."; \
+	   echo "       una release apunta a un commit; si el árbol no está limpio,"; \
+	   echo "       el tag miente sobre qué hay adentro del tarball."; \
+	   git -C $(RAIZ)/.. status --porcelain | head -10 | sed 's/^/       /'; \
+	   exit 1; fi
+	@if git rev-parse -q --verify refs/tags/$(TAG) >/dev/null; then \
+	   echo "ERROR: el tag $(TAG) ya existe."; \
+	   echo "       subí la versión en prj/MCA/VERSION y volvé a armar."; \
+	   exit 1; fi
+	@echo "  repo      $(GH_REPO)"
+	@echo "  tag       $(TAG)      -> commit $(GIT_SHA) ($(GIT_RAMA))"
+	@echo "  adjuntos  $(PAQUETE).tar.gz  ·  SHA256SUMS"
+	@echo "  notas     $(NOTAS)"
+	@if [ "$(CONFIRMAR)" != "si" ]; then \
+	   echo ""; \
+	   echo "  NO se publicó nada. Revisá las notas y después:"; \
+	   echo "    make release-publicar CONFIRMAR=si"; \
+	   exit 0; fi; \
+	 git tag -a $(TAG) -m "MCA $(VERSION) — bitstream + software" && \
+	 git push origin $(TAG) && \
+	 gh release create $(TAG) --repo $(GH_REPO) \
+	   --title "MCA $(VERSION)" --notes-file $(NOTAS) \
+	   $(DIST)/$(PAQUETE).tar.gz $(DIST)/SHA256SUMS && \
+	 echo "" && \
+	 echo "  publicado: https://github.com/$(GH_REPO)/releases/tag/$(TAG)"
+
+release-limpiar:   ## borra dist/
+	@rm -rf $(DIST)
+	@echo "  dist/ borrado"
 
 # =============================================================================
 # bench  ·  miden, no aprueban ni fallan

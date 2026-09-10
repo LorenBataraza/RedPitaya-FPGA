@@ -145,6 +145,19 @@ class MCARemote(MCA):
     def metadata(self):
         return self._pedir('read.metadata')[0]['result']
 
+    def pedir(self, op, **args):
+        """Una operación del protocolo por su nombre, y su `result`.
+
+        Es la vía para lo que NO es el MCA: el slot 6 (`integracion.*`) tiene su
+        driver del lado de la placa, así que el cliente no puede llamar a
+        `API/integration.py` — sólo pedirle al servidor que lo haga. Sin esto,
+        cada bloque nuevo obligaría a un método más en esta clase.
+
+        Para el MCA en sí NO usar esto: `MCARemote` ES un `MCA`, y toda la
+        superficie `mca_*` funciona sobre él sin saber que hay una red.
+        """
+        return self._pedir(op, **args)[0]['result']
+
     def fpga_state(self):
         return self._pedir('fpga.state')[0]['result']
 

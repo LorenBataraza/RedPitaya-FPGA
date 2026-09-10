@@ -813,7 +813,17 @@ integration_cfg #(
   // parametros con los que se instanciaron los bloques, para que el software
   // los descubra en vez de hardcodearlos
   .N_CH(2), .DW(14), .RSZ(14), .EN_FILT(0),
-  .H_AW(14), .H2_AW(7), .PSD_AW(6)
+  // OJO: ESTA ES UNA SEGUNDA COPIA de la geometria del MCA, que el propio MCA
+  // ya publica en su registro WIDTHS (0x008). Tienen que coincidir con los
+  // parametros de `i_mca` de mas abajo, y ya divergieron una vez: el commit que
+  // bajo el eje de 16384 a 8192 canales cambio `i_mca` y se olvido de esta.
+  // Nada del software leia esta copia, asi que la mentira paso inadvertida.
+  //
+  // La fuente de verdad es WIDTHS del MCA, no esto. Si alguna vez se toca H_AW,
+  // se tocan LOS DOS lugares -- o mejor, se saca de aca: la geometria del
+  // histograma es del MCA, mientras que N_CH/DW/RSZ/EN_FILT si son del sistema
+  // y ningun bloque suelto los conoce.
+  .H_AW(13), .H2_AW(7), .PSD_AW(6)
 ) i_integration (
   .adc_clk_i  (adc_clk ),
   .adc_rstn_i (adc_rstn),

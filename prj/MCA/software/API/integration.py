@@ -221,7 +221,23 @@ class Integration:
         return SYS_BUS_BASE + self.slots()[modulo] * SYS_BUS_SLOT
 
     def caps(self):
-        """Parámetros de síntesis: anchos, número de canales, profundidades."""
+        """Parámetros de síntesis: anchos, número de canales, profundidades.
+
+        **`h_aw`, `h2_aw` y `psd_aw` son INFORMATIVOS y pueden mentir.** Son una
+        segunda copia de la geometría del MCA, que el propio MCA publica en su
+        registro `WIDTHS` (`0x008`) — y las dos copias ya divergieron: el
+        bitstream que bajó el eje de 16384 a 8192 canales actualizó el MCA y no
+        esta región, así que contra ese `.bit.bin` esto devuelve 14 mientras el
+        hardware histogramea con 13.
+
+        **La fuente de verdad es `MCA.h_aw`**, que sale de `WIDTHS`. No usar
+        estos tres campos para dimensionar una lectura ni para convertir
+        amplitudes a canales: para eso está `mca_canal_de_amplitud()`.
+
+        Los otros cuatro (`n_ch`, `dw`, `rsz`, `en_filt`) sí son del sistema y
+        ningún bloque suelto los conoce, así que acá es donde corresponde
+        leerlos.
+        """
         c0, c1 = self.r32(R_CAPS_0), self.r32(R_CAPS_1)
         return {'n_ch':    (c0 >> 0)  & 0xF,
                 'dw':      (c0 >> 8)  & 0x3F,
@@ -230,6 +246,24 @@ class Integration:
                 'h_aw':    (c1 >> 0)  & 0xFF,
                 'h2_aw':   (c1 >> 8)  & 0xFF,
                 'psd_aw':  (c1 >> 16) & 0xFF}
+
+    def geometria_coincide(self, mca):
+        """¿La geometría publicada acá coincide con la que dice el MCA?
+
+        Devuelve `(bool, mensaje)`. Sirve para que quien tenga los dos handles
+        abiertos pueda detectar la divergencia en vez de que quede latente hasta
+        que alguien confíe en el campo equivocado.
+        """
+        c = self.caps()
+        iguales = (c['h_aw'] == mca.h_aw and c['h2_aw'] == mca.h2_aw
+                   and c['psd_aw'] == mca.psd_aw)
+        if iguales:
+            return True, f'geometría coherente: h_aw={mca.h_aw}'
+        return False, (
+            f'integration_cfg publica h_aw={c["h_aw"]} h2_aw={c["h2_aw"]} '
+            f'psd_aw={c["psd_aw"]}, pero el MCA dice h_aw={mca.h_aw} '
+            f'h2_aw={mca.h2_aw} psd_aw={mca.psd_aw}. Vale la del MCA (WIDTHS). '
+            f'El top tiene que re-sintetizarse con los parámetros atados.')
 
     # ---------- ruteo del datapath ----------
 

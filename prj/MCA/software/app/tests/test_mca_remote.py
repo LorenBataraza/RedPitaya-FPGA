@@ -50,13 +50,22 @@ class ServidorDePrueba:
     La espera al arranque se hace leyendo la línea "escuchando" de su stdout,
     NO abriendo un socket de sondeo: el servidor acepta un cliente a la vez, y
     el sondeo se gastaría el cupo justo antes de la prueba.
+
+    `h_aw` elige la geometría del MCA simulado: 14 son los 16384 canales del
+    bitstream viejo y 13 los 8192 del nuevo. El cliente lee la geometría del
+    registro WIDTHS y no debería notar la diferencia — que es exactamente lo
+    que hay que poder comprobar.
     """
+
+    def __init__(self, h_aw=14):
+        self.h_aw = h_aw
 
     def __enter__(self):
         self.port = _puerto_libre()
         self.proc = subprocess.Popen(
             [sys.executable, os.path.join(_SOFTWARE, 'app', 'mca_server.py'),
-             '--fake', '--host', '127.0.0.1', '--port', str(self.port)],
+             '--fake', '--host', '127.0.0.1', '--port', str(self.port),
+             '--fake-h-aw', str(self.h_aw)],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         self.salida = []
         self._listo = threading.Event()
@@ -353,3 +362,20 @@ def main():
 
 if __name__ == '__main__':
     raise SystemExit(main())
+
+def test_ops_documentadas_y_despacho_coinciden():
+    """La tupla `OPS` de mca_net.py es documentacion y no se importa en ningun
+    lado, asi que podia desincronizarse del despacho real sin que nada lo
+    detectara. `docs/APP/pruebas.md` la listaba como "la prueba mas barata de
+    las que faltan"; esta es.
+    """
+    from API.mca_net import OPS
+    from app.mca_server import ServidorMCA
+
+    documentadas = set(OPS)
+    despachadas = set(ServidorMCA._OPS)
+    assert documentadas == despachadas, (
+        f'sólo en OPS (documentadas y no implementadas): '
+        f'{sorted(documentadas - despachadas)}\n'
+        f'sólo en _OPS (implementadas y no documentadas): '
+        f'{sorted(despachadas - documentadas)}')

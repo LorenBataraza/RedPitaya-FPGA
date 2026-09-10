@@ -73,7 +73,28 @@ recargar dé el mismo array en los tres formatos; que el mapa 2D **sólo se lea
 con su pestaña visible**; y que desconectar y volver a conectar funcione.
 
 La pestaña 2D tiene su propia prueba porque aparece o desaparece según lo que
-publique `CAPS`, y eso es una decisión que se toma en tiempo de conexión.
+publique `CAPS`, y eso es una decisión que se toma en tiempo de conexión. Lo
+mismo la de Integración, con `has_integracion`.
+
+### La geometría es un parámetro, no una constante
+
+Las pruebas de conexión y de la ventana de amplitud corren con **las dos
+geometrías reales**: `h_aw=14` (16384 canales, el bitstream viejo) y `h_aw=13`
+(8192, el nuevo), vía `--fake-h-aw` del servidor.
+
+Hasta que lo fueron, toda la suite corría contra 16384 con el número escrito a
+mano en las aserciones, y por eso **no podía agarrar** el defecto que motivó
+esto: la ventana de aceptación se dibujaba con `amp >> h_shift`, un registro
+deprecado que lee 0, en vez de `amp >> (AMP_W − h_aw)`. Con 8192 canales las
+líneas caían 8× a la derecha y las de amplitud alta ni se dibujaban.
+
+`test_la_ventana_de_amplitud_cae_en_el_canal_correcto` es la que pone el número:
+con `h_aw=13`, `amp_min=1000` tiene que dar el canal **125**. Daba 1000. Se
+comprobó que la prueba falla contra el código viejo antes de darla por buena.
+
+Y `test_guardar_y_recargar_desde_la_gui` exige que `h_aw` y el zoom estén en la
+metadata: sin ellos un espectro dice "8192 canales" sin decir sobre qué ventana
+de amplitud, y su eje es irreconstruible.
 
 ---
 
@@ -192,9 +213,12 @@ Esto es lo más útil de este documento.
 - **La concurrencia real.** Se prueba que el segundo cliente sea rechazado, pero
   no hay nada que ejercite el lock del servidor bajo contención: en la práctica
   sólo hay un cliente y un hilo vigilante.
-- **`OPS` contra `_OPS`.** La tupla `OPS` de `mca_net.py` es documentación y no
-  se importa en ningún lado; si se desincroniza del despacho real, nada lo
-  detecta. Es la prueba más barata de las que faltan.
+- **El driver del slot 6 contra hardware.** La pestaña de Integración tiene su
+  prueba, pero el MCA simulado **no simula el slot 6**: la prueba le da
+  directamente lo que devolvería `integracion.get`. O sea que está cubierto el
+  contrato entre las dos mitades, y no el driver
+  ([`API/integration.py`](../../software/API/integration.py)) contra la placa.
+  El ruteo de taps nunca se ejercitó desde la aplicación.
 - **El servidor con un cliente lento.** No hay nada que verifique qué pasa si el
   cliente deja de leer a mitad de un envío de 64 KB.
 

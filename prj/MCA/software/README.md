@@ -1,5 +1,9 @@
 # Software del MCA
 
+> **¿Primera vez?** [`docs/puesta_en_marcha.md`](../docs/puesta_en_marcha.md) es
+> el paso a paso completo: de la placa apagada al espectro en pantalla, con el
+> orden que importa y las dos trampas que cuestan una sesión.
+
 ```bash
 make help              # todos los objetivos
 make verificar         # la suite offline, en la PC (sin placa, sin Rigol)

@@ -48,15 +48,23 @@ def _esperar(app, condicion, timeout=15.0, paso=0.02):
     return False
 
 
-def _con_gui(fn):
-    """Levanta servidor + ventana conectada y se lo pasa a `fn`."""
+def _con_gui(fn, h_aw=14):
+    """Levanta servidor + ventana conectada y se lo pasa a `fn`.
+
+    `h_aw` es la geometría del MCA simulado. Vale la pena decir por qué es un
+    parámetro: hasta que lo fue, TODA la suite corría contra los 16384 canales
+    del bitstream viejo, con el número puesto a mano en las aserciones. Eso
+    dejaba sin cubrir justamente la clase de defecto que aparece al cambiar la
+    geometría, y de hecho había uno vivo (la ventana de aceptación dibujada
+    2^(AMP_W-h_aw) canales a la derecha).
+    """
     if QApplication is None:
         print('    (sin PyQt5: salteada)')
         return
     from app.mcamon import Mcamon
 
     app = QApplication.instance() or QApplication([])
-    with ServidorDePrueba() as s:
+    with ServidorDePrueba(h_aw=h_aw) as s:
         v = Mcamon('127.0.0.1', s.port)
         try:
             v.sig_conectar.emit('127.0.0.1', s.port)
@@ -73,12 +81,61 @@ def _con_gui(fn):
 # =============================================================================
 
 def test_conecta_y_toma_la_geometria_del_hardware():
-    def cuerpo(app, v):
-        assert v.info['n_channels'] == 16384
-        assert v.panel_espectro.n_canales == 16384
-        assert 'MCA1' in v.lbl_estado.text()
-        assert v.btn_conectar.text() == 'Desconectar'
-    _con_gui(cuerpo)
+    """El cliente NO hardcodea el eje: lo toma del registro WIDTHS.
+
+    Se corre contra las dos geometrías reales —16384 del bitstream viejo y 8192
+    del nuevo— porque el número está publicado por el hardware y el cliente
+    tiene que servir para los dos sin recompilarse.
+    """
+    for h_aw in (14, 13):
+        def cuerpo(app, v, h_aw=h_aw):
+            n = 1 << h_aw
+            assert v.info['n_channels'] == n, f'h_aw={h_aw}'
+            assert v.panel_espectro.n_canales == n, f'h_aw={h_aw}'
+            assert v.panel_espectro.h_aw == h_aw
+            assert 'MCA1' in v.lbl_estado.text()
+            assert v.btn_conectar.text() == 'Desconectar'
+        _con_gui(cuerpo, h_aw=h_aw)
+
+
+def test_la_ventana_de_amplitud_cae_en_el_canal_correcto():
+    """El bug que motivó todo esto.
+
+    `amp_min`/`amp_max` viven en cuentas de amplitud de AMP_W=16 bits y el eje
+    está en canales, así que la línea va en `amp >> (16 - h_aw)`. El código
+    usaba `>> h_shift`, un registro que el bitstream nuevo dejó DEPRECADO y que
+    lee 0: la línea caía 8 veces más a la derecha con 8192 canales, y los
+    límites altos no se dibujaban porque se salían del eje.
+
+    Con h_aw=13, amp_min=1000 tiene que dar el canal 125. Daba 1000.
+    """
+    from API.mca import mca_canal_de_amplitud
+
+    for h_aw in (14, 13):
+        def cuerpo(app, v, h_aw=h_aw):
+            p = v.panel_espectro
+            # `_cargando` PRIMERO: marcar la casilla escribe amp_min/amp_max en
+            # el hardware, y la config que vuelve la desmarca sola porque la
+            # ventana sigue abierta (amp_min=0, amp_max=0xFFFF). Acá se está
+            # probando el dibujo, no el ida y vuelta.
+            p._cargando = True
+            p.chk_ventana.setChecked(True)
+            p.spn_amp_min.setValue(1000)
+            p.spn_amp_max.setValue(60000)
+            p._cargando = False
+            p._redibujar()
+            app.processEvents()
+
+            esperados = sorted(mca_canal_de_amplitud(x, h_aw)
+                               for x in (1000, 60000))
+            dibujados = sorted(int(round(ln.get_xdata()[0]))
+                               for ln in p._lineas_ventana)
+            assert dibujados == esperados, (
+                f'h_aw={h_aw}: líneas en {dibujados}, esperadas {esperados}')
+            # Y ninguna se cae del eje: antes, 60000 no se dibujaba.
+            assert len(dibujados) == 2, f'h_aw={h_aw}: se perdió una línea'
+            assert all(0 <= c < (1 << h_aw) for c in dibujados)
+        _con_gui(cuerpo, h_aw=h_aw)
 
 
 def test_la_pestana_2d_aparece_porque_el_bitstream_la_trae():
@@ -86,7 +143,11 @@ def test_la_pestana_2d_aparece_porque_el_bitstream_la_trae():
         assert v.info['has_2d'] is True
         assert v.panel_mapa is not None
         titulos = [v.tabs.tabText(i) for i in range(v.tabs.count())]
-        assert titulos == ['Mensajes', 'Espectro', 'Mapa 2D (PSD)']
+        assert titulos == ['Mensajes', 'Espectro', 'MCA', 'Mapa 2D (PSD)']
+        # La de Integración NO está: el MCA falso no simula el slot 6, y la
+        # pestaña se crea sólo si el bitstream lo trae.
+        assert v.panel_integracion is None
+        assert v.info.get('has_integracion') is False
     _con_gui(cuerpo)
 
 
@@ -210,7 +271,12 @@ def test_guardar_y_recargar_desde_la_gui():
                 guardar(pe.hist, ruta, meta=pe.meta)
                 hist2, meta2 = mca_load_file(ruta)
                 assert np.array_equal(hist2, original), nombre
-                assert meta2['n_channels'] == 16384, nombre
+                assert meta2['n_channels'] == pe.n_canales, nombre
+                # El eje tiene que quedar RECONSTRUIBLE: sin el zoom, un
+                # espectro dice "8192 canales" sin decir sobre qué ventana de
+                # amplitud, y no hay forma de saberlo después.
+                for clave in ('h_aw', 'zoom_1d_z', 'zoom_1d_k'):
+                    assert clave in meta2, f'{nombre}: falta {clave}'
 
             # y la recarga desde el panel deja el mismo espectro en pantalla
             pe.configurar_geometria(hist2.size)
@@ -266,3 +332,116 @@ def main():
 
 if __name__ == '__main__':
     raise SystemExit(main())
+
+
+def test_la_pestana_del_mca_escribe_y_relee():
+    """Un valor puesto en la pestaña nueva llega al hardware y vuelve.
+
+    Es el mismo ida y vuelta que ya se probaba para el umbral, pero sobre los
+    campos que ANTES no se releian: `configure()` los escribia y
+    `mca_get_config` no los veia, asi que un control de GUI para ellos habria
+    mostrado siempre cero.
+    """
+    def cuerpo(app, v):
+        pc = v.panel_config
+        for campo, valor in (('thr', 271), ('bl_k', 11), ('maxlen', 2048),
+                             ('zoom_1d_z', 2), ('zoom_1d_k', 1),
+                             ('discr_min', 1234), ('sel_1d', 1)):
+            w, leer, escribir = pc._controles[campo]
+            escribir(valor)                      # como si lo tipeara el usuario
+            pc._emitir(campo, valor)             # sin esperar el antirrebote
+            assert _esperar(app, lambda c=campo, x=valor: leer() == x), (
+                f'{campo}: no volvio del hardware')
+        # y la config releida coincide con lo que muestran los controles
+        assert _esperar(app, lambda: pc._controles['thr'][1]() == 271)
+    _con_gui(cuerpo)
+
+
+def test_el_rango_del_eje_sigue_al_zoom():
+    """La etiqueta traduce (z, k) a cuentas de amplitud.
+
+    Sin eso, z y k son dos numeros sin unidades y no hay forma de saber que
+    ventana se esta mirando sin hacer la cuenta a mano.
+    """
+    def cuerpo(app, v):
+        pc = v.panel_config
+        pc.configurar_geometria(8192, 13)
+        pc.actualizar_config({'h_aw': 13, 'zoom_1d_z': 0, 'zoom_1d_k': 0})
+        assert '0 …' in pc.lbl_rango.text()
+        assert '8192 canales' in pc.lbl_rango.text()
+
+        pc.actualizar_config({'h_aw': 13, 'zoom_1d_z': 2, 'zoom_1d_k': 1})
+        texto = pc.lbl_rango.text()
+        assert texto.startswith('16384'), texto      # ventana [16384, 32768)
+        # y el zoom no puede pasar de AMP_W - h_aw = 3
+        assert pc._controles['zoom_1d_z'][0].maximum() == 3
+    _con_gui(cuerpo)
+
+
+def test_todos_los_campos_de_la_pestana_tienen_setter():
+    """El trabajador escribe por `getattr(A, f'mca_set_{campo}')`.
+
+    Un campo mal escrito no falla al importar sino al TOCARLO, y el usuario ve
+    un error en el log en vez de un control que no anda. Esto lo convierte en
+    algo que falla en CI.
+    """
+    if QApplication is None:
+        print('    (sin PyQt5: salteada)')
+        return
+    from app.panel_config_mca import PanelConfigMCA
+    from app.widgets_config import campos_sin_setter
+
+    QApplication.instance() or QApplication([])
+    p = PanelConfigMCA()
+    faltan = campos_sin_setter(p.campos())
+    assert not faltan, f'sin mca_set_*: {faltan}'
+    # y todos son campos de verdad del MCA
+    from API.mca import _CAMPOS
+    desconocidos = [c for c in p.campos() if c not in _CAMPOS]
+    assert not desconocidos, f'no estan en _CAMPOS: {desconocidos}'
+
+
+def test_el_panel_de_integracion_pinta_ruteo_y_avisa_de_la_divergencia():
+    """No pasa por el servidor: el MCA falso no simula el slot 6.
+
+    Se le da directamente lo que devuelve `integracion.get`, que es el contrato
+    entre las dos mitades. Lo que se comprueba es lo que la pestaña tiene que
+    hacer con eso, incluido el caso que HOY es real: la geometria publicada por
+    integration_cfg no coincide con la del MCA.
+    """
+    if QApplication is None:
+        print('    (sin PyQt5: salteada)')
+        return
+    from app.panel_integracion import PanelIntegracion
+
+    QApplication.instance() or QApplication([])
+    p = PanelIntegracion()
+    p.set_conectado(True)
+
+    emitido = []
+    p.pedir_ruteo.connect(lambda c, t, e: emitido.append((c, t, e)))
+
+    p.actualizar({
+        'modules': {'osc': True, 'mtrg': True, 'mca': True, 'ring': False},
+        'slots': {'osc': 1, 'mtrg': 3, 'top': 6, 'mca': 7},
+        'caps': {'n_ch': 2, 'dw': 14, 'rsz': 14, 'en_filt': False,
+                 'h_aw': 14, 'h2_aw': 7, 'psd_aw': 6},
+        'routes': {'osc':  {'tap': 0, 'enable': True},
+                   'mtrg': {'tap': 1, 'enable': True},
+                   'mca':  {'tap': 0, 'enable': True},
+                   'ring': {'tap': 0, 'enable': False}},
+        'status': {'pll_locked': True, 'adc_rstn': True}, 'run': True,
+        'geometria_coincide': False,
+        'geometria_motivo': 'h_aw=14 acá, h_aw=13 en el MCA',
+    })
+
+    # repoblar NO reescribe al hardware: es el eco que romperia el lazo
+    assert emitido == [], f'actualizar() escribió al hardware: {emitido}'
+    assert p._combos['mtrg'].currentData() == 1
+    assert p.btn_run.isChecked() is True
+    assert 'mca=7' in p.lbl_topologia.text()
+    assert 'h_aw=13 en el MCA' in p.lbl_geometria.text()
+
+    # y un cambio del usuario SI escribe
+    p._combos['mca'].setCurrentIndex(p._combos['mca'].findData(1))
+    assert emitido == [('mca', 1, True)], emitido

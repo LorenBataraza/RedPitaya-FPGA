@@ -11,16 +11,10 @@ de confiar en nada. Cada paso es independiente y se puede correr solo:
     python3 hw_ring_plumbing.py all
 
 REGION RESERVADA. El PL escribe por HP2 sin pasar por la MMU ni por la cache, así
-que Linux no puede estar usando esa memoria. Hay que reservarla en el device
-tree, p.ej.:
-
-    reserved-memory {
-        #address-cells = <1>; #size-cells = <1>; ranges;
-        event_ring: buffer@1e000000 {
-            no-map;
-            reg = <0x1e000000 0x02000000>;   /* 32 MB */
-        };
-    };
+que Linux no puede estar usando esa memoria. NO hace falta tocar el device tree:
+este RP OS ya trae regiones reservadas y `discover_ddr()` elige una en tiempo de
+ejecución (`labuf@a000000`, 32 MB, prestada al analizador lógico). Para forzar
+otra, `RING_DDR=0xADDR:SIZE` en el entorno.
 
 COHERENCIA DE CACHE. Los puertos HP NO son coherentes con L1/L2. Este script
 mapea con O_SYNC (no cacheable), que es lo simple y correcto; es más lento que

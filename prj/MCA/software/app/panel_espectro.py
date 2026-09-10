@@ -24,7 +24,8 @@ from PyQt5.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog,
                              QVBoxLayout, QWidget)
 
 from API.analisis import gauss_fit_peak
-from API.mca import (mca_load_file, mca_save_file_binary, mca_save_file_json,
+from API.mca import (mca_canal_de_amplitud, mca_load_file,
+                     mca_save_file_binary, mca_save_file_json,
                      mca_write_file_histogram)
 
 COLOR_ESPECTRO = '#ff9900'
@@ -45,9 +46,15 @@ class PanelEspectro(QWidget):
         self.meta = {}
         self.contadores = {}
         self.baseline = None
-        self.n_canales = 16384
-        self.h_shift = 0
-        self.h_aw = 13          # 8192 canales, el default del bitstream actual
+        # La geometría real llega en `configurar_geometria` al conectarse, leída
+        # del registro WIDTHS. Estos defaults sólo cubren el rato antes de la
+        # primera conexión, y se derivan de h_aw para que no puedan
+        # contradecirse entre sí.
+        self.h_aw = 13                       # 8192 canales
+        self.n_canales = 1 << self.h_aw
+        self.h_shift = 0                     # DEPRECADO: no gobierna el eje
+        self.zoom_z = 0                      # ventana = 2^-z del fondo de escala
+        self.zoom_k = 0                      # cuál de las 2^z ventanas
         self._cargando = False               # evita el eco de los spinbox
         self._roi_sombra = None
         self._lineas_ventana = []
@@ -302,6 +309,11 @@ class PanelEspectro(QWidget):
         self.h_shift = int(h_shift)
         self.h_aw = int(h_aw) if h_aw is not None else \
             max(1, int(n_canales)).bit_length() - 1
+        # Al reconectar puede haber cambiado el bitstream: el zoom de la sesión
+        # anterior no vale nada acá. Lo repuebla `actualizar_config` en cuanto
+        # llegue la config real del hardware.
+        self.zoom_z = 0
+        self.zoom_k = 0
         self.hist = None
         self.spn_roi_lo.setMaximum(self.n_canales - 1)
         self.spn_roi_hi.setMaximum(self.n_canales - 1)
@@ -323,6 +335,11 @@ class PanelEspectro(QWidget):
             self.h_shift = int(cfg.get('h_shift', 0))
             if cfg.get('h_aw') is not None:
                 self.h_aw = int(cfg['h_aw'])
+            # Contra el bitstream viejo estas claves no existen o leen 0, que es
+            # exactamente "sin zoom, fondo de escala": el mismo código sirve
+            # para los dos bitstreams sin preguntar cuál está cargado.
+            self.zoom_z = int(cfg.get('zoom_1d_z', 0) or 0)
+            self.zoom_k = int(cfg.get('zoom_1d_k', 0) or 0)
         finally:
             self._cargando = False
         self._redibujar()
@@ -386,17 +403,24 @@ class PanelEspectro(QWidget):
             self._roi_sombra = self.ax.axvspan(lo, hi, color='#3080ff',
                                                alpha=0.12, zorder=0)
 
-        # Los límites de aceptación viven en cuentas de amplitud; el eje está
-        # en canales, que es la amplitud desplazada por h_shift.
+        # Los límites de aceptación viven en cuentas de amplitud de AMP_W bits;
+        # el eje está en canales, que son los h_aw bits altos de la feature
+        # después del zoom. La conversión NO es `>> h_shift`: ese registro quedó
+        # deprecado y ya no gobierna el datapath, así que usarlo acá ponía las
+        # líneas 2^(AMP_W-h_aw) veces más a la derecha — un factor 8 con 8192
+        # canales — y las de amplitud alta ni se dibujaban por caerse del eje.
         for ln in self._lineas_ventana:
             ln.remove()
         self._lineas_ventana = []
         if self.chk_ventana.isChecked():
             for valor in (self.spn_amp_min.value(), self.spn_amp_max.value()):
-                canal = valor >> self.h_shift
-                if 0 < canal < self.n_canales:
-                    self._lineas_ventana.append(
-                        self.ax.axvline(canal, color='#cc3333', ls='--', lw=0.9))
+                canal = mca_canal_de_amplitud(valor, self.h_aw,
+                                              self.zoom_z, self.zoom_k)
+                # Los extremos SÍ se dibujan: con zoom, un límite fuera de la
+                # ventana satura contra el borde, y ver la línea pegada al
+                # borde es justamente la señal de que la ventana lo dejó afuera.
+                self._lineas_ventana.append(
+                    self.ax.axvline(canal, color='#cc3333', ls='--', lw=0.9))
 
         self.canvas.draw_idle()
 
@@ -492,7 +516,18 @@ class PanelEspectro(QWidget):
         except Exception as e:                                   # noqa: BLE001
             QMessageBox.critical(self, 'Cargar', f'{type(e).__name__}: {e}')
             return
-        self.configurar_geometria(hist.size, int(meta.get('h_shift', 0) or 0))
+        self.configurar_geometria(hist.size, int(meta.get('h_shift', 0) or 0),
+                                  h_aw=meta.get('h_aw'))
+        # El zoom del fichero, si lo trae. Los espectros guardados ANTES de que
+        # `mca_get_config` releyera el zoom no lo tienen, y ahí no hay forma de
+        # saber sobre qué ventana se tomaron: se asume fondo de escala, que es
+        # lo que era cierto mientras nadie usó el zoom, y se avisa.
+        self.zoom_z = int(meta.get('zoom_1d_z', 0) or 0)
+        self.zoom_k = int(meta.get('zoom_1d_k', 0) or 0)
+        if 'zoom_1d_z' not in meta:
+            self.log.emit(f'{os.path.basename(ruta)}: sin zoom en la metadata, '
+                          'se asume fondo de escala (fichero anterior al '
+                          'registro del zoom)')
         self.actualizar_espectro(hist, meta)
         self.log.emit(f'cargado {ruta}: {hist.size} canales, '
                       f'{int(hist.sum())} cuentas')

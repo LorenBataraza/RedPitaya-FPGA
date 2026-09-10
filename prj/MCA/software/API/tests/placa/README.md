@@ -46,24 +46,30 @@ python3 hw_ring_plumbing.py capture   # corrida corta + decodificación de slots
 python3 hw_ring_plumbing.py all
 ```
 
-### Antes de correrlo: reservar la región de DDR
+### La región de DDR: no hay que reservar nada
 
 El PL escribe por HP2 sin pasar por la MMU ni por la cache, así que Linux no
-puede estar usando esa memoria. En el device tree:
+puede estar usando esa memoria. **Pero no hace falta tocar el device tree ni el
+arranque del kernel**: este RP OS (2.00, kernel 5.15-xilinx) ya trae regiones
+reservadas, y `discover_ddr()` elige una en tiempo de ejecución leyendo
+`/sys/firmware/devicetree/base/reserved-memory/`:
 
-```dts
-reserved-memory {
-    #address-cells = <1>; #size-cells = <1>; ranges;
-    event_ring: buffer@1e000000 {
-        no-map;
-        reg = <0x1e000000 0x02000000>;   /* 32 MB */
-    };
-};
+| región | dirección | tamaño | de quién es |
+|---|---|---|---|
+| `labuf@a000000` | `0x0A00_0000` | 32 MB | el analizador lógico |
+| `buffer@1000000` | `0x0100_0000` | 2 MB | la memoria profunda del ADC (`rp_AcqAxi`) |
+
+Se usa `labuf` por tamaño, y **es prestada**: si la app de analizador lógico de
+Red Pitaya corre al mismo tiempo, las dos escriben en la misma memoria y se
+pisan. Para producción corresponde un nodo propio en el device tree.
+
+Para forzar otra región, sin editar código:
+
+```bash
+RING_DDR=0x1e000000:0x02000000 python3 hw_ring_plumbing.py all
 ```
 
-Y ajustar `DDR_PHYS` / `DDR_SIZE` en `hw_ring_plumbing.py` si se usa otra
-dirección. El paso `dt` compara la RAM que ve Linux contra los 512 MB de la
-placa: si no bajó, la reserva no tomó efecto.
+El paso `dt` informa qué región encontró y cuánta RAM ve Linux.
 
 ### Coherencia de cache
 

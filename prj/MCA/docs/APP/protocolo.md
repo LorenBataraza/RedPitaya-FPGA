@@ -68,7 +68,7 @@ La lista viva es el dict `_OPS` de
 | `identify` | — | geometría y estado del bitstream (dos formas, abajo) |
 | `r32` | `off` | `{"val": int}` |
 | `w32` | `off`, `val` | `{}` |
-| `config.get` | — | los 19 campos de configuración |
+| `config.get` | — | **todos** los campos de `_CAMPOS` (hoy 34) |
 | `config.set` | `fields` | la configuración **releída del hardware** |
 | `ctrl.start` | `seconds`, `clear_first` | `{"running": true, "exposure_target_s": float\|null}` |
 | `ctrl.stop` | — | `{"running": false}` |
@@ -80,8 +80,27 @@ La lista viva es el dict `_OPS` de
 | `read.last_event` | — | `{amp, psd, q_tot, q_tail, baseline}` |
 | `fpga.state` | — | `{"state": str}` |
 | `fpga.load_bitstream` | `path` | el `identify` del bitstream nuevo |
+| `integracion.get` | — | `modules`, `slots`, `caps`, `routes`, `status`, `run` |
+| `integracion.set_route` | `consumidor`, `tap`, `enable` | el `get` de vuelta |
+| `integracion.reset_routes` | — | el `get` de vuelta |
+| `integracion.ctrl` | `que` | el `get` de vuelta |
 
 Sólo `read.spectrum` y `read.map2d` traen payload binario.
+
+**Las `integracion.*` fallan si el bitstream no trae el slot 6**, con un
+`RuntimeError` que lo dice. No es una condición de error del cliente: cualquier
+bitstream anterior al refactor de registros no lo trae y el MCA anda igual. Por
+eso `identify` publica `has_integracion` y el cliente ni siquiera crea la
+pestaña — mismo criterio que con `has_2d`.
+
+Las tres que escriben devuelven el `get` completo en vez de `{}`: el ruteo es
+estado compartido y releerlo entero después de tocarlo evita que el cliente
+mantenga una copia que puede quedar vieja.
+
+> **`OPS` de `mca_net.py` es documentación**, no se importa en ningún lado, y
+> por eso podía desincronizarse del despacho real sin que nada lo notara. Ahora
+> hay un test que compara las dos listas
+> ([`test_mca_remote.py`](../../software/app/tests/test_mca_remote.py)).
 
 ### `r32` / `w32`, y por qué existen
 

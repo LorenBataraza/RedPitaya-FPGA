@@ -34,7 +34,9 @@ from PyQt5.QtWidgets import (QAction, QApplication, QComboBox, QDoubleSpinBox,
 import API.mca as A
 from API.mca_net import PORT_DEFAULT
 from API.mca_remote import MCARemote
+from app.panel_config_mca import PanelConfigMCA
 from app.panel_espectro import PanelEspectro
+from app.panel_integracion import PanelIntegracion
 from app.panel_log import PanelLog
 from app.panel_mapa2d import PanelMapa2D
 
@@ -55,6 +57,7 @@ class Trabajador(QObject):
     espectro = pyqtSignal(object, dict)
     mapa2d = pyqtSignal(object)
     config = pyqtSignal(dict)
+    integracion = pyqtSignal(dict)
     aviso = pyqtSignal(str)
     fallo = pyqtSignal(str)
 
@@ -209,6 +212,41 @@ class Trabajador(QObject):
         except Exception as e:                                   # noqa: BLE001
             self.fallo.emit(f'{campo}: {type(e).__name__}: {e}')
 
+    # ---------- integración (slot 6) ----------
+    #
+    # Van por `h.pedir()` y no por una función de API/integration.py porque el
+    # handle que tiene el cliente es el del MCA por socket: el driver del slot 6
+    # vive en la placa, del lado del servidor. Es la misma división que con
+    # `fpga.load_bitstream`.
+
+    def _pedir_integracion(self, op, **args):
+        if self.h is None:
+            return
+        try:
+            self.integracion.emit(self.h.pedir(op, **args))
+        except Exception as e:                                   # noqa: BLE001
+            self.fallo.emit(f'{op}: {type(e).__name__}: {e}')
+
+    @pyqtSlot()
+    def leer_integracion(self):
+        self._pedir_integracion('integracion.get')
+
+    @pyqtSlot(str, int, bool)
+    def set_ruteo(self, consumidor, tap, enable):
+        self._pedir_integracion('integracion.set_route', consumidor=consumidor,
+                                tap=int(tap), enable=bool(enable))
+        self.aviso.emit(f'ruteo {consumidor} -> tap {tap}')
+
+    @pyqtSlot()
+    def reset_ruteos(self):
+        self._pedir_integracion('integracion.reset_routes')
+        self.aviso.emit('ruteos de vuelta a nativo')
+
+    @pyqtSlot(str)
+    def ctrl_integracion(self, que):
+        self._pedir_integracion('integracion.ctrl', que=que)
+        self.aviso.emit(f'control global: {que}')
+
     @pyqtSlot(float)
     def set_refresco(self, segundos):
         if hasattr(self, '_t_espectro'):
@@ -248,6 +286,10 @@ class Mcamon(QMainWindow):
     sig_refresco = pyqtSignal(float)
     sig_mapa_visible = pyqtSignal(bool)
     sig_bitstream = pyqtSignal(str)
+    sig_pedir_integracion = pyqtSignal()
+    sig_ruteo = pyqtSignal(str, int, bool)
+    sig_reset_ruteos = pyqtSignal()
+    sig_ctrl_integracion = pyqtSignal(str)
 
     def __init__(self, host='10.73.28.27', port=PORT_DEFAULT):
         super().__init__()
@@ -269,9 +311,14 @@ class Mcamon(QMainWindow):
         self.tabs.setTabPosition(QTabWidget.South)
         self.panel_log = PanelLog()
         self.panel_espectro = PanelEspectro()
+        self.panel_config = PanelConfigMCA()
         self.panel_mapa = None
+        # La de Integración se crea al conectarse, si el bitstream trae el
+        # slot 6: mismo criterio que la del mapa 2D.
+        self.panel_integracion = None
         self.tabs.addTab(self.panel_log, 'Mensajes')
         self.tabs.addTab(self.panel_espectro, 'Espectro')
+        self.tabs.addTab(self.panel_config, 'MCA')
         self.tabs.setCurrentWidget(self.panel_espectro)
         self.tabs.currentChanged.connect(self._cambio_pestana)
         v.addWidget(self.tabs, 1)
@@ -282,6 +329,10 @@ class Mcamon(QMainWindow):
         self.panel_espectro.pedir_clear.connect(self.sig_borrar)
         self.panel_espectro.pedir_campo.connect(self.sig_campo)
         self.panel_espectro.log.connect(self.panel_log.info)
+
+        self.panel_config.pedir_campo.connect(self.sig_campo)
+        self.panel_config.pedir_clear.connect(self.sig_borrar)
+        self.panel_config.log.connect(self.panel_log.info)
 
         acc = QAction('Cargar bitstream del MCA…', self)
         acc.triggered.connect(self._cargar_bitstream)
@@ -356,7 +407,12 @@ class Mcamon(QMainWindow):
         self.sig_refresco.connect(self.trabajador.set_refresco)
         self.sig_mapa_visible.connect(self.trabajador.set_mapa_visible)
         self.sig_bitstream.connect(self.trabajador.cargar_bitstream)
+        self.sig_pedir_integracion.connect(self.trabajador.leer_integracion)
+        self.sig_ruteo.connect(self.trabajador.set_ruteo)
+        self.sig_reset_ruteos.connect(self.trabajador.reset_ruteos)
+        self.sig_ctrl_integracion.connect(self.trabajador.ctrl_integracion)
 
+        self.trabajador.integracion.connect(self._al_integracion)
         self.trabajador.conectado.connect(self._al_conectar)
         self.trabajador.desconectado.connect(self._al_desconectar)
         self.trabajador.estado.connect(self._al_estado)
@@ -399,16 +455,22 @@ class Mcamon(QMainWindow):
             f"MCA1 · {n} canales · {'simulado' if info.get('fake') else 'placa'}")
         self.panel_espectro.configurar_geometria(n)
         self.panel_espectro.set_conectado(True, running=info.get('running', False))
+        self.panel_config.configurar_geometria(n, info.get('h_aw'))
+        self.panel_config.set_conectado(True)
         self.panel_log.info(
             f"conectado: {n} canales, mapa 2D {'sí' if info.get('has_2d') else 'no'}, "
             f"PL {info.get('fpga_state')}")
         self._sincronizar_pestana_mapa(bool(info.get('has_2d')),
                                        tuple(info.get('map2d_shape') or (0, 0)))
+        self._sincronizar_pestana_integracion(bool(info.get('has_integracion')))
 
     def _al_desconectar(self, _motivo):
         self.btn_conectar.setText('Conectar')
         self.lbl_estado.setText('sin conectar')
         self.panel_espectro.set_conectado(False)
+        self.panel_config.set_conectado(False)
+        if self.panel_integracion is not None:
+            self.panel_integracion.set_conectado(False)
         self.panel_log.info('desconectado')
 
     def _al_estado(self, est):
@@ -416,6 +478,7 @@ class Mcamon(QMainWindow):
 
     def _al_config(self, cfg):
         self.panel_espectro.actualizar_config(cfg)
+        self.panel_config.actualizar_config(cfg)
         for widget, clave in ((self.cmb_canal, 'channel'),
                               (self.cmb_estimador, 'amp_src')):
             widget.blockSignals(True)
@@ -455,6 +518,36 @@ class Mcamon(QMainWindow):
             self.panel_mapa.deleteLater()
             self.panel_mapa = None
         self._cambio_pestana()
+
+    def _sincronizar_pestana_integracion(self, hay_integracion):
+        """Igual que la del mapa 2D: existe si el bitstream trae el slot 6.
+
+        Cualquier bitstream anterior al refactor de registros no lo trae, y el
+        MCA anda igual — lo único que se pierde es el ruteo y el
+        descubrimiento. Que la pestaña no aparezca es la forma honesta de
+        decirlo, en vez de mostrar controles que no escriben en ningún lado.
+        """
+        if hay_integracion and self.panel_integracion is None:
+            self.panel_integracion = PanelIntegracion()
+            self.panel_integracion.log.connect(self.panel_log.info)
+            self.panel_integracion.pedir_ruteo.connect(self.sig_ruteo)
+            self.panel_integracion.pedir_reset_ruteos.connect(self.sig_reset_ruteos)
+            self.panel_integracion.pedir_ctrl.connect(self.sig_ctrl_integracion)
+            self.tabs.addTab(self.panel_integracion, 'Integración')
+            self.panel_integracion.set_conectado(True)
+            self.sig_pedir_integracion.emit()
+        elif hay_integracion:
+            self.panel_integracion.set_conectado(True)
+            self.sig_pedir_integracion.emit()
+        elif self.panel_integracion is not None:
+            self.tabs.removeTab(self.tabs.indexOf(self.panel_integracion))
+            self.panel_integracion.deleteLater()
+            self.panel_integracion = None
+        self._cambio_pestana()
+
+    def _al_integracion(self, info):
+        if self.panel_integracion is not None:
+            self.panel_integracion.actualizar(info)
 
     def _cambio_pestana(self, *_):
         visible = (self.panel_mapa is not None and
