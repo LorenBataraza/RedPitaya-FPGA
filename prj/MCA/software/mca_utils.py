@@ -35,7 +35,7 @@ from API.mca import (                                          # noqa: F401
 )
 from API.analisis import *                                     # noqa: F401,F403
 from API.analisis import (                                     # noqa: F401
-    gauss_fit_peak, energy_calibration, dnl, fom, deadtime_fit,
+    gauss_fit_peak, buscar_picos, energy_calibration, dnl, fom, deadtime_fit,
     counts_to_volts, axis_calibration, apply_calibration,
     linearize_spectrum, inl_residual_vs_knots,
     propagar_calibracion_muestra,

@@ -665,6 +665,109 @@ def osciloscope_get_wp_trig(osc, ch=0):  return osc.r32(R_WP_TRIG_CH1 if ch else
 def osciloscope_get_we_cnt(osc, ch=0):   return osc.r32(R_WE_CNT_CH1 if ch else R_WE_CNT_CH0)
 
 
+# ---------- configuración en bloque ----------
+#
+# Misma forma que `_CAMPOS` de `API/mca.py`: campo -> (offset, shift, máscara).
+# Existe por la misma razón que allá — que se pueda **releer lo que se escribe**
+# en una sola operación, sin una función por registro y sin que el cliente
+# tenga que saber en qué bit vive cada cosa.
+#
+# Las máscaras salen de `modulos/osc/rtl/osc_cfg.sv`, no de suponer 32 bits:
+# `set_tresh`/`set_hyst` son DW=14, `set_dec` es 17, `set_dly` 32, `set_deb_len`
+# 20 y `set_filt_byp` 4. Escribir de más no rompe —el RTL trunca— pero leer de
+# más devuelve bits que no existen y el readback deja de coincidir con lo
+# escrito, que es justo lo que el anti-eco de la GUI usa para no reescribir.
+
+_CAMPOS = {
+    'thr_ch0':        (R_THR_CH0,        0, 0x3FFF),
+    'thr_ch1':        (R_THR_CH1,        0, 0x3FFF),
+    'hyst_ch0':       (R_HYST_CH0,       0, 0x3FFF),
+    'hyst_ch1':       (R_HYST_CH1,       0, 0x3FFF),
+    'dec_ch0':        (R_DEC_CH0,        0, 0x1FFFF),
+    'dec_ch1':        (R_DEC_CH1,        0, 0x1FFFF),
+    'dly_ch0':        (R_DLY_CH0,        0, 0xFFFFFFFF),
+    'dly_ch1':        (R_DLY_CH1,        0, 0xFFFFFFFF),
+    # avg_en NO es un bit por canal contiguo: el RTL lo lee y lo devuelve como
+    # un BYTE por canal (`set_avg_en[c] <= sys_dats_all[c*8]`, y el readback
+    # arma {7'h0, avg[3], 7'h0, avg[2], ...}). `osciloscope_set_avg()` escribe
+    # la palabra entera con un 1 y por lo tanto toca sólo el canal 0.
+    'avg_en_ch0':     (R_AVG_EN,         0, 0x1),
+    'avg_en_ch1':     (R_AVG_EN,         8, 0x1),
+    'deb_len':        (R_DEB_LEN,        0, 0xFFFFF),
+    'filt_bypass':    (R_FILT_BYPASS,    0, 0xF),
+    'calib_off_ch0':  (R_CALIB_OFF_CH0,  0, 0x3FFF),
+    'calib_gain_ch0': (R_CALIB_GAIN_CH0, 0, 0xFFFF),
+    'calib_off_ch1':  (R_CALIB_OFF_CH1,  0, 0x3FFF),
+    'calib_gain_ch1': (R_CALIB_GAIN_CH1, 0, 0xFFFF),
+}
+
+# Los que el RTL guarda en complemento a dos sobre DW bits. Sin extender el
+# signo, un umbral de -0.5 V se lee como +15792 cuentas y el control de la GUI
+# salta al tope en vez de mostrar el valor que tiene puesto.
+_CON_SIGNO = frozenset(('thr_ch0', 'thr_ch1',
+                        'calib_off_ch0', 'calib_off_ch1'))
+
+
+def _extender_signo(v, mascara):
+    bit = (mascara + 1) >> 1
+    return v - (mascara + 1) if v & bit else v
+
+
+def osciloscope_get_config(osc):
+    """Todos los campos de `_CAMPOS`, en crudo (cuentas, no volts).
+
+    En cuentas a propósito: es lo que está escrito en el registro. La conversión
+    a volts depende de la escala del jumper (LV/HV) y de la calibración, así que
+    hacerla acá metería una suposición en el dato en vez de en la vista.
+    """
+    fuera = {}
+    for campo, (off, shift, mask) in _CAMPOS.items():
+        v = (osc.r32(off) >> shift) & mask
+        fuera[campo] = _extender_signo(v, mask) if campo in _CON_SIGNO else v
+    return fuera
+
+
+def osciloscope_configure(osc, **campos):
+    """Escribe campos por nombre. Los que comparten registro se agrupan.
+
+    Read-modify-write por registro y no por campo: `avg_en_ch0` y `avg_en_ch1`
+    viven en la misma palabra, así que escribirlos de a uno haría que el segundo
+    leyera un valor que el primero acaba de cambiar. Agrupando, la palabra se
+    lee una vez y se escribe una vez.
+    """
+    desconocidos = set(campos) - set(_CAMPOS)
+    if desconocidos:
+        raise ValueError(f'campos desconocidos: {sorted(desconocidos)}; '
+                         f'hay: {sorted(_CAMPOS)}')
+    por_registro = {}
+    for campo, valor in campos.items():
+        off, shift, mask = _CAMPOS[campo]
+        por_registro.setdefault(off, []).append((shift, mask, int(valor)))
+
+    for off, partes in por_registro.items():
+        w = osc.r32(off)
+        for shift, mask, valor in partes:
+            w = (w & ~(mask << shift)) | ((valor & mask) << shift)
+        osc.w32(off, w)
+
+
+def osciloscope_get_status(osc):
+    """Lo que se refresca en pantalla: estado de las FSM y punteros.
+
+    Sólo lectura y sin efectos: se puede poléar con una captura corriendo.
+    """
+    return {
+        'adc_state':  osciloscope_get_adc_state(osc),
+        'trg_state':  osciloscope_get_trg_state(osc),
+        'wp_cur_ch0': osciloscope_get_wp_cur(osc, 0),
+        'wp_cur_ch1': osciloscope_get_wp_cur(osc, 1),
+        'wp_trig_ch0': osciloscope_get_wp_trig(osc, 0),
+        'wp_trig_ch1': osciloscope_get_wp_trig(osc, 1),
+        'we_cnt_ch0': osciloscope_get_we_cnt(osc, 0),
+        'we_cnt_ch1': osciloscope_get_we_cnt(osc, 1),
+    }
+
+
 # ---------- comandos ----------
 
 def osciloscope_reset(osc):

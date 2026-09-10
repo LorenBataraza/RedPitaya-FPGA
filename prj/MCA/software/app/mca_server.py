@@ -24,6 +24,8 @@ import sys
 import threading
 import time
 
+import numpy as np
+
 _AQUI = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(_AQUI))          # .../software
 
@@ -33,7 +35,14 @@ from API.mca import (CAP_HIST_H_PSD, MCA_PHYS, MCANotPresent,
                      mca_read_counters, mca_read_last_event, mca_read_map2d,
                      mca_read_histogram, mca_start, mca_stop)
 from API.mca_net import PORT_DEFAULT, PROTOCOL_VERSION, Channel, ProtocolError
-from API.mca_remote import FakeMCA
+from API.mca_remote import FakeMCA, FakeMultiTrigger, FakeOsc
+from API.multitrigger import (multitrigger_configure, multitrigger_get_config,
+                              multitrigger_get_status)
+from API.osciloscope import (ADC_CNT_PER_V, N_BUF, SCOPE_PHYS,
+                             FS as FS_OSC,
+                             osciloscope_configure, osciloscope_get_config,
+                             osciloscope_get_status, osciloscope_reset,
+                             osciloscope_sw_trigger)
 
 BITSTREAM_MCA = '/root/mca_red_pitaya.bit.bin'
 PERIODO_VIGILANTE_S = 0.1
@@ -55,6 +64,11 @@ class ServidorMCA:
         self.bitstream = bitstream
         self.h = None
         self.ig = None                  # slot 6: opcional, puede no estar
+        self.osc = None                 # slot del OSC, descubierto por SLOTS
+        self.mt = None                  # multitrigger: mismo bloque físico
+        self.bases = {}                 # módulo -> dirección resuelta
+        self.notas_bases = []           # cómo se resolvió cada una, para el log
+        self._rp_listo = False          # rp_Init() se hace en la 1ª captura
         self.motivo_ausente = None      # por qué no hay handle, para el cliente
 
         self._lock = threading.Lock()   # protege TODO acceso al handle
@@ -78,6 +92,10 @@ class ServidorMCA:
             self.h = FakeMCA(h_aw=self.fake_h_aw)
             self.motivo_ausente = None
             log(f'MCA simulado (--fake), {1 << self.fake_h_aw} canales')
+            # El slot 6 NO se simula, así que la pestaña de Integración no
+            # aparece en modo demo. El osciloscopio sí: es lo que permite
+            # desarrollar y probar sus dos pestañas sin placa.
+            self._abrir_osc()
             return
         try:
             # Sondear ANTES de mapear: si la PL no está programada, la primera
@@ -99,7 +117,9 @@ class ServidorMCA:
             self.h = None
             self.motivo_ausente = f'{type(e).__name__}: {e}'
             log('sin MCA:', self.motivo_ausente)
+        # El orden importa: `_abrir_osc` consulta SLOTS, que vive en el slot 6.
         self._abrir_integracion()
+        self._abrir_osc()
 
     def _abrir_integracion(self):
         """El slot 6, si está. Que falte NO es un error.
@@ -119,17 +139,101 @@ class ServidorMCA:
             self.ig = None
             log(f'sin integración (slot 6): {type(e).__name__}: {e}')
 
+    # ---------- descubrimiento de bases ----------
+
+    def _base_de(self, modulo, por_defecto):
+        """Dónde vive `modulo`, según el registro `SLOTS` del slot 6.
+
+        Hardcodear la base es lo que hace que el mismo software mienta contra
+        otro top: el multitrigger está en el slot 3 del top del MCA y en el 7
+        del `red_pitaya_top` clásico. `SLOTS` (`0x4060_0024`) publica el mapa
+        real y `Integration.base()` lo traduce a dirección.
+
+        Devuelve `(base, nota)`. La nota va al log y al `identify`: cuando la
+        base descubierta NO coincide con la constante, esa discrepancia es el
+        síntoma de estar corriendo contra otro bitstream, y verla es cómo se
+        diagnostica.
+
+        Esto NO repite el error de la geometría. Lo que no hay que importar de
+        esta región es lo que otro bloque publica sobre sí mismo —`h_aw` ya
+        divergió—; `SLOTS` es topología, no está duplicado en ningún lado, y es
+        exactamente para lo que la región existe.
+        """
+        if self.ig is None:
+            return por_defecto, f'{modulo}: sin slot 6, base por defecto {por_defecto:#x}'
+        try:
+            base = self.ig.base(modulo)
+        except Exception as e:                                  # noqa: BLE001
+            return por_defecto, (f'{modulo}: SLOTS ilegible ({type(e).__name__}: '
+                                 f'{e}), base por defecto {por_defecto:#x}')
+        if base != por_defecto:
+            return base, (f'{modulo}: SLOTS dice {base:#x} y la constante decía '
+                          f'{por_defecto:#x} — se usa la DESCUBIERTA')
+        return base, f'{modulo}: {base:#x} (SLOTS coincide con la constante)'
+
+    def _abrir_osc(self):
+        """El osciloscopio y el multitrigger. Que falten NO es un error.
+
+        Comparten el bloque físico —son dos APIs sobre la misma región— así que
+        el multitrigger reusa el mapeo del osciloscopio y se abre o no con él.
+        Mismo criterio que el slot 6: sin ellos el MCA anda igual y lo único que
+        se pierde son las dos pestañas.
+        """
+        self.bases, self.notas_bases = {}, []
+        if self.fake:
+            self.osc = FakeOsc(rate_hz=1000.0)
+            self.mt = FakeMultiTrigger()
+            self.bases = {'osc': SCOPE_PHYS, 'mtrg': SCOPE_PHYS}
+            self.notas_bases = ['osc/mtrg simulados (--fake)']
+            return
+        base, nota = self._base_de('osc', SCOPE_PHYS)
+        self.notas_bases.append(nota)
+        try:
+            from API.multitrigger import MultiTrigger
+            from API.osciloscope import osciloscope_open
+            self.osc = osciloscope_open(phys=base)
+            self.mt = MultiTrigger.open(osc=self.osc)
+            self.bases = {'osc': base, 'mtrg': base}
+            log(f'osciloscopio + multitrigger abiertos en {base:#x}')
+            log('  ' + nota)
+        except Exception as e:                                  # noqa: BLE001
+            self.osc = self.mt = None
+            log(f'sin osciloscopio: {type(e).__name__}: {e}')
+
+    def _asegurar_rp(self):
+        """`rp_Init()`, una sola vez y recién cuando hace falta.
+
+        Las trazas se leen con la librería `rp`, que mapea su propia región. Es
+        seguro convivir con el mmap del MCA **dentro del mismo proceso**:
+        `campanas/e2e_espectro.py` hace las dos cosas y es una campaña validada
+        en placa. La regla de un solo proceso sobre `/dev/mem` sigue valiendo
+        ENTRE procesos, que es donde estaba el SIGBUS.
+
+        Perezoso porque `rp_Init()` cuesta cientos de milisegundos y calibra el
+        ADC: no se paga si nadie abre la pestaña del osciloscopio.
+        """
+        if self._rp_listo or self.fake:
+            return
+        import rp
+        rp.rp_Init()
+        self._rp_listo = True
+        log('rp_Init() hecho (primera captura del osciloscopio)')
+
     def cerrar(self):
         self._parar.set()
         with self._lock:
             if self.h is not None:
                 mca_close(self.h)
                 self.h = None
-            if self.ig is not None:
-                try:
-                    self.ig.close()
-                finally:
-                    self.ig = None
+            # El multitrigger comparte el mapeo del osciloscopio, así que se
+            # cierra primero: el dueño del fd es el que libera.
+            for atributo in ('mt', 'osc', 'ig'):
+                bloque = getattr(self, atributo)
+                if bloque is not None:
+                    try:
+                        bloque.close()
+                    finally:
+                        setattr(self, atributo, None)
 
     def _handle(self):
         if self.h is None:
@@ -163,13 +267,34 @@ class ServidorMCA:
 
     # ---------- operaciones ----------
 
+    def _bloques(self):
+        """Qué bloques trae este bitstream y dónde. Va en `identify`.
+
+        El cliente arma la interfaz con esto en vez de suponerla: sin slot 6 no
+        hay pestaña de Integración, sin osciloscopio no hay pestañas de OSC ni
+        de Multitrigger. Mismo criterio con el que hoy aparece o no la del
+        mapa 2D.
+        """
+        return {'has_integracion': self.ig is not None,
+                'has_osc':  self.osc is not None,
+                'has_mtrg': self.mt is not None,
+                'bases': {k: int(v) for k, v in self.bases.items()},
+                'bases_notas': list(self.notas_bases),
+                'n_buf': N_BUF, 'fs_hz': FS_OSC,
+                'adc_cnt_per_v': ADC_CNT_PER_V}
+
     def op_identify(self):
         if self.h is None:
-            return {'presente': False, 'error': self.motivo_ausente,
+            info = {'presente': False, 'error': self.motivo_ausente,
                     'caps': 0, 'h_aw': 0, 'h2_aw': 0, 'psd_aw': 0,
                     'n_channels': 0, 'map2d_shape': [0, 0],
                     'protocol': PROTOCOL_VERSION, 'fake': self.fake,
                     'fpga_state': self._fpga_state()}
+            # Los bloques se publican IGUAL sin MCA: un bitstream puede traer
+            # el osciloscopio y no el MCA, y en ese caso la pestaña de OSC
+            # sirve para ver qué está llegando por la entrada.
+            info.update(self._bloques())
+            return info
         info = self.h.identify(verbose=False)
         info.update({'presente': True, 'caps': self.h.caps,
                      'map2d_shape': list(info['map2d_shape']),
@@ -177,11 +302,8 @@ class ServidorMCA:
                      'running': self.h.running,
                      'protocol': PROTOCOL_VERSION, 'fake': self.fake,
                      'fpga_state': self._fpga_state(),
-                     # Igual que `has_2d`: el cliente arma la interfaz con lo
-                     # que el bitstream traiga, en vez de suponerlo. Sin el
-                     # slot 6 no hay pestaña de Integración.
-                     'has_integracion': self.ig is not None,
                      'bitstream': self.bitstream})
+        info.update(self._bloques())
         return info
 
     def op_r32(self, off):
@@ -273,7 +395,13 @@ class ServidorMCA:
 
         Reprogramar con mapeos abiertos da el `external abort ... *pte=...` de
         dmesg y puede dejar el puerto GP0 trabado hasta reiniciar la placa, así
-        que se cierra el handle ANTES.
+        que se cierran TODOS los handles ANTES — no sólo el del MCA.
+
+        Que sean todos importa: el osciloscopio, el multitrigger y el slot 6
+        mapean sus propias regiones, y para el peligro da igual cuál de los
+        mapeos quede vivo durante la reconfiguración. `abrir()` los vuelve a
+        abrir después, con las bases que publique el bitstream NUEVO — que
+        pueden no ser las mismas.
         """
         if self.fake:
             raise RuntimeError('no hay PL que cargar en modo --fake')
@@ -284,6 +412,20 @@ class ServidorMCA:
         if self.h is not None:
             mca_close(self.h)
             self.h = None
+        # El multitrigger comparte el mapeo del osciloscopio: primero el que no
+        # es dueño del fd.
+        for atributo in ('mt', 'osc', 'ig'):
+            bloque = getattr(self, atributo)
+            if bloque is not None:
+                try:
+                    bloque.close()
+                except Exception as e:                          # noqa: BLE001
+                    log(f'cerrando {atributo}: {type(e).__name__}: {e}')
+                finally:
+                    setattr(self, atributo, None)
+        # rp_Init() mapea por su cuenta, así que su estado también queda
+        # inválido tras reprogramar: se rehace en la próxima captura.
+        self._rp_listo = False
         ruta = path or self.bitstream
         log('cargando bitstream', ruta)
         load_bitstream(ruta, bridges=True, wait_bus_s=8.0)
@@ -351,6 +493,121 @@ class ServidorMCA:
         acciones[que]()
         return self.op_integracion_get()
 
+    # ---------- osciloscopio y multitrigger (mismo bloque físico) ----------
+
+    def _osc(self):
+        if self.osc is None:
+            raise RuntimeError(
+                'este bitstream no trae el osciloscopio, o su base no responde '
+                '(el MCA anda igual)')
+        return self.osc
+
+    def _mt(self):
+        if self.mt is None:
+            raise RuntimeError(
+                'este bitstream no trae el multitrigger (el MCA anda igual)')
+        return self.mt
+
+    def op_osc_get(self):
+        """Configuración y estado del osciloscopio, en una vuelta."""
+        osc = self._osc()
+        return {'config': osciloscope_get_config(osc),
+                'status': osciloscope_get_status(osc),
+                'base': int(self.bases.get('osc', 0)),
+                'n_buf': N_BUF, 'fs_hz': FS_OSC,
+                'adc_cnt_per_v': ADC_CNT_PER_V}
+
+    def op_osc_set(self, fields):
+        osc = self._osc()
+        osciloscope_configure(osc, **(fields or {}))
+        return self.op_osc_get()
+
+    def op_osc_ctrl(self, que):
+        osc = self._osc()
+        acciones = {'reset': lambda: osciloscope_reset(osc),
+                    'sw_trig': lambda: osciloscope_sw_trigger(osc)}
+        if que not in acciones:
+            raise ValueError(f'control desconocido: {que!r}; hay: {sorted(acciones)}')
+        acciones[que]()
+        return self.op_osc_get()
+
+    def op_osc_capture(self, pre=0, post=1024):
+        """Una ventana alrededor del trigger, los dos canales, en volts.
+
+        Devuelve `float32[2, pre+post]` como payload binario, igual que el
+        espectro. En volts y no en cuentas porque es lo que se dibuja, y la
+        conversión necesita la calibración que la librería `rp` ya aplicó.
+
+        `pre` es cuántas muestras ANTES del trigger: el trigger queda en el
+        índice `pre` del array, y el cliente pone ahí su t=0.
+        """
+        pre, post = int(pre), int(post)
+        if pre < 0 or post <= 0:
+            raise ValueError(f'ventana inválida: pre={pre}, post={post}')
+        if pre + post > N_BUF:
+            raise ValueError(f'la ventana ({pre + post}) no entra en el buffer '
+                             f'de {N_BUF} muestras')
+        osc = self._osc()
+        dec = osciloscope_get_config(osc)['dec_ch0'] or 1
+
+        if self.fake:
+            datos = osc.capturar(pre=pre, post=post, n_ch=2)
+            ref = osc.r32(0x01C)
+        else:
+            self._asegurar_rp()
+            from API.osciloscope import osciloscope_read_window
+            crudo, ref = osciloscope_read_window(osc, pre=pre, post=post)
+            # `capture_window_np` devuelve {canal_rp: array}; se apila en el
+            # orden IN1, IN2 para que el cliente no dependa de las constantes
+            # de la librería `rp`, que no tiene en la PC.
+            datos = np.stack([crudo[c] for c in sorted(crudo, key=str)]
+                             ).astype(np.float32)
+
+        return ({'pre': pre, 'post': post, 'wp': int(ref), 'dec': int(dec),
+                 'fs_hz': FS_OSC / dec,
+                 # El instante en que se tomó, para que el cliente pueda marcar
+                 # el mismo punto en la curva de tasa. Es reloj del servidor.
+                 't_captura': time.time()},
+                datos)
+
+    def op_mtrg_get(self):
+        mt = self._mt()
+        from API.multitrigger import BITS_OR_MASK
+        return {'config': multitrigger_get_config(mt),
+                'status': multitrigger_get_status(mt),
+                # Los nombres de los bits viajan con el dato: el cliente dibuja
+                # las casillas con lo que diga el servidor en vez de tener su
+                # propia copia de la lista, que es como se desincronizan.
+                'bits': [[n, int(v), a] for n, v, a in BITS_OR_MASK],
+                'base': int(self.bases.get('mtrg', 0))}
+
+    def op_mtrg_set(self, fields):
+        mt = self._mt()
+        multitrigger_configure(mt, **(fields or {}))
+        return self.op_mtrg_get()
+
+    def op_mtrg_arm(self, mask_ch0=None, mask_ch1=None, thr=0.0, hyst=0.01,
+                    delay=0, auto_rearm=True):
+        """Arma el disparo por flanco del ADC.
+
+        Llama a `multitrigger_arm(osc, mt, ...)`, que recibe **los dos handles**
+        porque la secuencia cruza registros de ambos bloques y su orden es
+        load-bearing. Por eso esta operación exige que los dos estén abiertos.
+        """
+        from API.multitrigger import BIT_ADC_P0, multitrigger_arm
+        osc, mt = self._osc(), self._mt()
+        multitrigger_arm(osc, mt,
+                         mask_ch0=BIT_ADC_P0 if mask_ch0 is None else int(mask_ch0),
+                         mask_ch1=BIT_ADC_P0 if mask_ch1 is None else int(mask_ch1),
+                         thr=float(thr), hyst=float(hyst), delay=int(delay),
+                         auto_rearm=bool(auto_rearm))
+        return self.op_mtrg_get()
+
+    def op_mtrg_disarm(self):
+        from API.multitrigger import multitrigger_disarm
+        multitrigger_disarm(self._osc(), self._mt())
+        return self.op_mtrg_get()
+
     # ---------- despacho ----------
 
     _OPS = {
@@ -374,6 +631,15 @@ class ServidorMCA:
                                      ('consumidor', 'tap', 'enable')),
         'integracion.reset_routes': ('op_integracion_reset_routes', ()),
         'integracion.ctrl':         ('op_integracion_ctrl', ('que',)),
+        'osc.get':          ('op_osc_get', ()),
+        'osc.set':          ('op_osc_set', ('fields',)),
+        'osc.ctrl':         ('op_osc_ctrl', ('que',)),
+        'osc.capture':      ('op_osc_capture', ('pre', 'post')),
+        'mtrg.get':         ('op_mtrg_get', ()),
+        'mtrg.set':         ('op_mtrg_set', ('fields',)),
+        'mtrg.arm':         ('op_mtrg_arm', ('mask_ch0', 'mask_ch1', 'thr',
+                                             'hyst', 'delay', 'auto_rearm')),
+        'mtrg.disarm':      ('op_mtrg_disarm', ()),
     }
 
     def despachar(self, op, args):

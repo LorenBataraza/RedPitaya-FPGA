@@ -143,11 +143,16 @@ def test_la_pestana_2d_aparece_porque_el_bitstream_la_trae():
         assert v.info['has_2d'] is True
         assert v.panel_mapa is not None
         titulos = [v.tabs.tabText(i) for i in range(v.tabs.count())]
-        assert titulos == ['Mensajes', 'Espectro', 'MCA', 'Mapa 2D (PSD)']
+        assert titulos == ['Mensajes', 'Espectro', 'MCA', 'Mapa 2D (PSD)',
+                           'OSC', 'Multitrigger']
         # La de Integración NO está: el MCA falso no simula el slot 6, y la
-        # pestaña se crea sólo si el bitstream lo trae.
+        # pestaña se crea sólo si el bitstream lo trae. Las de OSC y
+        # Multitrigger SÍ: el simulador incluye los dos bloques, que es lo que
+        # permite desarrollarlas sin placa.
         assert v.panel_integracion is None
         assert v.info.get('has_integracion') is False
+        assert v.info.get('has_osc') is True
+        assert v.info.get('has_mtrg') is True
     _con_gui(cuerpo)
 
 
@@ -232,18 +237,95 @@ def test_rebin_y_escala_log_no_rompen_el_dibujo():
     _con_gui(cuerpo)
 
 
-def test_roi_ajusta_el_pico_simulado():
+def test_la_lista_de_picos_se_llena_sola():
+    """Reemplaza al ajuste sobre una región marcada a mano.
+
+    La diferencia que importa no es de presentación: antes había que saber
+    DÓNDE estaba el pico para poder medirlo, y en un espectro desconocido eso
+    es justamente lo que no se sabe. Acá no se le pide nada al usuario.
+
+    El simulador pone su fotopico en el canal 8000 con sigma 45, así que el
+    FWHM verdadero es 2.3548 x 45 = 106 canales.
+    """
+    def cuerpo(app, v):
+        pe = v.panel_espectro
+        # Los controles de la ROI ya no existen: si alguien los reintroduce,
+        # esta prueba lo dice en vez de dejar dos caminos para lo mismo.
+        assert not hasattr(pe, 'spn_roi_lo')
+        assert not hasattr(pe, 'btn_ajustar')
+
+        v.sig_start.emit(0.0, True)
+        # Hay que dejar que se acumule estadística ANTES de exigirle el ancho.
+        # Con 900 cuentas el pico ya se encuentra y su centroide es correcto,
+        # pero el FWHM todavía vale 17 en vez de 106: con esa población el
+        # histograma son cuatro canales sueltos. Desde ~5000 cuentas queda
+        # dentro del 10 %.
+        assert _esperar(app, lambda: pe.hist is not None
+                        and pe.hist.sum() > 8000, timeout=40.0), \
+            'no se acumularon cuentas suficientes'
+        assert _esperar(app, lambda: len(pe.picos) > 0), \
+            'la lista no encontró ningún pico'
+
+        assert pe.tabla_picos.rowCount() == len(pe.picos)
+        p = max(pe.picos, key=lambda d: d['area'])
+        assert 7900 < p['canal'] < 8100, f"centroide fuera de lugar: {p['canal']}"
+        teorico = 2.3548 * 45
+        assert abs(p['fwhm'] - teorico) / teorico < 0.20, \
+            f"FWHM {p['fwhm']:.1f} contra {teorico:.1f}"
+
+        # Y lo que se ve en la tabla es lo que hay en la lista.
+        fila = pe.picos.index(p)
+        assert float(pe.tabla_picos.item(fila, 0).text()) == round(p['canal'], 1)
+        v.sig_parar.emit()
+    _con_gui(cuerpo)
+
+
+def test_los_picos_se_marcan_en_el_grafico_y_se_pueden_apagar():
     def cuerpo(app, v):
         pe = v.panel_espectro
         v.sig_start.emit(0.0, True)
-        assert _esperar(app, lambda: pe.hist is not None and pe.hist.sum() > 500)
-        pe.spn_roi_lo.setValue(7500)
-        pe.spn_roi_hi.setValue(8500)
-        pe._ajustar_roi()
-        texto = pe.lbl_roi.text()
-        assert 'centroide' in texto and 'resolución' in texto
-        centroide = float(texto.split('centroide')[1].split('·')[0])
-        assert 7800 < centroide < 8200, f'centroide fuera de lugar: {centroide}'
+        assert _esperar(app, lambda: len(pe.picos) > 0)
+
+        pe.chk_marcar.setChecked(True)
+        pe._redibujar()
+        assert len(pe._marcas_picos) > 0, 'no se dibujó ninguna marca'
+
+        pe.chk_marcar.setChecked(False)
+        pe._redibujar()
+        assert len(pe._marcas_picos) == 0, 'apagar las marcas no las borró'
+        v.sig_parar.emit()
+    _con_gui(cuerpo)
+
+
+def test_elegir_un_pico_centra_el_eje_en_el():
+    """Es cómo se va de la lista al espectro sin buscar el canal con el zoom."""
+    def cuerpo(app, v):
+        pe = v.panel_espectro
+        v.sig_start.emit(0.0, True)
+        assert _esperar(app, lambda: len(pe.picos) > 0)
+
+        fila = pe.picos.index(max(pe.picos, key=lambda d: d['area']))
+        pe.tabla_picos.selectRow(fila)
+        app.processEvents()
+
+        lo, hi = pe.ax.get_xlim()
+        canal = pe.picos[fila]['canal']
+        assert lo < canal < hi, f'{canal} fuera de [{lo}, {hi}]'
+        assert (hi - lo) < pe.n_canales / 2, 'no se acercó al pico'
+        v.sig_parar.emit()
+    _con_gui(cuerpo)
+
+
+def test_subir_la_prominencia_no_pierde_el_pico_principal():
+    def cuerpo(app, v):
+        pe = v.panel_espectro
+        v.sig_start.emit(0.0, True)
+        assert _esperar(app, lambda: len(pe.picos) > 0)
+
+        pe.spn_prominencia.setValue(50.0)
+        pe._recalcular_picos()
+        assert len(pe.picos) >= 1, 'se perdió hasta el pico principal'
+        assert 7900 < max(pe.picos, key=lambda d: d['area'])['canal'] < 8100
         v.sig_parar.emit()
     _con_gui(cuerpo)
 
@@ -445,3 +527,159 @@ def test_el_panel_de_integracion_pinta_ruteo_y_avisa_de_la_divergencia():
     # y un cambio del usuario SI escribe
     p._combos['mca'].setCurrentIndex(p._combos['mca'].findData(1))
     assert emitido == [('mca', 1, True)], emitido
+
+
+# =============================================================================
+# Pestañas de OSC y Multitrigger
+# =============================================================================
+#
+# OJO CON EL ALCANCE, igual que con la de Integración: el simulador NO simula
+# el RTL del osciloscopio. No hay FSM de captura, ni disparo real, ni BRAM: hay
+# registros que retienen lo escrito y formas sintéticas. Lo que estas pruebas
+# demuestran es el CONTRATO —que la captura viaja, que el dibujo la usa, que las
+# casillas escriben la máscara que corresponde— y no el driver de la placa.
+# Ese lado sólo lo cubre `verificar-placa`.
+
+def test_la_pestana_osc_captura_y_dibuja():
+    """Una captura llega por el socket y termina dibujada, en volts y en us."""
+    def cuerpo(app, v):
+        p = v.panel_osc
+        assert p is not None, 'no se creó la pestaña de OSC'
+        v.tabs.setCurrentWidget(p)
+        app.processEvents()
+
+        p.spn_pre.setValue(128)
+        p.spn_post.setValue(512)
+        p._capturar()
+        assert _esperar(app, lambda: len(p._trazas) > 0), 'no llegó ninguna traza'
+
+        pre, datos = p._trazas[-1]
+        assert pre == 128
+        assert datos.shape == (2, 640), f'forma inesperada: {datos.shape}'
+        assert datos.dtype == np.float32
+
+        # El eje de tiempo tiene el trigger en t=0, y por eso arranca negativo:
+        # las `pre` muestras de antes del disparo.
+        x = p.lineas_ch[0].get_xdata()
+        assert len(x) == 640
+        assert x[0] < 0 < x[-1], f'el trigger no quedó en t=0: {x[0]}..{x[-1]}'
+        assert abs(x[128]) < 1e-9, 'la muestra `pre` no es t=0'
+    _con_gui(cuerpo)
+
+
+def test_la_persistencia_acumula_y_se_puede_apagar():
+    def cuerpo(app, v):
+        p = v.panel_osc
+        v.tabs.setCurrentWidget(p)
+        for _ in range(3):
+            p._capturar()
+            app.processEvents()
+            time.sleep(0.05)
+        assert _esperar(app, lambda: len(p._trazas) >= 3), 'no se acumularon trazas'
+
+        p.chk_fosforo.setChecked(True)
+        p._redibujar_forma()
+        con = len(p._fosforo)
+        assert con > 0, 'con persistencia no se dibujó ninguna traza vieja'
+
+        p.chk_fosforo.setChecked(False)
+        p._redibujar_forma()
+        assert len(p._fosforo) == 0, 'apagar la persistencia no la borró'
+    _con_gui(cuerpo)
+
+
+def test_la_curva_de_tasa_sale_del_status_del_mca():
+    """La tasa del MCA se dibuja sin ninguna lectura extra.
+
+    Es la propiedad que hace barata la pestaña: `rate_inst_hz` ya viene en cada
+    `status`, y hasta ahora se mostraba como texto y se tiraba.
+    """
+    def cuerpo(app, v):
+        p = v.panel_osc
+        v.sig_start.emit(0.0, True)
+        assert _esperar(app, lambda: len(p._serie(1)[0]) >= 2), \
+            'la curva de tasa del MCA no acumuló puntos'
+        _xs, ys = p._serie(1)
+        assert any(y > 0 for y in ys), 'todas las tasas dieron cero'
+        v.sig_parar.emit()
+    _con_gui(cuerpo)
+
+
+def test_la_marca_de_captura_cae_en_la_curva_de_tasa():
+    """Lo que ata los dos gráficos: la forma de arriba y el instante de abajo."""
+    def cuerpo(app, v):
+        p = v.panel_osc
+        v.tabs.setCurrentWidget(p)
+        v.sig_start.emit(0.0, True)
+        assert _esperar(app, lambda: len(p._historia) >= 2)
+        p._capturar()
+        assert _esperar(app, lambda: len(p._marcas) > 0), 'no se anotó la captura'
+        assert len(p._lineas_marca) == len(p._marcas)
+
+        t_marca = p._lineas_marca[-1].get_xdata()[0]
+        xs = [fila[0] - p._t0 for fila in p._historia]
+        assert min(xs) <= t_marca <= max(xs) + 1.0, \
+            'la marca cayó fuera del tramo de tasa dibujado'
+        v.sig_parar.emit()
+    _con_gui(cuerpo)
+
+
+def test_escribir_un_campo_del_osc_va_al_bloque_del_osc():
+    """El campo se rutea por `BLOQUE`, no por el nombre.
+
+    `thr_ch0` existe en el OSC y `thr` en el MCA: si el ruteo fuera por nombre,
+    un umbral del osciloscopio terminaría escrito en el MCA.
+    """
+    def cuerpo(app, v):
+        p = v.panel_osc
+        assert p.BLOQUE == 'osc'
+        thr_mca_antes = v.panel_config._controles['thr'][1]()
+
+        v.sig_campo_osc.emit('thr_ch0', -250)
+        assert _esperar(app, lambda:
+                        p._controles['thr_ch0'][1]() == -250), \
+            'el umbral del OSC no volvió releído del hardware'
+        # Y el del MCA no se movió.
+        assert v.panel_config._controles['thr'][1]() == thr_mca_antes
+    _con_gui(cuerpo)
+
+
+def test_las_casillas_del_multitrigger_arman_la_mascara():
+    def cuerpo(app, v):
+        p = v.panel_mtrg
+        assert p is not None, 'no se creó la pestaña de Multitrigger'
+        assert _esperar(app, lambda: len(p._casillas) > 0), \
+            'no llegaron los nombres de los bits desde el servidor'
+
+        # Los nombres los manda el SERVIDOR: el cliente no tiene su propia copia
+        # de la lista de bits, que es como se desincroniza de un RTL que cambió.
+        nombres = [n for n, _v, _a in p._bits]
+        assert 'sw' in nombres and 'adc_p0' in nombres
+
+        from API.multitrigger import BIT_ADC_P0
+        p._mascaras[0] = 0
+        p._cambio(0, BIT_ADC_P0, True)
+        assert _esperar(app, lambda:
+                        p._casillas[(0, BIT_ADC_P0)].isChecked()
+                        and p._mascaras[0] & BIT_ADC_P0), \
+            'marcar la casilla no encendió el bit'
+
+        p._cambio(0, BIT_ADC_P0, False)
+        assert _esperar(app, lambda: not (p._mascaras[0] & BIT_ADC_P0)), \
+            'desmarcar la casilla no apagó el bit'
+    _con_gui(cuerpo)
+
+
+def test_los_campos_de_los_paneles_existen_en_su_bloque():
+    """Un nombre mal escrito sólo se notaría al tocar el control.
+
+    El panel emite `(campo, valor)` y el servidor lo busca en la tabla del
+    bloque; sin esto, el error sale como una línea en el log la primera vez que
+    alguien mueve ese control, meses después.
+    """
+    def cuerpo(app, v):
+        from app.widgets_config import campos_desconocidos
+        for panel in (v.panel_config, v.panel_osc, v.panel_mtrg):
+            malos = campos_desconocidos(panel.campos(), panel.BLOQUE)
+            assert not malos, f'{type(panel).__name__} ({panel.BLOQUE}): {malos}'
+    _con_gui(cuerpo)

@@ -192,6 +192,94 @@ class MultiTrigger:
 
 
 # =============================================================================
+# Configuración en bloque
+# =============================================================================
+#
+# Misma forma que `_CAMPOS` de `API/mca.py` y de `API/osciloscope.py`:
+# campo -> (offset, shift, máscara). Es lo que permite releer en una operación
+# lo que se escribió, que es de lo que depende el anti-eco de la GUI.
+
+_CAMPOS = {
+    'or_mask_ch0': (R_OR_MASK_CH0, 0, 0xFFFFFFFF),
+    'or_mask_ch1': (R_OR_MASK_CH1, 0, 0xFFFFFFFF),
+    # Layout de 0x210: {dur[31:16], 4'h0, dst[11:8], 4'h0, src[3:0]}. `src` y
+    # `dst` son máscaras de canal (0x3 = ch0+ch1), no índices.
+    'shield_src':  (R_SHIELD_CFG,  0, 0xF),
+    'shield_dst':  (R_SHIELD_CFG,  8, 0xF),
+    'shield_dur':  (R_SHIELD_CFG, 16, 0xFFFF),
+}
+
+# Los bits de la OR_MASK, en orden, para que la GUI dibuje casillas con nombre
+# en vez de pedir un hexadecimal. El orden es el de `trg_src_bits` del RTL y el
+# mismo de `_SNAP_NAMES`, así que una casilla y su fuente en el snapshot se
+# corresponden posicionalmente.
+BITS_OR_MASK = (
+    ('sw',       BIT_SW,       'disparo por software (registro 0x004)'),
+    ('adc_p0',   BIT_ADC_P0,   'flanco positivo del ADC, canal 0'),
+    ('adc_n0',   BIT_ADC_N0,   'flanco negativo del ADC, canal 0'),
+    ('adc_p1',   BIT_ADC_P1,   'flanco positivo del ADC, canal 1'),
+    ('adc_n1',   BIT_ADC_N1,   'flanco negativo del ADC, canal 1'),
+    ('adc_p2',   BIT_ADC_P2,   'flanco positivo del ADC, canal 2'),
+    ('adc_n2',   BIT_ADC_N2,   'flanco negativo del ADC, canal 2'),
+    ('adc_p3',   BIT_ADC_P3,   'flanco positivo del ADC, canal 3'),
+    ('adc_n3',   BIT_ADC_N3,   'flanco negativo del ADC, canal 3'),
+    ('ext_p',    BIT_EXT_P,    'entrada externa, flanco positivo'),
+    ('ext_n',    BIT_EXT_N,    'entrada externa, flanco negativo'),
+    ('asg_p',    BIT_ASG_P,    'generador interno, flanco positivo'),
+    ('asg_n',    BIT_ASG_N,    'generador interno, flanco negativo'),
+    ('trig_ch0', BIT_TRIG_CH0, 'trigger del canal 0'),
+    ('trig_ch1', BIT_TRIG_CH1, 'trigger del canal 1'),
+    ('trig_ch2', BIT_TRIG_CH2, 'trigger del canal 2'),
+    ('trig_ch3', BIT_TRIG_CH3, 'trigger del canal 3'),
+)
+
+
+def multitrigger_get_config(mt):
+    """Todos los campos de `_CAMPOS`."""
+    return {campo: (mt.r32(off) >> shift) & mask
+            for campo, (off, shift, mask) in _CAMPOS.items()}
+
+
+def multitrigger_configure(mt, **campos):
+    """Escribe campos por nombre, agrupando los que comparten registro.
+
+    Los tres campos del shield viven en la misma palabra, así que escribirlos
+    de a uno haría que el segundo leyera lo que el primero acaba de cambiar.
+    """
+    desconocidos = set(campos) - set(_CAMPOS)
+    if desconocidos:
+        raise ValueError(f'campos desconocidos: {sorted(desconocidos)}; '
+                         f'hay: {sorted(_CAMPOS)}')
+    por_registro = {}
+    for campo, valor in campos.items():
+        off, shift, mask = _CAMPOS[campo]
+        por_registro.setdefault(off, []).append((shift, mask, int(valor)))
+
+    for off, partes in por_registro.items():
+        w = mt.r32(off)
+        for shift, mask, valor in partes:
+            w = (w & ~(mask << shift)) | ((valor & mask) << shift)
+        mt.w32(off, w)
+        # Readback de verdad, no `assert`: con python -O los assert desaparecen
+        # y una máscara que no latchea es exactamente el fallo que deja el scope
+        # sin disparar, sin ningún síntoma más que "no llegan eventos".
+        leido = mt.r32(off)
+        if leido != w:
+            raise RuntimeError(
+                f'el registro {off:#05x} no retuvo lo escrito: '
+                f'{leido:#010x} != {w:#010x}. ¿Es este el bitstream correcto?')
+
+
+def multitrigger_get_status(mt):
+    """Snapshot, flags y runtime del shield. Sólo lectura."""
+    crudo = mt.read_snapshot_raw()
+    return {'snapshot': crudo,
+            'fuentes': decode_snap(crudo),
+            'flags': mt.get_flags(),
+            'shield_runtime': mt.r32(R_SHIELD_RUN)}
+
+
+# =============================================================================
 # Secuencias que cruzan los dos módulos
 # =============================================================================
 

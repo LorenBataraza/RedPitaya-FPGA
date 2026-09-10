@@ -37,6 +37,11 @@ from API.mca import (CAP_HIST_H, CAP_HIST_H_PSD, FS_HZ, MCA,
                      R_REALTIME_HI, R_REALTIME_LO, R_STATUS, R_TAIL_DLY,
                      R_THR, R_WIDTHS, MAGIC)
 from API.mca_net import PORT_DEFAULT, Channel, RemoteError, array_desde
+# Sólo la escala del ADC, para que el osciloscopio simulado devuelva volts con
+# la MISMA constante que usa el real y no con una copia que puede divergir.
+# `API/osciloscope.py` es importable en la PC (la librería `rp` se carga
+# perezosamente), así que esto no ata este módulo a la placa.
+from API.osciloscope import ADC_CNT_PER_V
 
 
 # =============================================================================
@@ -66,6 +71,11 @@ class MCARemote(MCA):
         self._canal = canal
         self._lock = threading.Lock()
         self.info = info
+        # Qué bloques trae ESTE bitstream. El cliente crea o no cada pestaña
+        # con esto, igual que ya hacía con `_has_2d`; nunca se supone.
+        self._has_integracion = bool(info.get('has_integracion'))
+        self._has_osc = bool(info.get('has_osc'))
+        self._has_mtrg = bool(info.get('has_mtrg'))
 
     @classmethod
     def connect(cls, host, port=PORT_DEFAULT, timeout=10.0):
@@ -158,6 +168,16 @@ class MCARemote(MCA):
         """
         return self._pedir(op, **args)[0]['result']
 
+    def capturar_osc(self, pre=0, post=1024):
+        """Una ventana del osciloscopio: `(metadata, float32[2, pre+post])`.
+
+        No pasa por `pedir()` porque ésa devuelve sólo el `result` y tira el
+        payload binario. Es la segunda operación del protocolo que trae datos
+        además de JSON, después del espectro y el mapa 2D.
+        """
+        obj, payload = self._pedir('osc.capture', pre=int(pre), post=int(post))
+        return obj['result'], array_desde(obj, payload)
+
     def fpga_state(self):
         return self._pedir('fpga.state')[0]['result']
 
@@ -172,6 +192,11 @@ class MCARemote(MCA):
         self.h_aw, self.h2_aw, self.psd_aw = (info['h_aw'], info['h2_aw'],
                                               info['psd_aw'])
         self._has_2d = bool(self.caps & CAP_HIST_H_PSD)
+        # El bitstream nuevo puede traer otros bloques que el anterior: si no
+        # se refrescan acá, la GUI queda con las pestañas del bitstream viejo.
+        self._has_integracion = bool(info.get('has_integracion'))
+        self._has_osc = bool(info.get('has_osc'))
+        self._has_mtrg = bool(info.get('has_mtrg'))
         self.info = info
         return info
 
@@ -374,3 +399,130 @@ class FakeMCA(MCA):
 
     def close(self):
         self._t_ref = None
+
+
+# =============================================================================
+# Osciloscopio y multitrigger simulados
+# =============================================================================
+#
+# Mismo criterio que `FakeMCA`: que la GUI se pueda desarrollar y probar sin
+# placa. No simulan el RTL —no hay FSM de captura ni trigger real—, simulan lo
+# que el CLIENTE ve: registros que retienen lo escrito y formas de onda con
+# pulsos donde el umbral dice que los hay.
+#
+# La diferencia con FakeMCA importa y conviene tenerla presente: FakeMCA
+# reproduce los valores de reset del RTL y su aritmética de histograma, así que
+# un desacuerdo contra la placa apunta al hardware. Esto de acá es más flojo —
+# las formas son gaussianas sintéticas, no pulsos medidos— así que sirve para
+# ejercitar controles y dibujo, no para validar el camino de datos.
+
+_DEFAULTS_OSC = {            # los del RTL, modulos/osc/rtl/osc_cfg.sv:302-319
+    0x008: 100,   0x00C: 100,        # tresh ch0/ch1
+    0x010: 0,     0x110: 0,          # dly
+    0x014: 1,     0x114: 1,          # dec
+    0x020: 50,    0x024: 50,         # hyst
+    0x028: 0,                        # avg_en
+    0x090: 62500,                    # deb_len
+    0x098: 0,                        # filt_byp
+    0x200: 0,     0x204: 0x8000,     # calib ch0
+    0x208: 0,     0x20C: 0x8000,     # calib ch1
+}
+
+
+class FakeOsc:
+    """Un osciloscopio que no existe: pulsos gaussianos sobre ruido.
+
+    Devuelve trazas cuya altura y tasa se parecen a las del `FakeMCA` que corre
+    al lado, para que las dos pestañas cuenten la misma historia: si el espectro
+    simulado tiene el pico en 8000 cuentas, las formas simuladas también.
+    """
+
+    def __init__(self, n_buf=16384, rate_hz=1000.0, altura_cnt=8000.0,
+                 ancho_muestras=40.0, ruido_cnt=60.0, semilla=0):
+        self._reg = dict(_DEFAULTS_OSC)
+        self._rng = np.random.default_rng(semilla)
+        self.n_buf = int(n_buf)
+        self._rate = float(rate_hz)
+        self._altura = float(altura_cnt)
+        self._ancho = float(ancho_muestras)
+        self._ruido = float(ruido_cnt)
+        self._we_cnt = 0
+        self._t0 = time.monotonic()
+
+    # ---------- registros ----------
+
+    def r32(self, off):
+        # Los punteros de escritura y el contador de eventos avanzan solos: es
+        # lo que hace que la curva de tasa de la GUI tenga algo que dibujar.
+        if off in (0x018, 0x118, 0x01C, 0x11C):
+            return int((time.monotonic() - self._t0) * 1e6) % self.n_buf
+        if off in (0x02C, 0x12C):
+            return int((time.monotonic() - self._t0) * self._rate)
+        if off == 0x000:
+            return 1
+        return self._reg.get(off, 0)
+
+    def w32(self, off, v):
+        self._reg[off] = int(v) & 0xFFFFFFFF
+
+    # ---------- formas ----------
+
+    def capturar(self, pre=0, post=1024, n_ch=2):
+        """Una ventana por canal, en VOLTS, como la devolvería la placa.
+
+        El trigger queda en la muestra `pre`, igual que en `capture_window_np`:
+        la ventana es [ref-pre, ref+post-1] y el cliente dibuja con t=0 ahí.
+        """
+        n = int(pre) + int(post)
+        dec = max(1, self._reg.get(0x014, 1))
+        # La tasa de eventos en la ventana depende de la decimación: con dec
+        # alto, la misma ventana en muestras cubre más tiempo real y entran más
+        # pulsos. Es el efecto que hace que subir la decimación "apile".
+        dur_s = n * dec / FS_HZ
+        n_ev = self._rng.poisson(max(0.0, self._rate * dur_s))
+
+        t = np.arange(n, dtype=np.float32)
+        salida = np.zeros((n_ch, n), dtype=np.float32)
+        for c in range(n_ch):
+            y = self._rng.normal(0.0, self._ruido, n).astype(np.float32)
+            # El pulso del trigger, siempre en `pre`; los demás, al azar.
+            centros = [float(pre)]
+            if n_ev:
+                centros += list(self._rng.uniform(0, n, int(n_ev)))
+            for c0 in centros:
+                alt = self._rng.normal(self._altura, self._altura * 0.02)
+                y += (alt * np.exp(-0.5 * ((t - c0) / self._ancho) ** 2)
+                      ).astype(np.float32)
+            salida[c] = y / ADC_CNT_PER_V
+        self._we_cnt += 1
+        return salida
+
+    def close(self):
+        pass
+
+
+class FakeMultiTrigger:
+    """Registros del multitrigger que retienen lo escrito, y un snapshot fijo."""
+
+    _DEFAULTS = {0x210: 0, 0x214: 0, 0x21C: 0,
+                 0x240: 0xFFFFFFFF, 0x244: 0xFFFFFFFF}
+
+    def __init__(self):
+        self._reg = dict(self._DEFAULTS)
+
+    def r32(self, off):
+        if off == 0x218:                 # snapshot: sw + flanco positivo ch0
+            return 0b11
+        return self._reg.get(off, 0)
+
+    def w32(self, off, v):
+        self._reg[off] = int(v) & 0xFFFFFFFF
+
+    def read_snapshot_raw(self):
+        return self.r32(0x218)
+
+    def get_flags(self):
+        return self.r32(0x21C)
+
+    def close(self):
+        pass

@@ -39,6 +39,8 @@ from app.panel_espectro import PanelEspectro
 from app.panel_integracion import PanelIntegracion
 from app.panel_log import PanelLog
 from app.panel_mapa2d import PanelMapa2D
+from app.panel_multitrigger import PanelMultitrigger
+from app.panel_osc import PanelOsc
 
 PERIODO_ESTADO_MS = 200
 REFRESCO_ESPECTRO_S = 1.0
@@ -58,6 +60,9 @@ class Trabajador(QObject):
     mapa2d = pyqtSignal(object)
     config = pyqtSignal(dict)
     integracion = pyqtSignal(dict)
+    osc_info = pyqtSignal(dict)
+    mtrg_info = pyqtSignal(dict)
+    traza = pyqtSignal(dict, object)          # metadata, float32[n_ch, n]
     aviso = pyqtSignal(str)
     fallo = pyqtSignal(str)
 
@@ -247,6 +252,66 @@ class Trabajador(QObject):
         self._pedir_integracion('integracion.ctrl', que=que)
         self.aviso.emit(f'control global: {que}')
 
+    # ---------- osciloscopio y multitrigger ----------
+    #
+    # Mismo criterio que el slot 6: el driver vive en la placa y el cliente sólo
+    # puede pedirle al servidor que lo use. La diferencia es `osc.capture`, que
+    # trae payload binario y por eso no pasa por `pedir()`.
+
+    def _pedir_osc(self, op, señal, **args):
+        if self.h is None:
+            return
+        try:
+            señal.emit(self.h.pedir(op, **args))
+        except Exception as e:                                   # noqa: BLE001
+            self.fallo.emit(f'{op}: {type(e).__name__}: {e}')
+
+    @pyqtSlot()
+    def leer_osc(self):
+        self._pedir_osc('osc.get', self.osc_info)
+
+    @pyqtSlot(str, int)
+    def escribir_campo_osc(self, campo, valor):
+        self._pedir_osc('osc.set', self.osc_info, fields={campo: int(valor)})
+        self.aviso.emit(f'osc.{campo} = {valor}')
+
+    @pyqtSlot(str)
+    def ctrl_osc(self, que):
+        self._pedir_osc('osc.ctrl', self.osc_info, que=que)
+        self.aviso.emit(f'osc: {que}')
+
+    @pyqtSlot(int, int)
+    def capturar_osc(self, pre, post):
+        if self.h is None:
+            return
+        try:
+            meta, datos = self.h.capturar_osc(pre=pre, post=post)
+            self.traza.emit(meta, datos)
+        except OSError as e:
+            self._caido(e)
+        except Exception as e:                                   # noqa: BLE001
+            self.fallo.emit(f'osc.capture: {type(e).__name__}: {e}')
+
+    @pyqtSlot()
+    def leer_mtrg(self):
+        self._pedir_osc('mtrg.get', self.mtrg_info)
+
+    @pyqtSlot(str, int)
+    def escribir_campo_mtrg(self, campo, valor):
+        self._pedir_osc('mtrg.set', self.mtrg_info, fields={campo: int(valor)})
+        self.aviso.emit(f'mtrg.{campo} = {valor}')
+
+    @pyqtSlot(int, int)
+    def set_mascara(self, canal, mascara):
+        self._pedir_osc('mtrg.set', self.mtrg_info,
+                        fields={f'or_mask_ch{int(canal)}': int(mascara)})
+        self.aviso.emit(f'máscara ch{canal} = {mascara:#010x}')
+
+    @pyqtSlot(bool)
+    def armar_mtrg(self, armar):
+        self._pedir_osc('mtrg.arm' if armar else 'mtrg.disarm', self.mtrg_info)
+        self.aviso.emit('disparo armado' if armar else 'disparo desarmado')
+
     @pyqtSlot(float)
     def set_refresco(self, segundos):
         if hasattr(self, '_t_espectro'):
@@ -290,6 +355,14 @@ class Mcamon(QMainWindow):
     sig_ruteo = pyqtSignal(str, int, bool)
     sig_reset_ruteos = pyqtSignal()
     sig_ctrl_integracion = pyqtSignal(str)
+    sig_pedir_osc = pyqtSignal()
+    sig_campo_osc = pyqtSignal(str, int)
+    sig_ctrl_osc = pyqtSignal(str)
+    sig_capturar = pyqtSignal(int, int)
+    sig_pedir_mtrg = pyqtSignal()
+    sig_campo_mtrg = pyqtSignal(str, int)
+    sig_mascara = pyqtSignal(int, int)
+    sig_armar = pyqtSignal(bool)
 
     def __init__(self, host='10.73.28.27', port=PORT_DEFAULT):
         super().__init__()
@@ -314,8 +387,11 @@ class Mcamon(QMainWindow):
         self.panel_config = PanelConfigMCA()
         self.panel_mapa = None
         # La de Integración se crea al conectarse, si el bitstream trae el
-        # slot 6: mismo criterio que la del mapa 2D.
+        # slot 6: mismo criterio que la del mapa 2D. Las de OSC y Multitrigger,
+        # igual, según `has_osc` / `has_mtrg`.
         self.panel_integracion = None
+        self.panel_osc = None
+        self.panel_mtrg = None
         self.tabs.addTab(self.panel_log, 'Mensajes')
         self.tabs.addTab(self.panel_espectro, 'Espectro')
         self.tabs.addTab(self.panel_config, 'MCA')
@@ -333,6 +409,12 @@ class Mcamon(QMainWindow):
         self.panel_config.pedir_campo.connect(self.sig_campo)
         self.panel_config.pedir_clear.connect(self.sig_borrar)
         self.panel_config.log.connect(self.panel_log.info)
+
+        # El modo continuo del osciloscopio. Sólo dispara con la pestaña
+        # VISIBLE y la casilla marcada: una captura son hasta 16384 muestras por
+        # canal y no se pagan de fondo, igual que el mapa 2D.
+        self._t_traza = QTimer(self, interval=500)
+        self._t_traza.timeout.connect(self._tic_traza)
 
         acc = QAction('Cargar bitstream del MCA…', self)
         acc.triggered.connect(self._cargar_bitstream)
@@ -411,8 +493,19 @@ class Mcamon(QMainWindow):
         self.sig_ruteo.connect(self.trabajador.set_ruteo)
         self.sig_reset_ruteos.connect(self.trabajador.reset_ruteos)
         self.sig_ctrl_integracion.connect(self.trabajador.ctrl_integracion)
+        self.sig_pedir_osc.connect(self.trabajador.leer_osc)
+        self.sig_campo_osc.connect(self.trabajador.escribir_campo_osc)
+        self.sig_ctrl_osc.connect(self.trabajador.ctrl_osc)
+        self.sig_capturar.connect(self.trabajador.capturar_osc)
+        self.sig_pedir_mtrg.connect(self.trabajador.leer_mtrg)
+        self.sig_campo_mtrg.connect(self.trabajador.escribir_campo_mtrg)
+        self.sig_mascara.connect(self.trabajador.set_mascara)
+        self.sig_armar.connect(self.trabajador.armar_mtrg)
 
         self.trabajador.integracion.connect(self._al_integracion)
+        self.trabajador.osc_info.connect(self._al_osc)
+        self.trabajador.mtrg_info.connect(self._al_mtrg)
+        self.trabajador.traza.connect(self._al_traza)
         self.trabajador.conectado.connect(self._al_conectar)
         self.trabajador.desconectado.connect(self._al_desconectar)
         self.trabajador.estado.connect(self._al_estado)
@@ -463,18 +556,27 @@ class Mcamon(QMainWindow):
         self._sincronizar_pestana_mapa(bool(info.get('has_2d')),
                                        tuple(info.get('map2d_shape') or (0, 0)))
         self._sincronizar_pestana_integracion(bool(info.get('has_integracion')))
+        self._sincronizar_pestanas_osc(bool(info.get('has_osc')),
+                                       bool(info.get('has_mtrg')))
+        for nota in info.get('bases_notas') or ():
+            self.panel_log.info(f'bases: {nota}')
 
     def _al_desconectar(self, _motivo):
         self.btn_conectar.setText('Conectar')
         self.lbl_estado.setText('sin conectar')
         self.panel_espectro.set_conectado(False)
         self.panel_config.set_conectado(False)
-        if self.panel_integracion is not None:
-            self.panel_integracion.set_conectado(False)
+        for panel in (self.panel_integracion, self.panel_osc, self.panel_mtrg):
+            if panel is not None:
+                panel.set_conectado(False)
         self.panel_log.info('desconectado')
 
     def _al_estado(self, est):
         self.panel_espectro.actualizar_estado(est)
+        # La curva de tasa del OSC se alimenta del `status` del MCA, que ya
+        # llega cada 200 ms: no cuesta ninguna lectura extra.
+        if self.panel_osc is not None:
+            self.panel_osc.actualizar_estado(est)
 
     def _al_config(self, cfg):
         self.panel_espectro.actualizar_config(cfg)
@@ -549,10 +651,82 @@ class Mcamon(QMainWindow):
         if self.panel_integracion is not None:
             self.panel_integracion.actualizar(info)
 
+    # ---------- pestañas de OSC y Multitrigger ----------
+
+    def _sincronizar_pestanas_osc(self, hay_osc, hay_mtrg):
+        """Las dos existen si el bitstream trae el bloque, igual que las otras.
+
+        Son dos pestañas para un mismo slot físico a propósito: el osciloscopio
+        clásico y el multitrigger son dos APIs sobre la misma región, y juntarlas
+        escondería eso. Pueden aparecer por separado porque el servidor abre los
+        handles por separado.
+        """
+        if hay_osc and self.panel_osc is None:
+            self.panel_osc = PanelOsc()
+            self.panel_osc.log.connect(self.panel_log.info)
+            self.panel_osc.pedir_campo.connect(self.sig_campo_osc)
+            self.panel_osc.pedir_ctrl.connect(self.sig_ctrl_osc)
+            self.panel_osc.pedir_captura.connect(self.sig_capturar)
+            self.tabs.addTab(self.panel_osc, 'OSC')
+        elif not hay_osc and self.panel_osc is not None:
+            self.tabs.removeTab(self.tabs.indexOf(self.panel_osc))
+            self.panel_osc.deleteLater()
+            self.panel_osc = None
+        if self.panel_osc is not None:
+            self.panel_osc.set_conectado(True)
+            self.sig_pedir_osc.emit()
+
+        if hay_mtrg and self.panel_mtrg is None:
+            self.panel_mtrg = PanelMultitrigger()
+            self.panel_mtrg.log.connect(self.panel_log.info)
+            self.panel_mtrg.pedir_campo.connect(self.sig_campo_mtrg)
+            self.panel_mtrg.pedir_mascara.connect(self.sig_mascara)
+            self.panel_mtrg.pedir_armar.connect(self.sig_armar)
+            self.panel_mtrg.pedir_refresco.connect(self.sig_pedir_mtrg)
+            self.tabs.addTab(self.panel_mtrg, 'Multitrigger')
+        elif not hay_mtrg and self.panel_mtrg is not None:
+            self.tabs.removeTab(self.tabs.indexOf(self.panel_mtrg))
+            self.panel_mtrg.deleteLater()
+            self.panel_mtrg = None
+        if self.panel_mtrg is not None:
+            self.panel_mtrg.set_conectado(True)
+            self.sig_pedir_mtrg.emit()
+        self._cambio_pestana()
+
+    def _al_osc(self, info):
+        if self.panel_osc is not None:
+            self.panel_osc.actualizar_osc(info)
+
+    def _al_mtrg(self, info):
+        if self.panel_mtrg is not None:
+            self.panel_mtrg.actualizar_mtrg(info)
+
+    def _al_traza(self, meta, datos):
+        if self.panel_osc is not None:
+            self.panel_osc.actualizar_traza(meta, datos)
+
+    def _tic_traza(self):
+        """Pide una captura si el modo continuo está activo y la pestaña se ve."""
+        if self.panel_osc is None or not self.info.get('has_osc'):
+            return
+        if self.tabs.currentWidget() is not self.panel_osc:
+            return
+        if self.panel_osc.quiere_continuo():
+            self.panel_osc.pedir_una()
+            # El `osc.get` va en el mismo tic: es de donde sale la tasa de
+            # disparos del OSC (Δwe_cnt/Δt), que sin refresco no tiene serie.
+            self.sig_pedir_osc.emit()
+
     def _cambio_pestana(self, *_):
         visible = (self.panel_mapa is not None and
                    self.tabs.currentWidget() is self.panel_mapa)
         self.sig_mapa_visible.emit(visible)
+        osc_visible = (self.panel_osc is not None and
+                       self.tabs.currentWidget() is self.panel_osc)
+        if osc_visible and not self._t_traza.isActive():
+            self._t_traza.start()
+        elif not osc_visible and self._t_traza.isActive():
+            self._t_traza.stop()
 
     # ---------- bitstream ----------
 

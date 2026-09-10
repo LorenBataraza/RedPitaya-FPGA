@@ -69,6 +69,15 @@ OPS = (
     'integracion.set_route',    # consumidor, tap, enable  -> el get de vuelta
     'integracion.reset_routes',
     'integracion.ctrl',         # que: run_on|run_off|clear|srst
+    # --- osciloscopio y multitrigger: el MISMO bloque físico, dos APIs ---
+    'osc.get',              # -> config, status, base, n_buf, fs_hz
+    'osc.set',              # fields         -> el get de vuelta
+    'osc.ctrl',             # que: reset|sw_trig
+    'osc.capture',          # pre, post      -> float32[2, pre+post] (binario)
+    'mtrg.get',             # -> config, status, nombres de los bits, base
+    'mtrg.set',             # fields         -> el get de vuelta
+    'mtrg.arm',             # mask_ch0, mask_ch1, thr, hyst, delay, auto_rearm
+    'mtrg.disarm',
 )
 
 

@@ -722,7 +722,7 @@ release: ## arma el paquete instalable en dist/. Versión en ../VERSION
 	   echo "bitstream  mca_red_pitaya.bit.bin"; \
 	   echo "           $$(stat -c%s $(BIT_LOCAL)) bytes"; \
 	   echo "           md5 $$(md5sum $(BIT_LOCAL) | cut -d' ' -f1)"; \
-	   echo "eje         $$(grep -oP 'H_AW_ESPERADO = \K[0-9]+' $(RAIZ)/campanas/preparar_placa.py) bits de histograma esperados"; \
+	   echo "eje        $$(grep -oP 'H_AW_ESPERADO = \K[0-9]+' $(RAIZ)/campanas/preparar_placa.py) bits de histograma esperados"; \
 	 } > $(STAGING)/$(PAQUETE)/VERSION
 	@# Un manifiesto de todo el contenido, que el instalador verifica antes de
 	@# copiar nada. Una descarga truncada instala un árbol a medias que falla
@@ -799,7 +799,7 @@ release-instalar-remoto: ## copia el paquete a la Pitaya y lo instala (NO carga 
 # Publicar es irreversible en la práctica —alguien puede haber bajado el
 # tarball entre que se sube y se borra— así que pide confirmación explícita y
 # rechaza todo lo que haría el paquete no reproducible.
-release-publicar:  ## sube dist/ a GitHub como release $(TAG). Pide CONFIRMAR=si
+release-publicar:  ## sube dist/ a GitHub como release mca-v<versión>. Pide CONFIRMAR=si
 	@command -v gh >/dev/null || { \
 	  echo "ERROR: falta gh (https://cli.github.com). Alternativa a mano en"; \
 	  echo "       docs/publicar_release.md"; exit 1; }

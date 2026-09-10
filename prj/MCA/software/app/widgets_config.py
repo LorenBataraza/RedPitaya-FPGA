@@ -65,11 +65,18 @@ class PanelCampos(QWidget):
     emite `pedir_campo(campo, valor)` y `log(texto)`, y recibe `actualizar_config`
     y `set_conectado`. La ventana no necesita saber qué controles hay adentro.
 
-    `campo` tiene que ser una clave de `_CAMPOS` de `API/mca.py`: el trabajador
-    despacha por `getattr(A, f'mca_set_{campo}')`, así que un campo sin setter
-    falla en tiempo de ejecución y no de importación. `campos_sin_setter()` lo
-    comprueba de una vez, y hay un test que lo corre sobre los paneles reales.
+    `campo` tiene que ser una clave del `_CAMPOS` del bloque al que pertenece
+    el panel, que declara en `BLOQUE`. Para el MCA el trabajador despacha por
+    `getattr(A, f'mca_set_{campo}')`, así que un campo sin setter falla en
+    tiempo de ejecución y no de importación; para los demás bloques va por una
+    operación `<bloque>.set` con un dict. En los dos casos un nombre mal escrito
+    sólo se nota al tocar el control, así que `campos_desconocidos()` lo
+    comprueba de una vez y hay un test que lo corre sobre los paneles reales.
     """
+
+    # A qué bloque van los campos de este panel. La ventana lo mira para
+    # decidir a qué operación mandarlos; el panel no sabe nada de la red.
+    BLOQUE = 'mca'
 
     pedir_campo = pyqtSignal(str, int)
     log = pyqtSignal(str)
@@ -168,6 +175,23 @@ def campos_sin_setter(campos):
     """
     from API import mca as A
     return tuple(c for c in campos if not hasattr(A, f'mca_set_{c}'))
+
+
+def campos_desconocidos(campos, bloque='mca'):
+    """Los que NO existen en el `_CAMPOS` del bloque que dice el panel.
+
+    Generaliza `campos_sin_setter` a los bloques que no son el MCA: el OSC y el
+    multitrigger no tienen un setter por campo, se configuran con un dict que el
+    servidor valida contra su propia tabla. Un nombre mal escrito llegaría hasta
+    allá y volvería como un error en el log; esto lo detecta en un test.
+    """
+    from API import mca as A
+    from API import multitrigger as MT
+    from API import osciloscope as O
+    tablas = {'mca': A._CAMPOS, 'osc': O._CAMPOS, 'mtrg': MT._CAMPOS}
+    if bloque not in tablas:
+        raise ValueError(f'bloque desconocido: {bloque!r}; hay: {sorted(tablas)}')
+    return tuple(c for c in campos if c not in tablas[bloque])
 
 
 def grupo(titulo, *widgets_o_filas):

@@ -18,12 +18,14 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 from matplotlib.figure import Figure
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QFont
-from PyQt5.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog,
-                             QFormLayout, QGroupBox, QHBoxLayout, QLabel,
+from PyQt5.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox,
+                             QDoubleSpinBox, QFileDialog, QFormLayout,
+                             QGroupBox, QHBoxLayout, QHeaderView, QLabel,
                              QMessageBox, QPushButton, QScrollArea, QSpinBox,
-                             QVBoxLayout, QWidget)
+                             QTableWidget, QTableWidgetItem, QVBoxLayout,
+                             QWidget)
 
-from API.analisis import gauss_fit_peak
+from API.analisis import buscar_picos
 from API.mca import (mca_canal_de_amplitud, mca_load_file,
                      mca_save_file_binary, mca_save_file_json,
                      mca_write_file_histogram)
@@ -56,7 +58,8 @@ class PanelEspectro(QWidget):
         self.zoom_z = 0                      # ventana = 2^-z del fondo de escala
         self.zoom_k = 0                      # cuál de las 2^z ventanas
         self._cargando = False               # evita el eco de los spinbox
-        self._roi_sombra = None
+        self.picos = []                      # lo que devolvió `buscar_picos`
+        self._marcas_picos = []
         self._lineas_ventana = []
 
         self._construir()
@@ -107,13 +110,15 @@ class PanelEspectro(QWidget):
         interior = QWidget()
         v = QVBoxLayout(interior)
         v.setContentsMargins(6, 0, 6, 0)
+        # Primero lo que se MIRA, después lo que se TOCA. Los tres primeros
+        # grupos son lectura permanente y tienen que entrar sin desplazar: en un
+        # portátil de 768 px, con los controles arriba la tabla de picos quedaba
+        # abajo de todo y había que buscarla con la barra.
         v.addWidget(self._grupo_lectura())
+        v.addWidget(self._grupo_contadores())
+        v.addWidget(self._grupo_picos())
         v.addWidget(self._grupo_umbral())
         v.addWidget(self._grupo_exposicion())
-        # Los contadores van ANTES de la ROI: son lectura permanente y tienen
-        # que estar a la vista sin desplazar; la ROI se usa a demanda.
-        v.addWidget(self._grupo_contadores())
-        v.addWidget(self._grupo_roi())
         v.addWidget(self._grupo_archivo())
         v.addStretch(1)
 
@@ -201,29 +206,79 @@ class PanelEspectro(QWidget):
         v.addWidget(self.btn_clear)
         return g
 
-    def _grupo_roi(self):
-        g = QGroupBox('región de interés')
-        v = QVBoxLayout(g)
-        self.spn_roi_lo = QSpinBox()
-        self.spn_roi_lo.setMaximum(1 << 20)
-        self.spn_roi_hi = QSpinBox()
-        self.spn_roi_hi.setMaximum(1 << 20)
-        self.spn_roi_hi.setValue(16383)
-        for s in (self.spn_roi_lo, self.spn_roi_hi):
-            s.valueChanged.connect(self._redibujar)
-        fila = QHBoxLayout()
-        fila.addWidget(QLabel('de'))
-        fila.addWidget(self.spn_roi_lo)
-        fila.addWidget(QLabel('a'))
-        fila.addWidget(self.spn_roi_hi)
-        v.addLayout(fila)
+    def _grupo_picos(self):
+        """Los picos que hay en el espectro, con su ancho. Se llena solo.
 
-        self.btn_ajustar = QPushButton('Ajustar gaussiana')
-        self.btn_ajustar.clicked.connect(self._ajustar_roi)
-        v.addWidget(self.btn_ajustar)
-        self.lbl_roi = QLabel('—')
-        self.lbl_roi.setWordWrap(True)
-        v.addWidget(self.lbl_roi)
+        Reemplaza al ajuste gaussiano sobre una región marcada a mano. El cambio
+        no es de presentación: antes había que saber **dónde** estaba el pico
+        para poder medirlo, y en un espectro desconocido eso es justamente lo que
+        no se sabe. Los dos números que interesan de un fotopico —dónde cae y
+        cuán ancho es— salen igual, y salen para todos a la vez.
+        """
+        g = QGroupBox('picos detectados')
+        v = QVBoxLayout(g)
+
+        self.tabla_picos = QTableWidget(0, 5)
+        self.tabla_picos.setHorizontalHeaderLabels(
+            ['canal', 'FWHM', 'res %', 'cuentas', 'área'])
+        self.tabla_picos.verticalHeader().setVisible(False)
+        self.tabla_picos.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.tabla_picos.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.tabla_picos.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.tabla_picos.setFont(QFont('monospace', 9))
+        self.tabla_picos.setAlternatingRowColors(True)
+        self.tabla_picos.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeToContents)
+        # Alto fijo de unas seis filas: la tabla crece con lo que encuentre, y
+        # sin tope empujaría fuera de la vista a los grupos de abajo.
+        self.tabla_picos.setMinimumHeight(150)
+        self.tabla_picos.setMaximumHeight(190)
+        # Elegir una fila centra el eje en ese pico: es la manera de ir de la
+        # lista al espectro sin buscar el canal a mano con el zoom.
+        self.tabla_picos.itemSelectionChanged.connect(self._ir_al_pico)
+        v.addWidget(self.tabla_picos)
+
+        self.lbl_picos = QLabel('sin espectro')
+        self.lbl_picos.setWordWrap(True)
+        v.addWidget(self.lbl_picos)
+
+        f = QFormLayout()
+        f.setFieldGrowthPolicy(QFormLayout.FieldsStayAtSizeHint)
+        f.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        self.spn_suavizado = QSpinBox()
+        self.spn_suavizado.setRange(1, 101)
+        self.spn_suavizado.setValue(3)
+        self.spn_suavizado.setSingleStep(2)
+        self.spn_suavizado.setToolTip(
+            'Canales de la media móvil con la que se buscan los máximos.\n\n'
+            'Sin suavizar, en un histograma de Poisson casi cualquier canal es '
+            'un máximo local de sus vecinos. Subirlo agrupa picos angostos; '
+            'bajarlo separa más, a costa de encontrar estructura que es ruido.')
+
+        self.spn_prominencia = QDoubleSpinBox()
+        self.spn_prominencia.setRange(0.1, 100.0)
+        self.spn_prominencia.setValue(5.0)
+        self.spn_prominencia.setSuffix(' %')
+        self.spn_prominencia.setToolTip(
+            'Prominencia mínima, como porcentaje de la del pico mayor.\n\n'
+            'Se filtra por prominencia y no por altura: un hombro sobre un fondo '
+            'alto es un pico, y un rizo sobre el fotopico no lo es. Bajarlo '
+            'saca picos más chicos — hasta el piso de ruido de conteo, que es '
+            'un segundo criterio y no se puede desactivar desde acá.')
+
+        for w in (self.spn_suavizado, self.spn_prominencia):
+            w.setKeyboardTracking(False)
+            w.valueChanged.connect(self._recalcular_picos)
+
+        f.addRow('suavizado', self.spn_suavizado)
+        f.addRow('prominencia mín.', self.spn_prominencia)
+        v.addLayout(f)
+
+        self.chk_marcar = QCheckBox('marcar en el gráfico')
+        self.chk_marcar.setChecked(True)
+        self.chk_marcar.toggled.connect(self._redibujar)
+        v.addWidget(self.chk_marcar)
         return g
 
     def _grupo_contadores(self):
@@ -294,7 +349,7 @@ class PanelEspectro(QWidget):
     # =========================================================================
 
     def set_conectado(self, conectado, running=False):
-        for w in (self.btn_clear, self.btn_ajustar, self.spn_thr,
+        for w in (self.btn_clear, self.spn_thr,
                   self.spn_hyst, self.spn_amp_min, self.spn_amp_max,
                   self.chk_ventana):
             w.setEnabled(conectado)
@@ -315,11 +370,8 @@ class PanelEspectro(QWidget):
         self.zoom_z = 0
         self.zoom_k = 0
         self.hist = None
-        self.spn_roi_lo.setMaximum(self.n_canales - 1)
-        self.spn_roi_hi.setMaximum(self.n_canales - 1)
-        self.spn_roi_hi.setValue(self.n_canales - 1)
         self.ax.set_xlim(0, self.n_canales)
-        self._redibujar()
+        self._recalcular_picos()
 
     def actualizar_config(self, cfg):
         """Refleja lo que hay en el hardware, sin reenviarlo."""
@@ -371,7 +423,8 @@ class PanelEspectro(QWidget):
         self.hist = np.asarray(hist)
         if meta:
             self.meta = meta
-        self._redibujar()
+        # El dato cambió, así que los picos también: `_recalcular_picos` redibuja.
+        self._recalcular_picos()
 
     # =========================================================================
     # Dibujo
@@ -395,13 +448,23 @@ class PanelEspectro(QWidget):
         techo = float(y.max()) if y.size else 1.0
         self.ax.set_ylim(0.5 if log else 0, max(techo * 1.1, 1.0))
 
-        if self._roi_sombra is not None:
-            self._roi_sombra.remove()
-            self._roi_sombra = None
-        lo, hi = self.spn_roi_lo.value(), self.spn_roi_hi.value()
-        if hi > lo and self.hist is not None:
-            self._roi_sombra = self.ax.axvspan(lo, hi, color='#3080ff',
-                                               alpha=0.12, zorder=0)
+        # Cada pico: un punto en la cima y una barra horizontal en la media
+        # altura, que ES el FWHM dibujado. La barra dice de un vistazo si el
+        # ancho de la tabla corresponde al pico que uno está mirando — y si un
+        # doblete sin resolver se está midiendo como uno solo.
+        for artista in self._marcas_picos:
+            artista.remove()
+        self._marcas_picos = []
+        if self.chk_marcar.isChecked():
+            for p in self.picos:
+                self._marcas_picos.append(self.ax.plot(
+                    [p['canal']], [p['cuentas']], marker='v', ms=6,
+                    color='#3080ff', ls='none', zorder=5)[0])
+                if not p['truncado']:
+                    media = p['fondo'] + p['prominencia'] / 2.0
+                    self._marcas_picos.append(self.ax.plot(
+                        [p['fwhm_lo'], p['fwhm_hi']], [media, media],
+                        color='#3080ff', lw=1.4, alpha=0.8, zorder=5)[0])
 
         # Los límites de aceptación viven en cuentas de amplitud de AMP_W bits;
         # el eje está en canales, que son los h_aw bits altos de la feature
@@ -463,23 +526,106 @@ class PanelEspectro(QWidget):
             self.pedir_campo.emit('amp_max', self.spn_amp_max.value())
         self._redibujar()
 
-    def _ajustar_roi(self):
+    # ---------- picos ----------
+
+    def _recalcular_picos(self):
+        """Busca los picos y repuebla la tabla. **No** se llama al redibujar.
+
+        Cuesta ~20 ms sobre 8192 canales, y `_redibujar` corre además con cada
+        cambio de escala log o de rebin — que no cambian el dato. Los picos
+        dependen del histograma y de los dos controles de sensibilidad, así que
+        se recalculan sólo cuando cambia alguno de esos tres.
+        """
         if self.hist is None:
+            self.picos = []
+        else:
+            self.picos = buscar_picos(
+                self.hist,
+                suavizado=self.spn_suavizado.value(),
+                prominencia_rel=self.spn_prominencia.value() / 100.0)
+        self._pintar_tabla_picos()
+        self._redibujar()
+
+    def _pintar_tabla_picos(self):
+        # La selección se guarda por CANAL y no por número de fila: la lista se
+        # repuebla sola mientras la medida crece, y un pico nuevo a la izquierda
+        # correría todas las filas de lugar.
+        canal_sel = self._canal_seleccionado()
+
+        self.tabla_picos.blockSignals(True)
+        try:
+            self.tabla_picos.setRowCount(len(self.picos))
+            for fila, p in enumerate(self.picos):
+                truncado = p['truncado']
+                celdas = (
+                    f"{p['canal']:.1f}",
+                    '—' if truncado else f"{p['fwhm']:.2f}",
+                    '—' if truncado else f"{p['resolucion_pct']:.2f}",
+                    f"{p['cuentas']:.0f}",
+                    f"{p['area']:.0f}",
+                )
+                for col, texto in enumerate(celdas):
+                    it = QTableWidgetItem(texto)
+                    it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                    if truncado:
+                        it.setToolTip(
+                            'El pico no baja a media altura antes de que se '
+                            'acabe el eje, así que su ancho no está definido.\n'
+                            'Pasa con medio pico contra el canal 0 y con el '
+                            'escalón de apilamiento contra el tope de escala.')
+                    self.tabla_picos.setItem(fila, col, it)
+            if canal_sel is not None:
+                self._seleccionar_canal(canal_sel)
+        finally:
+            self.tabla_picos.blockSignals(False)
+
+        if self.hist is None:
+            self.lbl_picos.setText('sin espectro')
+        elif not self.picos:
+            self.lbl_picos.setText(
+                'ningún pico por encima del ruido de conteo')
+        else:
+            n = len(self.picos)
+            self.lbl_picos.setText(
+                f"{n} pico{'s' if n != 1 else ''} · FWHM y resolución en "
+                f"canales del eje actual")
+
+    def _canal_seleccionado(self):
+        filas = self.tabla_picos.selectionModel().selectedRows() \
+            if self.tabla_picos.selectionModel() else []
+        if not filas:
+            return None
+        i = filas[0].row()
+        return self.picos[i]['canal'] if 0 <= i < len(self.picos) else None
+
+    def _seleccionar_canal(self, canal):
+        """Vuelve a marcar el pico más cercano al que estaba elegido."""
+        if not self.picos:
             return
-        lo, hi = self.spn_roi_lo.value(), self.spn_roi_hi.value()
-        if hi <= lo:
-            self.lbl_roi.setText('la región está vacía')
+        i = min(range(len(self.picos)),
+                key=lambda k: abs(self.picos[k]['canal'] - canal))
+        if abs(self.picos[i]['canal'] - canal) <= max(2.0, self.n_canales / 200):
+            self.tabla_picos.selectRow(i)
+
+    def _ir_al_pico(self):
+        """Centra el eje en el pico elegido, con unos anchos de margen."""
+        canal = self._canal_seleccionado()
+        if canal is None:
             return
-        r = gauss_fit_peak(self.hist, lo, hi)
-        if r.get('empty'):
-            self.lbl_roi.setText('sin cuentas en la región')
-            return
-        self.lbl_roi.setText(
-            f"centroide {r['centroid']:.1f} · FWHM {r['fwhm']:.2f} canales\n"
-            f"área {r['area']:.0f} cuentas · "
-            f"resolución {r['resolution_pct']:.3f} %")
-        self.log.emit(f"ROI [{lo}, {hi}]: centroide {r['centroid']:.1f}, "
-                      f"FWHM {r['fwhm']:.2f}, resolución {r['resolution_pct']:.3f} %")
+        i = min(range(len(self.picos)),
+                key=lambda k: abs(self.picos[k]['canal'] - canal))
+        p = self.picos[i]
+        ancho = p['fwhm'] if np.isfinite(p['fwhm']) else self.n_canales / 50
+        margen = max(6.0 * ancho, 20.0)
+        self.ax.set_xlim(max(0.0, canal - margen),
+                         min(float(self.n_canales), canal + margen))
+        self.canvas.draw_idle()
+        self.log.emit(
+            f"pico en canal {p['canal']:.1f}: " +
+            ('FWHM no definido (truncado por el borde del eje)' if p['truncado']
+             else f"FWHM {p['fwhm']:.2f} canales, "
+                  f"resolución {p['resolucion_pct']:.2f} %") +
+            f", área {p['area']:.0f} cuentas")
 
     # ---------- archivo ----------
 

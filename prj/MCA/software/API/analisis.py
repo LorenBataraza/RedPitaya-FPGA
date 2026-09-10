@@ -13,6 +13,7 @@ figuras de `docs/mca/figuras/`. Las tres capas gobiernan la API de *hardware*.
 Contenido:
 
     gauss_fit_peak          ajuste del fotopico -> centroide, fwhm, resolución
+    buscar_picos            TODOS los picos del espectro, con su FWHM
     energy_calibration      recta canal(E) + INL como % de fondo de escala
     dnl                     no-linealidad diferencial desde un pulser deslizante
     fom                     figura de mérito de discriminación por forma
@@ -92,6 +93,226 @@ def gauss_fit_peak(spec, lo=None, hi=None):
         'bins_poblados': n_pobl,
         'empty': False,
     }
+
+
+def _suavizar(y, k):
+    """Media móvil de `k` canales, con los bordes normalizados.
+
+    Con `mode='same'` a secas los extremos se dividen igual por `k` aunque haya
+    menos muestras, así que un pico pegado al borde se atenúa y deja de
+    detectarse. Dividir por la convolución de unos corrige exactamente eso.
+    """
+    k = int(k)
+    if k <= 1:
+        return np.asarray(y, dtype=float)
+    nucleo = np.ones(k, dtype=float)
+    y = np.asarray(y, dtype=float)
+    return np.convolve(y, nucleo, 'same') / np.convolve(np.ones_like(y), nucleo, 'same')
+
+
+def _prominencia(ys, p):
+    """Prominencia topográfica del máximo `p`, su base, y su cuenca.
+
+    Definición estándar: cuánto hay que bajar desde el pico antes de poder subir
+    a otro más alto. La base es el más alto de los dos valles, y sirve además
+    como estimación local del fondo — que es lo que hace que el FWHM se mida
+    sobre el continuo y no sobre cero.
+
+    `(i0, i1)` son los límites de la cuenca del pico: hasta dónde se puede
+    caminar antes de entrar en la ladera del vecino.
+    """
+    h = ys[p]
+    izq = np.nonzero(ys[:p] > h)[0]
+    i0 = int(izq[-1]) if izq.size else 0
+    der = np.nonzero(ys[p + 1:] > h)[0]
+    i1 = int(p + 1 + der[0]) if der.size else len(ys) - 1
+    # El valle de cada lado, y dónde está: el mínimo es el punto de silla, y
+    # más allá de él ya se está subiendo al pico de al lado.
+    k0 = i0 + int(np.argmin(ys[i0:p + 1]))
+    k1 = p + int(np.argmin(ys[p:i1 + 1]))
+    base = max(float(ys[k0]), float(ys[k1]))
+    return h - base, base, k0, k1
+
+
+def _cruce(ys, p, nivel, paso, limite):
+    """Dónde cruza `nivel` la curva al salir de `p` en dirección `paso`.
+
+    El paseo se detiene en `limite`, que es el punto de silla: más allá se
+    estaría midiendo la ladera del pico vecino. Devuelve `None` si se llega al
+    límite o al borde del eje sin haber cruzado.
+
+    **No se corta ante cualquier subida.** Esa guarda parece razonable y es
+    incorrecta: en un histograma de Poisson la ladera sube y baja todo el
+    tiempo, y un solo rizo de ruido bastaba para declarar truncado un pico
+    perfectamente medible. El punto de silla es el límite de verdad.
+
+    Consecuencia de acotar así, que conviene tener presente: hacia el valle el
+    cruce **siempre** ocurre, porque el nivel de media altura se cuenta desde la
+    base y la base ES el valle más alto, o sea que el valle está por debajo del
+    nivel por construcción. El `None` queda entonces para un solo caso real: un
+    pico que no baja a media altura antes de que se acabe el eje.
+    """
+    i = p
+    while True:
+        j = i + paso
+        if j < 0 or j >= len(ys) or (paso > 0 and j > limite) or \
+           (paso < 0 and j < limite):
+            return None
+        if ys[j] < nivel:
+            # Interpolación lineal entre el último punto por encima y el primero
+            # por debajo: sin esto el FWHM se cuantiza al canal y un pico angosto
+            # da siempre el mismo ancho.
+            t = (ys[i] - nivel) / (ys[i] - ys[j])
+            return i + paso * t
+        i = j
+
+
+def buscar_picos(spec, suavizado=3, prominencia_rel=0.05, sigmas=9.5,
+                 altura_min=None, n_max=12):
+    """Los picos del espectro, con su FWHM. Función pura, sólo numpy.
+
+    Reemplaza al ajuste gaussiano sobre una región elegida a mano: en vez de
+    pedir dónde mirar, contesta **qué hay**. Los dos números que interesan de un
+    fotopico —dónde está y cuán ancho es— salen igual, y salen para todos los
+    picos a la vez.
+
+    Cómo se mide, que importa para saber qué creerle:
+
+    - los máximos se buscan sobre el espectro **suavizado** (media móvil de
+      `suavizado` canales), porque en un histograma de Poisson cualquier canal
+      es un máximo local de sus vecinos y sin suavizar se “encuentran” cientos;
+    - se filtran por **prominencia**, no por altura: un hombro sobre un fondo
+      alto es un pico y un rizo sobre el fotopico no lo es, y la altura sola no
+      los distingue. `prominencia_rel` es fracción de la prominencia mayor, así
+      que el criterio no depende de cuántas cuentas se lleven acumuladas; y
+      `sigmas` exige además que el pico sobresalga del ruido de conteo del
+      fondo, que es lo que evita "encontrar" picos en un espectro plano;
+    - el **FWHM** se mide sobre la media altura contada **desde la base local**
+      (el valle más alto de los dos), no desde cero: sobre un continuo, medir
+      desde cero ensancha el pico sistemáticamente;
+    - el **centroide** se recalcula como centro de masa de las cuentas CRUDAS
+      dentro del FWHM. El máximo del suavizado sirve para encontrar el pico, no
+      para ubicarlo.
+
+    `fwhm` es `nan` cuando el pico **no baja a media altura antes de que se
+    acabe el eje** — medio pico contra el canal 0, o el escalón de apilamiento
+    contra el tope de la escala. Es un resultado legítimo, no un fallo, y
+    `truncado` lo marca.
+
+    Dos picos que no se separan **no** dan `nan`: dan **uno solo**, con el ancho
+    de la mezcla. Es lo honesto — el suavizado y el ruido borran un valle poco
+    profundo, y devolver dos entradas inventaría una resolución que la medida no
+    tiene. Un FWHM mucho mayor que el de los picos vecinos es la señal de que
+    ahí hay un doblete sin resolver.
+
+    Devuelve la lista **ordenada por canal**, no por altura: un espectro se lee
+    de izquierda a derecha, y con el orden por altura las filas saltan de lugar
+    entre refrescos mientras la medida crece.
+    """
+    y = np.asarray(spec, dtype=float)
+    if y.size < 3 or y.sum() <= 0:
+        return []
+
+    ys = _suavizar(y, suavizado)
+
+    # Máximos locales. `>` de un lado y `>=` del otro para que una meseta
+    # devuelva un solo índice en vez de uno por canal.
+    interior = np.nonzero((ys[1:-1] > ys[:-2]) & (ys[1:-1] >= ys[2:]))[0] + 1
+    if interior.size == 0:
+        return []
+
+    if altura_min is None:
+        # Por debajo de esto no hay pico sino ruido de conteo: en un fondo de N
+        # cuentas por canal, las fluctuaciones son ~sqrt(N).
+        altura_min = 3.0 * np.sqrt(max(np.median(ys), 1.0))
+    interior = interior[ys[interior] >= altura_min]
+    if interior.size == 0:
+        return []
+
+    proms = np.array([_prominencia(ys, int(p)) for p in interior])
+    prominencias, bases, sillas = proms[:, 0], proms[:, 1], proms[:, 2:]
+
+    # DOS cortes de prominencia, y los dos hacen falta.
+    #
+    # El relativo es el que el usuario regula: descarta lo pequeño frente al
+    # pico mayor. Pero por sí solo NO tiene defensa contra un espectro sin
+    # ningún pico: ahí la prominencia mayor también es ruido, y la fracción de
+    # una cantidad de ruido sigue siendo ruido — un fondo plano daba una docena
+    # de "picos" perfectamente falsos.
+    #
+    # El absoluto lo cubre: sobre un fondo de N cuentas por canal, la media
+    # móvil de `k` canales fluctúa ~sqrt(N/k), así que se exige que el pico
+    # sobresalga `sigmas` de ESO.
+    #
+    # POR QUÉ 9.5 SIGMAS Y NO 3, que es lo que uno escribiría. El umbral no se
+    # aplica a UNA medición sino al máximo de varios miles: un espectro de 8192
+    # canales tiene ~2000 máximos locales tras suavizar, y el mayor de 2000
+    # extremos de ruido está muy lejos en la cola. Medido sobre fondo plano
+    # —y el cociente resulta ser el mismo para N entre 50 y 5000 cuentas, o sea
+    # que la escala se cancela— la prominencia del ruido da mediana 0.8 sigma,
+    # percentil 99 ~5 sigma y MÁXIMO entre 6 y 8.5 sigma.
+    #
+    # Barrido sobre 60 espectros planos: 8.0 sigma deja 0.40 picos falsos por
+    # espectro, 9.0 deja 0.02 y 9.5 deja cero. Lo que cuesta subir hasta ahí es
+    # poco: un pico de amplitud 80 sobre un fondo de 500 se sigue detectando 10
+    # veces de 10, y sólo uno de amplitud 60 —que ya es marginal— se pierde a
+    # veces. Para una lista que se refresca sola, un pico inventado es peor que
+    # uno débil de menos: el inventado se muestra con un FWHM que no significa
+    # nada. Quien quiera buscar más abajo tiene el control de prominencia.
+    ruido = np.sqrt(np.maximum(bases, 1.0) / max(int(suavizado), 1))
+    umbral_rel = float(prominencia_rel) * float(prominencias.max())
+    guardar = ((prominencias >= max(umbral_rel, 1e-9)) &
+               (prominencias >= float(sigmas) * ruido))
+    interior, prominencias, bases, sillas = (interior[guardar],
+                                             prominencias[guardar],
+                                             bases[guardar], sillas[guardar])
+    if interior.size == 0:
+        return []
+
+    # Los `n_max` más prominentes; después se reordenan por canal.
+    if interior.size > n_max:
+        elegidos = np.argsort(prominencias)[::-1][:int(n_max)]
+        interior, prominencias, bases, sillas = (
+            interior[elegidos], prominencias[elegidos], bases[elegidos],
+            sillas[elegidos])
+
+    picos = []
+    for p, prom, base, (k0, k1) in zip(interior, prominencias, bases, sillas):
+        p = int(p)
+        nivel = base + prom / 2.0
+        lo = _cruce(ys, p, nivel, -1, int(k0))
+        hi = _cruce(ys, p, nivel, +1, int(k1))
+        truncado = lo is None or hi is None
+        fwhm = float('nan') if truncado else float(hi - lo)
+
+        # Región para centroide y área. Sin FWHM utilizable se cae a los
+        # canales vecinos, que es lo mínimo que permite dar un número.
+        a = int(np.floor(lo)) if lo is not None else max(p - 1, 0)
+        b = int(np.ceil(hi)) + 1 if hi is not None else min(p + 2, y.size)
+        a, b = max(a, 0), min(b, y.size)
+        trozo = y[a:b]
+        neto = np.clip(trozo - base, 0, None)
+        area = float(neto.sum())
+        canal = (float((np.arange(a, b) * neto).sum() / neto.sum())
+                 if neto.sum() > 0 else float(p))
+
+        picos.append({
+            'canal':      canal,
+            'canal_pico': p,
+            'cuentas':    float(y[p]),
+            'fwhm':       fwhm,
+            'fwhm_lo':    lo,
+            'fwhm_hi':    hi,
+            'resolucion_pct': (100.0 * fwhm / canal
+                               if canal and np.isfinite(fwhm) else float('nan')),
+            'area':       area,
+            'prominencia': float(prom),
+            'fondo':      float(base),
+            'truncado':   bool(truncado),
+        })
+
+    picos.sort(key=lambda d: d['canal'])
+    return picos
 
 
 def energy_calibration(centroids, energies):

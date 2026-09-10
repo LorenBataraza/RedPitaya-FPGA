@@ -379,3 +379,122 @@ def test_ops_documentadas_y_despacho_coinciden():
         f'{sorted(documentadas - despachadas)}\n'
         f'sólo en _OPS (implementadas y no documentadas): '
         f'{sorted(despachadas - documentadas)}')
+
+
+# =============================================================================
+# Descubrimiento de bases por el registro SLOTS
+# =============================================================================
+#
+# El multitrigger está en el slot 3 del top del MCA y en el 7 del
+# `red_pitaya_top` clásico, así que una base hardcodeada hace que el mismo
+# software mienta contra el otro bitstream. `Integration.slots()` publica el
+# mapa real; lo que se prueba acá es que el servidor lo OBEDEZCA y lo diga.
+
+class _IntegracionFalsa:
+    """Sólo lo que `_base_de` usa: `base(modulo)`."""
+
+    def __init__(self, bases=None, romper=False):
+        self._bases = bases or {}
+        self._romper = romper
+
+    def base(self, modulo):
+        if self._romper:
+            raise RuntimeError('el bus no contesta')
+        return self._bases[modulo]
+
+    def close(self):
+        pass
+
+
+def _servidor_sin_arrancar():
+    """Un `ServidorMCA` sin `__init__`: acá se prueba un método, no el ciclo de
+    vida, y arrancarlo de verdad abriría hilos y sockets que no hacen falta."""
+    from app.mca_server import ServidorMCA
+    return ServidorMCA.__new__(ServidorMCA)
+
+
+def test_sin_slot_6_se_usa_la_base_por_defecto():
+    from API.osciloscope import SCOPE_PHYS
+    s = _servidor_sin_arrancar()
+    s.ig = None
+    base, nota = s._base_de('osc', SCOPE_PHYS)
+    assert base == SCOPE_PHYS
+    assert 'sin slot 6' in nota
+
+
+def test_una_base_descubierta_distinta_gana_y_se_avisa():
+    """El caso que motiva todo: otro top, otro slot. Se obedece lo descubierto
+    y la discrepancia queda dicha — verla es cómo se diagnostica."""
+    from API.osciloscope import SCOPE_PHYS
+    otra = 0x4070_0000
+    s = _servidor_sin_arrancar()
+    s.ig = _IntegracionFalsa({'osc': otra})
+    base, nota = s._base_de('osc', SCOPE_PHYS)
+    assert base == otra, 'no se obedeció la base descubierta'
+    assert 'DESCUBIERTA' in nota
+    assert f'{otra:#x}' in nota and f'{SCOPE_PHYS:#x}' in nota
+
+
+def test_una_base_descubierta_igual_no_alarma():
+    from API.osciloscope import SCOPE_PHYS
+    s = _servidor_sin_arrancar()
+    s.ig = _IntegracionFalsa({'osc': SCOPE_PHYS})
+    base, nota = s._base_de('osc', SCOPE_PHYS)
+    assert base == SCOPE_PHYS
+    assert 'coincide' in nota
+
+
+def test_un_slots_ilegible_cae_a_la_constante_en_vez_de_romper():
+    """Que el descubrimiento falle no puede dejar al servidor sin osciloscopio:
+    la constante sigue siendo correcta para el bitstream de siempre."""
+    from API.osciloscope import SCOPE_PHYS
+    s = _servidor_sin_arrancar()
+    s.ig = _IntegracionFalsa(romper=True)
+    base, nota = s._base_de('osc', SCOPE_PHYS)
+    assert base == SCOPE_PHYS
+    assert 'ilegible' in nota
+
+
+def test_identify_publica_los_bloques_y_sus_bases():
+    """El cliente arma la interfaz con esto, nunca suponiendo."""
+    with ServidorDePrueba() as s:
+        h = MCARemote.connect('127.0.0.1', s.port)
+        try:
+            info = h.info
+            assert info['has_osc'] is True
+            assert info['has_mtrg'] is True
+            assert info['has_integracion'] is False   # el fake no simula slot 6
+            assert 'osc' in info['bases']
+            assert info['bases_notas']
+        finally:
+            h.close()
+
+
+def test_la_captura_viaja_como_binario():
+    """Es la tercera operación con payload, después del espectro y el mapa 2D."""
+    with ServidorDePrueba() as s:
+        h = MCARemote.connect('127.0.0.1', s.port)
+        try:
+            meta, datos = h.capturar_osc(pre=64, post=192)
+            assert meta['pre'] == 64 and meta['post'] == 192
+            assert datos.shape == (2, 256)
+            assert datos.dtype.name == 'float32'
+            assert 't_captura' in meta, 'sin el instante no se puede marcar la tasa'
+        finally:
+            h.close()
+
+
+def test_una_ventana_mas_grande_que_el_buffer_se_rechaza():
+    """Del lado del SERVIDOR, no sólo en la GUI: pedirla por `nc` también falla."""
+    from API.osciloscope import N_BUF
+    with ServidorDePrueba() as s:
+        h = MCARemote.connect('127.0.0.1', s.port)
+        try:
+            try:
+                h.capturar_osc(pre=N_BUF, post=N_BUF)
+            except RemoteError as e:
+                assert 'no entra en el buffer' in str(e)
+            else:
+                raise AssertionError('aceptó una ventana que no entra')
+        finally:
+            h.close()

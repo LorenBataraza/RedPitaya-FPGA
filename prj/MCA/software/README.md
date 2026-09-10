@@ -29,7 +29,9 @@ Makefiles las mantienen separadas: `rtl*` es SystemVerilog en QuestaSim,
 | [`app/`](app/) | la GUI (`mcamon`) y el servidor, con sus tests — documentada en [`docs/APP/`](../docs/APP/) |
 | [`monte-carlo/`](monte-carlo/) | **simulaciones**: apilamiento, línea de base, pico-vs-carga |
 | [`campanas/`](campanas/) | drivers de campaña: caracterización sobre hardware real, y el regraficado de lo ya medido |
+| [`release/`](release/) | el instalador y el LEEME que viajan **dentro** del paquete — ver [`docs/publicar_release.md`](../docs/publicar_release.md) |
 | `datos/` | corridas medidas (no versionado) |
+| `dist/` | los paquetes armados por `make release` (no versionado) |
 
 La distinción que más importa es **`monte-carlo/` contra el resto**: ahí adentro
 no se prueba código que maneje hardware, se simula física. Un número que sale de
