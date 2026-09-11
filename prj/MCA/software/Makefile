@@ -96,6 +96,13 @@ SUCIO    := $(shell git -C $(RAIZ)/.. status --porcelain 2>/dev/null | head -1)
 GH_REPO  ?= LorenBataraza/RedPitaya-FPGA
 NOTAS    ?= $(DIST)/NOTAS.md
 
+# Dónde se instala en la placa, y dónde se deja el tarball mientras tanto.
+# `/opt/mca` es el default porque es una instalación del sistema; para una
+# instalación de usuario va algo bajo /home, y ahí `release-instalar-remoto`
+# NO usa sudo (ver el comentario del objetivo).
+PREFIJO  ?= /opt/mca
+DESCARGA ?= /tmp
+
 # PUERTO: el de la GUI y el servidor falso en ESTA máquina. En la placa se corre
 # como root y vale el 1001 por defecto (el de mcpha); en una PC de usuario Linux
 # reserva todo lo que está por debajo de 1024, así que acá se usa uno alto.
@@ -716,12 +723,19 @@ release: ## arma el paquete instalable en dist/. Versión en ../VERSION
 	@# VERSION viaja DENTRO del paquete: cuando dentro de seis meses una placa
 	@# dé un número raro, la pregunta va a ser "¿qué tiene instalado?", y la
 	@# respuesta tiene que estar en la placa y no en la memoria de nadie.
+	@# `parte` es el Zynq para el que se compiló, y es el campo que impide
+	@# repetir el incidente de cargar un bitstream de 7z010 en una placa 7z020:
+	@# el FPGA manager queda trabado y falla toda programación posterior hasta
+	@# reiniciar. Se lee del `.bit` porque el `.bit.bin` NO lleva la cabecera;
+	@# viaja acá justamente porque en la placa ya no hay de dónde sacarla.
 	@{ echo "paquete    $(PAQUETE)"; \
 	   echo "commit     $(GIT_SHA)$(if $(SUCIO),-sucio) (rama $(GIT_RAMA))"; \
 	   echo "armado     $$(date -Iseconds)"; \
 	   echo "bitstream  mca_red_pitaya.bit.bin"; \
 	   echo "           $$(stat -c%s $(BIT_LOCAL)) bytes"; \
 	   echo "           md5 $$(md5sum $(BIT_LOCAL) | cut -d' ' -f1)"; \
+	   echo "parte      $$(PYTHONPATH=$(RAIZ) $(PY) -c \
+	       'from API.fpga import parte_del_bitstream as p; print(p("$(BIT_LOCAL:.bin=)") or "desconocida")')"; \
 	   echo "eje        $$(grep -oP 'H_AW_ESPERADO = \K[0-9]+' $(RAIZ)/campanas/preparar_placa.py) bits de histograma esperados"; \
 	 } > $(STAGING)/$(PAQUETE)/VERSION
 	@# Un manifiesto de todo el contenido, que el instalador verifica antes de
@@ -784,17 +798,24 @@ release-verificar: ## desempaqueta el paquete y corre la suite offline ADENTRO
 	 $$T/$(PAQUETE)/instalar.sh --help > /dev/null && echo "  --help ok" && \
 	 echo "" && echo "OK: el paquete se sostiene solo."
 
-release-instalar-remoto: ## copia el paquete a la Pitaya y lo instala (NO carga la PL)
+release-instalar-remoto: ## copia el paquete a la Pitaya y lo instala. PITAYA= PREFIJO=
 	@test -f $(DIST)/$(PAQUETE).tar.gz || { \
 	  echo "ERROR: no hay $(DIST)/$(PAQUETE).tar.gz — corré 'make release'"; exit 1; }
-	scp $(DIST)/$(PAQUETE).tar.gz $(PITAYA):/tmp/
+	@echo "  destino  $(PITAYA):$(PREFIJO)"
+	scp $(DIST)/$(PAQUETE).tar.gz $(PITAYA):$(DESCARGA)/
 	@# Sin --cargar: reprogramar la PL corta el bus AXI, y eso no puede pasar
 	@# como efecto secundario de un despliegue. Va aparte y explícito.
-	ssh $(PITAYA) 'cd /tmp && rm -rf $(PAQUETE) && tar xzf $(PAQUETE).tar.gz \
-	   && cd $(PAQUETE) && sudo ./instalar.sh'
+	@#
+	@# El sudo se decide por el prefijo y no se pide siempre: instalar bajo el
+	@# home del usuario CON sudo deja un árbol de root en su casa, que después
+	@# no puede ni actualizar ni borrar. Fuera del home, en cambio, hace falta.
+	ssh $(PITAYA) 'cd $(DESCARGA) && rm -rf $(PAQUETE) && tar xzf $(PAQUETE).tar.gz \
+	   && cd $(PAQUETE) && $(if $(filter /home/%,$(PREFIJO)),,sudo )./instalar.sh --prefijo $(PREFIJO)'
 	@echo ""
-	@echo "  instalado, sin tocar la PL. Para programarla:"
-	@echo "    ssh $(PITAYA) 'sudo /opt/mca/instalar.sh --cargar'"
+	@echo "  instalado en $(PREFIJO), SIN tocar la PL. Para comprobar la placa:"
+	@echo "    ssh $(PITAYA) 'python3 $(PREFIJO)/software/campanas/preparar_placa.py'"
+	@echo "  y para programarla (corta el bus AXI):"
+	@echo "    ssh $(PITAYA) 'sudo $(PREFIJO)/instalar.sh --prefijo $(PREFIJO) --cargar'"
 
 # Publicar es irreversible en la práctica —alguien puede haber bajado el
 # tarball entre que se sube y se borra— así que pide confirmación explícita y

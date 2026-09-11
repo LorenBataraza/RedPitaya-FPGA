@@ -128,14 +128,30 @@ def main(argv=None):
     ap.add_argument('--bitstream', default=BITSTREAM)
     ap.add_argument('--h-aw', type=int, default=H_AW_ESPERADO,
                     help='canales esperados, como exponente (13 = 8192)')
+    ap.add_argument('--forzar-parte', action='store_true',
+                    help='programar aunque el bitstream sea de otro Zynq '
+                         '(deja el FPGA manager trabado: no hay razón buena)')
     args = ap.parse_args(argv)
 
     if args.cargar:
         # Import acá y no arriba: fpga.py toca /sys y sólo tiene sentido en la
         # placa, así que importarlo siempre rompería el test offline.
-        from API.fpga import load_bitstream
+        from API.fpga import (load_bitstream, modelo_de_placa, parte_declarada)
+        parte, modelo = parte_declarada(args.bitstream), modelo_de_placa()
         print(f'programando la PL con {args.bitstream} ...')
-        load_bitstream(args.bitstream, verbose=True)
+        print(f'  bitstream para {parte or "parte desconocida"} · '
+              f'placa {modelo or "modelo desconocido"}')
+        try:
+            load_bitstream(args.bitstream, verbose=True,
+                           forzar_parte=args.forzar_parte)
+        except RuntimeError as e:
+            # Sin traceback: esto es una herramienta de línea de comandos y el
+            # usuario necesita saber QUÉ hacer, no dónde se levantó la
+            # excepción. Y no se programó nada, que es lo importante.
+            print(f'\n{e}')
+            print('\n  La PL quedó COMO ESTABA — no se escribió nada.')
+            print(f'  Necesitás un bitstream compilado para tu placa ({modelo}).')
+            return 3
         print('  PL programada')
 
     try:

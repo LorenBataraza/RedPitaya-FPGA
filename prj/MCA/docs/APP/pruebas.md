@@ -68,13 +68,23 @@ Lo que verifican, en orden de interés: que el espectro llegue y **crezca**; que
 la exposición **pare sola**; que un valor puesto desde la GUI llegue al hardware
 y **vuelva** al spinbox releído; que la ventana de amplitud recorte de verdad y
 dibuje sus límites; que el rebin **no pierda cuentas** en ninguno de los siete
-factores; que la ROI ajuste el pico donde el simulador lo puso; que guardar y
+factores; que la lista encuentre el pico donde el simulador lo puso y le mida
+el FWHM que le corresponde; que guardar y
 recargar dé el mismo array en los tres formatos; que el mapa 2D **sólo se lea
 con su pestaña visible**; y que desconectar y volver a conectar funcione.
 
 La pestaña 2D tiene su propia prueba porque aparece o desaparece según lo que
 publique `CAPS`, y eso es una decisión que se toma en tiempo de conexión. Lo
-mismo la de Integración, con `has_integracion`.
+mismo la de Integración con `has_integracion`, y las de OSC y Multitrigger con
+`has_osc` / `has_mtrg`.
+
+Las dos últimas agregan cuatro cosas más: que una captura **viaje como binario y
+termine dibujada**, con el trigger exactamente en `t=0` (la muestra `pre`); que
+la persistencia acumule y se pueda apagar; que la **marca de captura caiga
+dentro del tramo de tasa dibujado**, que es lo que ata los dos gráficos; y que
+un campo del OSC se rutee **por bloque y no por nombre** — `thr_ch0` es del
+osciloscopio y `thr` del MCA, y si el ruteo fuera por nombre un umbral
+terminaría en el bloque equivocado.
 
 ### La geometría es un parámetro, no una constante
 
@@ -219,6 +229,32 @@ Esto es lo más útil de este documento.
   contrato entre las dos mitades, y no el driver
   ([`API/integration.py`](../../software/API/integration.py)) contra la placa.
   El ruteo de taps nunca se ejercitó desde la aplicación.
+- **El RTL del osciloscopio contra hardware, y por la misma razón.** Las
+  pestañas de OSC y Multitrigger tienen sus pruebas, pero el simulado
+  (`FakeOsc`, `FakeMultiTrigger` de
+  [`mca_remote.py`](../../software/API/mca_remote.py)) **no simula el RTL**: no
+  hay FSM de captura, ni disparo, ni BRAM. Hay registros que retienen lo escrito
+  y formas gaussianas sintéticas. Está cubierto que la captura viaje, que el
+  dibujo la alinee en `t=0` y que las casillas armen la máscara que
+  corresponde; **no** está cubierto que `capture_window_np` devuelva la ventana
+  correcta ni que el shield re-arme.
+
+  > **Ojo con la diferencia contra `FakeMCA`.** Ése sí reproduce los valores de
+  > reset del RTL y la aritmética del histograma, así que un desacuerdo contra
+  > la placa apunta al hardware. Los del osciloscopio son más flojos a
+  > propósito, y no sirven para validar el camino de datos.
+
+- **Las máscaras de bits de `_CAMPOS` contra el RTL.** Están copiadas de
+  `modulos/osc/rtl/osc_cfg.sv` —`set_tresh` es DW=14, `set_dec` 17,
+  `set_deb_len` 20, `set_filt_byp` 4— pero offline no hay nada que las verifique
+  contra el hardware. Eso lo cubre `verificar-placa-mca`, que escribe y relee
+  cada registro en la placa. Una máscara de más se manifiesta como readback que
+  no coincide con lo escrito, y con eso el anti-eco de la GUI entra en lazo.
+- **El descubrimiento por `SLOTS` contra un top que de verdad tenga otra
+  topología.** Se prueba que el servidor obedezca una base descubierta distinta
+  y que avise, con un slot 6 falso; pero nunca se corrió contra el
+  `red_pitaya_top` clásico, que es donde el multitrigger está en otro slot y el
+  descubrimiento cambia algo de verdad.
 - **El servidor con un cliente lento.** No hay nada que verifique qué pasa si el
   cliente deja de leer a mitad de un envío de 64 KB.
 

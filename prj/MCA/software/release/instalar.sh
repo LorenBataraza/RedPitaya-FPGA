@@ -153,6 +153,40 @@ if [ "$(id -u)" != 0 ]; then
     echo "                        vas a tener que correr el servidor con sudo"
 fi
 
+# ¿El bitstream del paquete es para ESTA placa? Se comprueba siempre, aunque no
+# se vaya a cargar, porque es lo primero que alguien necesita saber. Cargar un
+# bitstream de otro Zynq no falla y ya: deja el FPGA manager trabado y TODA
+# programación posterior falla —incluida la de fábrica— hasta reiniciar.
+PARTE=$(sed -n 's/^parte  *//p' "$PAQ/VERSION" 2>/dev/null | head -1)
+MODELO=""
+for m in /opt/redpitaya/bin/monitor /usr/local/bin/monitor; do
+    [ -x "$m" ] && MODELO=$("$m" -f 2>/dev/null | head -1) && break
+done
+# Sin root, `monitor -f` no puede abrir la EEPROM y escribe "undefined" con
+# codigo de salida 0. Tomarlo por un modelo seria peor que no saber.
+[ "$MODELO" = undefined ] && MODELO=""
+COMPATIBLE=si
+if [ -n "$PARTE" ] && [ -z "$MODELO" ]; then
+    aviso "  bitstream             $PARTE · modelo de la placa ilegible sin root"
+    echo  "                        se comprueba de nuevo al programar la PL"
+fi
+if [ -n "$PARTE" ] && [ -n "$MODELO" ]; then
+    case "$MODELO" in
+        z10_*)  ESPERADA=7z010 ;;
+        z20_*)  ESPERADA=7z020 ;;
+        *)      ESPERADA="" ;;
+    esac
+    if [ -n "$ESPERADA" ]; then
+        case "$PARTE" in
+            ${ESPERADA}*) echo "  bitstream             $PARTE, correcto para $MODELO" ;;
+            *) COMPATIBLE=no
+               rojo "  bitstream             $PARTE, pero esta placa es $MODELO ($ESPERADA)" ;;
+        esac
+    else
+        aviso "  bitstream             $PARTE · modelo $MODELO no reconocido"
+    fi
+fi
+
 # ------------------------------------------------------------ 3. instalar ---
 echo
 echo "== instalación =="
@@ -165,24 +199,48 @@ mkdir -p "$PREFIJO" 2>/dev/null \
 # otra más vieja dejaría los .py que la nueva ya no trae, y un import viejo que
 # sigue resolviendo es de lo más difícil de diagnosticar. datos/ se conserva
 # porque son mediciones, no software.
+#
+# Y se reemplaza COPIANDO AL LADO Y RENOMBRANDO, no borrando y copiando encima.
+# La diferencia importa: borrar primero deja el árbol a medias si algo falla en
+# el medio, y falla — un `__pycache__` que quedó de root en un prefijo del
+# usuario (pasa apenas alguien corre el software con sudo) no se deja borrar, y
+# la instalación anterior queda destruida sin que la nueva llegue a existir.
+# Renombrar sólo necesita permiso sobre el directorio padre, así que funciona
+# aunque adentro haya ficheros de otro dueño.
+NUEVO="$PREFIJO/.nuevo.$$"
+VIEJO="$PREFIJO/.viejo.$$"
+rm -rf "$NUEVO"
+mkdir -p "$NUEVO"
+cp -a "$PAQ/software" "$NUEVO/software"
+cp -a "$PAQ/out"      "$NUEVO/out"
+
 if [ -d "$PREFIJO/software" ]; then
     echo "  ya había una instalación en $PREFIJO — se reemplaza el software"
-    if [ -d "$PREFIJO/software/datos" ]; then
-        echo "  (se conserva $PREFIJO/software/datos)"
-        mv "$PREFIJO/software/datos" "$PREFIJO/.datos.tmp"
-    fi
-    rm -rf "$PREFIJO/software"
+    mkdir -p "$VIEJO"
+    mv "$PREFIJO/software" "$VIEJO/software"
+    [ -d "$PREFIJO/out" ] && mv "$PREFIJO/out" "$VIEJO/out"
 fi
 
-rm -rf "$PREFIJO/out"
-cp -a "$PAQ/software" "$PREFIJO/software"
-cp -a "$PAQ/out"      "$PREFIJO/out"
+mv "$NUEVO/software" "$PREFIJO/software"
+mv "$NUEVO/out"      "$PREFIJO/out"
+rmdir "$NUEVO"
+
+# Las mediciones vuelven al árbol nuevo: son datos, no software.
+if [ -d "$VIEJO/software/datos" ]; then
+    echo "  (se conserva $PREFIJO/software/datos)"
+    mv "$VIEJO/software/datos" "$PREFIJO/software/datos"
+fi
+
 cp -a "$PAQ/VERSION" "$PAQ/LEEME.md" "$PAQ/instalar.sh" "$PREFIJO/"
 if [ -f "$PAQ/MANIFIESTO.sha256" ]; then
     cp -a "$PAQ/MANIFIESTO.sha256" "$PREFIJO/"
 fi
-if [ -d "$PREFIJO/.datos.tmp" ]; then
-    mv "$PREFIJO/.datos.tmp" "$PREFIJO/software/datos"
+
+# Recién ahora se borra lo viejo, cuando lo nuevo ya está en su lugar. Si esto
+# falla, la instalación está completa igual: es basura, no un problema.
+if [ -d "$VIEJO" ]; then
+    rm -rf "$VIEJO" 2>/dev/null || \
+        aviso "  no pude borrar $VIEJO (¿ficheros de root?): borralo a mano"
 fi
 
 verde "  árbol                 $PREFIJO/software"
@@ -205,6 +263,12 @@ if [ "$CARGAR" = si ]; then
     echo
     echo "== programar la PL =="
     [ "$(id -u)" = 0 ] || morir "--cargar necesita root (/dev/mem y /dev/xdevcfg)"
+    if [ "$COMPATIBLE" = no ]; then
+        morir "el bitstream de este paquete ($PARTE) no es para esta placa
+       ($MODELO). NO se programó nada: cargarlo dejaría el FPGA manager
+       trabado y toda programación posterior fallaría hasta reiniciar.
+       El resto del paquete quedó instalado y sirve igual."
+    fi
     echo "  esto CORTA el bus AXI: cualquier medición en curso se pierde."
     python3 "$PREFIJO/software/campanas/preparar_placa.py" \
         --cargar --bitstream "$PREFIJO/out/mca_red_pitaya.bit.bin"

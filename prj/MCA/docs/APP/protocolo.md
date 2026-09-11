@@ -84,14 +84,79 @@ La lista viva es el dict `_OPS` de
 | `integracion.set_route` | `consumidor`, `tap`, `enable` | el `get` de vuelta |
 | `integracion.reset_routes` | — | el `get` de vuelta |
 | `integracion.ctrl` | `que` | el `get` de vuelta |
+| `osc.get` | — | `config` (16 campos), `status`, `base`, `n_buf`, `fs_hz` |
+| `osc.set` | `fields` | el `get` de vuelta |
+| `osc.ctrl` | `que` | `reset` o `sw_trig`, y el `get` de vuelta |
+| `osc.capture` | `pre`, `post` | **binario** `float32[2, pre+post]` en volts |
+| `mtrg.get` | — | `config`, `status`, los nombres de los bits, `base` |
+| `mtrg.set` | `fields` | el `get` de vuelta |
+| `mtrg.arm` | `mask_ch0`, `mask_ch1`, `thr`, `hyst`, `delay`, `auto_rearm` | el `get` de vuelta |
+| `mtrg.disarm` | — | el `get` de vuelta |
 
-Sólo `read.spectrum` y `read.map2d` traen payload binario.
+`read.spectrum`, `read.map2d` y `osc.capture` son las tres que traen payload
+binario.
 
-**Las `integracion.*` fallan si el bitstream no trae el slot 6**, con un
-`RuntimeError` que lo dice. No es una condición de error del cliente: cualquier
-bitstream anterior al refactor de registros no lo trae y el MCA anda igual. Por
-eso `identify` publica `has_integracion` y el cliente ni siquiera crea la
-pestaña — mismo criterio que con `has_2d`.
+**Las `integracion.*`, `osc.*` y `mtrg.*` fallan si el bitstream no trae su
+bloque**, con un `RuntimeError` que lo dice. No es una condición de error del
+cliente: cualquier bitstream anterior al refactor de registros no trae el
+slot 6 y el MCA anda igual. Por eso `identify` publica `has_integracion`,
+`has_osc` y `has_mtrg`, y el cliente ni siquiera crea la pestaña — mismo
+criterio que con `has_2d`.
+
+### `osc.capture`
+
+La cabecera describe el bloque y trae con qué leerlo:
+
+```json
+{"ok": true, "result": {"pre": 256, "post": 1024, "wp": 14487, "dec": 1,
+ "fs_hz": 125000000.0, "t_captura": 1789066542.81},
+ "dtype": "float32", "shape": [2, 1280], "nbytes": 10240}
+```
+
+Tres cosas que el cliente necesita y no puede deducir:
+
+- **`pre`** dice dónde está el trigger dentro del array — en el índice `pre`,
+  que es el `t = 0` del gráfico. Sin esto la traza no se puede alinear.
+- **`fs_hz`** ya viene dividida por la decimación, así que el eje de tiempo sale
+  de ahí y no de una constante del cliente.
+- **`t_captura`** es el reloj del **servidor** en el momento de leer. Es lo que
+  permite marcar la misma captura sobre la curva de tasa: los dos números salen
+  del mismo lado y no hay que confiar en que los relojes coincidan.
+
+Los datos van en **volts**, no en cuentas: la conversión necesita la calibración
+que la librería `rp` ya aplicó del lado de la placa.
+
+La ventana se valida **en el servidor**, no sólo en la GUI: `pre + post` mayor
+que `n_buf` es un `ValueError`, así que pedirla con `nc` falla igual.
+
+### Las bases, y por qué viajan
+
+`osc.get` y `mtrg.get` devuelven `base`, la dirección física del bloque, y
+`identify` devuelve el mapa entero:
+
+```json
+{"has_osc": true, "has_mtrg": true, "has_integracion": false,
+ "bases": {"osc": 1075838976, "mtrg": 1075838976},
+ "bases_notas": ["osc: 0x40100000 (SLOTS coincide con la constante)"],
+ "n_buf": 16384, "fs_hz": 125000000.0, "adc_cnt_per_v": 8192}
+```
+
+No es decorativo: **el multitrigger está en el slot 3 del top del MCA y en el 7
+del `red_pitaya_top` clásico**. El servidor resuelve la base con el registro
+`SLOTS` del slot 6 (`Integration.base()`) y, si no coincide con la constante,
+**obedece lo descubierto y lo dice en `bases_notas`** — esa discrepancia es el
+síntoma de estar corriendo contra otro bitstream, y verla es cómo se diagnostica.
+
+Sin slot 6, o con un `SLOTS` ilegible, cae a las constantes de siempre: que el
+descubrimiento falle no puede dejar al servidor sin osciloscopio.
+
+> **El slot 6 se queda hardcodeado, y no es una inconsistencia.** Es la única
+> base que no se puede descubrir — hay que leerla para poder leer las demás. Es
+> dónde termina la recursión.
+
+Y esto **no** repite el error de la geometría: lo que no hay que importar de esa
+región es lo que otro bloque publica sobre sí mismo (`h_aw` ya divergió). `SLOTS`
+es topología, no está duplicado en ningún lado, y es para lo que la región existe.
 
 Las tres que escriben devuelven el `get` completo en vez de `{}`: el ruteo es
 estado compartido y releerlo entero después de tocarlo evita que el cliente

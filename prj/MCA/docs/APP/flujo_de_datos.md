@@ -212,7 +212,7 @@ orden:
   conocer la geometría, y a partir de ahí manda el usuario con el zoom de la
   barra de matplotlib. Un espectro que crece no debe moverle la vista a quien
   está mirando un pico.
-- **La sombra de la ROI y las líneas de la ventana de amplitud**, borrando
+- **Las marcas de los picos y las líneas de la ventana de amplitud**, borrando
   explícitamente las anteriores — si no, se acumula un artista por refresco.
 - **`draw_idle()`**, que encola el repintado en el lazo de eventos en vez de
   bloquear.
@@ -309,7 +309,7 @@ y espera, lo que recibe es directamente el error.
 |---|---|
 | **la PL** | el estado real: registros y las dos BRAM |
 | **el servidor** | el handle, el objetivo de exposición, y la muestra anterior de `(livetime, accepted)` para calcular la tasa instantánea |
-| **el cliente** | una copia del último espectro y su metadata, y **estado de presentación**: rebin, escala log, ROI, período de refresco |
+| **el cliente** | una copia del último espectro y su metadata, la lista de picos derivada de ella, y **estado de presentación**: rebin, escala log, período de refresco |
 
 El cliente **no guarda configuración**: la reelee del hardware después de cada
 escritura. Es lo que permite que dos sesiones distintas de la GUI vean lo mismo,
@@ -386,8 +386,14 @@ diferencia está en el hardware y no en el simulador.
 
 El servidor no escribe **un solo fichero de datos**; su única salida a disco es
 el log por stdout. Guardar el espectro (csv / npz / json), releerlo, guardar las
-imágenes y el log, y también el análisis (`gauss_fit_peak` de la ROI, `fom` del
+imágenes y el log, y también el análisis (`buscar_picos` del espectro, `fom` del
 mapa 2D) pasan todos en la PC, en el hilo de la GUI, sobre las copias locales.
+
+> **`buscar_picos` no corre en cada redibujo.** Cuesta ~20 ms sobre 8192
+> canales, y `_redibujar` se llama también al cambiar la escala log o el rebin,
+> que no cambian el dato. Los picos dependen del histograma y de los dos
+> controles de sensibilidad, así que se recalculan sólo cuando cambia alguno de
+> esos tres.
 
 La consecuencia buena es que **un fichero escrito desde la GUI es
 indistinguible de uno escrito en la placa**: se usan las mismas funciones de
@@ -407,10 +413,17 @@ indistinguible de uno escrito en la placa**: se usan las mismas funciones de
 - [x] Camino de control y de datos, con un cliente y el MCA.
 - [x] Exposición por tiempo vivo, implementada en el servidor.
 - [x] Recuperación desde un bitstream equivocado sin reiniciar nada.
-- [ ] Un solo bloque: OSC, multitrigger y event_ring no están expuestos.
-- [ ] Descubrimiento de slots: las bases están fijas en el código en vez de
-      leerse del registro `SLOTS` de `integration_cfg`, como ya se hace con
-      `WIDTHS` para la geometría del histograma.
+- [x] OSC y multitrigger expuestos, con captura de formas por payload binario.
+- [x] Descubrimiento de bases por el registro `SLOTS` de `integration_cfg`, con
+      caída a las constantes si el bitstream no lo trae. Es el mismo criterio
+      con el que la geometría del histograma sale de `WIDTHS`: **al hardware se
+      le pregunta, no se le supone**. La excepción es la base del propio
+      slot 6, que hay que conocer para poder preguntar.
+- [ ] El event_ring (slot 2) sigue sin exponerse. Tiene API y no tiene pestaña.
+- [ ] `fpga.load_bitstream` cierra **todos** los handles antes de reprogramar y
+      los reabre después con las bases del bitstream nuevo, pero eso no tiene
+      prueba automática: en `--fake` la operación se rechaza, así que el camino
+      sólo se ejercita en placa.
 
 Cinco cosas que conviene tener presentes al tocar esto:
 

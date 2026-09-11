@@ -37,6 +37,149 @@ FPGA_BRIDGE_DIR   = '/sys/class/fpga_bridge'
 # systemd) no lo tiene, así que se resuelve a mano con fallback absoluto.
 FPGAUTIL_PATHS    = ('/opt/redpitaya/bin/fpgautil', '/usr/local/bin/fpgautil')
 
+# `monitor -f` imprime el modelo que la Red Pitaya tiene grabado en su EEPROM
+# ("z10_125", "z20_125_4ch", "z20_122_16", ...). No necesita root.
+MONITOR_PATHS     = ('/opt/redpitaya/bin/monitor', '/usr/local/bin/monitor')
+
+# Qué Zynq lleva cada modelo. La clave es el prefijo que devuelve `monitor -f` y
+# el valor, el nombre de la parte tal como lo escribe Vivado en la cabecera del
+# .bit. Es la tabla que decide si un bitstream se puede cargar en una placa.
+PARTE_POR_MODELO = {
+    'z10_125':     '7z010',       # STEMlab 125-14, 2 canales de 14 bits
+    'z10_125_v2':  '7z010',
+    'z20_125':     '7z020',       # STEMlab 125-14 sobre Z7020
+    'z20_125_4ch': '7z020',       # 125-14 4-Input
+    'z20_125_ll':  '7z020',
+    'z20_122':     '7z020',       # STEMlab 122.88-16: ADC de 16 bits
+}
+
+
+def modelo_de_placa():
+    """El modelo grabado en la EEPROM, o None si no se puede leer.
+
+    Es la fuente autoritativa: `/proc/cpuinfo` dice "Xilinx Zynq Platform" para
+    todos, y el device tree tampoco distingue una 125-14 de una 122.88-16.
+
+    **Necesita root.** La EEPROM es `/sys/bus/i2c/devices/0-0050/eeprom`, modo
+    `rw-rw----` de `root:eeprom`; sin permiso, `monitor -f` falla con
+    `Error open eeprom: 13` y **escribe `undefined` en stdout con código de
+    salida 0**. O sea que no alcanza con mirar el returncode: hay que descartar
+    ese valor explícitamente, o se toma "undefined" por el nombre de un modelo.
+    Un usuario del grupo `eeprom` también puede leerla.
+    """
+    for ruta in MONITOR_PATHS:
+        if not os.path.exists(ruta):
+            continue
+        try:
+            r = subprocess.run([ruta, '-f'], capture_output=True, text=True,
+                               timeout=5)
+        except Exception:                                      # noqa: BLE001
+            continue
+        if r.returncode == 0 and r.stdout.strip():
+            modelo = r.stdout.strip().splitlines()[0].strip()
+            if modelo and modelo.lower() != 'undefined':
+                return modelo
+    return None
+
+
+def parte_del_bitstream(path):
+    """La parte para la que se compiló un `.bit`, p. ej. `7z010clg400`.
+
+    **Sólo funciona sobre el `.bit`, no sobre el `.bit.bin`.** El `.bit` lleva
+    una cabecera con campos etiquetados —`a` diseño, `b` parte, `c` fecha,
+    `d` hora— y `bootgen` la quita al generar el `.bin`, que es justamente el
+    que se carga. Por eso la parte se lee al ARMAR el paquete y viaja escrita
+    en su `VERSION`: en la placa ya no está en ningún lado.
+
+    Devuelve None si el fichero no tiene esa cabecera.
+    """
+    try:
+        with open(path, 'rb') as fh:
+            cab = fh.read(256)
+    except OSError:
+        return None
+    i = 0
+    while i < len(cab) - 3:
+        if cab[i:i + 1] == b'b':
+            n = struct.unpack('>H', cab[i + 1:i + 3])[0]
+            if 0 < n < 64:
+                v = cab[i + 3:i + 3 + n].rstrip(b'\x00')
+                try:
+                    texto = v.decode('ascii')
+                except UnicodeDecodeError:
+                    return None
+                if texto[:2].lower() in ('7z', 'xc'):
+                    return texto
+        i += 1
+    return None
+
+
+def parte_declarada(bitstream_bin):
+    """La parte de un `.bit.bin`, buscándola en los dos lugares donde puede estar.
+
+    El `.bit.bin` no la lleva adentro, así que hay que deducirla del entorno:
+
+    1. **el `.bit` hermano**, que sí tiene cabecera. Es el caso del árbol de
+       desarrollo, donde Vivado deja los dos en `out/`;
+    2. **el `VERSION` del paquete instalado**, que la trae escrita porque
+       `make release` la leyó del `.bit` al armar. Es el caso de una placa, que
+       no tiene el `.bit`.
+
+    Devuelve None si no aparece en ninguno; quien decida qué hacer con eso es
+    `bitstream_compatible`, que ante la duda deja pasar y lo dice.
+    """
+    hermano = bitstream_bin[:-4] if bitstream_bin.endswith('.bin') else None
+    if hermano and os.path.exists(hermano):
+        p = parte_del_bitstream(hermano)
+        if p:
+            return p
+
+    # <prefijo>/out/x.bit.bin  ->  <prefijo>/VERSION
+    version = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(bitstream_bin))), 'VERSION')
+    try:
+        with open(version, 'r') as fh:
+            for linea in fh:
+                campo, _, valor = linea.partition(' ')
+                if campo.strip() == 'parte' and valor.strip():
+                    return valor.strip()
+    except OSError:
+        pass
+    return None
+
+
+def bitstream_compatible(parte, modelo=None):
+    """¿Un bitstream para `parte` se puede cargar en esta placa?
+
+    Devuelve `(ok, motivo)`. Con `ok=False` **no hay que programar**: un
+    bitstream de otro Zynq no falla y ya — el IDCODE no coincide, el FPGA
+    manager devuelve `-ETIMEDOUT` y **queda trabado**, de modo que TODA
+    programación posterior falla, incluida la de fábrica, hasta reiniciar la
+    placa. Pasó: un `.bit.bin` de `7z010` sobre una `z20_125_4ch` la dejó
+    inservible hasta el reboot.
+
+    Con `ok=True` y motivo no vacío, se pudo comprobar a medias (falta un dato)
+    y conviene mirarlo: es mejor decirlo que callarlo.
+    """
+    if not parte:
+        return True, 'el bitstream no declara su parte: no se pudo comprobar'
+    modelo = modelo if modelo is not None else modelo_de_placa()
+    if not modelo:
+        return True, ('no se pudo leer el modelo de la placa (la EEPROM '
+                      'necesita root): no se pudo comprobar')
+
+    esperada = PARTE_POR_MODELO.get(modelo)
+    if esperada is None:
+        # Un modelo que no está en la tabla no es motivo para bloquear: se
+        # avisa y se deja pasar, que es lo contrario de fallar cerrado.
+        return True, (f'modelo {modelo!r} desconocido para esta tabla; '
+                      f'el bitstream es para {parte}')
+    if parte.lower().startswith(esperada):
+        return True, f'{parte} es correcto para una {modelo}'
+    return False, (f'este bitstream es para {parte} y la placa es una {modelo}, '
+                   f'que lleva un {esperada}. Programarla dejaría el FPGA '
+                   f'manager trabado hasta reiniciar.')
+
 
 def fpgautil_bin():
     """Ruta del ejecutable fpgautil (PATH primero, después las conocidas)."""
@@ -152,7 +295,8 @@ def pl_bus_ready(phys=_PROBE_PHYS, off=0x14, timeout_s=8.0, interval_s=0.3,
 
 
 def load_bitstream(path=BITSTREAM_DEFAULT, settle_s=0.2, check=True,
-                   bridges=True, wait_bus_s=8.0, verbose=False):
+                   bridges=True, wait_bus_s=8.0, verbose=False,
+                   parte=None, forzar_parte=False):
     """Programa la PL con `fpgautil -b` (sin device tree).
 
     **NUNCA reprogramar con mapeos del scope abiertos.** Mientras la PL se
@@ -170,9 +314,25 @@ def load_bitstream(path=BITSTREAM_DEFAULT, settle_s=0.2, check=True,
     (lo que `fpgautil -b` a secas NO hace y sí hace el camino del device tree
     overlay). Si el kernel no los expone, avisa: en ese caso reprogramar con el
     sistema vivo puede dejar el puerto GP0 trabado hasta reiniciar la placa.
+
+    `parte` es el Zynq para el que se compiló el bitstream (`'7z010clg400'`).
+    Si se pasa, **se comprueba contra el modelo de la placa ANTES de escribir
+    nada** y se aborta si no coinciden. No es una precaución teórica: cargar un
+    bitstream de otro Zynq deja el FPGA manager trabado y toda programación
+    posterior falla hasta reiniciar. Como el `.bit.bin` no lleva la parte
+    adentro, hay que dársela desde afuera — del `VERSION` del paquete, o de
+    `parte_del_bitstream()` sobre el `.bit` original. `forzar_parte=True` salta
+    la comprobación, y no hay ninguna razón buena para usarlo.
     """
     if not os.path.exists(path):
         raise FileNotFoundError(f'no existe el bitstream {path}')
+
+    ok, motivo = bitstream_compatible(
+        parte if parte is not None else parte_declarada(path))
+    if not ok and not forzar_parte:
+        raise RuntimeError(f'NO se programó la PL: {motivo}')
+    if verbose or (motivo and not ok):
+        print(f'{"warn: " if not ok else ""}parte: {motivo}')
     exe = fpgautil_bin()
     if exe is None:
         raise FileNotFoundError(

@@ -9,6 +9,12 @@ synReport.*
 # clon limpio.
 !prj/MCA/software/API/tests/datos_ref/compat_golden.npz
 
+# Los paquetes que arma `make release`: tarballs de ~1.3 MB que se regeneran
+# desde el arbol y el bitstream. Lo que se versiona es como armarlos
+# (software/release/) y el procedimiento (docs/publicar_release.md); el
+# artefacto vive en GitHub Releases, que es donde corresponde.
+prj/MCA/software/dist/
+
 
 
 # Quito cualquier sintesis actual

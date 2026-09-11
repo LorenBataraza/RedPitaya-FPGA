@@ -169,6 +169,30 @@ make verificar-remoto     # la suite offline, EN la Pitaya
 Tiene que dar lo mismo en las dos máquinas. Si pasa acá y falla allá, lo que
 está mal es el deploy, no el código.
 
+### Si no venís del repo
+
+Este documento asume que tenés el árbol en la PC y lo empujás. Hay otras dos
+vías, y el detalle de las tres está en
+[`publicar_release.md`](publicar_release.md):
+
+- **Sólo querés usar el sistema** (1.3 MB): bajás la release y corrés su
+  instalador. El bitstream viene apareado con el software, que es la razón de
+  que exista. Instala en `/opt/mca` y sigue desde el §4 de acá.
+
+  ```bash
+  tar xzf mca-*.tar.gz && cd mca-*/ && sudo ./instalar.sh --cargar
+  ```
+
+- **Querés desarrollar en la placa**, con git y `pull` (7.5 MB): clon parcial.
+  El clone completo son 303 MB y la placa tiene 461 MB de RAM, así que no.
+
+  ```bash
+  git clone --depth 1 --filter=blob:none --sparse \
+      -b multitrigger https://github.com/LorenBataraza/RedPitaya-FPGA.git
+  cd RedPitaya-FPGA && git sparse-checkout set --no-cone \
+      '/prj/MCA/software/**' '/prj/MCA/docs/**' '/prj/MCA/out/mca_red_pitaya.bit.bin'
+  ```
+
 ---
 
 ## 4. Cargar el bitstream
@@ -191,7 +215,32 @@ PLACA LISTA. Eje de 8192 canales, bus de features presente,
 | `PLACA LISTA`, **8192 canales** | todo bien, seguí |
 | `PLACA LISTA` pero **16384 canales** | está cargado el bitstream **viejo**. No sigas: ver el recuadro |
 | `bus de features: NO` | ídem — bitstream viejo |
+| `NO se programó la PL: este bitstream es para…` | el bitstream es de **otro Zynq**. No se escribió nada; ver abajo |
 | `LA PLACA NO ESTÁ LISTA` | te dice cuáles de las comprobaciones fallaron |
+
+> ### El bitstream tiene que ser para TU placa
+>
+> Antes de escribir la PL se compara el Zynq para el que se compiló el
+> bitstream contra el modelo de la placa, y si no coinciden **no se programa**.
+>
+> No es celo: **cargar un bitstream de otro Zynq no falla y ya**. El IDCODE no
+> coincide, el FPGA manager devuelve `-ETIMEDOUT` y **queda trabado**; a partir
+> de ahí falla toda programación posterior, incluida la de fábrica, y de ese
+> estado **sólo se sale reiniciando la placa**. Pasó con un `.bit.bin` de
+> `7z010` sobre una `z20_125_4ch`.
+>
+> | Modelo (`monitor -f`) | Zynq | Placa |
+> |---|---|---|
+> | `z10_125` | `7z010` | STEMlab 125-14 |
+> | `z20_125`, `z20_125_4ch` | `7z020` | 125-14 sobre Z7020, y la de 4 entradas |
+> | `z20_122` | `7z020` | STEMlab 122.88-16 (ADC de 16 bits) |
+>
+> El `.bit.bin` **no** lleva adentro para qué parte es —`bootgen` le quita la
+> cabecera— así que el dato viaja en el `VERSION` del paquete, donde
+> `make release` lo escribe leyéndolo del `.bit`. Leer el modelo de la placa
+> **necesita root**: sin permiso sobre la EEPROM, `monitor -f` imprime
+> `undefined` con código de salida 0, y por eso ese valor se descarta
+> explícitamente en vez de tomarse por el nombre de un modelo.
 
 > ### La trampa que hace que esto importe
 >

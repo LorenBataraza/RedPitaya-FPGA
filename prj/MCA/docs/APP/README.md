@@ -25,9 +25,10 @@ MCA de este proyecto, que tiene otro hardware debajo.
 | Documento | Qué contiene |
 |---|---|
 | [`flujo_de_datos.md`](flujo_de_datos.md) | **empezar por acá**: el camino de control y el de datos, hilo por hilo, con las restricciones de cada salto |
-| [`protocolo.md`](protocolo.md) | las 15 operaciones, el formato de trama, los errores, y una sesión con `nc` |
+| [`protocolo.md`](protocolo.md) | las 23 operaciones, el formato de trama, los errores, y una sesión con `nc` |
 | [`pruebas.md`](pruebas.md) | qué demuestra cada test — y, sobre todo, **qué no cubre ninguno** |
 | [`../puesta_en_marcha.md`](../puesta_en_marcha.md) | el paso a paso de todo el sistema, si venís de cero y la placa todavía no está lista |
+| [`../publicar_release.md`](../publicar_release.md) | armar el paquete instalable y publicarlo en GitHub — para quien sólo quiere **usar** el sistema |
 
 ---
 
@@ -69,10 +70,12 @@ refresco en el hilo de la interfaz la congelaría.
 | Pestaña | Contenido |
 |---|---|
 | **Mensajes** | cada operación y cada error con hora. Es lo que permite reconstruir qué pasó cuando el síntoma llega tarde y desfigurado |
-| **Espectro** | el histograma 1D, umbrales, exposición, contadores, ROI con ajuste gaussiano, y guardado |
+| **Espectro** | el histograma 1D, umbrales, exposición, contadores, **la lista de picos detectados con su FWHM**, y guardado |
 | **MCA** | los 24 parámetros del slot 7, agrupados, con **cuándo se puede tocar cada uno** |
 | **Mapa 2D (PSD)** | amplitud × factor de forma y la FOM. **Aparece sólo si el bitstream lo trae** (bit `CAP_HIST_H_PSD` de `CAPS`) |
 | **Integración** | ruteo del datapath y control global del slot 6. **Aparece sólo si el bitstream trae `integration_cfg`** |
+| **OSC** | **las últimas formas capturadas** y, con el mismo eje de tiempo, **la tasa instantánea** de ese momento. Más los registros del osciloscopio |
+| **Multitrigger** | máscaras OR con los bits nombrados, `trigger_shield`, y qué fuente disparó |
 
 En la barra superior van la IP, el puerto, el canal (IN1/IN2), el estimador
 (pico o integral de carga), la decimación y el período de refresco.
@@ -108,6 +111,61 @@ Casi todas las impone el hardware, que no es el mismo:
 | `negator` por canal | no hay negador en el RTL; en su lugar está el selector `amp_src` (pico o integral de carga) |
 | — | contadores propios: `rej_amp`, `rej_psd`, `pileup`, `dropped`, y real/vivo/muerto |
 | — | mapa 2D de forma de pulso y figura de mérito |
+
+---
+
+## La lista de picos
+
+La pestaña del espectro **no** pide una región y ajusta una gaussiana ahí:
+lista los picos que hay, con su ancho. El cambio no es de presentación. Para
+ajustar una región había que saber **dónde** estaba el pico, y en un espectro
+desconocido eso es justamente lo que no se sabe; la lista contesta *qué hay*.
+
+Cada fila trae canal, **FWHM**, resolución (FWHM/canal, en %), cuentas en la
+cima y área neta. Elegir una fila **centra el eje en ese pico**, que es cómo se
+va de la lista al espectro sin buscar el canal a mano con el zoom. En el gráfico
+cada pico lleva un marcador en la cima y **una barra horizontal a media altura
+que es el FWHM dibujado** — de un vistazo se ve si el ancho de la tabla
+corresponde al pico que uno está mirando.
+
+Cómo se mide, que es lo que hay que saber para creerle
+([`API/analisis.py`](../../software/API/analisis.py), `buscar_picos`):
+
+- los máximos se buscan sobre el espectro **suavizado**, porque en un histograma
+  de Poisson casi cualquier canal es máximo local de sus vecinos;
+- se filtran por **prominencia y no por altura**: un hombro sobre un fondo alto
+  es un pico y un rizo sobre el fotopico no lo es, y la altura sola no los
+  distingue;
+- el **FWHM se cuenta desde la base local** —el valle más alto de los dos— y no
+  desde cero: sobre un continuo, medir desde cero ensancha el pico
+  sistemáticamente;
+- el **centroide** se recalcula como centro de masa de las cuentas **crudas**
+  dentro del FWHM: el máximo del suavizado sirve para encontrar el pico, no para
+  ubicarlo con precisión de subcanal.
+
+> **El umbral de ruido está calibrado, no elegido.** Se exige que la prominencia
+> supere 9.5 veces la fluctuación de conteo del fondo, y ese número sale de
+> medir: sobre fondo plano, la prominencia del ruido da mediana 0.8 σ, percentil
+> 99 unos 5 σ y **máximo entre 6 y 8.5 σ**, porque el criterio no se aplica a una
+> medición sino al mayor de ~2000 máximos locales. Con 3 σ —que es lo que uno
+> escribiría— un espectro de puro ruido devolvía una docena de picos, todos
+> falsos. Lo que cuesta subir hasta 9.5 es poco: un pico de amplitud 80 sobre un
+> fondo de 500 se sigue detectando 10 veces de 10.
+
+Dos resultados que la lista da y conviene saber leer:
+
+- **`FWHM` en `—`** significa que el pico no baja a media altura antes de que se
+  acabe el eje. Es lo que pasa con medio pico contra el canal 0 y con el escalón
+  de apilamiento contra el tope de escala. El ancho no está definido ahí, y
+  decirlo es más útil que inventar un número.
+- **Un doblete sin resolver aparece como un pico solo**, con el ancho de la
+  mezcla. Es lo honesto: el suavizado y el ruido borran un valle poco profundo,
+  y devolver dos filas inventaría una resolución que la medida no tiene. Un FWHM
+  mucho mayor que el de los picos vecinos es la señal.
+
+`gauss_fit_peak(spec, lo, hi)` **sigue existiendo** en la API y lo usan diez
+ficheros —campañas, Monte-Carlo, el baseline de compatibilidad—: lo que se quitó
+es el control de la GUI, no la función.
 
 ---
 
@@ -167,50 +225,73 @@ Y que hay que seguir respetando al tocarlo:
 - [x] Validado contra pulsos reales del generador ([`pruebas.md`](pruebas.md)).
 - [x] Pestaña de configuración del MCA: los 24 campos, con readback.
 - [x] Pestaña de Integración: ruteo de taps y control global del slot 6.
-- [ ] Pestañas de OSC y multitrigger.
-- [ ] Descubrimiento de bases por el registro `SLOTS` en vez de hardcodearlas.
-- [ ] La pestaña de Integración **no está probada contra la placa**: el MCA
-      simulado no simula el slot 6, así que su prueba le da directamente lo que
-      devolvería el servidor. El contrato está cubierto; el driver de ese lado,
-      no.
+- [x] Pestañas de OSC y Multitrigger, con formas de onda y curva de tasa.
+- [x] Descubrimiento de bases por el registro `SLOTS` en vez de hardcodearlas.
+- [ ] Pestaña del event_ring (slot 2): tiene API
+      ([`osciloscope_ring.py`](../../software/API/osciloscope_ring.py)) y no
+      tiene pestaña. Es el mismo patrón, una vez más.
+- [ ] **Ninguna de las tres pestañas nuevas está probada contra la placa.** El
+      simulado no simula el slot 6 ni el RTL del osciloscopio, así que sus
+      pruebas cubren el contrato y no el driver de ese lado. Ver
+      [`pruebas.md`](pruebas.md).
 
-### Lo que falta para las pestañas de OSC y multitrigger
+### Cómo se agrega una pestaña, ahora que hay tres hechas
 
-La pestaña de Integración ya recorrió ese camino y dejó el patrón hecho, así que
-agregar OSC o multitrigger es repetirlo:
+El patrón está estable y son cuatro pasos:
 
-1. **Un handle opcional en el servidor.** `_abrir_integracion()` abre el slot 6
-   y **que falte no es un error**: deja `self.ig = None` y sigue. Es lo que
-   permite que el mismo servidor sirva para un bitstream que no trae el bloque.
+1. **Un handle opcional en el servidor.** `_abrir_integracion()` y
+   `_abrir_osc()` abren su bloque y **que falte no es un error**: dejan el
+   handle en `None` y siguen. Es lo que permite que el mismo servidor sirva
+   para un bitstream que no lo trae.
 2. **Operaciones con prefijo en `_OPS`**, y las mismas en la tupla `OPS` de
-   `mca_net.py` — que ahora tiene un test que las compara, así que
-   desincronizarlas falla en CI.
-3. **Una bandera en `identify`** (`has_integracion`, como `has_2d`), y el
+   `mca_net.py` — que tiene un test que las compara, así que desincronizarlas
+   falla en CI.
+3. **Una bandera en `identify`** (`has_osc`, `has_mtrg`, como `has_2d`), y el
    cliente crea o destruye la pestaña con eso. Nunca se supone.
-4. **Un panel con sus señales**, y en el trabajador un slot por cada una que
-   llame a `h.pedir('bloque.op', ...)`.
+4. **Un panel con sus señales**, y en el trabajador un slot por cada una.
 
-Para los campos que son registros del MCA hay algo más corto todavía:
-`PanelCampos` de [`widgets_config.py`](../../software/app/widgets_config.py) da
-spinbox, casilla y combo ya cableados al antirrebote y al anti-eco, y
-`campos_sin_setter()` comprueba de una vez que todos tengan su `mca_set_*`.
-
-Los bloques ya tienen API:
-[`API/osciloscope.py`](../../software/API/osciloscope.py) (slot 1),
-[`API/multitrigger.py`](../../software/API/multitrigger.py) (slot 3) y
-[`API/osciloscope_ring.py`](../../software/API/osciloscope_ring.py) (slot 2).
-
-Lo que sí hay que decidir antes es el **descubrimiento**: el registro `SLOTS` de
-`integration_cfg` (`0x4060_0024`) publica en qué slot está cada bloque, y
-conviene leerlo en el `identify` en vez de hardcodear bases. La pestaña de
-Integración ya lo muestra, así que el dato está a mano — pero **ojo con el
-precedente**: la copia de la geometría que publica esa misma región resultó
-estar desactualizada. `SLOTS` es topología y no se duplica en ningún lado, así
-que ahí el riesgo no existe; la lección es no importar de esa región nada que
-otro bloque ya publique sobre sí mismo.
+Para los campos hay algo más corto todavía. `PanelCampos` de
+[`widgets_config.py`](../../software/app/widgets_config.py) da spinbox, casilla
+y combo ya cableados al antirrebote y al anti-eco; el panel declara a qué bloque
+pertenece en `BLOQUE` y la ventana rutea sus campos a `<bloque>.set` con eso.
+Del lado de la API, cada bloque publica una tabla `_CAMPOS` de
+`campo -> (offset, shift, máscara)` —el MCA, el OSC y el multitrigger ya la
+tienen— y `campos_desconocidos()` comprueba de una vez que los nombres del panel
+existan ahí. **Las máscaras salen del RTL, no de suponer 32 bits**: leer de más
+devuelve bits que no existen y el readback deja de coincidir con lo escrito, que
+es de lo que depende el anti-eco.
 
 La deuda conocida del código está listada al final de
 [`flujo_de_datos.md`](flujo_de_datos.md#estado-y-deuda-conocida).
+
+---
+
+## La pestaña de OSC, y por qué son dos gráficos
+
+Con el histograma solo, un fotopico corrido puede ser el umbral, la línea de
+base, la forma del pulso o el apilamiento, y no hay forma de distinguirlos desde
+la GUI. La pestaña muestra las dos cosas que lo deciden y las muestra **atadas
+en el tiempo**:
+
+- **arriba**, la ventana capturada alrededor del trigger, IN1 e IN2 en volts
+  contra microsegundos, con las últimas capturas en gris debajo (persistencia
+  tipo fósforo, que es lo que hace visible la dispersión de forma);
+- **abajo**, la tasa instantánea, con **una marca vertical en el instante de
+  cada captura**.
+
+Leerlas juntas es el diagnóstico: tasa que salta + formas apiladas es
+apilamiento; formas limpias + tasa que cae es el umbral.
+
+La curva lleva tres series. Las dos del MCA —`rate_inst_hz` y `rate_avg_hz`—
+**no cuestan ninguna lectura nueva**: ya venían en cada `status`, cada 200 ms, y
+antes se mostraban como texto y se tiraban. La tercera es la tasa de disparos
+del OSC, de Δ`we_cnt`/Δt, y **no es la misma**: los dos caminos tienen tiempos
+muertos distintos, y la distancia entre las curvas *es* la pérdida del camino
+lento.
+
+> **La captura sólo se pide con la pestaña visible.** Son hasta 16384 muestras
+> por canal; el modo continuo se detiene solo al cambiar de pestaña, mismo
+> criterio que el mapa 2D.
 
 ---
 

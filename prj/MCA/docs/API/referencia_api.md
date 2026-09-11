@@ -352,7 +352,8 @@ hardware**, así que se prueban contra `.npz` guardados sin la placa.
 
 | Función | Qué da |
 |---|---|
-| `gauss_fit_peak(spec, lo, hi)` | centroide, sigma, fwhm, área, `resolution_pct` |
+| `gauss_fit_peak(spec, lo, hi)` | centroide, sigma, fwhm, área, `resolution_pct` de **una región dada** |
+| `buscar_picos(spec, ...)` | **todos** los picos del espectro: canal, `fwhm`, `resolucion_pct`, área, `truncado` |
 | `energy_calibration(centroids, energies)` | recta canal(E) + INL como % de fondo de escala |
 | `dnl(spec, lo, hi, smooth)` | no-linealidad diferencial desde un pulser deslizante |
 | `fom(map2d, amp_lo, amp_hi)` | figura de mérito de discriminación por forma |
@@ -406,6 +407,10 @@ Código: [`API/fpga.py`](../../software/API/fpga.py).
 `set_fpga_bridges(enable)` · `pl_probe(phys, off)` · `pl_bus_ready(...)` ·
 `fpgautil_bin()`
 
+Y la guarda de variante: `modelo_de_placa()` · `parte_del_bitstream(bit)` ·
+`parte_declarada(bit_bin)` · `bitstream_compatible(parte, modelo)` ·
+la tabla `PARTE_POR_MODELO`.
+
 Esto es de **placa**, no del osciloscopio: vivía en `multitrigger_utils.py` por
 accidente histórico —el scope fue lo primero que hubo que arrancar— pero cargar
 un bitstream distinto lo usa igual.
@@ -417,6 +422,28 @@ un bitstream distinto lo usa igual.
 > `pl_probe` hace la lectura en un **proceso hijo**: si el bus no está listo, el
 > que muere con SIGBUS es el hijo y nos enteramos por el returncode, en vez de
 > perder el kernel de Jupyter.
+
+### La guarda de variante
+
+`load_bitstream` comprueba, **antes de escribir nada**, que el bitstream sea
+para el Zynq de esta placa, y aborta si no. Cargar uno de otro Zynq no falla y
+ya: el IDCODE no coincide, el FPGA manager devuelve `-ETIMEDOUT` y **queda
+trabado**, con lo que toda programación posterior falla —incluida la de
+fábrica— hasta reiniciar.
+
+Tres detalles que hacen falta para entender la implementación:
+
+- **La parte está en el `.bit`, no en el `.bit.bin`.** `bootgen` le quita la
+  cabecera al generar el binario, que es justo el que se carga. `parte_declarada`
+  la busca en el `.bit` hermano (árbol de desarrollo) y, si no, en el `VERSION`
+  del paquete instalado, donde `make release` la dejó escrita.
+- **`monitor -f` necesita root** y, sin permiso sobre la EEPROM, imprime
+  `undefined` **con código de salida 0**. Mirar sólo el returncode haría que
+  "undefined" pasara por el nombre de un modelo.
+- **Falla abierta.** Si falta la parte, falta el modelo, o el modelo no está en
+  la tabla, **deja pasar y lo dice**. El riesgo es asimétrico: bloquear un
+  bitstream válido en una placa que la tabla no conoce sería peor, y el caso que
+  importa —dos partes conocidas que no coinciden— se detecta igual.
 
 ---
 
