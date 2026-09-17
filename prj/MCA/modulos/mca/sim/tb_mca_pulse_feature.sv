@@ -25,6 +25,7 @@ module tb_mca_pulse_feature;
   reg                  val = 0;
 
   reg                  cfg_run      = 1'b1;
+  reg                  veto         = 1'b0;
   reg signed [DW-1:0]  cfg_thr      = 100;
   reg        [DW-1:0]  cfg_hyst     = 50;
   reg signed [DW-1:0]  cfg_baseline = 0;
@@ -57,7 +58,7 @@ module tb_mca_pulse_feature;
   ) dut (
     .clk_i(clk), .rstn_i(rstn),
     .dat_i(dat), .val_i(val),
-    .cfg_run_i(cfg_run), .cnt_clr_i(1'b0),
+    .cfg_run_i(cfg_run), .veto_i(veto), .cnt_clr_i(1'b0),
     .cfg_thr_i(cfg_thr), .cfg_hyst_i(cfg_hyst),
     .cfg_baseline_i(cfg_baseline), .cfg_bl_auto_i(cfg_bl_auto),
     .cfg_bl_k_i(cfg_bl_k), .cfg_bl_holdoff_i(cfg_bl_holdoff),
@@ -243,6 +244,94 @@ module tb_mca_pulse_feature;
     checkv("amp<min: rechazado",          c_rej_amp, 1);
     checkv("amp<min: no aceptado",        c_acc,     0);
     cfg_amp_min = 0;
+
+    //-----------------------------------------------------------------------
+    // 4b) BORDES de la ventana. La ventana se evalua sobre q_tot SIN
+    //     desplazar, contra umbrales pre-desplazados, un ciclo antes del
+    //     cierre (es lo que saco el barrel shifter del camino critico). Estos
+    //     casos fijan que la equivalencia sea EXACTA en los bordes:
+    //       sat(q_tot >> s) >= min  <=>  q_tot >= min << s
+    //       sat(q_tot >> s) <= max  <=>  q_tot <= ((max+1) << s) - 1
+    //     con q_tot = 10000, s = 5 -> amp = 312 (10000 >> 5), 312<<5 = 9984.
+    //-----------------------------------------------------------------------
+    cfg_amp_src = 1'b1; cfg_q_shift = 5;
+
+    reset_dut; cfg_amp_min = 312;     // 9984 <= 10000: justo adentro
+    pulse_rect(500, 20, 0); settle;
+    checkv("borde min=amp: aceptado",     c_acc,     1);
+    checkv("borde min=amp: sin rechazo",  c_rej_amp, 0);
+
+    reset_dut; cfg_amp_min = 313;     // 10016 > 10000: justo afuera
+    pulse_rect(500, 20, 0); settle;
+    checkv("borde min=amp+1: rechazado",  c_rej_amp, 1);
+    cfg_amp_min = 0;
+
+    reset_dut; cfg_amp_max = 312;     // (313<<5)-1 = 10015 >= 10000: adentro
+    pulse_rect(500, 20, 0); settle;
+    checkv("borde max=amp: aceptado",     c_acc,     1);
+    checkv("borde max=amp: sin rechazo",  c_rej_amp, 0);
+
+    reset_dut; cfg_amp_max = 311;     // (312<<5)-1 = 9983 < 10000: afuera
+    pulse_rect(500, 20, 0); settle;
+    checkv("borde max=amp-1: rechazado",  c_rej_amp, 1);
+    cfg_amp_max = 16'hFFFF;
+
+    // SATURACION: q_tot = 8000*10 = 80000 >= 2^16 con s = 0 -> amp = 0xFFFF.
+    // Es la unica rama donde las desigualdades pre-desplazadas NO equivalen a
+    // las originales, y la restituye sat_ok: se acepta si y solo si max = 0xFFFF.
+    cfg_q_shift = 0;
+    reset_dut; cfg_amp_max = 16'hFFFF;
+    pulse_rect(8000, 10, 0); settle;
+    checkv("saturado, max=FFFF: aceptado", c_acc,     1);
+    checkv("saturado, max=FFFF: amp",      ev_amp_q,  16'hFFFF);
+
+    reset_dut; cfg_amp_max = 16'hFFFE;
+    pulse_rect(8000, 10, 0); settle;
+    checkv("saturado, max=FFFE: rechazado", c_rej_amp, 1);
+    checkv("saturado, max=FFFE: no acept.", c_acc,     0);
+    cfg_amp_max = 16'hFFFF;
+
+    // Y el pico, que va por su propio flop (peak_ok_r):
+    cfg_amp_src = 1'b0;
+    reset_dut; cfg_amp_min = 500;     // pico = 500: justo adentro
+    pulse_rect(500, 20, 0); settle;
+    checkv("pico borde min=pico: aceptado", c_acc, 1);
+    reset_dut; cfg_amp_min = 501;
+    pulse_rect(500, 20, 0); settle;
+    checkv("pico borde min=pico+1: rechaz.", c_rej_amp, 1);
+    cfg_amp_min = 0;
+
+    //-----------------------------------------------------------------------
+    // 4c) VETO externo (nivel)
+    //-----------------------------------------------------------------------
+    // a) con veto no se abre nada, y no se cuenta como nada
+    reset_dut; veto = 1'b1;
+    pulse_rect(500, 20, 0); settle;
+    checkv("veto: sin eventos",          c_total, 0);
+    checkv("veto: no cuenta como perdido", c_lost, 0);
+    veto = 1'b0;
+
+    // b) el pulso EN CURSO termina normal aunque el veto llegue en el medio
+    reset_dut;
+    push(500); push(500); push(500);
+    veto = 1'b1;
+    for (i=0;i<17;i=i+1) push(500);
+    push(0); settle;
+    veto = 1'b0;
+    checkv("veto a mitad: el pulso termina y se acepta", c_acc, 1);
+    checkv("veto a mitad: q_tot completo = 20*500",     last_qtot, 10000);
+
+    // c) un pulso que SUBE bajo veto no se abre al liberarlo a mitad: hay que
+    //    volver por debajo de thr_lo (se desarmo). Sin esto se mediria una
+    //    amplitud truncada.
+    reset_dut; veto = 1'b1;
+    push(500); push(500); push(500);
+    veto = 1'b0;
+    for (i=0;i<17;i=i+1) push(500);   // la senal sigue alta, sin veto
+    push(0); settle;
+    checkv("liberar a mitad de pulso: no abre", c_total, 0);
+    pulse_rect(500, 20, 0); settle;    // ya volvio a la base: el siguiente si
+    checkv("liberar a mitad de pulso: el siguiente si", c_acc, 1);
 
     //-----------------------------------------------------------------------
     // 5) APILAMIENTO: la ventana llega a maxlen

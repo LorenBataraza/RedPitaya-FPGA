@@ -37,7 +37,11 @@ module multitrigger_cfg #(
   parameter [31:0]  MAGIC    = 32'h4D545247,  // "MTRG"
   parameter integer N_CH     = 2,
   parameter integer SRC_W    = 32,
-  parameter integer SHIELD_N = 4
+  parameter integer SHIELD_N = 4,
+  // Fuentes y destinos del escudo: canales + {ext_p, ext_n, ext_lvl} y
+  // canales + {mca}. Ver trigger_shield.sv.
+  parameter integer SHIELD_SRC = SHIELD_N + 3,
+  parameter integer SHIELD_DST = SHIELD_N + 1
 )(
   input                    adc_clk_i  ,
   input                    adc_rstn_i ,
@@ -49,6 +53,7 @@ module multitrigger_cfg #(
   input      [   4  -1:0]  indep_mode_i       ,
   input      [  16  -1:0]  shield_cnt_i       ,
   input                    shield_active_i    ,
+  input                    mca_veto_i         , // nivel de veto hacia el MCA
   input      [  17  -1:0]  trig_snapshot_i    ,
 
   // --- puente legacy desde osc_cfg (offsets 0x004 y 0x094 del slot 1) ---
@@ -60,8 +65,8 @@ module multitrigger_cfg #(
   output     [   4  -1:0]  trig_dis_clr_o ,
   output     [   4  -1:0]  new_trg_src_o  ,
   output     [4*32  -1:0]  trg_src_o      ,
-  output     [   4  -1:0]  shield_src_o   ,
-  output     [   4  -1:0]  shield_dst_o   ,
+  output     [SHIELD_SRC-1:0] shield_src_o ,
+  output     [SHIELD_DST-1:0] shield_dst_o ,
   output     [  16  -1:0]  shield_dur_o   ,
 
   // --- bus de sistema ---
@@ -79,9 +84,14 @@ wire sys_en = sys_wen | sys_ren;
 //=============================================================================
 // Config del trigger_shield (0x010) y máscaras OR por canal (0x040 + 4*ch)
 //=============================================================================
-reg [ 4-1:0] shield_src ;
-reg [ 4-1:0] shield_dst ;
-reg [16-1:0] shield_dur ;
+// 0x010 = {dur[31:16], dst[12:8], src[6:0]}. Los campos crecieron EN SITIO
+// sobre los bits que estaban en cero: src[3:0] y dst[11:8] siguen siendo los
+// canales del scope, y arriba van {ext_p, ext_n, ext_lvl} en src[6:4] y {mca}
+// en dst[12]. Un software que escribe solo los bits viejos deja los nuevos
+// en cero, que es "sin veto": compatible hacia atras.
+reg [SHIELD_SRC-1:0] shield_src ;
+reg [SHIELD_DST-1:0] shield_dst ;
+reg [16-1:0]         shield_dur ;
 
 // Copia almacenada de la máscara, para 4 canales aunque N_CH < 4: es lo que
 // devuelve el readback, y refleja siempre el último write del software
@@ -90,12 +100,12 @@ reg [4*32-1:0] trg_src_stored;
 
 always @(posedge adc_clk_i)
 if (!adc_rstn_i) begin
-  shield_src <=  4'h0;
-  shield_dst <=  4'h0;
+  shield_src <= {SHIELD_SRC{1'b0}};
+  shield_dst <= {SHIELD_DST{1'b0}};
   shield_dur <= 16'h0;
 end else if (sys_wen && (sys_addr[19:0] == 20'h010)) begin
-  shield_src <= sys_wdata[ 3: 0];
-  shield_dst <= sys_wdata[11: 8];
+  shield_src <= sys_wdata[SHIELD_SRC-1: 0];
+  shield_dst <= sys_wdata[SHIELD_DST+7: 8];
   shield_dur <= sys_wdata[31:16];
 end
 
@@ -197,8 +207,10 @@ always @(posedge adc_clk_i) begin
       20'h00004 : sys_rdata <= {16'h0, SHIELD_N[3:0], SRC_W[7:0], N_CH[3:0]};
 
       // --- trigger_shield ---
-      20'h00010 : sys_rdata <= {shield_dur, 4'h0, shield_dst, 4'h0, shield_src};
-      20'h00014 : sys_rdata <= {{32-17{1'b0}}, shield_active_i, shield_cnt_i};
+      20'h00010 : sys_rdata <= {shield_dur,
+                                {(8-SHIELD_DST){1'b0}}, shield_dst,
+                                {(8-SHIELD_SRC){1'b0}}, shield_src};
+      20'h00014 : sys_rdata <= {{32-18{1'b0}}, mca_veto_i, shield_active_i, shield_cnt_i};
 
       // --- snapshot y flags ---
       20'h00018 : sys_rdata <= {{32-17{1'b0}}, trig_snapshot_i};

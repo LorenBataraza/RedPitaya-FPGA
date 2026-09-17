@@ -33,8 +33,12 @@ API en [`docs/API/referencia_api.md`](../API/referencia_api.md). `SCOPE_PHYS` /
 `SCOPE_SIZE`).
 
 Parámetros relevantes: `CHN` (0/1, selecciona qué mitad del estado se
-expone), `N_CH` (canales activos), `DW=14` (ancho de dato ADC), `RSZ=14`
-(tamaño RAM 2^RSZ).
+expone), `N_CH` (canales activos), `DW` (ancho de dato ADC, 14), `RSZ` (tamaño
+RAM 2^RSZ, **13** en los tops actuales).
+
+Los tres los fija un `localparam` único por top (`SCOPE_N_CH` / `SCOPE_DW` /
+`SCOPE_RSZ`) que alimenta a la vez al scope y a `integration_cfg`: escribirlos
+dos veces es como divergió `H_AW`.
 
 ---
 

@@ -28,7 +28,7 @@ Mapa de slots: [`../TOP/register_map_top.md`](../TOP/register_map_top.md).
 | `0x000` | R | `MAGIC` = `0x4D545247` (`"MTRG"`) | — |
 | `0x004` | R | `CAPS` `{SHIELD_N[15:12], SRC_W[11:4], N_CH[3:0]}` | — |
 | `0x010` | RW | `SHIELD_CFG` | `0x4010_0210` |
-| `0x014` | R | `SHIELD_STAT` `{active[16], cnt[15:0]}` | `0x4010_0214` |
+| `0x014` | R | `SHIELD_STAT` `{mca_veto[17], active[16], cnt[15:0]}` | `0x4010_0214` |
 | `0x018` | R | `SNAPSHOT` (17 b, sticky) | `0x4010_0218` |
 | `0x01C` | R | `DIS_FLAGS` `{we_keep[7:4], dis_act[3:0]}` | `0x4010_021C` |
 | `0x020` | W | `TRIG_SW` — **bit por canal** | `0x4010_0004` bits `[3:0]` |
@@ -39,14 +39,54 @@ Mapa de slots: [`../TOP/register_map_top.md`](../TOP/register_map_top.md).
 ### `SHIELD_CFG` (`0x010`)
 
 ```
- 31            16 15  12 11   8 7   4 3   0
-+---------------+------+------+-----+-----+
-|     dur       | 0000 | dst  | 0000| src |
-+---------------+------+------+-----+-----+
+ 31            16 15 13 12  11    8 7 6      4 3    0
++---------------+-----+---+-------+-+--------+------+
+|     dur       | 000 |mca|  dst  |0|  ext   | src  |
++---------------+-----+---+-------+-+--------+------+
+                        ^  canales   lvl n p  canales
 ```
 
-`src` dispara el holdoff, `dst` es el canal inhibido, `dur` la duración en
-ciclos de `adc_clk`. Con `dur = 0` el re-arme es inmediato.
+`src` dispara el holdoff, `dst` es lo que queda inhibido, `dur` la duración en
+ciclos de `adc_clk`. Con `dur = 0` el re-arme es inmediato. Los dos campos
+crecieron **en sitio** sobre bits que estaban en cero, así que un software que
+escribe sólo `src[3:0]`/`dst[11:8]` deja lo nuevo apagado:
+
+| Bit | Campo | Qué es |
+|---|---|---|
+| `src[3:0]` | `SRC_CH0..3` | disparo de cada canal del scope (como siempre) |
+| `src[4]` | `SRC_EXT_P` | entrada externa **DIO0_P**, flanco de subida |
+| `src[5]` | `SRC_EXT_N` | flanco de bajada |
+| `src[6]` | `SRC_EXT_LVL` | **nivel** de DIO0_P, sincronizado (dos flops en `adc_clk`) |
+| `dst[11:8]` | `DST_CH0..3` | canales cuyo `adc_trg_dis` se limpia al expirar (como siempre) |
+| `dst[12]` | `DST_MCA` | **veto al MCA**: nivel `mca_veto` hacia `mca_top.veto_i` |
+
+#### El veto al MCA
+
+`mca_veto = DST_MCA & (alguna fuente dispara | holdoff corriendo)`, registrado.
+Es un **nivel**, no un pulso de re-arme, y con él el MCA no abre pulsos nuevos,
+termina normal el que tenga en curso, y para su reloj de tiempo vivo (el tiempo
+va a `vetotime`, `0x0C0` del MCA). Tres usos, del mismo contador:
+
+| Quiero | `src` | `dur` | Resultado |
+|---|---|---|---|
+| veto de nivel: bloquear mientras DIO0_P esté alta | `SRC_EXT_LVL` | 0 | el veto **es** la línea (latencia ~3 ciclos) |
+| ídem con cola | `SRC_EXT_LVL` | K | la línea, más K ciclos después de que baje |
+| ventana tras un flanco externo | `SRC_EXT_P` | K | K ciclos desde el flanco |
+| bloquear el MCA cuando dispara un canal del scope | `SRC_CH0` | K | K ciclos desde ese disparo |
+
+Con `ext_lvl` la fuente "dispara" cada ciclo que la línea está alta; como cada
+disparo recarga el contador, `dur` se comporta como cola. Sin `DST_MCA` el
+escudo corre igual (se ve en `active`) pero no veta.
+
+> **Hay un solo shield.** Con `dst = DST_MCA` deja de servir como holdoff
+> ch0→ch1 del scope. Si hicieran falta los dos a la vez, es una segunda
+> instancia de `trigger_shield`, no más bits.
+
+DIO0_P es la línea `trig_ext` de siempre: entra por el IOBUF que controla
+`red_pitaya_hk` (reg `0x10` de dirección, **entrada en reset**). Los flancos
+`ext_p/ext_n` son los que ya existían para la máscara OR (bits 9/10); el nivel
+se sincroniza aparte en `rp_scope_multitrigger_com` porque `rp_ext_trig` no lo
+saca como puerto.
 
 ### `OR_MASK` (`0x040` + 4·canal)
 

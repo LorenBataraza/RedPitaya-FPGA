@@ -84,14 +84,20 @@ class PanelMultitrigger(PanelCampos):
         g = QGroupBox('trigger_shield (re-armado por hardware)')
         f = self._forma(g)
         f.addRow('arman (src)',
-                 self._spin('shield_src', 0, 0xF, CORTA,
-                            'Máscara de canales cuyo disparo activa el shield. '
-                            '0x3 = ch0 y ch1. Con 0 el shield está apagado y el '
-                            're-armado vuelve a ser por software.'))
+                 self._spin('shield_src', 0, 0x7F, CORTA,
+                            'Máscara de fuentes que activan el shield. Bits '
+                            '0-3: disparo de cada canal (0x3 = ch0 y ch1). '
+                            'Bit 4: entrada externa DIO0_P, flanco de subida. '
+                            'Bit 5: flanco de bajada. Bit 6: NIVEL de DIO0_P. '
+                            'Con 0 el shield está apagado y el re-armado vuelve '
+                            'a ser por software.'))
         f.addRow('limpian (dst)',
-                 self._spin('shield_dst', 0, 0xF, CORTA,
-                            'Máscara de canales cuyo adc_trg_dis se limpia. '
-                            'Normalmente igual que src.'))
+                 self._spin('shield_dst', 0, 0x1F, CORTA,
+                            'Máscara de destinos. Bits 0-3: canales cuyo '
+                            'adc_trg_dis se limpia (normalmente igual que src). '
+                            'Bit 4: VETO al MCA — mientras el shield esté activo '
+                            'no abre pulsos y su reloj de tiempo vivo se para. '
+                            'Veto de nivel: src=0x40, dst=0x10, holdoff=0.'))
         f.addRow('holdoff (ciclos)',
                  self._spin('shield_dur', 0, 0xFFFF, CORTA,
                             'Ciclos de espera antes de limpiar. Con 0 la '
@@ -198,7 +204,14 @@ class PanelMultitrigger(PanelCampos):
         self.lbl_snap.setText(
             f'{crudo:#07x} — ' + (', '.join(fuentes) if fuentes
                                   else 'ninguna fuente registrada'))
-        self.lbl_runtime.setText(str(est.get('shield_runtime', '—')))
+        rt = est.get('shield_runtime')
+        if rt is None:
+            self.lbl_runtime.setText('—')
+        else:
+            self.lbl_runtime.setText(
+                f'{rt & 0xFFFF} ciclos'
+                + (' · activo' if est.get('shield_active') else '')
+                + (' · VETO al MCA' if est.get('mca_veto') else ''))
         self.lbl_flags.setText(f'{est.get("flags", 0):#010x}')
 
     def set_conectado(self, conectado, running=False):

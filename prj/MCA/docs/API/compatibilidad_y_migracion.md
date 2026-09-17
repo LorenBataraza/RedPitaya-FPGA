@@ -203,19 +203,33 @@ momento en que conviene renombrarlo.
 
 ## 5. Cobertura de los tests
 
+Los de este documento: los que vigilan que la **superficie** y la **geometría**
+no se muevan sin que nadie se entere. El resto de `API/tests/` —estimadores,
+formas de pulso, linealización, el protocolo— no entra acá; `make verificar` los
+corre a todos igual.
+
 | Test | Qué cubre | Placa |
 |---|---|---|
 | [`test_compat_api.py`](../../software/API/tests/test_compat_api.py) | que la superficie **vieja** no cambió | no |
 | [`test_api_mca.py`](../../software/API/tests/test_api_mca.py) | lo que el refactor **añadió**: accesores por campo, RMW, metadata, guardado | no |
-| [`API/tests/placa/`](../../software/API/tests/placa/) | formato del ring y `RingSource` | no |
+| [`test_api_osc.py`](../../software/API/tests/test_api_osc.py) | las tablas de campos del osciloscopio y del multitrigger | no |
+| [`test_geometria_scope.py`](../../software/API/tests/test_geometria_scope.py) | `RSZ`/`N_CH` → anillo, aperturas y mapeo, y el límite de ventana que reemplaza al alias silencioso | no |
+| [`test_guarda_bitstream.py`](../../software/API/tests/test_guarda_bitstream.py) | que no se cargue un bitstream de otro Zynq | no |
+| [`test_ring_format.py`](../../software/API/tests/test_ring_format.py), [`test_ring_source.py`](../../software/API/tests/test_ring_source.py) | formato del ring y `RingSource` | no |
 | `API/tests/placa/diag_mca_hw.py` | camino de lectura completo del MCA | **sí** |
 | `API/tests/placa/test_mca_hw.py`, `testbench_mca.py` | campañas de caracterización | **sí** |
 
-Los tres primeros corren juntos:
+Los que no necesitan placa corren juntos, por el directorio y no por la lista:
 
 ```bash
-python -m pytest API/tests/test_api_mca.py API/tests/test_compat_api.py API/tests/placa/ -q
+make verificar-api          # = pytest API/tests
 ```
+
+Nombrar `API/tests/placa/` a mano en la línea de comandos **no** funciona:
+`placa` y `bench` están en el `norecursedirs` de `pyproject.toml` justamente
+porque sus ficheros hacen `import rp` al importarse, y pedirlos explícitamente
+saltea esa exclusión — lo que se rompe entonces no es un test, es la
+**colección**, y no corre ninguno.
 
 El chequeo que sólo puede hacerse en la placa es
 [`diag_mca_hw.py`](../../software/API/tests/placa/diag_mca_hw.py): si lee el espectro

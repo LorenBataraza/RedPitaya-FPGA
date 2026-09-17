@@ -349,3 +349,32 @@ def test_get_config_relee_los_campos_nuevos():
     assert cfg['keep_if_full'] == 0
     assert cfg['discr_en'] == 1
     assert cfg['discr_min'] == 100 and cfg['discr_max'] == 500
+
+
+# =============================================================================
+# Veto externo
+# =============================================================================
+
+def test_los_relojes_incluyen_el_veto_y_suman_el_real():
+    """`vetotime` (0x0C0/0x0C4) y el bit 3 del estado.
+
+    Un bitstream sin veto devuelve 0 en 0x0C0 (registro no mapeado): el campo
+    vale 0 y `vetoed` es False, así que un lector viejo no nota diferencia.
+    """
+    m, h = _handle()
+    m.poke(A.R_REALTIME_LO, 1000); m.poke(A.R_LIVETIME_LO, 600)
+    m.poke(A.R_DEADTIME_LO, 100);  m.poke(A.R_VETOTIME_LO, 300)
+    m.poke(A.R_STATUS, 1 << 3)
+    c = h.counters()
+    assert c['vetoed'] and not c['busy']
+    fs = A.FS_HZ
+    assert abs(c['livetime_s'] + c['deadtime_s'] + c['vetotime_s']
+               - c['realtime_s']) < 1 / fs
+    assert abs(c['vetotime_s'] - 300 / fs) < 1e-12
+    assert A.mca_get_vetoed(h)
+
+
+def test_sin_veto_los_campos_nuevos_son_cero():
+    _, h = _handle()
+    c = h.counters()
+    assert c['vetotime_s'] == 0 and c['vetoed'] is False

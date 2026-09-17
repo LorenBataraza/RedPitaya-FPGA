@@ -17,7 +17,8 @@ module tb_multitrigger_event_logic;
   reg                dly_do=0, ext_p=0, ext_n=0, asg_p=0, asg_n=0;
   reg  [3:0]         dly_valp=4'hF;
   reg  [N_CH*32-1:0] set_src=0;
-  reg  [3:0]         sh_src=0, sh_dst=0;
+  reg  [6:0]         sh_src=0;
+  reg  [4:0]         sh_dst=0;
   reg  [15:0]        sh_dur=0;
 
   wire [3:0]         trig_ch_o;
@@ -35,6 +36,7 @@ module tb_multitrigger_event_logic;
     .set_trg_src_i(set_src), .set_trg_new_i(set_new), .dly_valp_i(dly_valp),
     .adc_trig_sw_i(trig_sw), .adc_trig_p_i(trig_p), .adc_trig_n_i(trig_n),
     .ext_trig_p_i(ext_p), .ext_trig_n_i(ext_n), .asg_trig_p_i(asg_p), .asg_trig_n_i(asg_n),
+    .ext_lvl_i(1'b0),
     .trig_ch_i(trig_ch),
     .shield_src_i(sh_src), .shield_dst_i(sh_dst), .shield_dur_i(sh_dur),
     .trig_ch_o(trig_ch_o), .trg_state_o(trg_state), .adc_trg_dis_o(dis),

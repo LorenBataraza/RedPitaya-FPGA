@@ -72,6 +72,12 @@ module mca_pulse_feature #(
 
   // --- configuración ---
   input                       cfg_run_i        ,
+  // VETO externo (nivel): no se abren pulsos nuevos mientras vale 1. El pulso
+  // en curso termina normal, y el seguidor de linea de base SIGUE corriendo
+  // -- a diferencia de cfg_run=0 --, porque la base deriva igual durante el
+  // veto y si se congelara arrancaria desfasada al liberarse. Viene del
+  // trigger_shield del multitrigger (dst = mca).
+  input                       veto_i           ,
   input                       cnt_clr_i        ,  // pulso: pone a cero los contadores
   input      signed [DW-1:0]  cfg_thr_i        ,  // umbral sobre la línea de base
   input             [DW-1:0]  cfg_hyst_i       ,  // histéresis (positiva)
@@ -170,7 +176,7 @@ reg [DW-1:0]     peak;
 reg [QW-1:0]     q_tot, q_tail;
 reg [LEN_W-1:0]  bl_hold;        // cuenta atrás del holdoff post-pulso
 
-wire open_pulse  = (st == S_IDLE) && cfg_run_i && armed && (x >= thr_hi);
+wire open_pulse  = (st == S_IDLE) && cfg_run_i && !veto_i && armed && (x >= thr_hi);
 
 // CIERRE. Dos modos, seleccionables por registro:
 //
@@ -216,6 +222,24 @@ wire in_tail = (st == S_ACTIVE) &&
                                 : (len >= (t_peak + cfg_tail_dly_i)));
 
 //-----------------------------------------------------------------------------
+// Valor SIGUIENTE de los acumuladores, como cables
+//-----------------------------------------------------------------------------
+// Son el D de q_tot y de peak (la FSM ya no los asigna por su cuenta) y, a la
+// vez, la entrada del comparador de ventana registrado de mas abajo. Nombrarlos
+// es lo que permite evaluar la ventana un ciclo ANTES del cierre sin cambiar
+// ni un bit de lo que se acumula.
+wire acumula = (st == S_ACTIVE) && val_i && !close_pulse;
+
+wire [QW-1:0] q_tot_d = (val_i && open_pulse) ? {{(QW-DW){1'b0}}, xc}
+                      : acumula                ? q_tot + {{(QW-DW){1'b0}}, xc}
+                      :                          q_tot;
+// Pico con comparación ESTRICTA: gana la primera ocurrencia.
+wire          nuevo_pico = acumula && (xc > peak);
+wire [DW-1:0] peak_d  = (val_i && open_pulse) ? xc
+                      : nuevo_pico            ? xc
+                      :                         peak;
+
+//-----------------------------------------------------------------------------
 // Amplitud: pico o integral, con saturación a AMP_W bits
 //-----------------------------------------------------------------------------
 wire [QW-1:0]    q_shifted = q_tot >> cfg_q_shift_i;
@@ -224,7 +248,141 @@ wire [AMP_W-1:0] amp_int   = q_ovf ? {AMP_W{1'b1}} : q_shifted[AMP_W-1:0];
 wire [AMP_W-1:0] amp_peak  = {{(AMP_W-DW){1'b0}}, peak};
 wire [AMP_W-1:0] amp_sel   = cfg_amp_src_i ? amp_int : amp_peak;
 
-wire amp_ok = (amp_sel >= cfg_amp_min_i) && (amp_sel <= cfg_amp_max_i);
+//-----------------------------------------------------------------------------
+// Ventana de amplitud [amp_min, amp_max]: evaluada un ciclo ANTES del cierre
+//-----------------------------------------------------------------------------
+// ERA el camino critico de todo el bitstream (6 ps de slack en el build, y
+// -0.129 ns con mca_top aislado): en el ciclo de cierre, q_tot pasaba por el
+// barrel shifter, la reduccion OR de la saturacion, dos muxes y dos comparadores
+// de AMP_W bits, y el resultado gateaba el clock-enable de los ~60 flops hold_*
+// y el registro de estado. Ocho niveles de LUT en 8 ns.
+//
+// Tres hechos lo sacan del ciclo de cierre SIN agregar latencia:
+//
+//  1. En el ciclo de cierre q_tot NO se acumula (`acumula` incluye
+//     !close_pulse), asi que su valor final es el que se escribio en el flanco
+//     anterior: q_tot(cierre) == q_tot_d(cierre - 1).
+//  2. Comparar la version DESPLAZADA contra [min, max] es lo mismo que comparar
+//     q_tot sin desplazar contra umbrales pre-desplazados:
+//         sat(q_tot >> s) >= min  <=>  q_tot >= (min << s)
+//         sat(q_tot >> s) <= max  <=>  q_tot <= ((max+1) << s) - 1
+//     con UNA excepcion, la saturacion: amp_int = 2^AMP_W-1 se acepta hoy solo
+//     si max == 2^AMP_W-1, y en esa rama la segunda desigualdad da falso. Por
+//     eso el termino sat_ok, que la restituye exactamente.
+//  3. Los umbrales pre-desplazados dependen solo de registros de configuracion:
+//     se calculan y se registran aparte, y un cambio de configuracion tarda un
+//     ciclo mas en verse. Nada observable: la configuracion no cambia a mitad
+//     de un pulso.
+//
+// Con eso, en el ciclo de cierre amp_ok es un mux de tres flops.
+//
+// LO QUE ENTRA AL COMPARADOR NO ES q_tot_d. La primera version lo usaba, y el
+// camino se fue a 13 niveles (-1.5 ns): q_tot_d lleva adentro `acumula`, que
+// lleva !close_pulse, que lleva x < thr_lo -- o sea el decode del cierre
+// entero, ahora delante del sumador y del comparador. Pero el comparador solo
+// tiene que acertar en el ciclo ANTERIOR a un cierre, y un cierre exige
+// st == S_ACTIVE y val_i: en ese ciclo previo el pulso esta abierto y, si
+// tiene muestra, acumula. Asi que la entrada especulativa
+//
+//     q_spec = (st == S_ACTIVE) ? (val_i ? q_tot + xc : q_tot) : xc
+//
+// coincide con q_tot_d en todos los ciclos que importan (el previo a un cierre,
+// y el de apertura -- que es el previo al cierre de un pulso de una muestra) y
+// difiere solo en ciclos cuyo resultado nunca se lee: el propio ciclo de cierre
+// y los de reposo. Cero comparadores de umbral en el camino.
+//
+// Para el pico ni siquiera hace falta el mux: max(peak, xc) >= min es
+// (peak >= min) || (xc >= min), y max(peak, xc) <= max es (peak <= max) &&
+// (xc <= max). Cuatro comparadores EN PARALELO desde flops y una capa de
+// logica, en vez de comparar-mux-comparar en serie.
+//
+// Y PARA LA INTEGRAL, NI SIQUIERA UN COMPARADOR. Con q_spec = q_tot + xc y un
+// comparador contra min_q el camino eran TRES cadenas de carry en serie
+// (dat - baseline, + q_tot, >= min_q: 15 niveles, -0.133 ns), lo mismo que
+// habia antes. La tercera se elimina llevando la resta hecha: dos registros
+// sombra d_min = q_tot - min_q y d_max = max_q - q_tot, que se actualizan con
+// LA MISMA regla que q_tot (al abrir: xc - min_q; acumulando: += xc). Entonces
+//     q_tot + xc >= min_q   <=>   d_min + xc >= 0   <=>   !signo(d_min + xc)
+// y el comparador es el bit de signo de UNA suma. En reposo, para la apertura,
+// la resta se hace directo sobre `x` sin recortar contra (baseline + min_q)
+// registrado: una sola cadena tambien. El recorte de xc a 0 no cambia el
+// resultado: si x < 0, x >= min_q es falso salvo min_q == 0 (termino aparte) y
+// x <= max_q es verdadero, igual que con xc = 0.
+localparam integer QX_W = AMP_W + 32;             // (max+1) << 31 sin desbordar
+localparam integer DQ_W = QW + 2;                 // diferencias con signo, sin desborde
+
+wire            en_activo = (st == S_ACTIVE);
+wire [AMP_W-1:0] xc_w   = {{(AMP_W-DW){1'b0}}, xc};
+wire [AMP_W-1:0] peak_w = {{(AMP_W-DW){1'b0}}, peak};
+wire xc_ge_min = (xc_w   >= cfg_amp_min_i), xc_le_max = (xc_w   <= cfg_amp_max_i);
+wire pk_ge_min = (peak_w >= cfg_amp_min_i), pk_le_max = (peak_w <= cfg_amp_max_i);
+// max(peak, xc) con val_i, peak sin muestra, xc al abrir
+wire peak_ok_spec = !en_activo ? (xc_ge_min && xc_le_max)
+                  : ((pk_ge_min || (val_i && xc_ge_min)) &&
+                     (pk_le_max && (!val_i || xc_le_max)));
+
+wire [QX_W-1:0] min_q_w = {{(QX_W-AMP_W){1'b0}}, cfg_amp_min_i} << cfg_q_shift_i;
+wire [QX_W-1:0] max_q_w = ({{(QX_W-AMP_W){1'b0}}, cfg_amp_max_i} + {{(QX_W-1){1'b0}}, 1'b1})
+                          << cfg_q_shift_i;        // (max+1) << s
+
+reg [QW-1:0] min_q, max_q;
+reg          min_fuera;     // min << s no entra en QW: ningun q_tot alcanza
+reg          min_cero;      // min << s == 0: todo q_tot cumple, aun con x < 0
+reg          sat_ok;        // max == todo unos: la saturacion se acepta
+reg          ge_min_r, le_max_r, peak_ok_r;
+
+// Sombras de q_tot: siguen su misma regla de actualizacion (abrir, acumular,
+// sostener) y llevan la resta contra la ventana ya hecha.
+reg  signed [DQ_W-1:0] d_min, d_max;           // q_tot - min_q, max_q - q_tot
+wire signed [DQ_W-1:0] xc_s    = {{(DQ_W-DW){1'b0}}, xc};
+wire signed [DQ_W-1:0] min_q_s = {{(DQ_W-QW){1'b0}}, min_q};
+wire signed [DQ_W-1:0] max_q_s = {{(DQ_W-QW){1'b0}}, max_q};
+wire signed [DQ_W-1:0] d_min_d = (val_i && open_pulse) ? xc_s - min_q_s
+                               : acumula                ? d_min + xc_s
+                               :                          d_min;
+wire signed [DQ_W-1:0] d_max_d = (val_i && open_pulse) ? max_q_s - xc_s
+                               : acumula                ? d_max - xc_s
+                               :                          d_max;
+
+// Para la apertura (reposo): x SIN recortar contra min_q y max_q. Dos cadenas
+// (la resta de la base y esta), igual que el camino activo. No se precomputa
+// (baseline + min_q) porque la base cambia cada ciclo de reposo y quedaria un
+// ciclo desfasada de la x que decide la apertura.
+wire signed [DQ_W-1:0] x_s = {{(DQ_W-XW){x[XW-1]}}, x};
+wire signed [DQ_W-1:0] x_menos_min = x_s - min_q_s;     // x - min_q
+wire signed [DQ_W-1:0] max_menos_x = max_q_s - x_s;     // max_q - x
+// Activo: una suma sobre la sombra, y el signo.
+wire signed [DQ_W-1:0] dmin_spec = val_i ? d_min + xc_s : d_min;
+wire signed [DQ_W-1:0] dmax_spec = val_i ? d_max - xc_s : d_max;
+
+wire ge_min_spec = !en_activo ? (min_cero || !x_menos_min[DQ_W-1])
+                              : !dmin_spec[DQ_W-1];
+wire le_max_spec = !en_activo ? !max_menos_x[DQ_W-1]
+                              : !dmax_spec[DQ_W-1];
+
+always @(posedge clk_i) begin
+  if (!rstn_i) begin
+    min_q <= {QW{1'b0}}; max_q <= {QW{1'b1}}; min_fuera <= 1'b0; min_cero <= 1'b1;
+    sat_ok <= 1'b1; d_min <= {DQ_W{1'b0}}; d_max <= {DQ_W{1'b0}};
+    ge_min_r <= 1'b0; le_max_r <= 1'b0; peak_ok_r <= 1'b0;
+  end else begin
+    min_fuera <= |min_q_w[QX_W-1:QW];
+    min_q     <= min_q_w[QW-1:0];
+    min_cero  <= (min_q_w == {QX_W{1'b0}});
+    // Si (max+1)<<s desborda QW, todo q_tot cumple: tope en todo unos.
+    max_q     <= (|max_q_w[QX_W-1:QW]) ? {QW{1'b1}} : (max_q_w[QW-1:0] - {{(QW-1){1'b0}}, 1'b1});
+    sat_ok    <= (cfg_amp_max_i == {AMP_W{1'b1}});
+
+    d_min     <= d_min_d;
+    d_max     <= d_max_d;
+
+    ge_min_r  <= !min_fuera && ge_min_spec;
+    le_max_r  <= le_max_spec;
+    peak_ok_r <= peak_ok_spec;
+  end
+end
+
+wire amp_ok = cfg_amp_src_i ? (ge_min_r && (le_max_r || sat_ok)) : peak_ok_r;
 
 // El divisor exige q_tail < q_tot y q_tot != 0. Se verifica ACÁ, no se confía
 // en la invariante: el clamp de xc la protege, pero un q_tot=0 (pulso de ruido)
@@ -378,6 +536,13 @@ always @(posedge clk_i) begin
     div_den  <= q_tot;
     div2_num <= {{(QW-DW){1'b0}}, peak};   // ancho inverso: P/Q
 
+    // q_tot y peak se escriben desde sus cables de valor siguiente, todos los
+    // ciclos: la FSM decide QUE vale q_tot_d/peak_d (abrir, acumular, sostener),
+    // no cuando se escribe. Asi el mismo cable alimenta el comparador de
+    // ventana registrado. Ver "Ventana de amplitud".
+    q_tot <= q_tot_d;
+    peak  <= peak_d;
+
     //--- seguidor de línea de base: sólo en reposo y fuera del holdoff -------
     // Ojo con `!open_pulse`: en el flanco en que se abre el pulso, `st` TODAVÍA
     // vale S_IDLE (la transición se registra en este mismo flanco). Sin esa
@@ -406,7 +571,10 @@ always @(posedge clk_i) begin
     // curso y mediría una amplitud truncada: eso metería una cola espuria de
     // baja energía en el espectro. Es preferible perder el pulso entero y
     // contarlo en cnt_lost_busy, que es un tiempo muerto medible y corregible.
-    if (val_i && (st != S_IDLE) && (x >= thr_hi)) armed <= 1'b0;
+    // Lo mismo bajo VETO: un pulso que sube con el veto puesto no se abre al
+    // liberarlo -- se vuelve a armar recien por debajo de thr_lo. Ese no se
+    // cuenta como perdido: vetarlo es lo que se pidio.
+    if (val_i && ((st != S_IDLE) || veto_i) && (x >= thr_hi)) armed <= 1'b0;
 
     //--- FSM ----------------------------------------------------------------
     case (st)
@@ -418,8 +586,7 @@ always @(posedge clk_i) begin
           len    <= {{(LEN_W-1){1'b0}}, 1'b1};
           t_peak <= {LEN_W{1'b0}};
           gate_rearm <= 1'b0; gate_2nd <= 1'b0;
-          peak   <= xc;
-          q_tot  <= {{(QW-DW){1'b0}}, xc};
+          // peak <= xc y q_tot <= xc los hacen peak_d/q_tot_d
           q_tail <= {QW{1'b0}};
         end
       end
@@ -478,13 +645,10 @@ always @(posedge clk_i) begin
             // subida del pulso en curso.
             if (x < thr_lo)                  gate_rearm <= 1'b1;
             else if (gate_rearm && (x >= thr_hi)) gate_2nd <= 1'b1;
-            q_tot <= q_tot + {{(QW-DW){1'b0}}, xc};
+            // q_tot += xc y peak = max(peak, xc) los hacen q_tot_d/peak_d
+            // (`acumula` es exactamente esta rama).
             if (in_tail) q_tail <= q_tail + {{(QW-DW){1'b0}}, xc};
-            // Pico con comparación ESTRICTA: gana la primera ocurrencia.
-            if (xc > peak) begin
-              peak   <= xc;
-              t_peak <= len;
-            end
+            if (nuevo_pico) t_peak <= len;
           end
         end else begin
           // Sin muestras válidas el pulso no puede cerrarse por histéresis;

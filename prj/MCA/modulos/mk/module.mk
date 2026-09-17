@@ -187,12 +187,19 @@ PERIOD_NS ?= 8.0
 
 # El syn_ooc.tcl es unico y compartido: lo propio de cada modulo es su
 # syn/inputs/<top>_ooc.xdc.
+#
+# GENERICS: los parametros con los que el TOP instancia este modulo. Sin esto se
+# sintetizan los DEFAULTS del RTL, que no son lo que se construye -- mca_top
+# tiene H_AW=14 por defecto y los tops usan 13, o sea 8 RAMB36 de diferencia.
+# Cada modulo declara los suyos en su work/Makefile.
+GENERICS ?=
+
 syn:               ## sintesis out-of-context en Vivado
 	@test -n "$(TOP)" || { echo "este modulo no declara TOP: nada que sintetizar"; exit 1; }
 	@mkdir -p $(MOD_DIR)/syn/outputs $(MOD_DIR)/syn/logs
 	cd $(MOD_DIR)/syn && \
 	  MODULE=$(MODULE) SYN_TOP=$(TOP) MOD_DIR=$(MOD_DIR) \
-	  SYN_SRCS="$(RTL_SRCS)" PERIOD_NS=$(PERIOD_NS) \
+	  SYN_SRCS="$(RTL_SRCS)" PERIOD_NS=$(PERIOD_NS) SYN_GEN="$(GENERICS)" \
 	  $(VIVADO) -nojournal -mode batch -source $(MODULOS)/mk/syn_ooc.tcl \
 	    -log $(MOD_DIR)/syn/logs/syn.log -tempDir $(MOD_DIR)/syn/logs
 

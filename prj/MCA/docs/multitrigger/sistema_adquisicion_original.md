@@ -189,8 +189,9 @@ cuatro bloques `always` independientes con banderas que se enganchan entre sí. 
 | `adc_wp_trig` | 14 | `adc_wp` **latcheado en el trigger** → `0x1C` |
 | `adc_we_cnt` | 32 | muestras escritas **antes** del trigger → `0x2C` |
 
-Los tres punteros son de `RSZ=14` bits: el envolvimiento del buffer circular es
-la aritmética natural del registro, no hay comparación con un tope.
+Los tres punteros son de `RSZ` bits (14 en el diseño original, 13 en los tops de
+hoy): el envolvimiento del buffer circular es la aritmética natural del
+registro, no hay comparación con un tope.
 
 ### 3.2 Los enganches, uno por uno
 

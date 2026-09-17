@@ -811,11 +811,52 @@ estímulo inicial no armaba el Schmitt antes del primer pulso.
 | MCA inicial | −0.674 | 266 |
 | + línea de base y desplazador registrados | −0.313 | 106 |
 | + multicycle en los registros de config | −0.260 | 60 |
-| + registro de entrada en `mca_top` | **−0.114** | **14** |
+| + registro de entrada en `mca_top` | −0.114 | 14 |
+| build publicado (bus de features, zoom, discriminador) | **+0.006** | 0 |
+| + ventana de amplitud evaluada un ciclo antes (§11.1) | `mca_top` OOC: −0.129 → **+0.436** | — |
 
-De los 14 finales: **6 en `ps/system_i`** (el `axi_protocol_converter` del block
-design de Xilinx, preexistente, peor −0.114) y **8 en `i_mca/i_feat`** (peor
-−0.057 ns, 0.7% del período). **El peor camino del diseño ya no es del MCA.**
+De los 14 de la cuarta fila: **6 en `ps/system_i`** (el `axi_protocol_converter`
+del block design de Xilinx, preexistente, peor −0.114) y **8 en `i_mca/i_feat`**
+(peor −0.057 ns, 0.7% del período). En ese momento el peor camino del diseño no
+era del MCA. **Dejó de ser cierto**: el build publicado cierra con 6 ps y sus
+diez peores caminos son todos `i_mca/i_feat/q_tot_reg → hold_*/CE`. Ver §11.1.
+
+### 11.1 La ventana de amplitud, fuera del ciclo de cierre
+
+Lo que había en el ciclo de cierre, en 8 ns: `q_tot` → barrel shifter por
+`cfg_q_shift` → OR de 16 bits (saturación) → dos muxes → dos comparadores de 16
+bits (`amp_ok`) → **clock-enable de ~60 flops** `hold_*` y next-state. Ocho
+niveles. Con `mca_top` aislado (`make syn`, con los parámetros reales) daba
+WNS −0.129 ns; en el build, 6 ps. Replicar el MCA cuatro veces (proyecto Z20)
+sobre eso era tirar cuatro veces al mismo blanco.
+
+El arreglo no agrega latencia — **ni un ciclo de tiempo muerto** — y se apoya en
+tres hechos del RTL:
+
+1. `q_tot` sólo crece (`xc ≥ 0`) y **no se acumula en el ciclo de cierre**: su
+   valor final es el que se escribió en el flanco anterior.
+2. Comparar la versión desplazada contra `[min, max]` equivale a comparar
+   `q_tot` sin desplazar contra umbrales pre-desplazados, `min<<s` y
+   `((max+1)<<s)−1`, que dependen sólo de configuración y se registran aparte.
+   Única excepción, la saturación (`amp_int = 0xFFFF` se acepta sólo si
+   `max = 0xFFFF`), restituida con un término `sat_ok`.
+3. La comparación se puede hacer **un ciclo antes** sobre el valor siguiente —
+   pero no sobre `q_tot_d` tal cual, que arrastra el decode del cierre
+   (`!close_pulse` → `x < thr_lo`) y dio 13 niveles. Sobre una entrada
+   **especulativa** que sólo tiene que acertar en el ciclo previo a un cierre:
+   `st == S_ACTIVE ? (val_i ? q_tot + xc : q_tot) : xc`.
+
+Con eso el camino quedó en tres cadenas de carry en serie (`dat − baseline`,
+`+ q_tot`, `≥ min_q`): −0.133 ns, igual que antes. La tercera se elimina con
+**dos registros sombra** `d_min = q_tot − min_q` y `d_max = max_q − q_tot`, que
+siguen la misma regla de actualización que `q_tot`; el comparador es el bit de
+signo de una suma. Resultado: **+0.436 ns**, y el peor camino es ahora el propio
+acumulador `dat → q_tot`, que es el piso natural. Costo: +510 LUT, +69 FF.
+
+La equivalencia se probó en los bordes: `tb_mca_pulse_feature` ganó doce
+comprobaciones (`q_tot` justo en `min<<s` y en `max_q`, saturado con
+`max = 0xFFFF` y `0xFFFE`, pico justo en `min`) y **el mismo testbench pasa
+93/93 contra el RTL anterior**.
 
 Dos aprendizajes concretos:
 

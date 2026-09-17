@@ -311,7 +311,11 @@ class PanelEspectro(QWidget):
             f"rech. ampl. {n('rej_amp'):>9}   apilados  {n('pileup'):>7}\n"
             f"rech. forma {n('rej_psd'):>9}   base      {baseline:>7}\n"
             f"real {s('realtime_s'):7.3f} s  vivo {s('livetime_s'):7.3f} s\n"
-            f"muerto {s('deadtime_s'):5.3f} s")
+            f"muerto {s('deadtime_s'):5.3f} s"
+            # Sólo si hay veto: un bitstream sin él lee 0 y no hace falta
+            # ocupar la línea.
+            + (f"  veto {s('vetotime_s'):5.3f} s" if s('vetotime_s') else '')
+            + ('  [VETADO]' if cnt.get('vetoed') else ''))
 
     def _grupo_archivo(self):
         g = QGroupBox()

@@ -40,7 +40,8 @@ module tb_trig_capture;
   reg  [3:0]         el_trig_n   = 4'h0;
   reg                el_ext_p=0, el_ext_n=0, el_asg_p=0, el_asg_n=0;
   reg  [3:0]         el_trig_ch  = 4'h0;
-  reg  [3:0]         sh_src = 4'h0, sh_dst = 4'h0;
+  reg  [6:0]         sh_src = 7'h0;
+  reg  [4:0]         sh_dst = 5'h0;
   reg  [15:0]        sh_dur = 16'h0;
 
   wire [3:0]         el_trig_ch_o;
@@ -88,6 +89,7 @@ module tb_trig_capture;
     .ext_trig_n_i     (el_ext_n),
     .asg_trig_p_i     (el_asg_p),
     .asg_trig_n_i     (el_asg_n),
+    .ext_lvl_i        (1'b0),
     .trig_ch_i        (el_trig_ch),
     .shield_src_i     (sh_src),
     .shield_dst_i     (sh_dst),

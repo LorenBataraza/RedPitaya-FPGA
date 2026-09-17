@@ -43,7 +43,8 @@ module tb_multitrigger_cfg;
 
   wire [  4-1:0] adc_trig_sw, trig_dis_clr, new_trg_src;
   wire [4*32-1:0] trg_src;
-  wire [  4-1:0] shield_src, shield_dst;
+  wire [  7-1:0] shield_src;
+  wire [  5-1:0] shield_dst;
   wire [ 16-1:0] shield_dur;
 
   multitrigger_cfg #(
@@ -52,7 +53,7 @@ module tb_multitrigger_cfg;
     .adc_clk_i(clk), .adc_rstn_i(rstn),
     .trg_state_i(trg_state), .adc_trg_dis_act_i(adc_trg_dis_act),
     .adc_we_keep_i(adc_we_keep), .indep_mode_i(indep_mode),
-    .shield_cnt_i(shield_cnt), .shield_active_i(shield_active),
+    .shield_cnt_i(shield_cnt), .shield_active_i(shield_active), .mca_veto_i(1'b0),
     .trig_snapshot_i(trig_snapshot),
     .legacy_trig_sw_i(legacy_trig_sw),
     .legacy_trig_dis_clr_i(legacy_trig_dis_clr),

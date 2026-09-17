@@ -56,8 +56,63 @@ rp = _RpPerezoso()
 
 
 SCOPE_PHYS = 0x4010_0000
-SCOPE_SIZE = 0x30000
-N_BUF      = 16384
+
+# =============================================================================
+# Geometría del scope: de dónde sale y por qué no puede ser una constante
+# =============================================================================
+#
+# Dos parámetros de síntesis la fijan, y los dos varían entre bitstreams:
+#
+#   RSZ    profundidad del buffer por canal, en potencias de 2. `N_BUF = 2^RSZ`.
+#   N_CH   canales construidos (2 en las Z10/Z20 actuales, 4 en la z20_125_4ch).
+#
+# El stride de las aperturas de BRAM NO depende de RSZ: lo decide el decodificador
+# de direcciones, que mira `sys_addr[19:16]` (osc_cfg.sv:432). O sea que el canal
+# `i` vive siempre en 0x10000*(i+1), y con RSZ<14 la mitad alta de su apertura es
+# un ALIAS de la baja — no un error de bus, un espejo silencioso.
+#
+# **Ese alias es la razón de que esto importe.** Como 2^14 = 2 * 2^13, pedir
+# 16384 muestras a un bitstream de RSZ=13 no falla: devuelve el anillo DOS VECES,
+# sin código de error y sin que nada se queje. Un `% 16384` sobre punteros de 13
+# bits tampoco se rompe, porque el alias deshace exactamente el módulo de más.
+# Lo único que se pierde —en silencio— es la mitad de la ventana. Por eso los
+# límites tienen que salir del hardware y no de un literal: no hay excepción que
+# avise.
+
+RSZ_DEFECTO  = 14                 # los tops de hoy; `geometria()` lee el real
+N_CH_DEFECTO = 2
+
+APERTURA_BRAM_0     = 0x10000     # apertura del canal 0
+APERTURA_BRAM_PASO  = 0x10000     # stride fijo, lo fija sys_addr[19:16]
+APERTURAS_DECODIFICADAS = 4       # el casez decodifica 4 aunque N_CH sea menor
+
+
+def geometria_scope(rsz=RSZ_DEFECTO, n_ch=N_CH_DEFECTO):
+    """Profundidad, aperturas y tamaño de mapeo para un (rsz, n_ch) dados.
+
+    Es la ÚNICA cuenta que traduce parámetros de síntesis a direcciones. Las
+    constantes de abajo son su resultado para el bitstream por defecto, no una
+    segunda fuente de verdad.
+
+    `size` llega hasta el final de la apertura del último canal construido: con
+    2 canales y RSZ=14 da los 0x30000 de siempre; con 4 canales y RSZ=14 hacen
+    falta 0x50000, que es lo que el valor fijo no cubría.
+    """
+    if not 1 <= n_ch <= APERTURAS_DECODIFICADAS:
+        raise ValueError(f'n_ch={n_ch} fuera de 1..{APERTURAS_DECODIFICADAS}')
+    if not 1 <= rsz <= 24:
+        raise ValueError(f'rsz={rsz} no es una profundidad plausible')
+    n_buf     = 1 << rsz
+    aperturas = tuple(APERTURA_BRAM_0 + i * APERTURA_BRAM_PASO
+                      for i in range(n_ch))
+    return {'rsz': rsz, 'n_ch': n_ch, 'n_buf': n_buf, 'aperturas': aperturas,
+            'size': aperturas[-1] + 4 * n_buf}   # 1 palabra de 32 b por muestra
+
+
+_GEO_DEFECTO = geometria_scope()
+
+SCOPE_SIZE = _GEO_DEFECTO['size']    # 0x30000 con 2 canales y RSZ=14
+N_BUF      = _GEO_DEFECTO['n_buf']   # 16384
 FS         = 125e6                # Hz, sampling rate con decim=1
 
 ADC_CNT_PER_V = 8192              # escala LV (±1 V): cuentas por volt
@@ -108,7 +163,22 @@ R_CALIB_GAIN_CH0 = 0x204
 R_CALIB_OFF_CH1 = 0x208
 R_CALIB_GAIN_CH1 = 0x20C
 
-APERTURE_BRAM = (0x10000, 0x20000, 0x30000, 0x40000)   # una por canal
+# Las cuatro que el casez decodifica, existan o no los canales. Las del
+# bitstream cargado son `Osciloscope.geometria()['aperturas']`, que se queda con
+# las `n_ch` primeras.
+APERTURE_BRAM = tuple(APERTURA_BRAM_0 + i * APERTURA_BRAM_PASO
+                      for i in range(APERTURAS_DECODIFICADAS))
+
+# --- mapa canónico de osc_cfg (0x01000): la geometría contada por el módulo ---
+#
+# `integration_cfg` publica una SEGUNDA copia de rsz/dw/n_ch en su CAPS_0, y esa
+# copia ya demostró que se desincroniza: cada top pasa el literal dos veces, y
+# con `h_aw` se olvidaron de una (ver el docstring de `Integration.caps`). Ésta
+# es la buena, porque el mismo parámetro que la imprime es el que dimensiona la
+# BRAM que hay detrás.
+R_CANON_MAGIC = 0x01000
+R_CANON_CAPS  = 0x01004           # {RSZ[21:16], DW[13:8], N_CH[3:0]}
+MAGIC_OSC     = 0x4F53_4331       # "OSC1"; los bitstreams pre-refactor no lo tienen
 
 # `decode_snap` decodifica el snapshot de 0x218, que es un registro del
 # multitrigger: la definición única vive allá. Acá se importa porque los dos
@@ -141,10 +211,17 @@ class Osciloscope:
     def __init__(self, scope_mmap, fd):
         self._mmap = scope_mmap
         self._fd   = fd
+        self._geo  = None
 
     @classmethod
     def open(cls, phys=SCOPE_PHYS, size=SCOPE_SIZE, check_pl=True):
         """Abrir /dev/mem y mapear la región del scope.
+
+        `size=None` la descubre: mapea una página, lee la geometría del mapa
+        canónico y re-mapea con el tamaño que hace falta. Es lo que hay que usar
+        cuando el bitstream puede no ser el de siempre — con 4 canales el valor
+        por defecto se queda corto y las aperturas de los canales 3 y 4 no entran
+        en el mapeo.
 
         `check_pl` mira el FPGA manager antes de mapear: si la PL no está
         'operating' no hay quién conteste en el bus y la PRIMERA lectura del
@@ -160,9 +237,50 @@ class Osciloscope:
                     'bitstream ANTES de abrir el scope: load_bitstream(). '
                     'Mapear y leer ahora daría SIGBUS.')
         fd = os.open('/dev/mem', os.O_RDWR | os.O_SYNC)
+        if size is None:
+            # Sonda: el mapa canónico vive en la página 0, así que alcanza con
+            # mapear una para preguntarle cuánto hay que mapear de verdad.
+            sonda = mmap.mmap(fd, 0x2000, mmap.MAP_SHARED,
+                              mmap.PROT_READ | mmap.PROT_WRITE, offset=phys)
+            try:
+                size = cls(sonda, fd).geometria()['size']
+            finally:
+                sonda.close()
         m  = mmap.mmap(fd, size, mmap.MAP_SHARED,
                        mmap.PROT_READ | mmap.PROT_WRITE, offset=phys)
         return cls(m, fd)
+
+    # ---------- geometría ----------
+
+    def geometria(self):
+        """Profundidad y canales del bitstream CARGADO, no los de por defecto.
+
+        Sale del mapa canónico de `osc_cfg` (0x01004), que imprime los mismos
+        parámetros `RSZ`/`N_CH` con los que se dimensionó la BRAM de al lado.
+
+        Un bitstream anterior al refactor de registros no tiene ese mapa: ahí
+        0x01000 no trae el magic y se devuelve la geometría por defecto, con
+        `descubierta=False` para que quien necesite saberlo pueda distinguir un
+        dato leído de una suposición. Falla ABIERTA por lo mismo que la guarda
+        de variante: negarse a operar contra un bitstream viejo sería peor que
+        operar con los valores que ese bitstream justamente tiene.
+        """
+        if self._geo is None:
+            if self.r32(R_CANON_MAGIC) == MAGIC_OSC:
+                caps = self.r32(R_CANON_CAPS)
+                geo  = geometria_scope(rsz=(caps >> 16) & 0x3F,
+                                       n_ch=caps & 0xF)
+                geo['dw'] = (caps >> 8) & 0x3F
+                geo['descubierta'] = True
+            else:
+                geo = dict(_GEO_DEFECTO, dw=14, descubierta=False)
+            self._geo = geo
+        return self._geo
+
+    @property
+    def n_buf(self):
+        """Muestras por canal del bitstream cargado. Ver `geometria`."""
+        return self.geometria()['n_buf']
 
     @classmethod
     def reload_bitstream(cls, path=BITSTREAM_DEFAULT, scope=None,
@@ -440,7 +558,8 @@ class Osciloscope:
         return d1, d2
 
     @staticmethod
-    def capture_window_np(channels=None, pre=0, post=N_BUF, at_trigger=True):
+    def capture_window_np(channels=None, pre=0, post=N_BUF, at_trigger=True,
+                          n_buf=None):
         """Copia una ventana de `pre+post` samples alrededor del trigger a
         arrays NumPy con rp_AcqGetDataPosVNP (copia directa, más rápida que el
         loop fBuffer + np.fromiter de read_buffers). Si rp_AcqGetDataPosVNP no
@@ -459,14 +578,27 @@ class Osciloscope:
 
         Requiere rp.rp_Init() previo (mmap/calibración del rp). Devuelve
         (data, ref) con data = {channel: np.ndarray(float32)}.
+
+        `n_buf` es el largo del anillo. El default de 16384 sigue dando las
+        posiciones correctas contra un bitstream de RSZ menor —la apertura
+        aliasea y el módulo de más se cancela— pero pedir `pre+post` mayor que
+        el anillo real devuelve el buffer repetido, en silencio: pasarle
+        `osc.n_buf` es lo que hace que el límite exista.
         """
+        if n_buf is None:
+            n_buf = N_BUF
+        # Antes de tocar `rp`: es un chequeo de aritmética y no necesita la placa.
+        if pre + post > n_buf:
+            raise ValueError(
+                f'ventana de {pre + post} muestras sobre un anillo de {n_buf}: '
+                f'el hardware devolvería el buffer repetido sin avisar')
         if channels is None:
             channels = (rp.RP_CH_1, rp.RP_CH_2)
         ref = (rp.rp_AcqGetWritePointerAtTrig() if at_trigger
                else rp.rp_AcqGetWritePointer())[1]
         n     = pre + post
-        start = (ref - pre)      % N_BUF
-        end   = (ref + post - 1) % N_BUF      # end_pos INCLUSIVO -> n samples
+        start = (ref - pre)      % n_buf
+        end   = (ref + post - 1) % n_buf      # end_pos INCLUSIVO -> n samples
         data  = {}
         for ch in channels:
             buf = np.zeros(n, dtype=np.float32)
@@ -494,7 +626,7 @@ class Osciloscope:
         captura el buffer correctamente, independiente del trigger ADC.
         """
         if delay is None:
-            delay = N_BUF // 2
+            delay = self.n_buf // 2       # el del bitstream, no el de por defecto
         self.acq_base(thr=thr, delay=delay)
         # Limpiar adc_trg_dis si quedó pegado de una corrida anterior. Sin esto,
         # src_mask = set_trig_src & {!adc_trg_dis} = 0 y el SW pulse no firma.
@@ -504,7 +636,7 @@ class Osciloscope:
         time.sleep(0.01)
         self.w32(0x04, 0x0000_0101)     # pulso adc_trig_sw[0] y [1]
         self.wait_fill(timeout_ms=timeout_ms)
-        d1, d2 = self.read_buffers()
+        d1, d2 = self.read_buffers(self.n_buf)
         return d1, d2, self.r32(0x218)
 
     def capture_n_events(self, n=100, timeout_ms=2000, wp_addr=0x1C,
@@ -577,7 +709,14 @@ class Osciloscope:
 # API de configuración y estatus
 # =============================================================================
 
-def osciloscope_open(phys=SCOPE_PHYS, size=SCOPE_SIZE, check_pl=True):
+def osciloscope_open(phys=SCOPE_PHYS, size=None, check_pl=True):
+    """Abre el scope MIDIENDO el mapeo, en vez de suponerlo.
+
+    Es la diferencia con `Osciloscope.open()`, que conserva el default histórico
+    de 0x30000 por compatibilidad: acá `size=None` pregunta cuántos canales
+    construyó el bitstream. Con cuatro hacen falta 0x50000 y el valor viejo deja
+    las dos últimas aperturas fuera del mapeo.
+    """
     return Osciloscope.open(phys, size, check_pl)
 
 
@@ -792,14 +931,22 @@ def osciloscope_wait_fill(timeout_ms=2000):
 # API de lectura
 # =============================================================================
 
-def osciloscope_read_buffers(osc, n_buf=N_BUF):
-    return osc.read_buffers(n_buf)
+def osciloscope_read_buffers(osc, n_buf=None):
+    """Los dos buffers enteros. `n_buf=None` = el del bitstream cargado."""
+    return osc.read_buffers(osc.n_buf if n_buf is None else n_buf)
 
 
-def osciloscope_read_window(osc, channels=None, pre=0, post=N_BUF, at_trigger=True):
-    """Ventana alrededor del trigger, por canal. Ver capture_window_np."""
-    return osc.capture_window_np(channels=channels, pre=pre, post=post,
-                                 at_trigger=at_trigger)
+def osciloscope_read_window(osc, channels=None, pre=0, post=None,
+                            at_trigger=True):
+    """Ventana alrededor del trigger, por canal. Ver capture_window_np.
+
+    Toman el largo del anillo del `osc`, que lo leyó del bitstream: son las
+    versiones que NO se quedan con el 16384 de por defecto cuando el bitstream
+    trae menos.
+    """
+    return osc.capture_window_np(channels=channels, pre=pre,
+                                 post=osc.n_buf if post is None else post,
+                                 at_trigger=at_trigger, n_buf=osc.n_buf)
 
 
 def osciloscope_read_events(osc, n=100, timeout_ms=2000, wp_addr=R_WP_TRIG_CH0,

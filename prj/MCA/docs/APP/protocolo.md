@@ -129,6 +129,15 @@ que la librería `rp` ya aplicó del lado de la placa.
 La ventana se valida **en el servidor**, no sólo en la GUI: `pre + post` mayor
 que `n_buf` es un `ValueError`, así que pedirla con `nc` falla igual.
 
+Y **`n_buf` sale del bitstream, no de una constante.** El scope lo lee de su
+propio `CAPS` (`Osciloscope.geometria()`) y el servidor publica ése. Importa
+porque el hardware no se queja: las aperturas de BRAM miden 64 KB por canal
+independientemente de `RSZ`, así que con `RSZ = 13` la mitad alta de cada una es
+un alias de la baja y pedir 16384 muestras devuelve **el anillo dos veces**, sin
+error. Si el límite se quedara en el `N_BUF` del módulo, la GUI ofrecería
+ventanas que no existen y dibujaría el buffer repetido. Ver
+[`docs/osc/register_map_osc.md`](../osc/register_map_osc.md#aperturas-bram).
+
 ### Las bases, y por qué viajan
 
 `osc.get` y `mtrg.get` devuelven `base`, la dirección física del bloque, y
@@ -214,7 +223,10 @@ Sin MCA —bitstream equivocado o PL sin programar— **la operación no falla**
 > `MCANotPresent` mientras tanto.
 
 La geometría (`h_aw`, `h2_aw`, `psd_aw`) sale del registro `WIDTHS` del propio
-`mca_top`, no de constantes: el cliente **nunca hardcodea 16384**.
+`mca_top`, no de constantes: el cliente **nunca hardcodea 16384**. Lo mismo vale
+para `n_buf`, que es geometría del *scope* y sale de su `CAPS`: son dos números
+distintos —canales del histograma y muestras del anillo— que valían 16384 por
+casualidad.
 
 ### `status`
 

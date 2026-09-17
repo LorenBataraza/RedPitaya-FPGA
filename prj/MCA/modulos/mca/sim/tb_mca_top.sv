@@ -56,12 +56,14 @@ module tb_mca_top;
   wire [31:0] b_rdata;
   wire        b_err, b_ack;
 
+  reg veto = 1'b0;                 // veto externo, solo en dut_a
+
   mca_top #(
     .DW(DW), .EN_HIST_H(1), .H_AW(H_AW),
     .EN_HIST_H_PSD(1), .H2_AW(H2_AW), .PSD_AW(PSD_AW)
   ) dut_a (
     .adc_clk_i(clk), .adc_rstn_i(rstn),
-    .mca_dat_i(mca_dat), .mca_val_i(mca_val),
+    .mca_dat_i(mca_dat), .mca_val_i(mca_val), .veto_i(veto),
     .sys_addr(a_addr), .sys_wdata(a_wdata), .sys_wen(a_wen), .sys_ren(a_ren),
     .sys_rdata(a_rdata), .sys_err(a_err), .sys_ack(a_ack)
   );
@@ -71,7 +73,7 @@ module tb_mca_top;
     .EN_HIST_H_PSD(0), .H2_AW(H2_AW), .PSD_AW(PSD_AW)
   ) dut_b (
     .adc_clk_i(clk), .adc_rstn_i(rstn),
-    .mca_dat_i(mca_dat), .mca_val_i(mca_val),
+    .mca_dat_i(mca_dat), .mca_val_i(mca_val), .veto_i(1'b0),
     .sys_addr(b_addr), .sys_wdata(b_wdata), .sys_wen(b_wen), .sys_ren(b_ren),
     .sys_rdata(b_rdata), .sys_err(b_err), .sys_ack(b_ack)
   );
@@ -329,6 +331,31 @@ module tb_mca_top;
     check("realtime avanza", d != 0);
     bus_a_read(20'h00070, d);
     check("livetime avanza", d != 0);
+    bus_a_read(20'h000C0, d);
+    checkv("vetotime en 0 sin veto", d, 0);
+
+    //-----------------------------------------------------------------------
+    // 6b) VETO externo: no abre pulsos, se ve en el estado, y el tiempo va a
+    //     vetotime en vez de a livetime.
+    //-----------------------------------------------------------------------
+    veto = 1'b1;
+    bus_a_read(20'h00010, d);
+    check("estado: bit 3 = vetoed", d[3] == 1'b1);
+    bus_a_read(20'h00070, d);      // livetime congelado durante el veto
+    pulse_rect(200, 20); settle;
+    pulse_rect(200, 20); settle;
+    bus_a_read(20'h00070, d2);
+    checkv("livetime NO avanza bajo veto", d2, d);
+    bus_a_read(20'h00050, d); checkv("bajo veto: cnt_total sigue en 3", d, 3);
+    bus_a_read(20'h000C0, d); check("vetotime avanza", d != 0);
+    veto = 1'b0;
+    // La senal vuelve a la base antes del pulso siguiente: el Schmitt se
+    // rearma y el MCA vuelve a contar.
+    push(0); push(0); push(0); settle;
+    bus_a_read(20'h00010, d);
+    check("estado: vetoed vuelve a 0", d[3] == 1'b0);
+    pulse_rect(200, 20); settle;
+    bus_a_read(20'h00050, d); checkv("tras el veto: cnt_total = 4", d, 4);
 
     //-----------------------------------------------------------------------
     // 7) El borrado deja el espectro y los contadores en cero

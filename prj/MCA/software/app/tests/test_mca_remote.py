@@ -57,15 +57,16 @@ class ServidorDePrueba:
     que hay que poder comprobar.
     """
 
-    def __init__(self, h_aw=14):
+    def __init__(self, h_aw=14, rsz=14):
         self.h_aw = h_aw
+        self.rsz = rsz
 
     def __enter__(self):
         self.port = _puerto_libre()
         self.proc = subprocess.Popen(
             [sys.executable, os.path.join(_SOFTWARE, 'app', 'mca_server.py'),
              '--fake', '--host', '127.0.0.1', '--port', str(self.port),
-             '--fake-h-aw', str(self.h_aw)],
+             '--fake-h-aw', str(self.h_aw), '--fake-rsz', str(self.rsz)],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         self.salida = []
         self._listo = threading.Event()
@@ -496,5 +497,33 @@ def test_una_ventana_mas_grande_que_el_buffer_se_rechaza():
                 assert 'no entra en el buffer' in str(e)
             else:
                 raise AssertionError('aceptó una ventana que no entra')
+        finally:
+            h.close()
+
+
+def test_el_limite_de_la_ventana_sigue_al_bitstream():
+    """Con un anillo de 8192, una ventana de 16384 tiene que fallar.
+
+    Es el caso que el `N_BUF` del módulo no podía cubrir, y el que el hardware
+    NO reporta: las aperturas de BRAM están decodificadas por `sys_addr[19:16]`,
+    o sea que su tamaño no cambia con `RSZ`; con RSZ=13 la mitad alta es un
+    alias de la baja y pedir 16384 muestras devuelve el anillo DOS VECES, sin
+    error. Si el límite se queda en la constante, la GUI ofrece ventanas que no
+    existen y lo que dibuja es el buffer repetido.
+    """
+    with ServidorDePrueba(rsz=13) as s:
+        h = MCARemote.connect('127.0.0.1', s.port)
+        try:
+            obj, _ = h._pedir('osc.get')
+            assert obj['result']['n_buf'] == 8192, (
+                'el servidor publica la constante en vez de la del scope')
+            try:
+                h.capturar_osc(pre=8192, post=8192)
+            except RemoteError as e:
+                assert 'de 8192 muestras' in str(e), str(e)
+            else:
+                raise AssertionError('aceptó 16384 sobre un anillo de 8192')
+            meta, datos = h.capturar_osc(pre=64, post=192)   # y la que entra, entra
+            assert datos.shape == (2, 256)
         finally:
             h.close()

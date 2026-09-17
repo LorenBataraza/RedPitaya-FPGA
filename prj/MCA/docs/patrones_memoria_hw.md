@@ -68,10 +68,17 @@ podés mirar hacia atrás.
 
 Dos consecuencias que valen para este proyecto:
 
-- La BRAM del scope (`RSZ=14` → 16384 muestras/canal) está dimensionada 512×
-  por encima de la ventana que realmente se usa (8+24 = 32 muestras). Lo que
-  limitaba la adquisición a un evento a la vez **nunca fue la memoria**, era la
-  FSM de freeze de [`rp_bram_sm.v`](../../../rtl_250/classic/rp_bram_sm.v).
+- La BRAM del scope está dimensionada muy por encima de la ventana que realmente
+  se usa (8+24 = 32 muestras). Lo que limitaba la adquisición a un evento a la
+  vez **nunca fue la memoria**, era la FSM de freeze de
+  [`rp_bram_sm.v`](../../../rtl_250/classic/rp_bram_sm.v).
+
+  Por eso los tops bajaron a `RSZ=13` (8192 muestras/canal, 65 µs a 125 MSPS):
+  sigue cubriendo todo lo medido —los pulsos de la campaña actual son ~250
+  muestras y los de la vieja ~7750— y **libera 4 RAMB36 por canal**, 16 en una
+  placa de cuatro. Ésa es la BRAM con la que se pagan las instancias de MCA que
+  faltan, igual que bajar `H_AW` de 14 a 13 pagó la segunda. `RSZ=12` (33 µs)
+  dejaría afuera la campaña vieja, así que ahí se para.
 - En [`event_window_capture.sv`](../rtl/mine/event_ring/event_window_capture.sv)
   el pre-buffer es de sólo `2^9 = 512` muestras y alcanza para ventanas de
   `pre+post` mucho mayores. El motivo está en la cabecera del módulo: el puntero

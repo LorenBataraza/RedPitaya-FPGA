@@ -182,6 +182,41 @@ Base `0x4010_0000` (slot 1). Código: [`API/osciloscope.py`](../../software/API/
 > `operating` no hay quién conteste en el bus y la primera lectura mata el
 > proceso con SIGBUS. Es barato comprobarlo en vez de perder el kernel.
 
+`osciloscope_open` va con `size=None`, que **mide** el mapeo en vez de suponerlo:
+mapea una página, lee el `CAPS` del mapa canónico y re-mapea con lo que haga
+falta. `Osciloscope.open()` conserva el default histórico de `0x30000` por
+compatibilidad, y con 4 canales ese valor deja afuera dos aperturas.
+
+### 2.1.1 La geometría, y el alias que no avisa
+
+Dos parámetros de síntesis la fijan y los dos varían entre bitstreams: `RSZ`
+(profundidad del anillo, `n_buf = 2^RSZ`) y `N_CH` (canales construidos).
+`Osciloscope.geometria()` los lee del `CAPS` de `osc_cfg` (`0x01004`) y devuelve
+`{rsz, n_ch, dw, n_buf, aperturas, size, descubierta}`; `osc.n_buf` es el atajo.
+
+**Por qué no puede ser una constante.** Las aperturas de BRAM las decodifica
+`sys_addr[19:16]`, o sea 64 KB por canal sea cual sea `RSZ`; el puntero de
+lectura es `sys_addr[RSZ+1:2]`. Con `RSZ < 14` sobra apertura y la mitad alta es
+**un espejo de la baja**. Consecuencias, las dos silenciosas:
+
+- pedir 16384 muestras a un bitstream de `RSZ=13` devuelve **el anillo dos
+  veces**, con ack normal y sin error;
+- el `% 16384` de la aritmética de ventanas **tampoco falla**, porque 2¹⁴ = 2·2¹³
+  y el alias cancela el módulo de más.
+
+No hay excepción que sustituya al límite: por eso `capture_window_np` toma
+`n_buf` y rechaza `pre+post` mayor que el anillo real, y el servidor publica el
+`n_buf` del scope y no el del módulo.
+
+`geometria()` falla **abierta**, igual que la guarda de variante de §7: un
+bitstream anterior al refactor no trae el mapa canónico, y ahí devuelve los
+valores por defecto con `descubierta=False` en vez de negarse a operar.
+
+> La copia de `RSZ`/`DW`/`N_CH` que publica `integration_cfg` en su `CAPS_0`
+> **no** es la buena. Esa región ya se desincronizó con `H_AW` porque cada top
+> escribía los literales dos veces; ésta la imprime el mismo parámetro que
+> dimensiona la BRAM. En los tops las dos salen ahora de un `localparam` único.
+
 ### 2.2 Configuración
 
 | Campo | Registro ch0 / ch1 | Nota |
@@ -214,8 +249,8 @@ Los `set_` aceptan `ch=None` (los dos canales, por defecto) o `ch=0`/`ch=1`.
 
 | Función | Qué hace |
 |---|---|
-| `osciloscope_read_buffers(osc, n_buf)` | los buffers completos |
-| `osciloscope_read_window(osc, channels, pre, post, at_trigger)` | ventana alrededor del trigger |
+| `osciloscope_read_buffers(osc, n_buf=None)` | los buffers completos; `None` = el anillo del bitstream |
+| `osciloscope_read_window(osc, channels, pre, post=None, at_trigger)` | ventana alrededor del trigger; rechaza `pre+post` mayor que el anillo |
 | `osciloscope_read_events(osc, n, timeout_ms)` | captura `n` eventos |
 | `osciloscope_read_capture_sw(osc, thr, delay, timeout_ms)` | captura forzada por SW trigger (no depende de que haya señal) |
 

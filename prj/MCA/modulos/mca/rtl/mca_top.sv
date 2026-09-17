@@ -51,6 +51,12 @@ module mca_top #(
   input      [2*DW-1:0]    mca_dat_i   ,
   input      [2-1:0]       mca_val_i   ,
 
+  // --- veto externo (nivel), del trigger_shield del multitrigger ---
+  // Mientras vale 1 no se abren pulsos, el pulso en curso termina normal y el
+  // reloj de tiempo vivo se detiene: el tiempo va a `vetotime`. Atar a 0 si
+  // el top no lo usa.
+  input                    veto_i      ,
+
   // --- bus de sistema ---
   input      [32-1:0]      sys_addr    ,
   input      [32-1:0]      sys_wdata   ,
@@ -160,7 +166,7 @@ mca_pulse_feature #(
 ) i_feat (
   .clk_i(adc_clk_i), .rstn_i(adc_rstn_i),
   .dat_i($signed(dat_q)), .val_i(val_q),
-  .cfg_run_i(cfg_run), .cnt_clr_i(clr_pulse),
+  .cfg_run_i(cfg_run), .veto_i(veto_i), .cnt_clr_i(clr_pulse),
   .cfg_thr_i(cfg_thr), .cfg_hyst_i(cfg_hyst),
   .cfg_baseline_i(cfg_baseline), .cfg_bl_auto_i(cfg_bl_auto),
   .cfg_bl_k_i(cfg_bl_k), .cfg_bl_holdoff_i(cfg_bl_holdoff),
@@ -342,15 +348,22 @@ wire clear_busy = hist_h_busy || hist_2d_busy;
 //=============================================================================
 // Relojes de adquisición
 //=============================================================================
-reg [63:0] realtime_cnt, livetime_cnt, deadtime_cnt;
+// realtime = livetime + deadtime + vetotime. El veto tiene prioridad sobre
+// busy: un pulso que termina bajo veto cuenta su cola como tiempo vetado, no
+// muerto. Es la convencion de una compuerta de MCA (gate/anticoincidencia): el
+// reloj vivo se para mientras la compuerta esta cerrada, sea cual sea el
+// estado interno.
+reg [63:0] realtime_cnt, livetime_cnt, deadtime_cnt, vetotime_cnt;
 
 always @(posedge adc_clk_i) begin
   if (!adc_rstn_i || clr_pulse) begin
     realtime_cnt <= 64'h0; livetime_cnt <= 64'h0; deadtime_cnt <= 64'h0;
+    vetotime_cnt <= 64'h0;
   end else if (cfg_run) begin
     realtime_cnt <= realtime_cnt + 64'h1;
-    if (feat_busy) deadtime_cnt <= deadtime_cnt + 64'h1;
-    else           livetime_cnt <= livetime_cnt + 64'h1;
+    if (veto_i)         vetotime_cnt <= vetotime_cnt + 64'h1;
+    else if (feat_busy) deadtime_cnt <= deadtime_cnt + 64'h1;
+    else                livetime_cnt <= livetime_cnt + 64'h1;
   end
 end
 
@@ -450,12 +463,13 @@ end
 // no tiene ese registro), así que el cruce de datos de lectura se timea de
 // verdad y no conviene colgarle lógica combinacional ancha.
 //=============================================================================
-reg [31:0] rt_hi_shadow, lt_hi_shadow, dt_hi_shadow;
+reg [31:0] rt_hi_shadow, lt_hi_shadow, dt_hi_shadow, vt_hi_shadow;
 
 always @(posedge adc_clk_i) begin
   if (!adc_rstn_i) begin
     sys_ack <= 1'b0; sys_err <= 1'b0; sys_rdata <= 32'h0;
     rt_hi_shadow <= 32'h0; lt_hi_shadow <= 32'h0; dt_hi_shadow <= 32'h0;
+    vt_hi_shadow <= 32'h0;
   end else begin
     // Ack incondicional a los 4 ciclos, para CUALQUIER dirección.
     sys_ack <= en_sr[3];
@@ -467,6 +481,7 @@ always @(posedge adc_clk_i) begin
         20'h00068 : rt_hi_shadow <= realtime_cnt[63:32];
         20'h00070 : lt_hi_shadow <= livetime_cnt[63:32];
         20'h00078 : dt_hi_shadow <= deadtime_cnt[63:32];
+        20'h000C0 : vt_hi_shadow <= vetotime_cnt[63:32];
         default   : ;
       endcase
     end
@@ -480,7 +495,7 @@ always @(posedge adc_clk_i) begin
 
       // --- control y estado ---
       20'h0000C : sys_rdata <= {23'h0, cfg_chan, 6'h0, 1'b0, cfg_run};
-      20'h00010 : sys_rdata <= {29'h0, bl_stale, feat_busy, clear_busy};
+      20'h00010 : sys_rdata <= {28'h0, veto_i, bl_stale, feat_busy, clear_busy};
 
       // --- configuración ---
       20'h00014 : sys_rdata <= {{(32-DW){cfg_thr[DW-1]}}, cfg_thr};
@@ -526,6 +541,8 @@ always @(posedge adc_clk_i) begin
       20'h00074 : sys_rdata <= lt_hi_shadow;
       20'h00078 : sys_rdata <= deadtime_cnt[31:0];
       20'h0007C : sys_rdata <= dt_hi_shadow;
+      20'h000C0 : sys_rdata <= vetotime_cnt[31:0];
+      20'h000C4 : sys_rdata <= vt_hi_shadow;
 
       // --- último evento (depuración) ---
       20'h00080 : sys_rdata <= {{(32-AMP_W){1'b0}}, ev_amp};

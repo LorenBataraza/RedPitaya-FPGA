@@ -33,6 +33,8 @@ las otras dos y los videos son **esquemas sintéticos**.
 | [`07b_cadena.mp4`](07b_cadena.mp4) | **Video**: `pulse_feature` emite un número por pulso y viaja al `histograma` | simulados |
 | [`07c_histograma.mp4`](07c_histograma.mp4) | **Video**: el espectro que se acumula, una barra por cuenta | simulados |
 | [`09_fwhm_vs_eje.png`](09_fwhm_vs_eje.png) | La barra de error de la figura 2 **desplegada**: el FWHM a lo largo del eje, separado en su término aditivo y el proporcional | medidos |
+| [`10_sintesis_triangular.png`](10_sintesis_triangular.png) | Cómo se aproxima un triángulo sumando CR-RC^n de distinto orden (Knoll fig. 17.6, de Goulding). Genera [`figuras_conformado.py`](figuras_conformado.py) | esquema |
+| [`11_trapezoidal_tiempo_subida.png`](11_trapezoidal_tiempo_subida.png) | El conformador trapezoidal (Jordanov-Knoll) con tres tiempos de subida: si el techo dura más que su dispersión, los tres llegan a la misma amplitud — **sin déficit balístico** (Knoll fig. 17.7). Genera [`figuras_conformado.py`](figuras_conformado.py) | esquema |
 
 ---
 

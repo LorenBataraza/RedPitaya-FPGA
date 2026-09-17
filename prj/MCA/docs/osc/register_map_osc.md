@@ -105,6 +105,32 @@ legacy, que sólo decodificaba dos canales para la mayoría de los registros.
 Comunes a los dos mapas. Las muestras son de `DW=14` bits **con signo**: hay que
 extender el signo al leerlas, a diferencia de los histogramas del MCA.
 
+#### El stride no depende de `RSZ`, y el sobrante aliasea
+
+Las bases de arriba las fija el decodificador, que mira `sys_addr[19:16]`
+(`osc_cfg.sv:432`): son 64 KB por canal **sea cual sea `RSZ`**. El puntero de
+lectura, en cambio, es `sys_addr[RSZ+1:2]` — o sea que con `RSZ < 14` sobran
+direcciones dentro de la apertura y **la parte alta es un espejo de la baja**.
+
+Eso no es un error de bus y no hay nada que lo reporte:
+
+- pedir 16384 muestras a un bitstream de `RSZ=13` devuelve **el anillo dos
+  veces**, con ack normal y sin código de error;
+- y como 2¹⁴ = 2·2¹³, la aritmética de ventanas que hace `% 16384` sobre
+  punteros de 13 bits **tampoco falla**: el alias cancela exactamente el módulo
+  de más, así que las posiciones caen donde corresponde.
+
+La única señal de que la ventana se cortó a la mitad son los datos repetidos.
+Por eso el software lee `RSZ` y `N_CH` del `CAPS` de acá arriba
+(`Osciloscope.geometria()`) en vez de suponerlos, y el límite de `pre+post` sale
+de ese número: no existe la excepción que lo reemplace.
+
+> Ojo con la otra copia. `integration_cfg` publica `RSZ`/`DW`/`N_CH` en su
+> `CAPS_0`, y esa región ya demostró que se desincroniza —le pasó a `H_AW`—
+> porque cada top escribía los literales dos veces. La copia buena es ésta: el
+> mismo parámetro que la imprime es el que dimensiona la BRAM de al lado. En los
+> tops, las dos salen ahora de un `localparam SCOPE_RSZ` único.
+
 ---
 
 ## Mapa legacy

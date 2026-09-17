@@ -66,6 +66,7 @@ Valores del build por defecto: **`H_AW=13` (8192 canales)**, `H2_AW=7` × `PSD_A
 | | R | 1 | `full_2d` | Ídem para el mapa 2D |
 | | R | 1 | `busy` | Pulso activo o divisor de PSD ocupado |
 | | R | 2 | `baseline_stale` | El seguidor de línea de base lleva demasiado congelado |
+| | R | 3 | `vetoed` | Veto externo activo: el `trigger_shield` del multitrigger con `DST_MCA` |
 
 El barrido de borrado recorre `2^H_AW` bins: **131 µs** con 16384 canales. Durante
 ese lapso el puerto de lectura sigue vivo (el bus **no** se cuelga), pero los
@@ -259,9 +260,23 @@ Todos se ponen a cero con `clear` (`0x00C` bit 1).
 | `0x068` / `0x06C` | `realtime` lo / hi |
 | `0x070` / `0x074` | `livetime` lo / hi |
 | `0x078` / `0x07C` | `deadtime` lo / hi |
+| `0x0C0` / `0x0C4` | `vetotime` lo / hi |
 
 Cuentan ciclos de `adc_clk` mientras `run = 1`. Dividir por 125e6 para segundos.
-`livetime + deadtime = realtime`.
+`livetime + deadtime + vetotime = realtime`.
+
+`vetotime` es el tiempo con el **veto externo** puesto (`veto_i`, que viene del
+`trigger_shield` del multitrigger con `DST_MCA`; ver
+[`register_map_multitrigger.md`](../multitrigger/register_map_multitrigger.md)).
+Es la semántica de una compuerta de MCA: bajo veto no se abren pulsos, el pulso
+en curso termina normal, y el reloj vivo se para. El veto tiene **prioridad
+sobre `busy`**: la cola de un pulso que termina bajo veto cuenta como vetada, no
+como muerta, así que las tres partes siguen sumando el real. El seguidor de
+línea de base **sigue corriendo** bajo veto — a diferencia de `run = 0` — para
+no arrancar desfasado al liberarse. Un pulso que sube con el veto puesto **no**
+se abre al liberarlo a mitad: el Schmitt se desarma y hay que volver por
+debajo de `thr − hyst`; ese pulso no se cuenta en ningún contador, porque
+vetarlo es lo que se pidió.
 
 > **Leer siempre la palabra BAJA primero.** Leer `lo` congela `hi` en un registro
 > sombra del RTL. Al revés la lectura se parte: a 125 MHz el contador avanza

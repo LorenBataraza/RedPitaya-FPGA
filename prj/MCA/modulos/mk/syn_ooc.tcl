@@ -8,6 +8,13 @@
 #   MOD_DIR    ruta absoluta a modulos/<m>
 #   SYN_SRCS   lista de fuentes, ya resuelta y ordenada por module.mk
 #   PERIOD_NS  periodo de reloj objetivo (el barrido lo pisa por frecuencia)
+#   SYN_GEN    opcional: parametros del top, "NOMBRE=VALOR NOMBRE=VALOR"
+#
+# SYN_GEN existe porque medir el modulo con sus DEFAULTS mide una configuracion
+# que no se construye. Paso concreto: mca_top tiene H_AW=14 por defecto y los
+# tops lo instancian con 13, asi que sin esto la sintesis OOC reporta 24 RAMB36
+# cuando el bitstream lleva 16. Un numero equivocado en la direccion peligrosa,
+# porque es el que dice cuantas instancias entran.
 #
 # Es un script generico: lo comparten los cinco modulos. Lo unico propio de
 # cada uno es syn/inputs/<top>_ooc.xdc.
@@ -16,12 +23,14 @@ set MODULE  $::env(MODULE)
 set TOP     $::env(SYN_TOP)
 set MOD_DIR $::env(MOD_DIR)
 set SRCS    $::env(SYN_SRCS)
+set GEN     [expr {[info exists ::env(SYN_GEN)] ? $::env(SYN_GEN) : ""}]
 set PART    xc7z010clg400-1
 
 set OUT ${MOD_DIR}/syn/outputs
 file mkdir $OUT
 
 puts "=== sintesis OOC: $MODULE / $TOP @ $::env(PERIOD_NS) ns ==="
+if {$GEN ne ""} { puts "    parametros: $GEN" }
 
 create_project -in_memory -part $PART
 
@@ -42,7 +51,10 @@ read_xdc $xdc
 # -mode out_of_context: no inserta buffers de IO, asi los puertos del modulo no
 # se confunden con pines del chip. Es lo que hace comparable el costo entre
 # modulos y entre frecuencias.
-synth_design -top $TOP -mode out_of_context -part $PART -flatten_hierarchy none
+set gen_args {}
+foreach g $GEN { lappend gen_args -generic $g }
+synth_design -top $TOP -mode out_of_context -part $PART -flatten_hierarchy none \
+             {*}$gen_args
 opt_design
 
 report_utilization    -file ${OUT}/utilization.rpt

@@ -50,7 +50,7 @@ R_CAPS         = 0x004
 R_WIDTHS       = 0x008
 # --- control y estado ---
 R_CTRL         = 0x00C          # bit0 run, bit1 clear (autolimpiante), bit8 chan
-R_STATUS       = 0x010          # bit0 clear_busy, bit1 feat_busy, bit2 bl_stale
+R_STATUS       = 0x010          # bit0 clear_busy, bit1 feat_busy, bit2 bl_stale, bit3 vetoed
 # --- configuración ---
 R_THR          = 0x014
 R_HYST         = 0x018
@@ -137,6 +137,8 @@ R_LIVETIME_LO  = 0x070
 R_LIVETIME_HI  = 0x074
 R_DEADTIME_LO  = 0x078
 R_DEADTIME_HI  = 0x07C
+R_VETOTIME_LO  = 0x0C0          # tiempo bajo veto externo (trigger_shield, dst=mca)
+R_VETOTIME_HI  = 0x0C4
 # --- último evento (depuración) ---
 R_LAST_AMP     = 0x080
 R_LAST_PSD     = 0x084
@@ -507,11 +509,18 @@ class MCA:
         """Contadores de eventos y relojes, en un dict.
 
         `livetime_s` es el tiempo en que el MCA pudo aceptar eventos;
-        `deadtime_s` el que estuvo ocupado. La suma da `realtime_s`.
+        `deadtime_s` el que estuvo ocupado; `vetotime_s` el que pasó con el
+        veto externo puesto (el shield del multitrigger con `DST_MCA`). La
+        suma de los tres da `realtime_s`: el veto tiene prioridad sobre busy,
+        así que la cola de un pulso que termina bajo veto cuenta como vetada.
+
+        Un bitstream sin veto devuelve 0 en `0x0C0` (registro no mapeado), así
+        que `vetotime_s` es 0 y `vetoed` es False: nada que distinguir.
         """
         rt = self._r64(R_REALTIME_LO, R_REALTIME_HI)
         lt = self._r64(R_LIVETIME_LO, R_LIVETIME_HI)
         dt = self._r64(R_DEADTIME_LO, R_DEADTIME_HI)
+        vt = self._r64(R_VETOTIME_LO, R_VETOTIME_HI)
         st = self.r32(R_STATUS)
         return {
             'total':     self.r32(R_CNT_TOTAL),
@@ -523,9 +532,11 @@ class MCA:
             'realtime_s': rt / FS_HZ,
             'livetime_s': lt / FS_HZ,
             'deadtime_s': dt / FS_HZ,
+            'vetotime_s': vt / FS_HZ,
             'clear_busy':     bool(st & 1),
             'busy':           bool(st & 2),
             'baseline_stale': bool(st & 4),
+            'vetoed':         bool(st & 8),
         }
 
     def spectrum(self):
@@ -945,6 +956,7 @@ def mca_get_status(h):       return h.r32(R_STATUS)
 def mca_get_running(h):      return bool(h.r32(R_CTRL) & 1)
 def mca_get_clear_busy(h):   return bool(h.r32(R_STATUS) & 1)
 def mca_get_baseline_stale(h): return bool(h.r32(R_STATUS) & (1 << 2))
+def mca_get_vetoed(h):       return bool(h.r32(R_STATUS) & (1 << 3))
 def mca_get_baseline_now(h): return _sign14(h.r32(R_BASELINE_NOW))
 def mca_get_caps(h):         return h.r32(R_CAPS)
 

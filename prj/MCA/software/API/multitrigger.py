@@ -77,8 +77,8 @@ def decode_snap(s):
 
 R_CMD         = 0x000           # compartido con el scope: arm / rst / we_keep
 R_TRIG_DIS_CLR = 0x094          # compartido: desbloquea adc_trg_dis
-R_SHIELD_CFG  = 0x210           # {dur[31:16], dst[11:8], src[3:0]}
-R_SHIELD_RUN  = 0x214           # runtime del shield (R)
+R_SHIELD_CFG  = 0x210           # {dur[31:16], dst[12:8], src[6:0]}
+R_SHIELD_RUN  = 0x214           # {mca_veto[17], active[16], cnt[15:0]} (R)
 R_TRIG_SNAP   = 0x218           # snapshot de 17 b, sticky (R)
 R_FLAGS       = 0x21C           # dis_act / we_keep (R)
 R_OR_MASK_CH0 = 0x240
@@ -176,8 +176,8 @@ class MultiTrigger:
     def get_shield(self):
         palabra = self.r32(R_SHIELD_CFG)
         return {'dur': (palabra >> 16) & 0xFFFF,
-                'dst': (palabra >> 8) & 0xF,
-                'src': palabra & 0xF,
+                'dst': (palabra >> 8) & 0x1F,
+                'src': palabra & 0x7F,
                 'runtime': self.r32(R_SHIELD_RUN)}
 
     def read_snapshot(self):
@@ -202,12 +202,44 @@ class MultiTrigger:
 _CAMPOS = {
     'or_mask_ch0': (R_OR_MASK_CH0, 0, 0xFFFFFFFF),
     'or_mask_ch1': (R_OR_MASK_CH1, 0, 0xFFFFFFFF),
-    # Layout de 0x210: {dur[31:16], 4'h0, dst[11:8], 4'h0, src[3:0]}. `src` y
-    # `dst` son máscaras de canal (0x3 = ch0+ch1), no índices.
-    'shield_src':  (R_SHIELD_CFG,  0, 0xF),
-    'shield_dst':  (R_SHIELD_CFG,  8, 0xF),
+    # Layout: {dur[31:16], 3'h0, dst[12:8], 1'b0, src[6:0]}. `src` y `dst` son
+    # máscaras, no índices: los 4 bits bajos de cada una son los canales del
+    # scope (0x3 = ch0+ch1); arriba, `src` tiene la entrada externa cruda
+    # (flancos y NIVEL) y `dst` tiene al MCA, como VETO. Ver BITS_SHIELD_*.
+    'shield_src':  (R_SHIELD_CFG,  0, 0x7F),
+    'shield_dst':  (R_SHIELD_CFG,  8, 0x1F),
     'shield_dur':  (R_SHIELD_CFG, 16, 0xFFFF),
 }
+
+# ---------- bits de shield_src / shield_dst (trigger_shield.sv) ----------
+#
+# Con SRC_EXT_LVL y dur=0 el veto ES el nivel de DIO0_P (sincronizado); con
+# dur>0 se extiende dur ciclos despues de que baje la linea. Con SRC_EXT_P es
+# una ventana de dur ciclos tras el flanco. En los dos casos hace falta
+# DST_MCA para que llegue al analizador; sin el, el escudo corre pero no veta.
+SRC_CH0, SRC_CH1, SRC_CH2, SRC_CH3 = 1 << 0, 1 << 1, 1 << 2, 1 << 3
+SRC_EXT_P   = 1 << 4
+SRC_EXT_N   = 1 << 5
+SRC_EXT_LVL = 1 << 6
+DST_CH0, DST_CH1, DST_CH2, DST_CH3 = 1 << 0, 1 << 1, 1 << 2, 1 << 3
+DST_MCA     = 1 << 4
+
+BITS_SHIELD_SRC = (
+    ('ch0',     SRC_CH0,     'disparo del canal 0 del scope'),
+    ('ch1',     SRC_CH1,     'disparo del canal 1'),
+    ('ch2',     SRC_CH2,     'disparo del canal 2'),
+    ('ch3',     SRC_CH3,     'disparo del canal 3'),
+    ('ext_p',   SRC_EXT_P,   'entrada externa (DIO0_P), flanco positivo: ventana de `dur`'),
+    ('ext_n',   SRC_EXT_N,   'entrada externa, flanco negativo'),
+    ('ext_lvl', SRC_EXT_LVL, 'entrada externa, NIVEL: veto mientras esté alta, más `dur`'),
+)
+BITS_SHIELD_DST = (
+    ('ch0', DST_CH0, 'escudar el canal 0 del scope (holdoff del re-arme)'),
+    ('ch1', DST_CH1, 'escudar el canal 1'),
+    ('ch2', DST_CH2, 'escudar el canal 2'),
+    ('ch3', DST_CH3, 'escudar el canal 3'),
+    ('mca', DST_MCA, 'VETO al MCA: no abre pulsos y para el reloj de tiempo vivo'),
+)
 
 # Los bits de la OR_MASK, en orden, para que la GUI dibuje casillas con nombre
 # en vez de pedir un hexadecimal. El orden es el de `trg_src_bits` del RTL y el
@@ -271,12 +303,21 @@ def multitrigger_configure(mt, **campos):
 
 
 def multitrigger_get_status(mt):
-    """Snapshot, flags y runtime del shield. Sólo lectura."""
-    crudo = mt.read_snapshot_raw()
+    """Snapshot, flags y runtime del shield. Sólo lectura.
+
+    `mca_veto` es el nivel que el shield le está mandando al MCA ahora mismo:
+    con `shield_dst` sin DST_MCA es siempre False aunque el escudo corra.
+    """
+    # Por r32 y no por los metodos de la clase: asi sirve para cualquier
+    # objeto con r32/w32, que es el contrato de todas las funciones de aca.
+    crudo = mt.r32(R_TRIG_SNAP)
+    runtime = mt.r32(R_SHIELD_RUN)
     return {'snapshot': crudo,
             'fuentes': decode_snap(crudo),
-            'flags': mt.get_flags(),
-            'shield_runtime': mt.r32(R_SHIELD_RUN)}
+            'flags': mt.r32(R_FLAGS),
+            'shield_runtime': runtime,
+            'shield_active': bool(runtime & (1 << 16)),
+            'mca_veto': bool(runtime & (1 << 17))}
 
 
 # =============================================================================

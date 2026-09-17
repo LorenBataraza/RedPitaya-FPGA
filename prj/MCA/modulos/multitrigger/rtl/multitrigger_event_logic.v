@@ -10,7 +10,11 @@ module multitrigger_event_logic #(
   parameter integer DW         = 14,   // Data Width
   parameter integer SRC_W      = 32,   // Ancho de la máscara de fuentes
   parameter integer SHIELD_N   = 4,    // Canales del trigger_shield
-  parameter integer DURATION_W = 16    // Ancho del contador de holdoff
+  parameter integer DURATION_W = 16,   // Ancho del contador de holdoff
+  // Fuentes y destinos del escudo: canales + {ext_p, ext_n, ext_lvl} y
+  // canales + {mca}. Ver trigger_shield.sv.
+  parameter integer SHIELD_SRC = SHIELD_N + 3,
+  parameter integer SHIELD_DST = SHIELD_N + 1
 )(
   // ADC
   input                          adc_clk_i        ,  // ADC clock
@@ -33,11 +37,12 @@ module multitrigger_event_logic #(
   input                          ext_trig_n_i     ,
   input                          asg_trig_p_i     ,
   input                          asg_trig_n_i     ,
+  input                          ext_lvl_i        ,  // NIVEL externo sincronizado (veto)
   input  [        4-1: 0]        trig_ch_i        ,  // cadena desde el otro scope
 
   // Shield config - Control Signals
-  input  [ SHIELD_N-1: 0]        shield_src_i     ,
-  input  [ SHIELD_N-1: 0]        shield_dst_i     ,
+  input  [SHIELD_SRC-1: 0]       shield_src_i     ,
+  input  [SHIELD_DST-1: 0]       shield_dst_i     ,
   input  [DURATION_W-1: 0]       shield_dur_i     ,
 
   // Salidas
@@ -47,6 +52,7 @@ module multitrigger_event_logic #(
   output                         daisy_trig_o     ,
   output                         event_arm_o      ,
   output                         trigger_event_o  ,  // evento conjunto -> bram_sm/axi_sm
+  output                         mca_veto_o       ,  // nivel: el MCA no abre pulsos
 
   // State
   output [DURATION_W-1: 0]       shield_cnt_o     ,  // contador del shield
@@ -57,19 +63,25 @@ module multitrigger_event_logic #(
 wire [ 4-1: 0] adc_trig    ;  // trigger por canal
 wire [ 4-1: 0] trig_dis_clr;  // clear (escudo) por canal
 
-// El escudo afecta el disable de cada multitrigger_trig_src.
+// El escudo afecta el disable de cada multitrigger_trig_src, y da el veto al
+// MCA. Sus fuentes son los disparos por canal MAS la entrada externa cruda
+// (flancos y nivel), para poder escudar/vetar desde afuera sin gastar la
+// mascara OR de un canal del scope en eso.
 trigger_shield #(
   .N          ( SHIELD_N   ),
-  .DURATION_W ( DURATION_W )
+  .DURATION_W ( DURATION_W ),
+  .N_SRC      ( SHIELD_SRC ),
+  .N_DST      ( SHIELD_DST )
 ) i_shield (
   .clk_i             ( adc_clk_i         ),
   .rstn_i            ( adc_rstn_i        ),
-  .trig_event_i      ( adc_trig          ),
+  .trig_event_i      ( {ext_lvl_i, ext_trig_n_i, ext_trig_p_i, adc_trig} ),
   .shield_src_i      ( shield_src_i      ),
   .shield_dst_i      ( shield_dst_i      ),
   .shield_dur_i      ( shield_dur_i      ),
   .sw_trig_dis_clr_i ( sw_trig_dis_clr_i ),
   .trig_dis_clr_o    ( trig_dis_clr      ),
+  .mca_veto_o        ( mca_veto_o        ),
   .cnt_o             ( shield_cnt_o      ),
   .active_o          ( shield_active_o   )
 );

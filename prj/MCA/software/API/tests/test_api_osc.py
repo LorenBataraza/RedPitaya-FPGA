@@ -114,12 +114,47 @@ def test_la_decimacion_solo_acepta_los_valores_legales():
 # =============================================================================
 
 def test_los_tres_campos_del_shield_comparten_palabra():
-    """Layout de 0x210: {dur[31:16], 4'h0, dst[11:8], 4'h0, src[3:0]}."""
+    """Layout: {dur[31:16], 3'h0, dst[12:8], 1'b0, src[6:0]}."""
     r = Registros()
     MT.multitrigger_configure(r, shield_src=3, shield_dst=3, shield_dur=7)
     assert r.m[MT.R_SHIELD_CFG] == 0x0007_0303
     c = MT.multitrigger_get_config(r)
     assert (c['shield_src'], c['shield_dst'], c['shield_dur']) == (3, 3, 7)
+
+
+def test_el_veto_al_mca_va_en_los_bits_nuevos_del_shield():
+    """Los campos crecieron EN SITIO sobre bits que estaban en cero: src[6:4] son
+    la entrada externa (flancos y nivel) y dst[12] es el MCA. Un software viejo
+    que escribe sólo los 4 bits bajos deja el veto apagado."""
+    r = Registros()
+    MT.multitrigger_configure(r, shield_src=MT.SRC_EXT_LVL, shield_dst=MT.DST_MCA,
+                              shield_dur=0)
+    assert r.m[MT.R_SHIELD_CFG] == (0x10 << 8) | 0x40
+    c = MT.multitrigger_get_config(r)
+    assert c['shield_src'] == 0x40 and c['shield_dst'] == 0x10
+    # y los bits de canal siguen donde estaban
+    MT.multitrigger_configure(r, shield_src=MT.SRC_CH0 | MT.SRC_EXT_P,
+                              shield_dst=MT.DST_CH1 | MT.DST_MCA)
+    assert r.m[MT.R_SHIELD_CFG] & 0xFF == 0x11
+    assert (r.m[MT.R_SHIELD_CFG] >> 8) & 0xFF == 0x12
+
+
+def test_los_bits_del_shield_son_sucesivos_y_con_nombre():
+    for tabla in (MT.BITS_SHIELD_SRC, MT.BITS_SHIELD_DST):
+        valores = [v for _n, v, _a in tabla]
+        assert valores == [1 << i for i in range(len(valores))]
+    assert MT.BITS_SHIELD_SRC[-1][0] == 'ext_lvl'
+    assert MT.BITS_SHIELD_DST[-1][0] == 'mca'
+
+
+def test_el_estado_publica_el_veto():
+    """Bit 17 del runtime del shield: lo que el shield le manda al MCA AHORA."""
+    r = Registros({MT.R_SHIELD_RUN: (1 << 17) | (1 << 16) | 5})
+    est = MT.multitrigger_get_status(r)
+    assert est['mca_veto'] and est['shield_active']
+    assert est['shield_runtime'] & 0xFFFF == 5
+    est = MT.multitrigger_get_status(Registros({MT.R_SHIELD_RUN: 1 << 16}))
+    assert est['shield_active'] and not est['mca_veto']
 
 
 def test_un_registro_que_no_retiene_se_denuncia():

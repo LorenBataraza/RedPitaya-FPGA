@@ -115,6 +115,7 @@ module rp_scope_multitrigger_com #(
 
    input      [      4-1: 0] trig_ext_asg_i ,  // input External and ASG trigger 
    output                    daisy_trig_o   ,  // trigger for daisy chaining
+   output                    mca_veto_o     ,  // nivel del trigger_shield hacia el MCA
    
    // axi master
    output     [N_CH   -1: 0] axi_clk_o      ,  // global clock
@@ -175,10 +176,22 @@ wire [       4-1: 0] adc_we_keep       ;
 
 wire [       4-1: 0] trig_dis_clr      ;
 
-// multitrigger: config del trigger_shield (desde multitrigger_rp_scope_cfg)
-wire [       4-1: 0] shield_src        ;
-wire [       4-1: 0] shield_dst        ;
+// multitrigger: config del trigger_shield (desde multitrigger_cfg). Fuentes:
+// 4 canales + {ext_p, ext_n, ext_lvl}; destinos: 4 canales + {mca}.
+wire [       7-1: 0] shield_src        ;
+wire [       5-1: 0] shield_dst        ;
 wire [      16-1: 0] shield_dur        ;
+
+// NIVEL de la entrada externa, sincronizado a adc_clk para usarlo como fuente
+// de veto. rp_ext_trig ya sincroniza y rebota la misma linea, pero solo saca
+// los flancos; el nivel rebotado no es puerto suyo y es RTL del repo raiz, asi
+// que se sincroniza aca aparte (dos flops). Un veto es un nivel largo: un
+// ciclo de mas o de menos en el borde no importa.
+reg  [2-1:0] ext_lvl_sync;
+always @(posedge adc_clk_i[0])
+  if (!adc_rstn_i[0]) ext_lvl_sync <= 2'b00;
+  else                ext_lvl_sync <= {ext_lvl_sync[0], trig_ext_i};
+wire ext_lvl = ext_lvl_sync[1];
 
 // adc_dly_do a nivel módulo (cada rp_bram_sm maneja su bit por canal)
 wire [       4-1: 0] adc_dly_do        ;
@@ -298,6 +311,7 @@ multitrigger_event_logic #(
   .ext_trig_n_i     ( trig_ext_asg_i[1]   ),
   .asg_trig_p_i     ( trig_ext_asg_i[2]   ),
   .asg_trig_n_i     ( trig_ext_asg_i[3]   ),
+  .ext_lvl_i        ( ext_lvl             ),
   .trig_ch_i        ( trig_ch_i           ),
 
   .shield_src_i     ( shield_src          ),
@@ -310,6 +324,7 @@ multitrigger_event_logic #(
   .daisy_trig_o     ( daisy_trig_o        ),
   .event_arm_o      (                     ),  // redundante con trigger_event_o
   .trigger_event_o  ( trigger_event       ),
+  .mca_veto_o       ( mca_veto_o          ),
 
   // Debug
   .shield_cnt_o     ( shield_cnt          ),
@@ -781,6 +796,7 @@ multitrigger_cfg #(
   .indep_mode_i       ( indep_mode      ),
   .shield_cnt_i       ( shield_cnt      ),
   .shield_active_i    ( shield_active   ),
+  .mca_veto_i         ( mca_veto_o      ),
   .trig_snapshot_i    ( trig_snapshot   ),
 
   .legacy_trig_sw_i      ( legacy_trig_sw      ),

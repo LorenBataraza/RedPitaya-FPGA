@@ -58,9 +58,11 @@ def log(*a):
 
 class ServidorMCA:
 
-    def __init__(self, fake=False, bitstream=BITSTREAM_MCA, fake_h_aw=14):
+    def __init__(self, fake=False, bitstream=BITSTREAM_MCA, fake_h_aw=14,
+                 fake_rsz=14):
         self.fake = fake
         self.fake_h_aw = fake_h_aw
+        self.fake_rsz = fake_rsz
         self.bitstream = bitstream
         self.h = None
         self.ig = None                  # slot 6: opcional, puede no estar
@@ -181,7 +183,7 @@ class ServidorMCA:
         """
         self.bases, self.notas_bases = {}, []
         if self.fake:
-            self.osc = FakeOsc(rate_hz=1000.0)
+            self.osc = FakeOsc(n_buf=1 << self.fake_rsz, rate_hz=1000.0)
             self.mt = FakeMultiTrigger()
             self.bases = {'osc': SCOPE_PHYS, 'mtrg': SCOPE_PHYS}
             self.notas_bases = ['osc/mtrg simulados (--fake)']
@@ -267,6 +269,17 @@ class ServidorMCA:
 
     # ---------- operaciones ----------
 
+    def _n_buf(self):
+        """Muestras por canal del bitstream cargado.
+
+        Sale del scope, que lo leyó de su propio mapa canónico; el `N_BUF` del
+        módulo es sólo el fallback de cuando no hay scope abierto. La diferencia
+        importa porque un bitstream con RSZ menor NO falla al pedirle 16384
+        muestras: devuelve el anillo repetido. El límite tiene que ser el real o
+        no hay límite.
+        """
+        return getattr(self.osc, 'n_buf', N_BUF) if self.osc else N_BUF
+
     def _bloques(self):
         """Qué bloques trae este bitstream y dónde. Va en `identify`.
 
@@ -280,7 +293,7 @@ class ServidorMCA:
                 'has_mtrg': self.mt is not None,
                 'bases': {k: int(v) for k, v in self.bases.items()},
                 'bases_notas': list(self.notas_bases),
-                'n_buf': N_BUF, 'fs_hz': FS_OSC,
+                'n_buf': self._n_buf(), 'fs_hz': FS_OSC,
                 'adc_cnt_per_v': ADC_CNT_PER_V}
 
     def op_identify(self):
@@ -514,7 +527,7 @@ class ServidorMCA:
         return {'config': osciloscope_get_config(osc),
                 'status': osciloscope_get_status(osc),
                 'base': int(self.bases.get('osc', 0)),
-                'n_buf': N_BUF, 'fs_hz': FS_OSC,
+                'n_buf': self._n_buf(), 'fs_hz': FS_OSC,
                 'adc_cnt_per_v': ADC_CNT_PER_V}
 
     def op_osc_set(self, fields):
@@ -544,9 +557,10 @@ class ServidorMCA:
         pre, post = int(pre), int(post)
         if pre < 0 or post <= 0:
             raise ValueError(f'ventana inválida: pre={pre}, post={post}')
-        if pre + post > N_BUF:
+        n_buf = self._n_buf()
+        if pre + post > n_buf:
             raise ValueError(f'la ventana ({pre + post}) no entra en el buffer '
-                             f'de {N_BUF} muestras')
+                             f'de {n_buf} muestras')
         osc = self._osc()
         dec = osciloscope_get_config(osc)['dec_ch0'] or 1
 
@@ -789,9 +803,17 @@ def main():
     # pudo variar, no había forma de comprobarlo sin la placa.
     p.add_argument('--fake-h-aw', type=int, default=14, metavar='N',
                    help='canales del MCA simulado, como exponente (13 = 8192)')
+    # Lo mismo para el ANILLO del osciloscopio, que es geometría del scope y no
+    # del MCA. Importa poder variarlo sin placa porque el hardware NO avisa
+    # cuando la ventana no entra: la apertura aliasea y devuelve el anillo
+    # repetido, así que la única prueba posible es que el límite del servidor
+    # siga al bitstream.
+    p.add_argument('--fake-rsz', type=int, default=14, metavar='N',
+                   help='muestras del anillo simulado, como exponente (13 = 8192)')
     a = p.parse_args()
 
-    srv = ServidorMCA(fake=a.fake, bitstream=a.bitstream, fake_h_aw=a.fake_h_aw)
+    srv = ServidorMCA(fake=a.fake, bitstream=a.bitstream, fake_h_aw=a.fake_h_aw,
+                      fake_rsz=a.fake_rsz)
     if a.selftest:
         try:
             return selftest(srv)

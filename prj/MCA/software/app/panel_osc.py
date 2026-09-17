@@ -321,6 +321,26 @@ class PanelOsc(PanelCampos):
     # Entradas
     # =========================================================================
 
+    def _set_n_buf(self, n_buf):
+        """El anillo que dice el servidor, no el que traía el módulo.
+
+        Re-rangea los spinbox además de guardar el número: si el bitstream trae
+        RSZ menor, `N_BUF` deja elegir ventanas que no existen y el hardware NO
+        avisa —devuelve el anillo repetido—, así que el tope tiene que moverse
+        con el bitstream y no quedarse en el del último que hubo.
+        """
+        if n_buf == self.n_buf and self.spn_post.maximum() == n_buf:
+            return
+        self.n_buf = n_buf
+        self.spn_pre.setRange(0, n_buf - 1)
+        self.spn_post.setRange(16, n_buf)
+        self.spn_post.setToolTip(
+            f'Muestras DESPUÉS del trigger. pre+post no puede pasar de {n_buf}, '
+            f'que es el buffer del canal.')
+        self.chk_continuo.setToolTip(
+            f'Refresca solo mientras esta pestaña está VISIBLE: son {n_buf} '
+            'muestras por canal y no se pagan de fondo.')
+
     def _capturar(self):
         pre, post = self.spn_pre.value(), self.spn_post.value()
         if pre + post > self.n_buf:
@@ -357,7 +377,7 @@ class PanelOsc(PanelCampos):
         """El `osc.get` del servidor: configuración, estado y base."""
         cfg = info.get('config', {})
         self.actualizar_config(cfg)
-        self.n_buf = int(info.get('n_buf', self.n_buf)) or self.n_buf
+        self._set_n_buf(int(info.get('n_buf', self.n_buf)) or self.n_buf)
         self.cnt_por_v = float(info.get('adc_cnt_per_v', self.cnt_por_v))
 
         v0 = cfg.get('thr_ch0', 0) / self.cnt_por_v

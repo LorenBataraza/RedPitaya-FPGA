@@ -509,6 +509,38 @@ MCA está bien de punta a punta.
 > que el MCA vive en los microsegundos, así que ve muchísimos más eventos. Las
 > **cuentas** de los dos no tienen por qué parecerse; la **forma** sí.
 
+## 9b. Veto externo del MCA por DIO0_P
+
+Para bloquear el MCA desde afuera —anticoincidencia, una compuerta de un
+sistema externo, o simplemente "no cuentes mientras esta línea esté alta"— hay
+un veto de hardware que entra por **DIO0_P** del conector E1 (la misma línea
+que el `trig_ext` de siempre) y se configura como un caso del `trigger_shield`
+del multitrigger:
+
+| | |
+|---|---|
+| Pin | **DIO0_P** (E1), 3.3 V, referido a GND del mismo conector |
+| Dirección | la fija `red_pitaya_hk` (reg `0x10` del slot 0); en reset es **entrada**, así que no hay que tocar nada |
+| Nivel alto | veto activo (con `SRC_EXT_LVL`) |
+
+Desde Python, con el servidor abierto o desde la pestaña *Multitrigger* de la GUI
+(`src`, `dst`, `holdoff`):
+
+```python
+from API.multitrigger import multitrigger_configure, SRC_EXT_LVL, DST_MCA
+multitrigger_configure(mt, shield_src=SRC_EXT_LVL, shield_dst=DST_MCA, shield_dur=0)
+```
+
+Con DIO0_P en alto, `mca_get_status(h)` da `vetoed=True`, `cnt_total` deja de
+avanzar, `vetotime_s` sube y `livetime_s` no. Al bajar la línea vuelve solo.
+`shield_dur` agrega una cola de esa cantidad de ciclos después de que baje; con
+`SRC_EXT_P` en vez de `SRC_EXT_LVL` es una ventana de `shield_dur` ciclos tras el
+flanco. Detalle del mecanismo y de los tiempos en
+[`multitrigger/register_map_multitrigger.md`](multitrigger/register_map_multitrigger.md#el-veto-al-mca).
+
+> El shield es uno solo: usado como veto deja de servir como holdoff ch0→ch1 del
+> scope.
+
 ---
 
 ## 10. Apéndice: el event_ring

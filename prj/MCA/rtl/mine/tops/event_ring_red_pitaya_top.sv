@@ -164,6 +164,26 @@ module event_ring_red_pitaya_top #(
 // GPIO input data width
 localparam int unsigned GDW = DWE;
 localparam RST_MAX = 64;
+
+// -----------------------------------------------------------------------------
+// Geometria del scope: UNA declaracion, dos consumidores
+// -----------------------------------------------------------------------------
+// `i_scope` dimensiona con esto la BRAM de captura, e `i_integration` publica
+// los mismos numeros para que el software los descubra en vez de suponerlos.
+// Estaban escritos como literales en los DOS lugares -- que es exactamente como
+// divergio H_AW: el cambio que bajo el eje a 8192 canales toco una copia y se
+// olvido de la otra, y no se noto porque nadie leia la que quedo mintiendo.
+// Con una sola declaracion no hay dos numeros que puedan discrepar.
+//
+// RSZ = 13 son 8192 muestras por canal, 65 us a 125 MSPS. Cubre todo lo medido:
+// los pulsos de la campana actual son ~250 muestras y los de la campana vieja
+// ~7750, que entran con poco margen (~5%). RSZ = 12 los dejaria afuera.
+// A cambio libera 4 RAMB36 por canal -- 16 en una placa de cuatro --, que es la
+// BRAM con la que se pagan las instancias de MCA que faltan.
+localparam int SCOPE_N_CH = 2;
+localparam int SCOPE_DW   = 14;
+localparam int SCOPE_RSZ  = 13;
+
 logic [4-1:0] fclk ; //[0]-125MHz, [1]-250MHz, [2]-50MHz, [3]-200MHz
 logic [4-1:0] frstn;
 
@@ -233,6 +253,7 @@ logic signed [15-1:0] dac_a_sum, dac_b_sum;
 // ASG
 SBG_T [2-1:0]            asg_dat;
 logic [2*14-1:0]         mca_dat_bus;   // muestra acondicionada -> MCA
+logic                    mca_veto;      // trigger_shield (dst=mca) -> MCA
 logic [2-1:0]            mca_val_bus;
 
 // PID
@@ -593,9 +614,9 @@ wire [16:0] ring_snap;
 
 rp_scope_multitrigger_com#(
   .CHN(0),
-  .N_CH(2),
-  .DW(14),
-  .RSZ(14),
+  .N_CH(SCOPE_N_CH),
+  .DW(SCOPE_DW),
+  .RSZ(SCOPE_RSZ),
   .EN_FILT(0)) i_scope (      // sin ecualizador: ver la cabecera
   // ADC
   .adc_dat_i     ({adc_dat[1], adc_dat[0]}  ),
@@ -613,6 +634,7 @@ rp_scope_multitrigger_com#(
   .trig_ext_asg_o(trig_ext_asg01),
   .trig_ext_asg_i(trig_ext_asg01),
   .daisy_trig_o  (scope_trigo ),
+  .mca_veto_o    (mca_veto    ),  // veto externo hacia el MCA
 
   // evento conjunto hacia el event_ring
   .event_trig_o  (ring_trig       ),
@@ -849,7 +871,7 @@ integration_cfg #(
   .GITH     (GITH),
   .EN_OSC(1), .EN_MTRG(1), .EN_MCA(1), .EN_RING(1), .EN_ASG(0), .EN_PID(0),
   .SLOT_OSC(1), .SLOT_RING(2), .SLOT_MTRG(3), .SLOT_TOP(6), .SLOT_MCA(7),
-  .N_CH(2), .DW(14), .RSZ(14), .EN_FILT(0),
+  .N_CH(SCOPE_N_CH), .DW(SCOPE_DW), .RSZ(SCOPE_RSZ), .EN_FILT(0),
   .H_AW(14), .H2_AW(7), .PSD_AW(6)
 ) i_integration (
   .adc_clk_i  (adc_clk ),
@@ -888,6 +910,7 @@ mca_top #(
   .adc_rstn_i  (adc_rstn    ),
   .mca_dat_i   (mca_dat_bus ),
   .mca_val_i   (mca_val_bus ),
+  .veto_i      (mca_veto    ),
   // System bus
   .sys_addr    (sys[7].addr ),
   .sys_wdata   (sys[7].wdata),

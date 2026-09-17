@@ -358,16 +358,8 @@ def fig_familias_evento(d, res, out):
             ax.axvspan(i0 * us, (i0 + largo) * us, color=col, alpha=.10, lw=0)
             ax.axvline(i0 * us, color=col, lw=1.0)
             ax.axvline((i0 + largo) * us, color=col, lw=1.0)
-
-            txt = (f'ventana {largo} muestras ({largo*us:.1f} µs)\n'
-                   f'amplitud {ev["pico"][k]/V*1e3:.0f} mV  '
-                   f'({ev["pico"][k]/A*100:.0f} % de la línea)\n'
-                   f'Q/pico {q_pico:.1f}   esperado {esperado:.1f}\n'
-                   f'desvío {desvio:+.1f} σ  →  '
-                   f'{"ACEPTA" if acepta else "RECHAZA"}')
-            ax.text(0.975, 0.93, txt, transform=ax.transAxes, ha='right',
-                    va='top', fontsize=7.8, color=TINTA2 if acepta else ROJO,
-                    linespacing=1.4)
+            # los números del evento (ventana, amplitud, Q/pico, desvío) no
+            # van en la figura: el veredicto lo dice el color del sombreado
             ax.set_xlim(0, min(dat.size, i0 + largo + 300) * us)
 
         ax.set_title(titulo, loc='left', color=TINTA2, fontsize=9)

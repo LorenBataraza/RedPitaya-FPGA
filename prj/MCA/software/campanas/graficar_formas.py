@@ -166,7 +166,7 @@ def cargar_medidos(dir_datos):
 
 # =============================================================================
 def fig_familias(formas, med, out, vpp):
-    """2x3 paneles: una familia por panel, con sus números medidos encima."""
+    """2x3 paneles: una familia por panel, con la marca de su FWHM."""
     # Sin sharex a propósito: las familias difieren en LARGO por un factor 8
     # (la cola de la CR llega a 25 µs, el trapecio termina en 3), así que un eje
     # común aplasta a las compactas contra el margen izquierdo y no se ve la
@@ -200,19 +200,8 @@ def fig_familias(formas, med, out, vpp):
             neg = y < 0
             ax.fill_between(us, 0, y, where=neg, color=c, alpha=.20, lw=0)
 
-        # anotación: lo MEDIDO en la placa
-        ff = m.get('factor_forma')
-        txt = f'factor de forma  {ff:.3f}' if ff else ''
-        if m.get('ok'):
-            txt += f'\nINL {m["inl_pct"]:.2f} % FS'
-            txt += f'\nganancia {m["gain"]:.0f} ch/Vpp'
-        elif m:
-            txt += (f'\nárea positiva {100*m["area_pos"]:.0f} %'
-                    f'\nNO MEDIBLE: 50 % cerró por maxlen')
-        ax.text(0.97, 0.94, txt, transform=ax.transAxes, ha='right', va='top',
-                fontsize=8, color=TINTA2 if m.get('ok') else ROJO,
-                linespacing=1.35)
-
+        # los números medidos (factor de forma, INL, ganancia) no van en la
+        # figura: se leen de la tabla de `verificar` y de `familias_superpuestas`
         ax.set_title(TITULO[fam], loc='left', color=TINTA2, fontsize=9.5)
         _limpiar(ax)
 
