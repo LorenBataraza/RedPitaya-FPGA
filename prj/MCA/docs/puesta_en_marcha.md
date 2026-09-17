@@ -46,7 +46,7 @@ Si algo de eso falla, la sección correspondiente de abajo explica por qué.
 | | |
 |---|---|
 | Placa | Red Pitaya STEMlab 125-14 (Zynq 7010), RP OS 2.00, kernel 5.15-xilinx |
-| Bitstream | `prj/MCA/out/mca_red_pitaya.bit.bin` — ya está compilado en el repo |
+| Bitstream | `prj/MCA/out/mca_red_pitaya_Z10_2CH.bit.bin` — ya está compilado en el repo. `Z10_2CH` = STEMlab 125-14 (xc7z010, 2 entradas); la placa va en el nombre porque el `.bit.bin` no la lleva adentro |
 | Generador | Rigol DG4162 **conectado por USB a la Red Pitaya**, no a la PC |
 | Señal | CH1 del generador → **IN1** de la Pitaya, por cable coaxial |
 | Red | la placa y la PC en la misma red; la PC llega por `ssh` |
@@ -190,7 +190,7 @@ vías, y el detalle de las tres está en
   git clone --depth 1 --filter=blob:none --sparse \
       -b multitrigger https://github.com/LorenBataraza/RedPitaya-FPGA.git
   cd RedPitaya-FPGA && git sparse-checkout set --no-cone \
-      '/prj/MCA/software/**' '/prj/MCA/docs/**' '/prj/MCA/out/mca_red_pitaya.bit.bin'
+      '/prj/MCA/software/**' '/prj/MCA/docs/**' '/prj/MCA/out/*_Z*_*CH.bit.bin'
   ```
 
 ---
@@ -551,7 +551,7 @@ así que contra `mca_red_pitaya.bit.bin` esto no puede funcionar y el error
 problema tuyo.
 
 ```bash
-make placa-cargar-remoto BIT_LOCAL=../out/v3_event_ring/v3_event_ring.bit.bin
+make placa-cargar-remoto BIT_LOCAL=../out/v3_event_ring/event_ring_red_pitaya_Z10_2CH.bit.bin
 ssh pitaya 'make -C /home/jupyter/RedPitaya/remote_soft verificar-placa-ring'
 ```
 

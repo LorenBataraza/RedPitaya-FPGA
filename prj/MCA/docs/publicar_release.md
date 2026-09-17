@@ -38,7 +38,7 @@ git clone --depth 1 --filter=blob:none --sparse \
     -b multitrigger https://github.com/LorenBataraza/RedPitaya-FPGA.git
 cd RedPitaya-FPGA
 git sparse-checkout set --no-cone \
-    '/prj/MCA/software/**' '/prj/MCA/docs/**' '/prj/MCA/out/mca_red_pitaya.bit.bin'
+    '/prj/MCA/software/**' '/prj/MCA/docs/**' '/prj/MCA/out/*_Z*_*CH.bit.bin'
 ```
 
 Las tres banderas hacen cosas distintas y las tres importan: `--depth 1` corta
@@ -89,13 +89,42 @@ Lo que hay adentro:
 mca-0.1.0/
   instalar.sh              POSIX sh, sin dependencias
   LEEME.md                 instalación, primer arranque, reglas de la placa
-  VERSION                  paquete, commit, rama, fecha, md5 y PARTE del bitstream
+  VERSION                  paquete, commit, rama, fecha, y por bitstream: md5, VARIANTE y PARTE
   MANIFIESTO.sha256        checksum de cada fichero
-  out/mca_red_pitaya.bit.bin
+  out/mca_red_pitaya_Z10_2CH.bit.bin          el MCA, para la STEMlab 125-14
+  out/event_ring_red_pitaya_Z10_2CH.bit.bin   MCA + event_ring, misma placa
   software/                API/ app/ mca/ campanas/ monte-carlo/ + tests + Makefile
 ```
 
-> **El campo `parte` no es decorativo.** Dice para qué Zynq se compiló el
+### Todos los bitstreams, con la placa en el nombre
+
+El paquete lleva **todos** los bitstreams que hay en `prj/MCA/out/` (y en sus
+subdirectorios) cuyo nombre termina en `_<Zynq>_<canales>CH.bit.bin`. Ese
+patrón es el contrato: `Z10_2CH` es la STEMlab 125-14 (xc7z010, dos
+entradas), `Z20_4CH` sería la 125-14 4-Input (xc7z020). Un bitstream sin
+variante en el nombre **no entra**, porque el instalador no sabría para qué
+placa es. Los nombres los fijan los scripts de síntesis
+(`red_pitaya_vivado_Z10_mca.tcl`, `set variante Z10_2CH`), y `make bitstreams`
+en `prj/MCA` los genera todos en serie.
+
+El instalador elige el de la placa **leyendo el modelo de la EEPROM**
+(`monitor -f`: `z10_125` → `Z10_2CH`, `z20_125_4ch` → `Z20_4CH`), lo copia a
+`/root/mca_red_pitaya_<VARIANTE>.bit.bin` y deja `/root/mca_red_pitaya.bit.bin`
+como **enlace** a esa copia: los defaults del software no cambian con la
+placa, y un `ls -l /root` dice qué variante está instalada. Sin root no puede
+leer la EEPROM; si el paquete trae una sola variante la usa y avisa, y si trae
+varias se planta y pide `--variante Z10_2CH`.
+
+> Hoy sólo se sintetiza `Z10_2CH`. La 4-Input necesita **otro top** (sobre
+> `red_pitaya_top_4ADC.sv`, con `systemZ20_4.tcl` y su XDC), no otro valor de
+> una variable — es la parte A pendiente (cuatro MCA).
+
+`make release` avisa si alguno de los bitstreams que encontró es **anterior al
+commit** (por fecha de fichero): un bitstream viejo en `out/` rompe justo la
+garantía del paquete —bitstream y software del mismo commit— y hay que
+resintetizarlo o sacarlo de ahí.
+
+> **El campo `parte` no es decorativo.** Dice para qué Zynq se compiló cada
 > bitstream (`7z010clg400`) y es lo que impide cargarlo en una placa que lleva
 > otro. Cargar un bitstream de otro Zynq **no falla y ya**: deja el FPGA manager
 > trabado y toda programación posterior falla —incluida la de fábrica— hasta
@@ -110,7 +139,7 @@ mca-0.1.0/
 **Si falta el bitstream** el objetivo se planta antes de armar nada:
 
 ```
-ERROR: no existe …/out/mca_red_pitaya.bit.bin.
+ERROR: no existe …/out/mca_red_pitaya_Z10_2CH.bit.bin.
        un paquete sin bitstream no sirve para nada: es justo lo que
        no se puede reconstruir del otro lado. Corré la síntesis.
 ```
@@ -175,8 +204,10 @@ make release-instalar-remoto PITAYA=lorenzo@10.73.28.45 \
 > usa: instalar el árbol con sudo en la casa del usuario lo deja perteneciendo a
 > root, y después ese usuario no puede ni actualizarlo ni borrarlo. Fuera del
 > home sí hace falta. Sin sudo, la copia del bitstream a
-> `/root/mca_red_pitaya.bit.bin` no se puede hacer y el instalador lo avisa: el
-> bitstream queda igual en `$PREFIJO/out/` y hay que pasarlo con `--bitstream`.
+> `/root/mca_red_pitaya_<VARIANTE>.bit.bin` no se puede hacer y el instalador lo
+> avisa: el bitstream queda igual en `$PREFIJO/out/` y hay que pasarlo con
+> `--bitstream`. Y sin root tampoco puede leer el modelo de la placa, así que
+> con varias variantes en el paquete hay que decirle cuál con `--variante`.
 
 El último tiene que contestar los 8192 canales y los registros nuevos
 reteniendo lo escrito. Si contesta 16384, la PL no se reprogramó con el
@@ -291,8 +322,10 @@ sudo ./instalar.sh --cargar
 El instalador, antes de copiar un solo fichero: verifica el manifiesto,
 comprueba que esto sea una Red Pitaya, y que estén `python3` y `numpy`
 (`matplotlib` y `pytest` los reporta como opcionales). Después reemplaza el
-árbol **entero** conservando `datos/`, y copia el bitstream a
-`/root/mca_red_pitaya.bit.bin`, que es donde los defaults lo buscan.
+árbol **entero** conservando `datos/`, elige el bitstream de esta placa por
+el modelo de la EEPROM, lo copia a `/root/mca_red_pitaya_<VARIANTE>.bit.bin` y
+enlaza `/root/mca_red_pitaya.bit.bin` a esa copia, que es donde los defaults
+lo buscan.
 
 **Sin `--cargar` no toca la PL.** Reprogramar la FPGA corta el bus AXI y no
 puede pasar como efecto secundario de instalar unos ficheros: si hay una

@@ -73,8 +73,28 @@ REMOTOS  := $(shell grep -oE '^[a-z0-9-]+-remoto:' $(RAIZ)/Makefile | tr -d ':')
 # software), así que el despliegue de la PL es un objetivo aparte y explícito:
 # recargar la PL corta el bus AXI y no es algo que deba pasar como efecto
 # secundario de sincronizar unos .py.
-BIT_LOCAL  ?= $(RAIZ)/../out/mca_red_pitaya.bit.bin
-BIT_REMOTO ?= /root/mca_red_pitaya.bit.bin
+#
+# VARIANTE = <Zynq>_<canales>CH y va en el NOMBRE del bitstream, porque el
+# .bit.bin no dice para qué placa es (bootgen le quita la cabecera) y cargar
+# uno de 7z010 en una 7z020 deja el FPGA manager trabado hasta reiniciar. Hoy
+# la única que se sintetiza es Z10_2CH (la STEMlab 125-14 del banco); una
+# Z20_4CH necesita otro top, no otro valor acá. La lista de variantes que
+# existen es lo que hay en out/: ver `release`.
+#
+# En la placa, el software busca `/root/mca_red_pitaya.bit.bin` (BIT_ENLACE):
+# es un enlace simbólico al .bit.bin con nombre de variante, así los defaults
+# no cambian con la placa y un `ls -l /root` dice qué variante está instalada.
+VARIANTE   ?= Z10_2CH
+BIT_LOCAL  ?= $(RAIZ)/../out/mca_red_pitaya_$(VARIANTE).bit.bin
+BIT_REMOTO ?= /root/$(notdir $(BIT_LOCAL))
+BIT_ENLACE ?= /root/mca_red_pitaya.bit.bin
+
+# Todos los bitstreams generados, para la release: los del MCA en out/ y los
+# de los otros tops en sus subdirectorios (out/v3_event_ring/). El patrón
+# `*_Z*_*CH.bit.bin` ES el contrato: un bitstream sin variante en el nombre no
+# entra al paquete, porque el instalador no sabría para qué placa es.
+BITS_TODOS := $(sort $(wildcard $(RAIZ)/../out/*_Z*_*CH.bit.bin \
+                                $(RAIZ)/../out/*/*_Z*_*CH.bit.bin))
 
 # release-*: el paquete instalable, para quien sólo quiere USAR el sistema y no
 # los 300 MB del repo. La versión sale de un fichero y NO de `git describe` a
@@ -665,6 +685,9 @@ placa-bitstream:   ## copia el .bit.bin a la Pitaya (SOBREESCRIBE; no lo carga)
 	 R=$$(ssh $(PITAYA) "md5sum $(BIT_REMOTO)" | cut -d' ' -f1); \
 	 if [ "$$L" = "$$R" ]; then echo "md5 coincide: $$L"; \
 	 else echo "ERROR: md5 distinto (local $$L, remoto $$R)"; exit 1; fi
+	@# El nombre estable que buscan los defaults apunta al de la variante.
+	ssh $(PITAYA) "ln -sfn $(BIT_REMOTO) $(BIT_ENLACE)"
+	@echo "$(BIT_ENLACE) -> $(BIT_REMOTO)"
 
 placa-cargar: exige-placa  ## (P) programa la PL con $(BIT_REMOTO) y verifica
 	$(PY) campanas/preparar_placa.py --cargar --bitstream $(BIT_REMOTO)
@@ -696,6 +719,19 @@ release: ## arma el paquete instalable en dist/. Versión en ../VERSION
 	  echo "       un paquete sin bitstream no sirve para nada: es justo lo que"; \
 	  echo "       no se puede reconstruir del otro lado. Corré la síntesis."; \
 	  exit 1; }
+	@# Van TODOS los bitstreams generados, no sólo el de la variante del banco:
+	@# el paquete es uno por versión y el instalador elige el de su placa. Pero
+	@# "todos los que hay en out/" incluye los que quedaron de una síntesis
+	@# vieja, y un bitstream anterior al commit rompe justo la garantía del
+	@# paquete (bitstream y software del mismo commit). Se avisa por mtime; el
+	@# que sobra se borra de out/ o se vuelve a sintetizar.
+	@echo "bitstreams:"; \
+	 C=$$(git -C $(RAIZ) log -1 --format=%ct 2>/dev/null || echo 0); \
+	 for b in $(BITS_TODOS); do \
+	   if [ $$(stat -c%Y $$b) -lt $$C ]; then \
+	     echo "  $$(basename $$b)   AVISO: es ANTERIOR al commit $(GIT_SHA); ¿es el último?"; \
+	   else echo "  $$(basename $$b)"; fi; \
+	 done
 	@if [ -n "$(SUCIO)" ]; then \
 	   echo ""; \
 	   echo "  AVISO: hay cambios sin commitear en el árbol."; \
@@ -717,26 +753,31 @@ release: ## arma el paquete instalable en dist/. Versión en ../VERSION
 	  --exclude '__pycache__/' --exclude '.pytest_cache/' --exclude '*.pyc' \
 	  --exclude '*.ipynb' --exclude '.ipynb_checkpoints/' --exclude '*.npz' \
 	  $(RAIZ)/ $(STAGING)/$(PAQUETE)/software/
-	@cp $(BIT_LOCAL) $(STAGING)/$(PAQUETE)/out/
+	@cp $(BITS_TODOS) $(STAGING)/$(PAQUETE)/out/
 	@cp $(RAIZ)/release/LEEME.md $(STAGING)/$(PAQUETE)/
 	@install -m 755 $(RAIZ)/release/instalar.sh $(STAGING)/$(PAQUETE)/
 	@# VERSION viaja DENTRO del paquete: cuando dentro de seis meses una placa
 	@# dé un número raro, la pregunta va a ser "¿qué tiene instalado?", y la
 	@# respuesta tiene que estar en la placa y no en la memoria de nadie.
-	@# `parte` es el Zynq para el que se compiló, y es el campo que impide
-	@# repetir el incidente de cargar un bitstream de 7z010 en una placa 7z020:
-	@# el FPGA manager queda trabado y falla toda programación posterior hasta
-	@# reiniciar. Se lee del `.bit` porque el `.bit.bin` NO lleva la cabecera;
-	@# viaja acá justamente porque en la placa ya no hay de dónde sacarla.
+	@# Un bloque por bitstream. `parte` es el Zynq para el que se compiló, y es
+	@# el campo que impide repetir el incidente de cargar un bitstream de 7z010
+	@# en una placa 7z020: el FPGA manager queda trabado y falla toda
+	@# programación posterior hasta reiniciar. Se lee del `.bit` porque el
+	@# `.bit.bin` NO lleva la cabecera; viaja acá justamente porque en la placa
+	@# ya no hay de dónde sacarla. `variante` es lo mismo dicho por el nombre.
 	@{ echo "paquete    $(PAQUETE)"; \
 	   echo "commit     $(GIT_SHA)$(if $(SUCIO),-sucio) (rama $(GIT_RAMA))"; \
 	   echo "armado     $$(date -Iseconds)"; \
-	   echo "bitstream  mca_red_pitaya.bit.bin"; \
-	   echo "           $$(stat -c%s $(BIT_LOCAL)) bytes"; \
-	   echo "           md5 $$(md5sum $(BIT_LOCAL) | cut -d' ' -f1)"; \
-	   echo "parte      $$(PYTHONPATH=$(RAIZ) $(PY) -c \
-	       'from API.fpga import parte_del_bitstream as p; print(p("$(BIT_LOCAL:.bin=)") or "desconocida")')"; \
 	   echo "eje        $$(grep -oP 'H_AW_ESPERADO = \K[0-9]+' $(RAIZ)/campanas/preparar_placa.py) bits de histograma esperados"; \
+	   for b in $(BITS_TODOS); do \
+	     n=$$(basename $$b); \
+	     echo "bitstream  $$n"; \
+	     echo "           $$(stat -c%s $$b) bytes"; \
+	     echo "           md5 $$(md5sum $$b | cut -d' ' -f1)"; \
+	     echo "variante   $$(echo $$n | sed -E 's/.*_(Z[0-9]+_[0-9]+CH)\.bit\.bin$$/\1/')"; \
+	     echo "parte      $$(PYTHONPATH=$(RAIZ) $(PY) -c \
+	         'from API.fpga import parte_del_bitstream as p; print(p("'$${b%.bin}'") or "desconocida")')"; \
+	   done; \
 	 } > $(STAGING)/$(PAQUETE)/VERSION
 	@# Un manifiesto de todo el contenido, que el instalador verifica antes de
 	@# copiar nada. Una descarga truncada instala un árbol a medias que falla

@@ -6,7 +6,7 @@ acá va el **por qué**, incluidas las alternativas que se descartaron y las que
 se probaron y fallaron.
 
 Estado: **validado en hardware** (ver §13). Bitstream
-`prj/MCA/out/mca_red_pitaya.bit.bin`, simulación con 9 testbenches / 163 checks,
+`prj/MCA/out/mca_red_pitaya_Z10_2CH.bit.bin`, simulación con 9 testbenches / 163 checks,
 smoke test en placa con 29 PASS / 0 FAIL y dos campañas de caracterización.
 
 Documentos hermanos, para no duplicar:
@@ -739,12 +739,12 @@ con **cinco diferencias** de una línea:
 | # | Cambio | Por qué |
 |---|---|---|
 | 1 | `synth_design -top mca_red_pitaya_top` | el top nuevo |
-| 2-3 | `write_bitstream` → `mca_red_pitaya.bit` / `.bin` | que no pise los artefactos del scope |
+| 2-3 | `write_bitstream` → `mca_red_pitaya_Z10_2CH.bit` / `.bin` | que no pise los artefactos del scope; la placa y los canales van en el nombre |
 | 4 | `write_sysdef -bitfile/-file` → `mca_red_pitaya.*` | el original referencia el `.bit` **por nombre**: sin este cambio apunta a un archivo inexistente |
 | 5 | `add_files` de `sdc/red_pitaya_mca.xdc` | restricciones propias del MCA |
 
 ```bash
-vivado -nojournal -mode batch -source red_pitaya_vivado_Z10_mca.tcl -tclargs MCA
+make -C prj/MCA bitstream        # = vivado -nojournal -mode batch -source red_pitaya_vivado_Z10_mca.tcl -tclargs MCA
 ```
 
 **No hace falta regenerar FSBL ni device tree**: ambos salen de la configuración
@@ -814,6 +814,8 @@ estímulo inicial no armaba el Schmitt antes del primer pulso.
 | + registro de entrada en `mca_top` | −0.114 | 14 |
 | build publicado (bus de features, zoom, discriminador) | **+0.006** | 0 |
 | + ventana de amplitud evaluada un ciclo antes (§11.1) | `mca_top` OOC: −0.129 → **+0.436** | — |
+| build `Z10_2CH` con veto y `RSZ=13` (primer intento) | −0.274 | 28 |
+| + las dos sumas del mux de lectura registradas (§11.2) | **+0.050** | 0 |
 
 De los 14 de la cuarta fila: **6 en `ps/system_i`** (el `axi_protocol_converter`
 del block design de Xilinx, preexistente, peor −0.114) y **8 en `i_mca/i_feat`**
@@ -857,6 +859,28 @@ La equivalencia se probó en los bordes: `tb_mca_pulse_feature` ganó doce
 comprobaciones (`q_tot` justo en `min<<s` y en `max_q`, saturado con
 `max = 0xFFFF` y `0xFFFE`, pico justo en `min`) y **el mismo testbench pasa
 93/93 contra el RTL anterior**.
+
+### 11.2 Lo que apareció al sintetizar el build completo
+
+Con `mca_top` cerrando holgado fuera de contexto, el build entero (Vivado
+2020.1, `make bitstream`) dio **−0.274 ns con 28 endpoints**, ninguno de los
+cuales era el que se acababa de arreglar:
+
+- **27 en `ps/system_i/xadc`** (`axi_protocol_converter → do_reg/CE`,
+  `clk_fpga_3` a 200 MHz): IP de Xilinx del block design, que en los dos builds
+  anteriores cerraba por **7 ps**. No tiene RTL que tocar; se movió del otro
+  lado porque el resto del diseño creció (+565 LUT) y cayó distinto. El script
+  de síntesis ahora corre `phys_opt_design` **post-route sólo si la ruta dejó
+  slack negativo**, para que un build que cierra sea el mismo de siempre.
+- **1 en `i_mca/sys_rdata_reg[20]`** (−0.049): `sys_addr → decode → 3 CARRY4 →
+  sys_rdata`. Las dos sumas de contadores que se leen (`hist_h_supp +
+  hist_2d_supp` en `0x0B0`, `c_lost + hist_h_drop + hist_2d_drop` en `0x064`)
+  estaban **dentro** del mux de lectura, justo lo que el comentario del propio
+  mux dice que no hay que hacer. Ahora se registran un ciclo antes; leerlas
+  con un ciclo de atraso es invisible porque el ack sale a los 4 ciclos.
+
+Con eso el build cierra con **+0.050 ns** (adc_clk +0.112) sin necesitar el
+phys_opt. 8033 LUT (45.6 % del Z7010), 9178 FF, 16 RAMB36 del MCA.
 
 Dos aprendizajes concretos:
 

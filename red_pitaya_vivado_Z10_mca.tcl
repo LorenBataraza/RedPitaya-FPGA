@@ -7,15 +7,24 @@
 # generaria conflicto en cada merge.
 #
 #   1. synth_design -top mca_red_pitaya_top   (en vez de red_pitaya_top)
-#   2. write_bitstream .bit  -> $path_out/mca_red_pitaya.bit
-#   3. write_bitstream .bin  -> $path_out/mca_red_pitaya
-#   4. write_sysdef  -bitfile/-file -> mca_red_pitaya.*
+#   2. write_bitstream .bit  -> $path_out/mca_red_pitaya_<VARIANTE>.bit
+#   3. write_bitstream .bin  -> $path_out/mca_red_pitaya_<VARIANTE>
+#   4. write_sysdef  -bitfile/-file -> mca_red_pitaya_<VARIANTE>.*
 #   5. add_files del XDC propio del MCA (sdc/red_pitaya_mca.xdc)
 #   6. bootgen para generar el .bit.bin que carga fpgautil
+#   7. phys_opt_design POST-ROUTE, solo si la ruta dejo slack negativo
 #
 # Los tres ultimos evitan que este build PISE los artefactos del scope: el
 # original escribe siempre red_pitaya.bit y red_pitaya.sysdef. Con los nombres
 # cambiados los dos bitstreams conviven en prj/MCA/out/.
+#
+# VARIANTE = <Zynq>_<canales>CH, p. ej. Z10_2CH. Va en el nombre de todo lo
+# que sale de aca porque un .bit.bin no dice para que placa es: bootgen le
+# quita la cabecera, y cargar uno de 7z010 en una 7z020 deja el FPGA manager
+# trabado hasta reiniciar. Este script SOLO produce Z10_2CH: la parte es
+# xc7z010 y mca_red_pitaya_top es el top de dos canales (SCOPE_N_CH=2). Un
+# Z20_4CH necesita otro top (sobre red_pitaya_top_4ADC.sv), otro PS7
+# (ip/systemZ20_4.tcl) y otro XDC, no otro valor de esta variable.
 #
 # Si upstream toca red_pitaya_vivado_Z10.tcl, re-sincronizar es mecanico:
 # copiar de nuevo y volver a aplicar estas cuatro lineas.
@@ -72,6 +81,10 @@ set_param iconstr.diffPairPulltype {opposite}
 ################################################################################
 
 set part xc7z010clg400-1
+
+# Placa y canales, en el nombre de los artefactos (ver el encabezado).
+set variante Z10_2CH
+set bit_base mca_red_pitaya_$variante
 
 create_project -in_memory -part $part
 
@@ -181,6 +194,20 @@ report_timing_summary    -file    $path_out/post_place_timing_summary.rpt
 ################################################################################
 
 route_design
+
+# 7) El PS7 trae un camino del XADC (axi_protocol_converter -> do_reg/CE, en
+#    clk_fpga_3 a 200 MHz) que cierra por 7 ps en un build limpio y que cada
+#    tanto queda del otro lado segun como haya caido la colocacion del resto.
+#    Es IP de Xilinx: no hay RTL que tocar. Un phys_opt post-route lo recupera
+#    (el camino es 78 % ruteo) sin cambiar nada de lo que ya cierra. Se corre
+#    SOLO si hace falta, para que un build que cierra sea el mismo de siempre.
+set wns [get_property SLACK [get_timing_paths -max_paths 1 -nworst 1 -setup]]
+if {$wns < 0} {
+  puts "post-route WNS = $wns ns: corriendo phys_opt_design post-route"
+  phys_opt_design -directive AggressiveExplore
+  set wns [get_property SLACK [get_timing_paths -max_paths 1 -nworst 1 -setup]]
+  puts "post-route WNS tras phys_opt = $wns ns"
+}
 write_checkpoint         -force   $path_out/post_route
 report_timing_summary    -file    $path_out/post_route_timing_summary.rpt
 report_timing            -file    $path_out/post_route_timing.rpt -sort_by group -max_paths 100 -path_type summary
@@ -200,8 +227,8 @@ xilinx::ultrafast::report_io_reg -verbose -file $path_out/post_route_iob.rpt
 
 set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]
 
-write_bitstream -force            $path_out/mca_red_pitaya.bit
-write_bitstream -force -bin_file  $path_out/mca_red_pitaya
+write_bitstream -force            $path_out/$bit_base.bit
+write_bitstream -force -bin_file  $path_out/$bit_base
 
 # 6) .bit.bin para el FPGA manager de la placa.
 #    fpgautil NO acepta el .bit de Vivado (falla con "write init error:
@@ -213,22 +240,22 @@ write_bitstream -force -bin_file  $path_out/mca_red_pitaya
 #      bootgen -image X.bif -arch zynq -process_bitstream bin -o X.bit.bin -w
 #    OJO: bootgen resuelve el nombre del bitstream contra SU directorio de
 #    trabajo, no contra la ubicacion del .bif, asi que hay que ejecutarlo DESDE
-#    out/. Sin eso buscaba ./mca_red_pitaya.bit desde prj/MCA y fallaba con
+#    out/. Sin eso buscaba ./$bit_base.bit desde prj/MCA y fallaba con
 #    "Cannot read BIT file" -- y el error de bootgen NO aborta el script, asi
 #    que quedaba el .bit nuevo y el .bit.bin VIEJO. Es el peor sintoma posible:
 #    la placa sigue corriendo el bitstream anterior y nada lo avisa.
 set here [pwd]
 cd $path_out
-set bif [open mca_red_pitaya.bif w]
-puts -nonewline $bif "all:{ mca_red_pitaya.bit }"
+set bif [open $bit_base.bif w]
+puts -nonewline $bif "all:{ $bit_base.bit }"
 close $bif
-exec bootgen -image mca_red_pitaya.bif -arch zynq -process_bitstream bin \
-             -o mca_red_pitaya.bit.bin -w
-if {[file mtime mca_red_pitaya.bit.bin] < [file mtime mca_red_pitaya.bit]} {
+exec bootgen -image $bit_base.bif -arch zynq -process_bitstream bin \
+             -o $bit_base.bit.bin -w
+if {[file mtime $bit_base.bit.bin] < [file mtime $bit_base.bit]} {
   cd $here
   error "bootgen no regenero el .bit.bin: la placa cargaria el bitstream VIEJO"
 }
-puts "bootgen OK: mca_red_pitaya.bit.bin ([file size mca_red_pitaya.bit.bin] bytes)"
+puts "bootgen OK: $bit_base.bit.bin ([file size $bit_base.bit.bin] bytes)"
 cd $here
 
 ################################################################################
@@ -236,7 +263,7 @@ cd $here
 ################################################################################
 
 write_sysdef -force      -hwdef   $path_sdk/red_pitaya.hwdef \
-                         -bitfile $path_out/mca_red_pitaya.bit \
-                         -file    $path_sdk/mca_red_pitaya.sysdef
+                         -bitfile $path_out/$bit_base.bit \
+                         -file    $path_sdk/$bit_base.sysdef
 
 exit

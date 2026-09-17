@@ -9,7 +9,8 @@
 #   2. path_out = out/v3_event_ring  <- directorio propio: si compartiera out/,
 #      los reportes (post_route_util.rpt, timing, ...) del MCA quedarian
 #      pisados y se perderia la referencia contra la cual comparar.
-#   3. artefactos con nombre v3_event_ring.*
+#   3. artefactos con nombre event_ring_red_pitaya_<VARIANTE>.* (Z10_2CH:
+#      xc7z010 y top de dos canales; ver red_pitaya_vivado_Z10_mca.tcl)
 #   4. hp2_clk_freq 125 MHz (era 250): HP2 ahora lo maneja el event_ring, que
 #      vive entero en adc_clk. Ver la nota de dominios abajo.
 #   5. XDC propio del v3, ademas del del MCA (el MCA sigue en el diseno, slot 7)
@@ -69,6 +70,10 @@ set_param iconstr.diffPairPulltype {opposite}
 ################################################################################
 
 set part xc7z010clg400-1
+
+# 3) placa y canales, en el nombre de los artefactos
+set variante Z10_2CH
+set bit_base event_ring_red_pitaya_$variante
 
 create_project -in_memory -part $part
 
@@ -165,6 +170,16 @@ report_timing_summary    -file    $path_out/post_place_timing_summary.rpt
 ################################################################################
 
 route_design
+
+# phys_opt post-route SOLO si la ruta dejo slack negativo (misma logica y
+# mismo motivo que en red_pitaya_vivado_Z10_mca.tcl, punto 7).
+set wns [get_property SLACK [get_timing_paths -max_paths 1 -nworst 1 -setup]]
+if {$wns < 0} {
+  puts "post-route WNS = $wns ns: corriendo phys_opt_design post-route"
+  phys_opt_design -directive AggressiveExplore
+  set wns [get_property SLACK [get_timing_paths -max_paths 1 -nworst 1 -setup]]
+  puts "post-route WNS tras phys_opt = $wns ns"
+}
 write_checkpoint         -force   $path_out/post_route
 report_timing_summary    -file    $path_out/post_route_timing_summary.rpt
 report_timing            -file    $path_out/post_route_timing.rpt -sort_by group -max_paths 100 -path_type summary
@@ -182,8 +197,8 @@ xilinx::ultrafast::report_io_reg -verbose -file $path_out/post_route_iob.rpt
 
 set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]
 
-write_bitstream -force            $path_out/v3_event_ring.bit
-write_bitstream -force -bin_file  $path_out/v3_event_ring
+write_bitstream -force            $path_out/$bit_base.bit
+write_bitstream -force -bin_file  $path_out/$bit_base
 
 # .bit.bin para fpgautil. bootgen resuelve el nombre del bitstream contra SU
 # directorio de trabajo, no contra la ubicacion del .bif, asi que hay que
@@ -192,16 +207,16 @@ write_bitstream -force -bin_file  $path_out/v3_event_ring
 # placa cargando el bitstream anterior sin que nada lo avise.
 set here [pwd]
 cd $path_out
-set bif [open v3_event_ring.bif w]
-puts -nonewline $bif "all:{ v3_event_ring.bit }"
+set bif [open $bit_base.bif w]
+puts -nonewline $bif "all:{ $bit_base.bit }"
 close $bif
-exec bootgen -image v3_event_ring.bif -arch zynq -process_bitstream bin \
-             -o v3_event_ring.bit.bin -w
-if {[file mtime v3_event_ring.bit.bin] < [file mtime v3_event_ring.bit]} {
+exec bootgen -image $bit_base.bif -arch zynq -process_bitstream bin \
+             -o $bit_base.bit.bin -w
+if {[file mtime $bit_base.bit.bin] < [file mtime $bit_base.bit]} {
   cd $here
   error "bootgen no regenero el .bit.bin: la placa cargaria el bitstream VIEJO"
 }
-puts "bootgen OK: v3_event_ring.bit.bin ([file size v3_event_ring.bit.bin] bytes)"
+puts "bootgen OK: $bit_base.bit.bin ([file size $bit_base.bit.bin] bytes)"
 cd $here
 
 ################################################################################
@@ -209,7 +224,7 @@ cd $here
 ################################################################################
 
 write_sysdef -force      -hwdef   $path_sdk/v3_event_ring.hwdef \
-                         -bitfile $path_out/v3_event_ring.bit \
-                         -file    $path_sdk/v3_event_ring.sysdef
+                         -bitfile $path_out/$bit_base.bit \
+                         -file    $path_sdk/$bit_base.sysdef
 
 exit

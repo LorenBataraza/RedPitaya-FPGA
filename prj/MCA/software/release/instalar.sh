@@ -9,9 +9,11 @@
 #     sudo ./instalar.sh --cargar
 #
 # Lo que hace, en orden: verifica el paquete contra su manifiesto, comprueba
-# que esto sea una Pitaya y que estén las dependencias, copia el árbol al
-# prefijo, copia el bitstream donde los defaults lo buscan y —sólo si se lo
-# pide— programa la PL y verifica que respondan los registros.
+# que esto sea una Pitaya y que estén las dependencias, ELIGE el bitstream de
+# esta placa entre los que trae el paquete (por el modelo de la EEPROM: Zynq y
+# cantidad de canales, que van en el nombre: mca_red_pitaya_Z10_2CH.bit.bin),
+# copia el árbol al prefijo, copia ese bitstream donde los defaults lo buscan
+# y —sólo si se lo pide— programa la PL y verifica que respondan los registros.
 #
 # Lo que NO hace, a propósito: no arranca ningún servicio, no toca la red, no
 # instala paquetes de Python, y no reprograma la PL salvo con --cargar. Un
@@ -24,6 +26,7 @@ set -eu
 
 PREFIJO=/opt/mca
 BIT_SISTEMA=/root/mca_red_pitaya.bit.bin
+VARIANTE=""
 CARGAR=no
 SIN_BITSTREAM=no
 FORZAR=no
@@ -43,7 +46,10 @@ ayuda() {
 instalar.sh — instala el MCA en la Red Pitaya
 
   --prefijo DIR      dónde instalar el árbol      (por defecto /opt/mca)
-  --bitstream RUTA   copia del bitstream para los defaults del software
+  --variante Zxx_nCH cuál de los bitstreams del paquete es el de esta placa
+                     (p. ej. Z10_2CH). Sin esto se deduce del modelo de la
+                     EEPROM, y hace falta root para leerla.
+  --bitstream RUTA   enlace para los defaults del software
                      (por defecto /root/mca_red_pitaya.bit.bin)
   --sin-bitstream    no copiar el bitstream fuera del prefijo
   --cargar           además PROGRAMA la PL y verifica los registros
@@ -62,6 +68,7 @@ FIN
 while [ $# -gt 0 ]; do
     case "$1" in
         --prefijo)     PREFIJO=$2; shift 2 ;;
+        --variante)    VARIANTE=$2; shift 2 ;;
         --bitstream)   BIT_SISTEMA=$2; shift 2 ;;
         --sin-bitstream) SIN_BITSTREAM=si; shift ;;
         --cargar)      CARGAR=si; shift ;;
@@ -153,11 +160,12 @@ if [ "$(id -u)" != 0 ]; then
     echo "                        vas a tener que correr el servidor con sudo"
 fi
 
-# ¿El bitstream del paquete es para ESTA placa? Se comprueba siempre, aunque no
-# se vaya a cargar, porque es lo primero que alguien necesita saber. Cargar un
-# bitstream de otro Zynq no falla y ya: deja el FPGA manager trabado y TODA
-# programación posterior falla —incluida la de fábrica— hasta reiniciar.
-PARTE=$(sed -n 's/^parte  *//p' "$PAQ/VERSION" 2>/dev/null | head -1)
+# ¿Cuál de los bitstreams del paquete es el de ESTA placa? El paquete trae uno
+# por variante (Zynq y canales, en el nombre) y acá se elige por el modelo de
+# la EEPROM. Se decide siempre, aunque no se vaya a cargar, porque es lo
+# primero que alguien necesita saber. Cargar un bitstream de otro Zynq no falla
+# y ya: deja el FPGA manager trabado y TODA programación posterior falla
+# —incluida la de fábrica— hasta reiniciar.
 MODELO=""
 for m in /opt/redpitaya/bin/monitor /usr/local/bin/monitor; do
     [ -x "$m" ] && MODELO=$("$m" -f 2>/dev/null | head -1) && break
@@ -165,25 +173,54 @@ done
 # Sin root, `monitor -f` no puede abrir la EEPROM y escribe "undefined" con
 # codigo de salida 0. Tomarlo por un modelo seria peor que no saber.
 [ "$MODELO" = undefined ] && MODELO=""
+case "$MODELO" in
+    z10_*) ZYNQ=Z10 ;;
+    z20_*) ZYNQ=Z20 ;;
+    *)     ZYNQ="" ;;
+esac
+case "$MODELO" in
+    *_4ch*) NCH=4 ;;
+    *)      NCH=2 ;;
+esac
+
+DISPONIBLES=$(cd "$PAQ/out" && ls mca_red_pitaya_Z*_*CH.bit.bin 2>/dev/null \
+              | sed -E 's/^mca_red_pitaya_(.*)\.bit\.bin$/\1/' | tr '\n' ' ' | sed 's/ $//')
+[ -n "$DISPONIBLES" ] || morir "el paquete no trae ningún bitstream del MCA en out/"
+
 COMPATIBLE=si
-if [ -n "$PARTE" ] && [ -z "$MODELO" ]; then
-    aviso "  bitstream             $PARTE · modelo de la placa ilegible sin root"
-    echo  "                        se comprueba de nuevo al programar la PL"
-fi
-if [ -n "$PARTE" ] && [ -n "$MODELO" ]; then
-    case "$MODELO" in
-        z10_*)  ESPERADA=7z010 ;;
-        z20_*)  ESPERADA=7z020 ;;
-        *)      ESPERADA="" ;;
-    esac
-    if [ -n "$ESPERADA" ]; then
-        case "$PARTE" in
-            ${ESPERADA}*) echo "  bitstream             $PARTE, correcto para $MODELO" ;;
-            *) COMPATIBLE=no
-               rojo "  bitstream             $PARTE, pero esta placa es $MODELO ($ESPERADA)" ;;
-        esac
+if [ -z "$VARIANTE" ]; then
+    if [ -n "$ZYNQ" ]; then
+        VARIANTE=${ZYNQ}_${NCH}CH
+        echo "  placa                 $MODELO -> $VARIANTE"
+    elif [ "$(echo $DISPONIBLES | wc -w)" = 1 ]; then
+        VARIANTE=$(echo $DISPONIBLES)
+        if [ -n "$MODELO" ]; then
+            aviso "  placa                 modelo $MODELO no reconocido; el paquete trae sólo $VARIANTE"
+        else
+            aviso "  placa                 modelo ilegible sin root; el paquete trae sólo $VARIANTE"
+            echo  "                        se comprueba de nuevo al programar la PL"
+        fi
     else
-        aviso "  bitstream             $PARTE · modelo $MODELO no reconocido"
+        rojo  "  placa                 no sé qué bitstream es el de esta placa"
+        echo  "                        modelo: ${MODELO:-ilegible sin root}; el paquete trae: $DISPONIBLES"
+        echo  "                        elegilo con --variante, o corré con sudo"
+        SIN_BITSTREAM=si
+        COMPATIBLE=no
+    fi
+else
+    # Elegida a mano: se comprueba contra la placa igual, por si es la otra.
+    if [ -n "$ZYNQ" ] && [ "${VARIANTE%%_*}" != "$ZYNQ" ]; then
+        COMPATIBLE=no
+    fi
+fi
+
+if [ -n "$VARIANTE" ]; then
+    BIT_PAQ=$PAQ/out/mca_red_pitaya_${VARIANTE}.bit.bin
+    [ -f "$BIT_PAQ" ] || morir "el paquete no trae bitstream para $VARIANTE (trae: $DISPONIBLES)"
+    if [ "$COMPATIBLE" = si ]; then
+        verde "  bitstream             mca_red_pitaya_${VARIANTE}.bit.bin"
+    else
+        rojo  "  bitstream             mca_red_pitaya_${VARIANTE}.bit.bin, pero esta placa es $MODELO ($ZYNQ)"
     fi
 fi
 
@@ -244,17 +281,21 @@ if [ -d "$VIEJO" ]; then
 fi
 
 verde "  árbol                 $PREFIJO/software"
-verde "  bitstream             $PREFIJO/out/mca_red_pitaya.bit.bin"
+verde "  bitstreams            $PREFIJO/out/  ($DISPONIBLES)"
 
 # La copia en /root existe para que los defaults del software funcionen sin
 # argumentos: tanto mca_server.py como preparar_placa.py buscan el bitstream
-# ahí. Es 1 MB duplicado a cambio de que nada tenga que pasar --bitstream.
-if [ "$SIN_BITSTREAM" = no ]; then
-    if cp "$PAQ/out/mca_red_pitaya.bit.bin" "$BIT_SISTEMA" 2>/dev/null; then
-        verde "  copia para defaults   $BIT_SISTEMA"
+# en $BIT_SISTEMA. Se copia CON el nombre de la variante y el nombre estable
+# es un enlace a esa copia: así un `ls -l /root` dice qué placa cree el
+# software que es ésta. Es 1 MB duplicado a cambio de que nada tenga que pasar
+# --bitstream.
+if [ "$SIN_BITSTREAM" = no ] && [ -n "$VARIANTE" ] && [ "$COMPATIBLE" = si ]; then
+    BIT_ROOT=$(dirname "$BIT_SISTEMA")/mca_red_pitaya_${VARIANTE}.bit.bin
+    if cp "$BIT_PAQ" "$BIT_ROOT" 2>/dev/null && ln -sfn "$BIT_ROOT" "$BIT_SISTEMA" 2>/dev/null; then
+        verde "  copia para defaults   $BIT_SISTEMA -> $BIT_ROOT"
     else
         aviso "  no pude escribir $BIT_SISTEMA (¿falta sudo?)"
-        aviso "  vas a tener que pasar --bitstream $PREFIJO/out/mca_red_pitaya.bit.bin"
+        aviso "  vas a tener que pasar --bitstream $PREFIJO/out/mca_red_pitaya_${VARIANTE}.bit.bin"
     fi
 fi
 
@@ -263,15 +304,16 @@ if [ "$CARGAR" = si ]; then
     echo
     echo "== programar la PL =="
     [ "$(id -u)" = 0 ] || morir "--cargar necesita root (/dev/mem y /dev/xdevcfg)"
-    if [ "$COMPATIBLE" = no ]; then
-        morir "el bitstream de este paquete ($PARTE) no es para esta placa
-       ($MODELO). NO se programó nada: cargarlo dejaría el FPGA manager
+    if [ "$COMPATIBLE" = no ] || [ -z "$VARIANTE" ]; then
+        morir "no hay un bitstream de este paquete que sea para esta placa
+       (modelo ${MODELO:-ilegible}; elegido: ${VARIANTE:-ninguno}; trae: $DISPONIBLES).
+       NO se programó nada: cargar uno de otro Zynq dejaría el FPGA manager
        trabado y toda programación posterior fallaría hasta reiniciar.
        El resto del paquete quedó instalado y sirve igual."
     fi
     echo "  esto CORTA el bus AXI: cualquier medición en curso se pierde."
     python3 "$PREFIJO/software/campanas/preparar_placa.py" \
-        --cargar --bitstream "$PREFIJO/out/mca_red_pitaya.bit.bin"
+        --cargar --bitstream "$PREFIJO/out/mca_red_pitaya_${VARIANTE}.bit.bin"
 fi
 
 # -------------------------------------------------------------- 5. cómo ---

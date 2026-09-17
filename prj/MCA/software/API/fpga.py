@@ -18,6 +18,7 @@ hasta reiniciar la placa. Cerrar los mmap ANTES de cargar.
 
 import mmap
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -114,8 +115,26 @@ def parte_del_bitstream(path):
     return None
 
 
+_RE_VARIANTE = re.compile(r'_(Z\d+)_(\d+)CH\.bit(\.bin)?$')
+ZYNQ_POR_VARIANTE = {'Z10': '7z010', 'Z20': '7z020'}
+
+
+def variante_del_nombre(path):
+    """`(zynq, canales)` según el nombre, p. ej. `..._Z10_2CH.bit.bin` →
+    `('7z010', 2)`. None si el nombre no lleva variante.
+
+    Es la convención de los build scripts (`red_pitaya_vivado_Z10_mca.tcl`):
+    la placa y los canales van en el nombre porque el `.bit.bin` no dice para
+    qué es, y un `ls` tiene que alcanzar para saberlo.
+    """
+    m = _RE_VARIANTE.search(os.path.basename(path))
+    if not m:
+        return None
+    return ZYNQ_POR_VARIANTE.get(m.group(1)), int(m.group(2))
+
+
 def parte_declarada(bitstream_bin):
-    """La parte de un `.bit.bin`, buscándola en los dos lugares donde puede estar.
+    """La parte de un `.bit.bin`, buscándola donde puede estar.
 
     El `.bit.bin` no la lleva adentro, así que hay que deducirla del entorno:
 
@@ -123,7 +142,12 @@ def parte_declarada(bitstream_bin):
        desarrollo, donde Vivado deja los dos en `out/`;
     2. **el `VERSION` del paquete instalado**, que la trae escrita porque
        `make release` la leyó del `.bit` al armar. Es el caso de una placa, que
-       no tiene el `.bit`.
+       no tiene el `.bit`. El paquete trae un bloque por bitstream (`bitstream`
+       seguido de su `parte`), y se toma el del bloque cuyo nombre coincide;
+       una `parte` suelta, sin `bitstream` antes, vale para todos;
+    3. **el nombre**: `_Z10_2CH` dice `7z010`. Es el más débil (no distingue
+       el package) pero es el único que sobrevive a una copia suelta del
+       fichero.
 
     Devuelve None si no aparece en ninguno; quien decida qué hacer con eso es
     `bitstream_compatible`, que ante la duda deja pasar y lo dice.
@@ -137,14 +161,23 @@ def parte_declarada(bitstream_bin):
     # <prefijo>/out/x.bit.bin  ->  <prefijo>/VERSION
     version = os.path.join(os.path.dirname(os.path.dirname(
         os.path.abspath(bitstream_bin))), 'VERSION')
+    nombre = os.path.basename(bitstream_bin)
     try:
         with open(version, 'r') as fh:
+            bloque = None                   # el `bitstream` del bloque actual
             for linea in fh:
                 campo, _, valor = linea.partition(' ')
-                if campo.strip() == 'parte' and valor.strip():
-                    return valor.strip()
+                campo, valor = campo.strip(), valor.strip()
+                if campo == 'bitstream':
+                    bloque = valor
+                elif campo == 'parte' and valor and bloque in (None, nombre):
+                    return valor
     except OSError:
         pass
+
+    v = variante_del_nombre(bitstream_bin)
+    if v and v[0]:
+        return v[0]
     return None
 
 

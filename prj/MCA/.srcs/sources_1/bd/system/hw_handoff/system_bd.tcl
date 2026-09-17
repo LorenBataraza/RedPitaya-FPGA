@@ -248,7 +248,7 @@ proc create_root_design { parentCell } {
    CONFIG.AWUSER_WIDTH {0} \
    CONFIG.BUSER_WIDTH {0} \
    CONFIG.DATA_WIDTH {64} \
-   CONFIG.FREQ_HZ {250000000} \
+   CONFIG.FREQ_HZ {125000000} \
    CONFIG.HAS_BRESP {1} \
    CONFIG.HAS_BURST {1} \
    CONFIG.HAS_CACHE {1} \
@@ -333,7 +333,7 @@ proc create_root_design { parentCell } {
  ] $M_AXI_GP0_ACLK
   set S_AXI_HP0_aclk [ create_bd_port -dir I -type clk -freq_hz 125000000 S_AXI_HP0_aclk ]
   set S_AXI_HP1_aclk [ create_bd_port -dir I -type clk -freq_hz 125000000 S_AXI_HP1_aclk ]
-  set S_AXI_HP2_aclk [ create_bd_port -dir I -type clk -freq_hz 250000000 S_AXI_HP2_aclk ]
+  set S_AXI_HP2_aclk [ create_bd_port -dir I -type clk -freq_hz 125000000 S_AXI_HP2_aclk ]
   set S_AXI_HP3_aclk [ create_bd_port -dir I -type clk -freq_hz 250000000 S_AXI_HP3_aclk ]
 
   # Create instance: axi_protocol_converter_0, and set properties

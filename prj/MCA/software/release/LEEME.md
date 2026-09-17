@@ -12,7 +12,8 @@ exacta y el commit del que salieron están en [`VERSION`](VERSION).
 ## Qué hay acá adentro
 
 ```
-out/mca_red_pitaya.bit.bin   el bitstream de la PL
+out/*_Z10_2CH.bit.bin        los bitstreams de la PL, con la placa en el nombre
+                             (Z10_2CH = STEMlab 125-14, 2 entradas)
 software/                    el driver, el servidor, las campañas y los tests
 instalar.sh                  el instalador
 MANIFIESTO.sha256            checksum de cada fichero
@@ -34,8 +35,11 @@ sudo ./instalar.sh --cargar
 respondan. Sin esa bandera el instalador no toca la FPGA: copia el software y
 deja la placa como estaba, que es lo que querés si hay una medición corriendo.
 
-El árbol queda en `/opt/mca` (cambialo con `--prefijo`), y una copia del
-bitstream en `/root/mca_red_pitaya.bit.bin`, que es donde el software lo busca
+El árbol queda en `/opt/mca` (cambialo con `--prefijo`). El instalador elige
+el bitstream de **esta** placa por el modelo de la EEPROM (con varios en el
+paquete y sin root, decíselo con `--variante Z10_2CH`), lo copia a
+`/root/mca_red_pitaya_<VARIANTE>.bit.bin` y deja un enlace en
+`/root/mca_red_pitaya.bit.bin`, que es donde el software lo busca
 por defecto.
 
 **Requisitos:** Red Pitaya OS 2.00 o posterior, `python3` y `numpy`. El

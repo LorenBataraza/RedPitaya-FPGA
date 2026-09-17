@@ -97,6 +97,53 @@ def test_sin_ninguna_de_las_dos_da_none(tmp_path):
     assert fpga.parte_declarada(str(binario)) is None
 
 
+def test_en_un_paquete_con_varios_bitstreams_toma_el_de_su_bloque(tmp_path):
+    """`make release` escribe un bloque por bitstream; la `parte` que vale es
+    la del bloque cuyo `bitstream` es este fichero, no la primera que aparezca."""
+    (tmp_path / 'out').mkdir()
+    (tmp_path / 'VERSION').write_text(
+        'paquete    mca-0.2.0\n'
+        'bitstream  mca_red_pitaya_Z20_4CH.bit.bin\n'
+        '           1 bytes\n'
+        'parte      7z020clg400\n'
+        'bitstream  mca_red_pitaya_Z10_2CH.bit.bin\n'
+        'parte      7z010clg400\n')
+    for nombre, parte in (('mca_red_pitaya_Z10_2CH.bit.bin', '7z010clg400'),
+                          ('mca_red_pitaya_Z20_4CH.bit.bin', '7z020clg400')):
+        b = tmp_path / 'out' / nombre
+        b.write_bytes(b'\xff' * 32)
+        assert fpga.parte_declarada(str(b)) == parte
+
+
+def test_un_bitstream_que_no_esta_en_el_version_cae_al_nombre(tmp_path):
+    (tmp_path / 'out').mkdir()
+    (tmp_path / 'VERSION').write_text(
+        'bitstream  otro_Z10_2CH.bit.bin\nparte      7z010clg400\n')
+    b = tmp_path / 'out' / 'mca_red_pitaya_Z20_4CH.bit.bin'
+    b.write_bytes(b'\xff' * 32)
+    assert fpga.parte_declarada(str(b)) == '7z020'
+
+
+# =============================================================================
+# La variante en el nombre
+# =============================================================================
+
+def test_la_variante_del_nombre():
+    assert fpga.variante_del_nombre('/root/mca_red_pitaya_Z10_2CH.bit.bin') == ('7z010', 2)
+    assert fpga.variante_del_nombre('out/x/event_ring_red_pitaya_Z20_4CH.bit') == ('7z020', 4)
+    assert fpga.variante_del_nombre('mca_red_pitaya.bit.bin') is None
+
+
+def test_una_copia_suelta_con_variante_sigue_declarando_su_parte(tmp_path):
+    """Sin `.bit` hermano ni VERSION —el fichero copiado a /root— el nombre
+    alcanza para que la guarda tenga con qué comparar."""
+    b = tmp_path / 'mca_red_pitaya_Z10_2CH.bit.bin'
+    b.write_bytes(b'\xff' * 32)
+    assert fpga.parte_declarada(str(b)) == '7z010'
+    ok, _ = fpga.bitstream_compatible(fpga.parte_declarada(str(b)), 'z20_125_4ch')
+    assert ok is False
+
+
 # =============================================================================
 # La decisión
 # =============================================================================
@@ -180,8 +227,12 @@ def test_sin_monitor_da_none(monkeypatch):
 def test_el_bitstream_del_repo_declara_su_parte():
     """Si esto falla, `make release` va a escribir "desconocida" en VERSION y
     la guarda se queda sin con qué comparar."""
-    bit = os.path.join(_RAIZ, '..', 'out', 'mca_red_pitaya.bit')
-    if not os.path.exists(bit):
+    import glob
+    bits = glob.glob(os.path.join(_RAIZ, '..', 'out', 'mca_red_pitaya_Z*_*CH.bit'))
+    if not bits:
         return                          # sin síntesis local, no hay nada que probar
-    parte = fpga.parte_del_bitstream(bit)
-    assert parte and parte.startswith('7z'), parte
+    for bit in bits:
+        parte = fpga.parte_del_bitstream(bit)
+        assert parte and parte.startswith('7z'), (bit, parte)
+        # y el nombre no miente sobre la parte
+        assert parte.startswith(fpga.variante_del_nombre(bit)[0]), (bit, parte)

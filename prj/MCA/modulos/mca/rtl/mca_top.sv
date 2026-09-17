@@ -465,6 +465,18 @@ end
 //=============================================================================
 reg [31:0] rt_hi_shadow, lt_hi_shadow, dt_hi_shadow, vt_hi_shadow;
 
+// Las dos sumas de contadores que se leen (0x064 y 0x0B0) se registran un
+// ciclo antes en vez de sumarse dentro del mux de lectura: dos cadenas de
+// carry de 32 b colgadas del decode de dirección eran el peor camino del
+// build (addr -> LUT -> 3 CARRY4 -> LUT -> sys_rdata, −0.049 ns). Leerlas
+// con un ciclo de atraso es invisible: el ack sale a los 4 ciclos y
+// sys_rdata se vuelve a cargar en cada uno.
+reg [31:0] sum_supp, sum_lost;
+always @(posedge adc_clk_i) begin
+  sum_supp <= hist_h_supp + hist_2d_supp;
+  sum_lost <= c_lost + hist_h_drop + hist_2d_drop;
+end
+
 always @(posedge adc_clk_i) begin
   if (!adc_rstn_i) begin
     sys_ack <= 1'b0; sys_err <= 1'b0; sys_rdata <= 32'h0;
@@ -518,7 +530,7 @@ always @(posedge adc_clk_i) begin
       20'h000A4 : sys_rdata <= {31'h0, cfg_keep_full};
       20'h000AC : sys_rdata <= cnt_rej_discr;
       20'h000A8 : sys_rdata <= {30'h0, hist_2d_full, hist_h_full};
-      20'h000B0 : sys_rdata <= hist_h_supp + hist_2d_supp;
+      20'h000B0 : sys_rdata <= sum_supp;
       20'h00048 : sys_rdata <= {31'h0, cfg_gate_mode};
       20'h0004C : sys_rdata <= {cfg_gate_long, cfg_gate_short};
       20'h00090 : sys_rdata <= {20'h0, cfg_sel_2dy, cfg_sel_2dx, cfg_sel_1d};
@@ -532,7 +544,7 @@ always @(posedge adc_clk_i) begin
       20'h00058 : sys_rdata <= c_rej_amp;
       20'h0005C : sys_rdata <= c_rej_psd;
       20'h00060 : sys_rdata <= c_pileup;
-      20'h00064 : sys_rdata <= c_lost + hist_h_drop + hist_2d_drop;
+      20'h00064 : sys_rdata <= sum_lost;
 
       // --- relojes (64 b, con sombra en la palabra alta) ---
       20'h00068 : sys_rdata <= realtime_cnt[31:0];
