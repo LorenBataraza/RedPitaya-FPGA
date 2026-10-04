@@ -44,7 +44,7 @@ MODS := comun osc multitrigger mca event_ring
 .DEFAULT_GOAL := help
 .PHONY: help rtl rtl-todos $(addprefix rtl-,$(MODS)) wave verificar verificar-placa \
         montecarlo campanas app app-demo placa-estado ring-dump todo limpiar \
-        bitstream bitstream-event-ring bitstreams
+        bitstream bitstream-event-ring bitstreams datasheets
 
 help:              ## esta ayuda
 	@echo "prj/MCA — objetivos:"
@@ -90,6 +90,12 @@ wave:              ## GUI de ondas ya grabadas: make wave TB=tb_trig_capture
 	      done; test -f $(SIM)/$(TB).sv && echo $(SIM)); \
 	 test -n "$$d" || { echo "uso: make wave TB=<tb>"; exit 1; }; \
 	 $(MAKE) -C $$d wave TB=$(TB)
+
+# Las secciones <!-- AUTO:x --> de docs/<m>/datasheet_<top>.md y el diagrama de
+# interfaz. La prosa escrita a mano no se toca. Un módulo solo:
+# `make -C modulos/<m>/work datasheet`.
+datasheets:        ## regenera los datasheets de todos los módulos -> docs/
+	python3 $(MODULOS)/mk/datasheet.py --all
 
 verificar:         ## tests de software que corren en la PC
 	$(MAKE) -C $(SW) verificar

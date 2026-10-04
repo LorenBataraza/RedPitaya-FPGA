@@ -33,6 +33,7 @@
 #   make sweep      barrido de frecuencia -> rpt/<f>MHz/
 #   make extract    junta los metrics.txt del barrido -> rpt/sweep_results.csv
 #   make plot       grafica el barrido -> rpt/plots/*.png
+#   make datasheet  diagrama de interfaz + datasheet -> docs/<modulo>/
 #   make clean
 
 ifndef MODULE
@@ -108,7 +109,8 @@ else
 endif
 STAMP := $(WORK)/.compiled
 
-.PHONY: all help compile lint syn sweep extract plot cov wave vcd clean $(TBS)
+.PHONY: all help compile lint syn sweep extract plot cov wave vcd clean \
+        datasheet datasheet-check $(TBS)
 
 .DEFAULT_GOAL := all
 
@@ -214,6 +216,25 @@ sweep:             ## barrido de frecuencia -> rpt/<f>MHz/
 
 extract:           ## junta los metrics.txt del barrido -> rpt/sweep_results.csv
 	python3 $(MODULOS)/mk/extract_metrics.py --rpt-dir $(RPT)
+
+# --- datasheet ---------------------------------------------------------------
+# Diagrama de interfaz + pagina de datasheet en docs/<modulo>/. Reescribe solo
+# las regiones <!-- AUTO:x -->: la prosa escrita a mano no se toca. Conviene
+# correrlo DESPUES de `syn` o `sweep-all`, asi la seccion de Fmax sale con
+# numeros en vez de un "sin datos de sintesis todavia".
+#
+#   make datasheet                      el TOP del modulo
+#   make datasheet DS_TOP=trigger_shield  otro modulo RTL del mismo directorio
+#   make datasheet DS_ARGS=--all-tops   todos los de files.f
+DS_TOP  ?= $(TOP)
+DS_ARGS ?=
+
+datasheet:         ## datasheet del modulo -> docs/<modulo>/ (DS_TOP=<top>)
+	python3 $(MODULOS)/mk/datasheet.py --module $(MODULE) \
+	    $(if $(DS_TOP),--top $(DS_TOP)) $(DS_ARGS)
+
+datasheet-check:   ## falla si el datasheet quedo viejo (para CI)
+	@$(MAKE) --no-print-directory datasheet DS_ARGS="$(DS_ARGS) --check"
 
 plot:              ## grafica el barrido -> rpt/plots/*.png
 	python3 $(MODULOS)/mk/plot_sweep.py --rpt-dir $(RPT)

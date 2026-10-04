@@ -145,7 +145,7 @@ export PYTHONPATH := $(RAIZ):$(PYTHONPATH)
         verificar-placa-bitstream \
         verificar-remoto verificar-placa-remoto verificar-placa-app-remoto \
         montecarlo montecarlo-rapido montecarlo-apilamiento \
-        montecarlo-linea-base montecarlo-pico-carga montecarlo-figuras \
+        montecarlo-linea-base montecarlo-pico-carga montecarlo-conformado montecarlo-figuras \
         campana-lista campana-mca campana-campana campana-resto campana-formas \
         campana-e2e campana-poisson campana-deriva campana-adquirir \
         campana-adquirir-remoto campana-deriva-remoto \
@@ -287,7 +287,7 @@ verificar-placa-app-remoto: placa-sync  ## (R) el e2e de la app EN la Pitaya, y 
 # montecarlo-*  ·  simulaciones
 # =============================================================================
 
-montecarlo: montecarlo-apilamiento montecarlo-linea-base montecarlo-pico-carga  ## todas las simulaciones (~15 min)
+montecarlo: montecarlo-apilamiento montecarlo-linea-base montecarlo-pico-carga montecarlo-conformado  ## todas las simulaciones (~15 min)
 	@echo "OK: simulaciones Monte-Carlo completas"
 
 montecarlo-rapido:       ## barrido de apilamiento corto, para ver que corre
@@ -301,6 +301,9 @@ montecarlo-linea-base:   ## Monte-Carlo del seguidor de línea de base
 
 montecarlo-pico-carga:   ## Monte-Carlo pico-vs-carga para dobles y triples
 	$(PY) monte-carlo/pico_vs_carga.py
+
+montecarlo-conformado:   ## Monte-Carlo: forma del pulso contra ruido (Nicholson vs ADC, ~30 s)
+	$(PY) monte-carlo/conformado.py
 
 montecarlo-figuras:      ## rehace las figuras del MC desde los .npz guardados. DIR=
 	$(PY) monte-carlo/graficar.py $(DIR)

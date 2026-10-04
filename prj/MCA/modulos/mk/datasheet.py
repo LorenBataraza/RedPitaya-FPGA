@@ -102,12 +102,13 @@ class Port:
 
     @property
     def width_doc(self) -> str:
-        """Lo que va en la tabla: ancho resuelto y la expresion si difieren."""
+        """Lo que va en la tabla: el ancho resuelto, y la expresion al lado solo
+        si esta parametrizada (ahi importa de que depende)."""
         if not self.width_expr:
             return "1"
         if self.msb is None:
             return f"`[{self.width_expr}]`"
-        if re.fullmatch(r"\d+:\d+", self.width_expr.replace(" ", "")):
+        if not re.search(r"[A-Za-z_]", self.width_expr):
             return f"{self.bits}"
         return f"{self.bits} `[{self.width_expr}]`"
 
@@ -142,7 +143,8 @@ class Iface:
 
     @property
     def rel(self) -> str:
-        return os.path.relpath(self.path, REPO_ROOT)
+        r = os.path.relpath(self.path, REPO_ROOT)
+        return self.path if r.startswith("..") else r
 
 
 # --------------------------------------------------------------------------- #
@@ -160,12 +162,19 @@ def clog2(x: int) -> int:
     return r
 
 
-_ALLOWED_BINOP = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod,
-                  ast.Pow, ast.LShift, ast.RShift, ast.BitOr, ast.BitAnd,
-                  ast.BitXor)
+_BINOP = {
+    ast.Add: lambda a, b: a + b,       ast.Sub: lambda a, b: a - b,
+    ast.Mult: lambda a, b: a * b,      ast.Div: lambda a, b: a / b,
+    ast.FloorDiv: lambda a, b: a // b, ast.Mod: lambda a, b: a % b,
+    ast.Pow: lambda a, b: a ** b,      ast.LShift: lambda a, b: a << b,
+    ast.RShift: lambda a, b: a >> b,   ast.BitOr: lambda a, b: a | b,
+    ast.BitAnd: lambda a, b: a & b,    ast.BitXor: lambda a, b: a ^ b,
+}
+_UNOP = {ast.UAdd: lambda v: +v, ast.USub: lambda v: -v, ast.Invert: lambda v: ~v}
 
 
 def _node_eval(node, env):
+    """Evaluador propio: nada de eval(), solo aritmetica entera y clog2."""
     if isinstance(node, ast.Expression):
         return _node_eval(node.body, env)
     if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
@@ -174,16 +183,11 @@ def _node_eval(node, env):
         if node.id not in env:
             raise KeyError(node.id)
         return env[node.id]
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub, ast.Invert)):
-        v = _node_eval(node.operand, env)
-        return +v if isinstance(node.op, ast.UAdd) else (-v if isinstance(node.op, ast.USub) else ~v)
-    if isinstance(node, ast.BinOp) and isinstance(node.op, _ALLOWED_BINOP):
-        a, b = _node_eval(node.left, env), _node_eval(node.right, env)
-        if isinstance(node.op, ast.Div):
-            return a / b
-        return eval(  # noqa: S307 - arbol ya restringido a nodos aritmeticos
-            compile(ast.Expression(ast.BinOp(ast.Constant(a), node.op, ast.Constant(b))),
-                    "<expr>", "eval"))
+    if isinstance(node, ast.UnaryOp) and type(node.op) in _UNOP:
+        return _UNOP[type(node.op)](_node_eval(node.operand, env))
+    if isinstance(node, ast.BinOp) and type(node.op) in _BINOP:
+        return _BINOP[type(node.op)](_node_eval(node.left, env),
+                                     _node_eval(node.right, env))
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "clog2":
         return clog2(int(_node_eval(node.args[0], env)))
     raise ValueError(ast.dump(node))
@@ -269,6 +273,17 @@ PARAM_RE = re.compile(
     re.VERBOSE)
 
 
+def is_label(pending: list) -> bool:
+    """¿El bloque de comentarios es un rótulo de grupo y no una explicación?
+    Una sola línea, corta y sin punto final: `// Fuentes de trigger` sí,
+    `// Mientras vale 1 no se abren pulsos, ...` no."""
+    if len(pending) != 1:
+        return False
+    t = pending[0].strip()
+    return bool(t) and len(t) <= 72 and not t.endswith((".", ":", ";")) \
+        and not t.startswith(("TODO", "FIXME", "XXX", "OJO", "NOTA"))
+
+
 def balanced(text: str, start: int):
     """Devuelve (contenido_sin_parentesis, indice_despues_del_cierre)."""
     depth, i, n = 0, start, len(text)
@@ -304,7 +319,10 @@ def leading_banner(lines, mod_line: int) -> list:
         out.pop(0)
     while out and not out[-1].strip():
         out.pop()
-    return out
+    # Dedent: el `// ` de cada linea deja un espacio parejo que en Markdown se
+    # arrastra a la cita.
+    pad = min((len(x) - len(x.lstrip()) for x in out if x.strip()), default=0)
+    return [x[pad:] for x in out]
 
 
 def parse_iface(path: str, name: str = None, generics: dict = None) -> Iface:
@@ -352,7 +370,8 @@ def parse_iface(path: str, name: str = None, generics: dict = None) -> Iface:
         if generics and p.name in generics:
             gv = eval_expr(generics[p.name], env)
             if gv is not None:
-                p.value, p.overridden = gv, True
+                p.overridden = (gv != p.value)
+                p.value = gv
         if p.value is not None:
             env[p.name] = p.value
         iface.params.append(p)
@@ -405,6 +424,28 @@ def parse_iface(path: str, name: str = None, generics: dict = None) -> Iface:
                 msb, lsb = int(msb), int(lsb)
                 bits = abs(msb - lsb) + 1
 
+        # Que hacer con los comentarios acumulados arriba de este puerto. Hay
+        # tres casos y el RTL del proyecto usa los tres:
+        #
+        #   una linea corta sin punto final  -> es un rotulo de grupo. Algunos
+        #       archivos (multitrigger_event_logic.v) agrupan con `// ADC` en
+        #       vez de `// --- ADC ---`.
+        #   varias lineas, grupo todavia sin puertos -> describen al grupo
+        #       (mca_top: el bloque que explica veto_i).
+        #   cualquier otra cosa -> es nota del puerto que sigue.
+        notes = []
+        if is_label(pending):
+            lbl = pending[0].strip()
+            if not cur.ports and not cur.name:
+                cur.name = lbl
+            else:
+                iface.groups.append(cur)
+                cur = Group(name=lbl)
+        elif pending and not cur.ports:
+            cur.doc = list(pending)
+        else:
+            notes = list(pending)
+
         names = [x.strip() for x in dm.group("names").split(",") if x.strip()]
         for k, nm in enumerate(names):
             cur.ports.append(Port(
@@ -412,14 +453,8 @@ def parse_iface(path: str, name: str = None, generics: dict = None) -> Iface:
                 kind=dm.group("kind") or dm.group("kind2") or "",
                 signed=dm.group("sign") == "signed",
                 desc=(comment or "") if k == len(names) - 1 else "",
-                notes=list(pending) if not cur.ports else list(pending),
+                notes=notes if k == 0 else [],
             ))
-        # los comentarios de arriba del PRIMER puerto de un grupo describen al
-        # grupo, no al puerto: es como esta escrito el RTL del proyecto
-        if pending and len(cur.ports) == len(names):
-            cur.doc = list(pending)
-            for p in cur.ports:
-                p.notes = []
         pending = []
 
     if cur.ports or cur.name:
@@ -432,16 +467,24 @@ def parse_iface(path: str, name: str = None, generics: dict = None) -> Iface:
 # --------------------------------------------------------------------------- #
 # Relojes, resets y dominios
 # --------------------------------------------------------------------------- #
-CLK_RE = re.compile(r"(^|_)(clk|clock)(_|\d|$)", re.I)
-RST_RE = re.compile(r"(^|_)(rst|rstn|reset|resetn|aresetn|nrst)(_|\d|$)", re.I)
+# El nombre tiene que TERMINAR en clk/rst (salvo el sufijo _i/_o de dirección):
+# asi `adc_clk_i` y `aclk` entran, y `clk_en_i`, `clk_div_i` o `rst_cnt_i` no.
+# No se pide ancho 1: en este diseño `adc_clk_i` es `[N_CH-1:0]`, un reloj por
+# canal.
+CLK_RE = re.compile(r"(^|_)a?(clk|clock)\d*$", re.I)
+RST_RE = re.compile(r"(^|_)(a?rst_?n?|reset_?n?|nrst)\d*$", re.I)
+
+
+def _base(name: str) -> str:
+    return re.sub(r"_[io]$", "", name)
 
 
 def is_clock(p: Port) -> bool:
-    return p.dir == "input" and p.bits == 1 and bool(CLK_RE.search(p.name))
+    return p.dir == "input" and bool(CLK_RE.search(_base(p.name)))
 
 
 def is_reset(p: Port) -> bool:
-    return p.dir == "input" and p.bits == 1 and bool(RST_RE.search(p.name))
+    return p.dir == "input" and bool(RST_RE.search(_base(p.name)))
 
 
 def clk_prefix(name: str) -> str:
@@ -486,23 +529,27 @@ def esc(s: str) -> str:
 
 
 def param_lines(iface: Iface) -> list:
+    """Una linea por parametro para el encabezado del simbolo. Se muestra el
+    literal tal como esta escrito (asi un MAGIC sigue siendo 32'h4D434131 y no
+    1296910641); solo los que pisa el TOP se muestran resueltos, con un *."""
     out = []
     for p in iface.params:
-        v = p.default if p.value is None else (
-            p.default if str(p.value) == p.default.strip() else f"{p.value}")
-        mark = "*" if p.overridden else ""
-        out.append(f"{p.name}={v}{mark}")
+        v = f"{p.value}*" if p.overridden else p.default.strip()
+        if len(v) > 16:
+            v = v[:15] + "…"
+        out.append(f"{p.name}={v}")
     return out
 
 
-def render_svg(iface: Iface, generics: dict) -> str:
+def render_svg(iface: Iface) -> str:
     # --- bandas: cada grupo ocupa max(entradas, salidas) filas ---------------
     bands = []
     clocks = [p for p in iface.ports if is_clock(p) or is_reset(p)]
+    clk_names = {p.name for p in clocks}
     if clocks:
         bands.append(("reloj y reset", clocks, []))
     for g in iface.groups:
-        ins = [p for p in g.ins if p not in clocks]
+        ins = [p for p in g.ins if p.name not in clk_names]
         outs = list(g.outs)
         if ins or outs:
             bands.append((g.name, ins, outs))
@@ -520,11 +567,19 @@ def render_svg(iface: Iface, generics: dict) -> str:
              for c in range(n_col)]
     par_w = sum(col_w) + 22 * max(0, n_col - 1)
 
-    hdr_txt_w = max(tw(iface.name, FS_TITLE), tw(iface.rel, FS_SUB), par_w)
-    box_w = max(name_l + CENTER_GAP + name_r + 2 * BOX_PAD_X, hdr_txt_w + 2 * HDR_PAD)
+    foot = "* valor con el que lo instancia el TOP" \
+           if any(p.overridden for p in iface.params) else ""
+    hdr_txt_w = max(tw(iface.name, FS_TITLE), tw(iface.rel, FS_SUB), par_w,
+                    tw(foot, FS_SUB))
+    # Las etiquetas de grupo van adentro de la caja: si una es mas larga que el
+    # ancho que piden los pines, manda ella.
+    grp_w = max([tw(g, FS_GRP) for g, _, _ in bands if g] or [0])
+    box_w = max(name_l + CENTER_GAP + name_r + 2 * BOX_PAD_X,
+                hdr_txt_w + 2 * HDR_PAD, grp_w + 2 * BOX_PAD_X)
 
     hdr_h = HDR_PAD + FS_TITLE + 5 + FS_SUB + (
-        (10 + rows_pc * (FS_PAR + 4)) if plines else 0) + HDR_PAD
+        (10 + rows_pc * (FS_PAR + 4)) if plines else 0) + (
+        (6 + FS_SUB) if foot else 0) + HDR_PAD
     body_h = sum(BAND_GAP + max(len(i), len(o)) * ROW for _, i, o in bands) + 10
     box_h = hdr_h + body_h
 
@@ -570,14 +625,19 @@ def render_svg(iface: Iface, generics: dict) -> str:
       f'text-anchor="middle">{esc(iface.name)}</text>')
     a(f'<text class="sb" x="{xc:.1f}" y="{yt + 5 + FS_SUB:.1f}" font-size="{FS_SUB}" '
       f'text-anchor="middle">{esc(iface.rel)}</text>')
+    y_after = yt + 5 + FS_SUB
     if plines:
-        y0 = yt + 5 + FS_SUB + 12 + FS_PAR
+        y0 = y_after + 12 + FS_PAR
         x0 = xc - par_w / 2
         for c in range(n_col):
             for r, txt in enumerate(plines[c * rows_pc:(c + 1) * rows_pc]):
                 a(f'<text class="pr" x="{x0:.1f}" y="{y0 + r * (FS_PAR + 4):.1f}" '
                   f'font-size="{FS_PAR}">{esc(txt)}</text>')
             x0 += col_w[c] + 22
+        y_after = y0 + (rows_pc - 1) * (FS_PAR + 4)
+    if foot:
+        a(f'<text class="sb" x="{xc:.1f}" y="{y_after + 6 + FS_SUB:.1f}" '
+          f'font-size="{FS_SUB}" text-anchor="middle">{esc(foot)}</text>')
     a(f'<line class="rule" x1="{x_box:.1f}" y1="{y_box + hdr_h:.1f}" '
       f'x2="{x_end:.1f}" y2="{y_box + hdr_h:.1f}"/>')
 
@@ -663,7 +723,7 @@ def read_make_vars(path: str) -> dict:
         return out
     raw = re.sub(r"\\\n", " ", raw)
     for line in raw.split("\n"):
-        line = split_comment(line)[0]
+        line = line.split("#")[0]      # en un Makefile el comentario es #, no //
         m = MK_VAR.match(line)
         if m:
             out[m.group(1)] = m.group(2).strip()
@@ -682,13 +742,20 @@ def parse_generics(s: str) -> dict:
 # --------------------------------------------------------------------------- #
 # Secciones del Markdown
 # --------------------------------------------------------------------------- #
-def md_table(head: list, rows: list) -> str:
+def md_table(head: list, rows: list, drop_empty: bool = False) -> str:
+    """Tabla Markdown. Con drop_empty saca las columnas en las que ninguna fila
+    tiene nada: una columna "signed" o "Descripcion" vacia en los seis grupos de
+    puertos es ruido, no informacion."""
     if not rows:
         return "_(nada)_\n"
-    out = ["| " + " | ".join(head) + " |",
-           "|" + "|".join("---" for _ in head) + "|"]
+    rows = [[("" if c is None else str(c)) for c in r] for r in rows]
+    cols = range(len(head))
+    if drop_empty:
+        cols = [i for i in cols if any(r[i].strip() for r in rows)]
+    out = ["| " + " | ".join(head[i] for i in cols) + " |",
+           "|" + "|".join("---" for _ in cols) + "|"]
     for r in rows:
-        out.append("| " + " | ".join("" if c is None else str(c) for c in r) + " |")
+        out.append("| " + " | ".join(r[i] for i in cols) + " |")
     return "\n".join(out) + "\n"
 
 
@@ -725,8 +792,16 @@ def sec_resumen(iface: Iface, ctx: dict) -> str:
     return "\n".join(out)
 
 
+def group_title(g: Group) -> str:
+    if g.name:
+        return g.name[0].upper() + g.name[1:]
+    if g.ports and all(is_clock(p) or is_reset(p) for p in g.ports):
+        return "Reloj y reset"
+    return "Señales"
+
+
 def sec_interfaces(iface: Iface, ctx: dict) -> str:
-    out = ["### Parámetros", ""]
+    out = ["#### Parámetros", ""]
     if iface.params:
         rows = []
         for p in iface.params:
@@ -736,7 +811,8 @@ def sec_interfaces(iface: Iface, ctx: dict) -> str:
             elif p.value is not None and str(p.value) != p.default.strip():
                 val += f" = `{p.value}`"
             rows.append((f"`{p.name}`", f"`{p.kind}`" if p.kind else "", val, p.desc))
-        out.append(md_table(["Parámetro", "Tipo", "Default", "Para qué"], rows))
+        out.append(md_table(["Parámetro", "Tipo", "Default", "Para qué"], rows,
+                            drop_empty=True))
         if any(p.overridden for p in iface.params):
             out += ["", "Los marcados **(del TOP)** son los valores con los que el "
                         "diseño se construye de verdad (`GENERICS` del "
@@ -745,21 +821,24 @@ def sec_interfaces(iface: Iface, ctx: dict) -> str:
     else:
         out.append("_Sin parámetros._\n")
 
-    out += ["", "### Puertos", ""]
+    out += ["", "#### Puertos", ""]
     for g in iface.groups:
         if not g.ports:
             continue
-        out.append(f"#### {g.name or 'Señales'}")
+        out.append(f"##### {group_title(g)}")
         out.append("")
         if g.doc:
             out += [" ".join(g.doc), ""]
         rows = []
         for p in g.ports:
             d = {"input": "in", "output": "out", "inout": "inout"}[p.dir]
-            desc = " ".join([*p.notes, p.desc]).strip()
+            # Los comentarios de arriba del puerto y el del final de la linea son
+            # dos cosas distintas: pegarlos con un espacio hace frases falsas.
+            desc = " — ".join(x for x in (" ".join(p.notes).strip(), p.desc.strip()) if x)
             rows.append((f"`{p.name}`", d, p.width_doc,
                          "signed" if p.signed else "", p.domain, desc))
-        out.append(md_table(["Puerto", "Dir", "Bits", "", "Dominio", "Descripción"], rows))
+        out.append(md_table(["Puerto", "Dir", "Bits", "Signo", "Dominio",
+                             "Descripción"], rows, drop_empty=True))
         out.append("")
     return "\n".join(out)
 
@@ -792,7 +871,8 @@ def sec_clocks(iface: Iface, ctx: dict) -> str:
     clks = [p for p in iface.ports if is_clock(p)]
     rsts = [p for p in iface.ports if is_reset(p)]
     out = []
-    rows = [(f"`{p.name}`", "reloj", "", p.desc) for p in clks]
+    rows = [(f"`{p.name}`", f"reloj ×{p.bits}" if p.bits > 1 else "reloj",
+             "", p.desc) for p in clks]
     for p in rsts:
         pol = "activo-bajo" if re.search(r"(rstn|resetn|aresetn|nrst)", p.name, re.I) \
               else "activo-alto"
@@ -800,10 +880,16 @@ def sec_clocks(iface: Iface, ctx: dict) -> str:
         cl = [c for c in clks if clk_prefix(c.name) == dom]
         rows.append((f"`{p.name}`", "reset", pol,
                      p.desc or (f"del dominio `{cl[0].name}`" if cl else "")))
-    out.append(md_table(["Puerto", "Qué es", "Polaridad", "Notas"], rows))
+    out.append(md_table(["Puerto", "Qué es", "Polaridad", "Notas"], rows,
+                        drop_empty=True))
     out.append("")
 
-    if len(clks) == 1:
+    if len(clks) == 1 and clks[0].bits > 1:
+        out += [f"**`{clks[0].name}` es un vector de {clks[0].bits} relojes** (uno "
+                f"por canal): el bloque se replica, y lo que acá parece un dominio "
+                f"son {clks[0].bits}. Qué se cruza entre réplicas —si algo se "
+                f"cruza— va escrito abajo, no se infiere del nombre.", ""]
+    elif len(clks) == 1:
         out += [f"**Un solo dominio.** Todos los puertos de datos y de control son "
                 f"síncronos a `{clks[0].name}`: no hay cruce de dominio dentro de "
                 f"este módulo.", ""]
@@ -941,11 +1027,14 @@ def auto(key: str, body: str) -> str:
 
 def scaffold(iface: Iface, ctx: dict) -> str:
     g = {k: fn(iface, ctx) for k, fn in SECTIONS}
+    # Ojo con las marcas AUTO adentro de este comentario: los comentarios de
+    # HTML no anidan, asi que el primer cierre cortaria el comentario y el resto
+    # del texto se veria en la pagina. Por eso se nombran sin los delimitadores.
     return f"""# Datasheet — `{iface.name}`
 
-<!-- Generado por `modulos/mk/datasheet.py`. Lo que está entre
-     `<!-- AUTO:x -->` y `<!-- /AUTO:x -->` se REESCRIBE en cada corrida:
-     editar ahí no sirve. Todo el resto es prosa a mano y no se toca.
+<!-- Generado por `modulos/mk/datasheet.py`. Lo que está entre las marcas
+     AUTO:x y /AUTO:x se REESCRIBE en cada corrida: editar ahí no sirve.
+     Todo el resto es prosa a mano y no se toca.
      Regenerar:  make -C modulos/{ctx['module']}/work datasheet              -->
 
 ## 1. Función y funcionamiento
@@ -1021,7 +1110,9 @@ def splice(old: str, iface: Iface, ctx: dict):
         if not rx.search(new):
             missing.append(key)
             continue
-        new = rx.sub(lambda m: m.group(1) + "\n" + body.replace("\\", "\\\\") + "\n" + m.group(3),
+        # El reemplazo es una funcion, no un string: lo que devuelve se usa tal
+        # cual y no hay que escapar nada (un \ de un path quedaria duplicado).
+        new = rx.sub(lambda m: m.group(1) + "\n" + body + "\n" + m.group(3),
                      new, count=1)
     return new, missing
 
@@ -1035,6 +1126,8 @@ def write_if_changed(path: str, content: str, check: bool, label: str) -> bool:
         with open(path, encoding="utf-8") as fh:
             old = fh.read()
     rel = os.path.relpath(path, REPO_ROOT)
+    if rel.startswith(".."):            # salida fuera del repo: ruta completa
+        rel = path
     if old == content:
         print(f"  [=]    {rel}")
         return True
@@ -1102,7 +1195,7 @@ def build(module: str, top: str, rtl: str, outdir: str, check: bool,
     fig = os.path.join(figdir, f"{iface.name}_interfaz.svg")
     md = os.path.join(outdir, f"datasheet_{iface.name}.md")
 
-    ok = write_if_changed(fig, render_svg(iface, generics), check, "diagrama")
+    ok = write_if_changed(fig, render_svg(iface), check, "diagrama")
     if svg_only:
         return ok
 
