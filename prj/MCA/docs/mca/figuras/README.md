@@ -1,15 +1,22 @@
 # Figuras: los problemas de la determinación de resolución
 
 Siete figuras y tres videos sincronizados para explicar, sin fórmulas, por qué
-medir la resolución de este MCA es más difícil de lo que parece. Las generan
-[`figuras_resolucion.py`](figuras_resolucion.py) y
-[`animacion_cadena_mca.py`](animacion_cadena_mca.py):
+medir la resolución de este MCA es más difícil de lo que parece. Los videos no
+entran en un informe impreso, así que cada uno tiene además su **gemelo
+estático**. Las generan [`figuras_resolucion.py`](figuras_resolucion.py),
+[`animacion_cadena_mca.py`](animacion_cadena_mca.py) y
+[`figuras_cadena_estatica.py`](figuras_cadena_estatica.py):
 
 ```bash
 cd prj/MCA/docs/mca/figuras
 python3 figuras_resolucion.py       # las siete figuras
 python3 animacion_cadena_mca.py     # los tres videos (--gif para GIF)
+python3 figuras_cadena_estatica.py  # las versiones estáticas de la figura 7
 ```
+
+Los tres últimos salen de la **misma simulación** que los videos —misma semilla y
+mismo número de cuadros—, así que los pulsos, las amplitudes y el espectro final
+son los mismos: lo único que cambia es cómo se muestra el paso del tiempo.
 
 Los gráficos van **sin texto adentro**: sólo ejes, leyenda y las marcas
 imprescindibles. Los epígrafes de todas —con los números, el peso estadístico de
@@ -32,6 +39,10 @@ las otras dos y los videos son **esquemas sintéticos**.
 | [`07a_senal.mp4`](07a_senal.mp4) | **Video**: la señal de entrada, con pulsos de distinta altura y el umbral | simulados |
 | [`07b_cadena.mp4`](07b_cadena.mp4) | **Video**: `pulse_feature` emite un número por pulso y viaja al `histograma` | simulados |
 | [`07c_histograma.mp4`](07c_histograma.mp4) | **Video**: el espectro que se acumula, una barra por cuenta | simulados |
+| [`07a_senal.png`](07a_senal.png) | **Estática**: una ventana de 25 µs con los seis pulsos numerados, el umbral y —sombreada— la ventana que abre `pulse_feature` | simulados |
+| [`07b_cadena.png`](07b_cadena.png) | **Estática**: el tren de registros de evento sobre el cable, y la tabla de los seis pulsos como los ve el `histograma` | simulados |
+| [`07c_histograma.png`](07c_histograma.png) | **Estática**: el mismo espectro en tres momentos de la acumulación (12, 64 y 227 cuentas) | simulados |
+| [`07_cadena.png`](07_cadena.png) | **Estática, las tres juntas**: la que conviene poner si en el informe entra una sola | simulados |
 | [`09_fwhm_vs_eje.png`](09_fwhm_vs_eje.png) | La barra de error de la figura 2 **desplegada**: el FWHM a lo largo del eje, separado en su término aditivo y el proporcional | medidos |
 | [`10_sintesis_triangular.png`](10_sintesis_triangular.png) | Cómo se aproxima un triángulo sumando CR-RC^n de distinto orden (Knoll fig. 17.6, de Goulding). Genera [`figuras_conformado.py`](figuras_conformado.py) | esquema |
 | [`11_trapezoidal_tiempo_subida.png`](11_trapezoidal_tiempo_subida.png) | El conformador trapezoidal (Jordanov-Knoll) con tres tiempos de subida: si el techo dura más que su dispersión, los tres llegan a la misma amplitud — **sin déficit balístico** (Knoll fig. 17.7). Genera [`figuras_conformado.py`](figuras_conformado.py) | esquema |

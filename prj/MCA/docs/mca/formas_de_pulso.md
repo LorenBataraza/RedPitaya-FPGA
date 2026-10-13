@@ -122,6 +122,14 @@ diferencia, contra los ~0.1 % de dispersión que tiene el cociente dentro de una
 misma familia. Un corte calibrado con una forma y aplicado a otra rechazaría
 todo.
 
+## Ver también
+
+[`conformado_y_ruido.md`](conformado_y_ruido.md) lleva estas mismas familias a
+un Monte-Carlo de ruido: reproduce el S/N relativo al cusp de Nicholson (ruido
+antes del conformador) y lo contrasta con lo que pasa cuando el ruido es el del
+ADC y el estimador es el `max` del RTL — donde el orden se invierte y el
+trapecio, el mejor caso de esta campaña, pasa a ser el peor de Nicholson.
+
 ## Bibliografía
 
 - **G. F. Knoll**, *Radiation Detection and Measurement*, 4ª ed., Wiley, 2010 —

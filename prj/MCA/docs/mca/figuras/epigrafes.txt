@@ -145,7 +145,8 @@ FIGURA 7 — la cadena, en tres videos sincronizados   (datos sintéticos)
 Cómo un pulso se convierte en una cuenta del espectro. Son tres videos
 separados que salen de la misma simulación, cuadro a cuadro: el cuadro f de uno
 corresponde al cuadro f de los otros dos, así que se pueden reproducir en
-paralelo.
+paralelo. Cada uno tiene además una versión ESTÁTICA en .png para el informe
+impreso; están al final de esta entrada.
 
   (7a) 07a_senal.mp4 — la señal de entrada, con pulsos de distinta altura y el
        umbral dibujado. Cuando un pulso cierra se marca su pico con la amplitud
@@ -164,3 +165,40 @@ a pulso y después aceleran hasta x8 (lo indica 07a arriba a la derecha) para
 acumular estadística. De los 252 pulsos generados, 232 cruzan el umbral. Los
 pulsos, el ruido de línea de base y las dos líneas de energía son sintéticos:
 es una ilustración del camino de datos, no una medición.
+
+
+FIGURA 7 ESTÁTICA — la cadena en papel   (datos sintéticos)
+-----------------------------------------------------------
+Las mismas tres etapas, para el informe impreso. Las genera
+figuras_cadena_estatica.py a partir de la MISMA simulación que los videos
+(misma semilla y mismo número de cuadros), así que los pulsos, las amplitudes y
+el espectro final son idénticos; lo único que cambia es cómo se muestra el paso
+del tiempo. El video lo muestra avanzando y el estático lo muestra desplegado:
+07a elige una ventana donde se ven todos los casos a la vez, y 07c elige tres
+cuadros en vez de uno.
+
+  (7a) 07a_senal.png — 25.4 us de señal con 6 pulsos. Sombreado, el tramo sobre
+       el umbral: es la ventana que pulse_feature abre y cierra, y por eso se
+       ve que el módulo SEGMENTA antes de medir. Los dos bordes de la ventana
+       caen entre pulsos y bajo el umbral, así que no hay ningún pulso a medio
+       dibujar ni sin etiquetar: los 6 están numerados al pie y los 6 están en
+       la tabla de 07b. El #3 no cruza el umbral y no produce nada.
+  (7b) 07b_cadena.png — el camino de datos, con el tren de registros de evento
+       sobre el cable, y abajo la tabla de los 6 pulsos de 07a tal como los ve
+       el histograma: tiempo, amplitud y canal. El #2 y el #5 son pulsos
+       distintos (1402 y 1383 cuentas) que caen en el MISMO canal 21: eso es lo
+       que hace h_shift, y por eso la figura 5 discute cuánto se puede agrupar.
+  (7c) 07c_histograma.png — el espectro en tres momentos de la misma
+       acumulación: 12, 64 y 227 cuentas. Con 12 son cuentas sueltas y no se
+       puede afirmar nada; recién con 227 las dos líneas se ven como líneas. La
+       raya roja marca el canal del umbral (300 >> 6 = 4): a su izquierda el
+       espectro está vacío por construcción, no por falta de estadística.
+
+Además, 07_cadena.png junta las tres etapas en una sola figura: es la que
+conviene poner si entra una sola. El detalle evento por evento queda en 07b.
+
+La amplitud que se muestra es la muestra de pico de la TRAZA, que es lo que
+mide el RTL con amp_src = 0, y no la amplitud con que se generó el pulso: el
+ruido de línea de base y la cola del pulso anterior también entran en esa
+muestra. La diferencia entre las dos es, en chiquito, el apilamiento que trata
+apilamiento.md.

@@ -24,8 +24,9 @@ segundo; la naranja, la altura que el MCA mide para el segundo, que es la suya
 más ese residuo. Derecha: espectro dN/dH de esa altura cuando el segundo pulso
 llega en un instante al azar (uniforme entre 2,5 y 14 unidades de tiempo después
 del primero) y el pico tiene resolución gaussiana σ = 0,02. La línea punteada
-es la altura verdadera del segundo pulso; el rayado, el exceso respecto del pico
-limpio. Arriba, con la forma del estímulo de la campaña —subida suave, cola
+es la altura verdadera del segundo pulso. Los dos rayados tienen la misma área:
+el naranja son las cuentas que el pico pierde respecto del pico limpio, el rojo el
+lugar donde reaparecen, corridas. Arriba, con la forma del estímulo de la campaña —subida suave, cola
 exponencial— la cola del espectro va hacia alturas mayores. Abajo, el mismo
 pulso pasado por un CR sin cancelación polo-cero tiene undershoot y la cola del
 espectro va hacia alturas menores. Las unidades de tiempo son arbitrarias: el

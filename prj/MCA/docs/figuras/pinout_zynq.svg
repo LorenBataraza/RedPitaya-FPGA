@@ -1,0 +1,624 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1150" height="830" viewBox="0 0 1150 830" font-family="DejaVu Sans,Helvetica,Arial,sans-serif">
+<style>
+  .bg{fill:#ffffff}
+  .nm{fill:#1b1f24} .wd{fill:#57606a} .ax{fill:#8b949e}
+  .ti{fill:#1b1f24} .st{fill:#57606a} .ttl{fill:#1b1f24} .note{fill:#57606a}
+  .key{fill:#0b6bcb}
+  .sep{stroke:#c3cad1;stroke-width:0.9}
+  .ring{fill:none;stroke:#0b6bcb;stroke-width:1.8}
+  .lead{stroke:#0b6bcb;stroke-width:1.1;stroke-dasharray:3 3}
+  .b-free{fill:#ffffff;stroke:#1b1f24;stroke-width:1.1}
+  .b-nc{fill:none;stroke:#b6bec6;stroke-width:1;stroke-dasharray:2 2}
+  .b-adca{fill:#0b6bcb;stroke:none}
+  .t-adca{fill:#ffffff}
+  .b-adcb{fill:#4c9ae8;stroke:none}
+  .t-adcb{fill:#0d1117}
+  .b-adcc{fill:#7b3fb5;stroke:none}
+  .t-adcc{fill:#ffffff}
+  .b-dac{fill:#b5651d;stroke:none}
+  .t-dac{fill:#ffffff}
+  .b-e1{fill:#2f9e44;stroke:none}
+  .t-e1{fill:#ffffff}
+  .b-daisy{fill:#c2185b;stroke:none}
+  .t-daisy{fill:#ffffff}
+  .b-led{fill:#b58900;stroke:none}
+  .t-led{fill:#ffffff}
+  .b-xadc{fill:#0b7285;stroke:none}
+  .t-xadc{fill:#ffffff}
+  .b-ddr{fill:#9fb0c2;stroke:none}
+  .t-ddr{fill:#1b1f24}
+  .b-mio{fill:#c2b49f;stroke:none}
+  .t-mio{fill:#1b1f24}
+  .b-ps{fill:#7f93a8;stroke:none}
+  .t-ps{fill:#ffffff}
+  .b-cfg{fill:#a8a3b8;stroke:none}
+  .t-cfg{fill:#1b1f24}
+  .b-vcc{fill:#d89a7f;stroke:none}
+  .t-vcc{fill:#1b1f24}
+  .b-gnd{fill:#8c959f;stroke:none}
+  .t-gnd{fill:#ffffff}
+  @media (prefers-color-scheme: dark){
+    .bg{fill:#0d1117}
+    .nm{fill:#e6edf3} .wd{fill:#8b949e} .ax{fill:#6e7781}
+    .ti{fill:#e6edf3} .st{fill:#8b949e} .ttl{fill:#e6edf3} .note{fill:#8b949e}
+    .key{fill:#58a6ff}
+    .sep{stroke:#30363d}
+    .ring{stroke:#58a6ff} .lead{stroke:#58a6ff}
+    .b-free{fill:#0d1117;stroke:#c9d1d9}
+    .b-nc{stroke:#484f58}
+  }
+</style>
+<rect class="bg" x="0" y="0" width="1150" height="830"/>
+<text class="ttl" x="30.0" y="36.0" font-size="19" text-anchor="start" font-weight="700">Pinout del Zynq: las 400 bolas del XC7Z010 CLG400</text>
+<text class="st" x="30.0" y="58.0" font-size="11.5" text-anchor="start">BGA de 400 bolas en grilla de 20 × 20 · filas JEDEC (sin I, O, Q, S, X, Z) · clases del BSDL de Vivado, funciones de sdc/red_pitaya.xdc</text>
+<text class="note" x="30.0" y="80.0" font-size="10.5" text-anchor="start">Las bolas del bus del ADC llevan adentro su número de bit: es la misma información de adc_pinout.svg, puesta sobre el encapsulado.</text>
+<text class="ax" x="88.5" y="99.0" font-size="9.5" text-anchor="middle">1</text>
+<text class="ax" x="88.5" y="704.0" font-size="9.5" text-anchor="middle">1</text>
+<text class="ax" x="117.5" y="99.0" font-size="9.5" text-anchor="middle">2</text>
+<text class="ax" x="117.5" y="704.0" font-size="9.5" text-anchor="middle">2</text>
+<text class="ax" x="146.5" y="99.0" font-size="9.5" text-anchor="middle">3</text>
+<text class="ax" x="146.5" y="704.0" font-size="9.5" text-anchor="middle">3</text>
+<text class="ax" x="175.5" y="99.0" font-size="9.5" text-anchor="middle">4</text>
+<text class="ax" x="175.5" y="704.0" font-size="9.5" text-anchor="middle">4</text>
+<text class="ax" x="204.5" y="99.0" font-size="9.5" text-anchor="middle">5</text>
+<text class="ax" x="204.5" y="704.0" font-size="9.5" text-anchor="middle">5</text>
+<text class="ax" x="233.5" y="99.0" font-size="9.5" text-anchor="middle">6</text>
+<text class="ax" x="233.5" y="704.0" font-size="9.5" text-anchor="middle">6</text>
+<text class="ax" x="262.5" y="99.0" font-size="9.5" text-anchor="middle">7</text>
+<text class="ax" x="262.5" y="704.0" font-size="9.5" text-anchor="middle">7</text>
+<text class="ax" x="291.5" y="99.0" font-size="9.5" text-anchor="middle">8</text>
+<text class="ax" x="291.5" y="704.0" font-size="9.5" text-anchor="middle">8</text>
+<text class="ax" x="320.5" y="99.0" font-size="9.5" text-anchor="middle">9</text>
+<text class="ax" x="320.5" y="704.0" font-size="9.5" text-anchor="middle">9</text>
+<text class="ax" x="349.5" y="99.0" font-size="9.5" text-anchor="middle">10</text>
+<text class="ax" x="349.5" y="704.0" font-size="9.5" text-anchor="middle">10</text>
+<text class="ax" x="378.5" y="99.0" font-size="9.5" text-anchor="middle">11</text>
+<text class="ax" x="378.5" y="704.0" font-size="9.5" text-anchor="middle">11</text>
+<text class="ax" x="407.5" y="99.0" font-size="9.5" text-anchor="middle">12</text>
+<text class="ax" x="407.5" y="704.0" font-size="9.5" text-anchor="middle">12</text>
+<text class="ax" x="436.5" y="99.0" font-size="9.5" text-anchor="middle">13</text>
+<text class="ax" x="436.5" y="704.0" font-size="9.5" text-anchor="middle">13</text>
+<text class="ax" x="465.5" y="99.0" font-size="9.5" text-anchor="middle">14</text>
+<text class="ax" x="465.5" y="704.0" font-size="9.5" text-anchor="middle">14</text>
+<text class="ax" x="494.5" y="99.0" font-size="9.5" text-anchor="middle">15</text>
+<text class="ax" x="494.5" y="704.0" font-size="9.5" text-anchor="middle">15</text>
+<text class="ax" x="523.5" y="99.0" font-size="9.5" text-anchor="middle">16</text>
+<text class="ax" x="523.5" y="704.0" font-size="9.5" text-anchor="middle">16</text>
+<text class="ax" x="552.5" y="99.0" font-size="9.5" text-anchor="middle">17</text>
+<text class="ax" x="552.5" y="704.0" font-size="9.5" text-anchor="middle">17</text>
+<text class="ax" x="581.5" y="99.0" font-size="9.5" text-anchor="middle">18</text>
+<text class="ax" x="581.5" y="704.0" font-size="9.5" text-anchor="middle">18</text>
+<text class="ax" x="610.5" y="99.0" font-size="9.5" text-anchor="middle">19</text>
+<text class="ax" x="610.5" y="704.0" font-size="9.5" text-anchor="middle">19</text>
+<text class="ax" x="639.5" y="99.0" font-size="9.5" text-anchor="middle">20</text>
+<text class="ax" x="639.5" y="704.0" font-size="9.5" text-anchor="middle">20</text>
+<text class="ax" x="63.0" y="126.0" font-size="9.5" text-anchor="middle">A</text>
+<text class="ax" x="665.0" y="126.0" font-size="9.5" text-anchor="middle">A</text>
+<text class="ax" x="63.0" y="155.0" font-size="9.5" text-anchor="middle">B</text>
+<text class="ax" x="665.0" y="155.0" font-size="9.5" text-anchor="middle">B</text>
+<text class="ax" x="63.0" y="184.0" font-size="9.5" text-anchor="middle">C</text>
+<text class="ax" x="665.0" y="184.0" font-size="9.5" text-anchor="middle">C</text>
+<text class="ax" x="63.0" y="213.0" font-size="9.5" text-anchor="middle">D</text>
+<text class="ax" x="665.0" y="213.0" font-size="9.5" text-anchor="middle">D</text>
+<text class="ax" x="63.0" y="242.0" font-size="9.5" text-anchor="middle">E</text>
+<text class="ax" x="665.0" y="242.0" font-size="9.5" text-anchor="middle">E</text>
+<text class="ax" x="63.0" y="271.0" font-size="9.5" text-anchor="middle">F</text>
+<text class="ax" x="665.0" y="271.0" font-size="9.5" text-anchor="middle">F</text>
+<text class="ax" x="63.0" y="300.0" font-size="9.5" text-anchor="middle">G</text>
+<text class="ax" x="665.0" y="300.0" font-size="9.5" text-anchor="middle">G</text>
+<text class="ax" x="63.0" y="329.0" font-size="9.5" text-anchor="middle">H</text>
+<text class="ax" x="665.0" y="329.0" font-size="9.5" text-anchor="middle">H</text>
+<text class="ax" x="63.0" y="358.0" font-size="9.5" text-anchor="middle">J</text>
+<text class="ax" x="665.0" y="358.0" font-size="9.5" text-anchor="middle">J</text>
+<text class="ax" x="63.0" y="387.0" font-size="9.5" text-anchor="middle">K</text>
+<text class="ax" x="665.0" y="387.0" font-size="9.5" text-anchor="middle">K</text>
+<text class="ax" x="63.0" y="416.0" font-size="9.5" text-anchor="middle">L</text>
+<text class="ax" x="665.0" y="416.0" font-size="9.5" text-anchor="middle">L</text>
+<text class="ax" x="63.0" y="445.0" font-size="9.5" text-anchor="middle">M</text>
+<text class="ax" x="665.0" y="445.0" font-size="9.5" text-anchor="middle">M</text>
+<text class="ax" x="63.0" y="474.0" font-size="9.5" text-anchor="middle">N</text>
+<text class="ax" x="665.0" y="474.0" font-size="9.5" text-anchor="middle">N</text>
+<text class="ax" x="63.0" y="503.0" font-size="9.5" text-anchor="middle">P</text>
+<text class="ax" x="665.0" y="503.0" font-size="9.5" text-anchor="middle">P</text>
+<text class="ax" x="63.0" y="532.0" font-size="9.5" text-anchor="middle">R</text>
+<text class="ax" x="665.0" y="532.0" font-size="9.5" text-anchor="middle">R</text>
+<text class="ax" x="63.0" y="561.0" font-size="9.5" text-anchor="middle">T</text>
+<text class="ax" x="665.0" y="561.0" font-size="9.5" text-anchor="middle">T</text>
+<text class="ax" x="63.0" y="590.0" font-size="9.5" text-anchor="middle">U</text>
+<text class="ax" x="665.0" y="590.0" font-size="9.5" text-anchor="middle">U</text>
+<text class="ax" x="63.0" y="619.0" font-size="9.5" text-anchor="middle">V</text>
+<text class="ax" x="665.0" y="619.0" font-size="9.5" text-anchor="middle">V</text>
+<text class="ax" x="63.0" y="648.0" font-size="9.5" text-anchor="middle">W</text>
+<text class="ax" x="665.0" y="648.0" font-size="9.5" text-anchor="middle">W</text>
+<text class="ax" x="63.0" y="677.0" font-size="9.5" text-anchor="middle">Y</text>
+<text class="ax" x="665.0" y="677.0" font-size="9.5" text-anchor="middle">Y</text>
+<circle class="b-ddr" cx="88.5" cy="122.5" r="11.2"/>
+<circle class="b-ddr" cx="117.5" cy="122.5" r="11.2"/>
+<circle class="b-vcc" cx="146.5" cy="122.5" r="11.2"/>
+<circle class="b-ddr" cx="175.5" cy="122.5" r="11.2"/>
+<circle class="b-mio" cx="204.5" cy="122.5" r="11.2"/>
+<circle class="b-mio" cx="233.5" cy="122.5" r="11.2"/>
+<circle class="b-mio" cx="262.5" cy="122.5" r="11.2"/>
+<circle class="b-gnd" cx="291.5" cy="122.5" r="11.2"/>
+<circle class="b-mio" cx="320.5" cy="122.5" r="11.2"/>
+<circle class="b-mio" cx="349.5" cy="122.5" r="11.2"/>
+<circle class="b-mio" cx="378.5" cy="122.5" r="11.2"/>
+<circle class="b-mio" cx="407.5" cy="122.5" r="11.2"/>
+<circle class="b-vcc" cx="436.5" cy="122.5" r="11.2"/>
+<circle class="b-mio" cx="465.5" cy="122.5" r="11.2"/>
+<circle class="b-mio" cx="494.5" cy="122.5" r="11.2"/>
+<circle class="b-mio" cx="523.5" cy="122.5" r="11.2"/>
+<circle class="b-mio" cx="552.5" cy="122.5" r="11.2"/>
+<circle class="b-gnd" cx="581.5" cy="122.5" r="11.2"/>
+<circle class="b-mio" cx="610.5" cy="122.5" r="11.2"/>
+<circle class="b-xadc" cx="639.5" cy="122.5" r="11.2"/>
+<circle class="b-gnd" cx="88.5" cy="151.5" r="11.2"/>
+<circle class="b-ddr" cx="117.5" cy="151.5" r="11.2"/>
+<circle class="b-ddr" cx="146.5" cy="151.5" r="11.2"/>
+<circle class="b-ddr" cx="175.5" cy="151.5" r="11.2"/>
+<circle class="b-mio" cx="204.5" cy="151.5" r="11.2"/>
+<circle class="b-vcc" cx="233.5" cy="151.5" r="11.2"/>
+<circle class="b-mio" cx="262.5" cy="151.5" r="11.2"/>
+<circle class="b-mio" cx="291.5" cy="151.5" r="11.2"/>
+<circle class="b-mio" cx="320.5" cy="151.5" r="11.2"/>
+<circle class="b-ps" cx="349.5" cy="151.5" r="11.2"/>
+<circle class="b-gnd" cx="378.5" cy="151.5" r="11.2"/>
+<circle class="b-mio" cx="407.5" cy="151.5" r="11.2"/>
+<circle class="b-mio" cx="436.5" cy="151.5" r="11.2"/>
+<circle class="b-mio" cx="465.5" cy="151.5" r="11.2"/>
+<circle class="b-mio" cx="494.5" cy="151.5" r="11.2"/>
+<circle class="b-vcc" cx="523.5" cy="151.5" r="11.2"/>
+<circle class="b-mio" cx="552.5" cy="151.5" r="11.2"/>
+<circle class="b-mio" cx="581.5" cy="151.5" r="11.2"/>
+<circle class="b-xadc" cx="610.5" cy="151.5" r="11.2"/>
+<circle class="b-xadc" cx="639.5" cy="151.5" r="11.2"/>
+<circle class="b-ddr" cx="88.5" cy="180.5" r="11.2"/>
+<circle class="b-ddr" cx="117.5" cy="180.5" r="11.2"/>
+<circle class="b-ddr" cx="146.5" cy="180.5" r="11.2"/>
+<circle class="b-gnd" cx="175.5" cy="180.5" r="11.2"/>
+<circle class="b-mio" cx="204.5" cy="180.5" r="11.2"/>
+<circle class="b-mio" cx="233.5" cy="180.5" r="11.2"/>
+<circle class="b-ps" cx="262.5" cy="180.5" r="11.2"/>
+<circle class="b-mio" cx="291.5" cy="180.5" r="11.2"/>
+<circle class="b-gnd" cx="320.5" cy="180.5" r="11.2"/>
+<circle class="b-mio" cx="349.5" cy="180.5" r="11.2"/>
+<circle class="b-mio" cx="378.5" cy="180.5" r="11.2"/>
+<circle class="b-mio" cx="407.5" cy="180.5" r="11.2"/>
+<circle class="b-mio" cx="436.5" cy="180.5" r="11.2"/>
+<circle class="b-gnd" cx="465.5" cy="180.5" r="11.2"/>
+<circle class="b-mio" cx="494.5" cy="180.5" r="11.2"/>
+<circle class="b-mio" cx="523.5" cy="180.5" r="11.2"/>
+<circle class="b-mio" cx="552.5" cy="180.5" r="11.2"/>
+<circle class="b-mio" cx="581.5" cy="180.5" r="11.2"/>
+<circle class="b-vcc" cx="610.5" cy="180.5" r="11.2"/>
+<circle class="b-xadc" cx="639.5" cy="180.5" r="11.2"/>
+<circle class="b-ddr" cx="88.5" cy="209.5" r="11.2"/>
+<circle class="b-vcc" cx="117.5" cy="209.5" r="11.2"/>
+<circle class="b-ddr" cx="146.5" cy="209.5" r="11.2"/>
+<circle class="b-ddr" cx="175.5" cy="209.5" r="11.2"/>
+<circle class="b-mio" cx="204.5" cy="209.5" r="11.2"/>
+<circle class="b-mio" cx="233.5" cy="209.5" r="11.2"/>
+<circle class="b-vcc" cx="262.5" cy="209.5" r="11.2"/>
+<circle class="b-mio" cx="291.5" cy="209.5" r="11.2"/>
+<circle class="b-mio" cx="320.5" cy="209.5" r="11.2"/>
+<circle class="b-mio" cx="349.5" cy="209.5" r="11.2"/>
+<circle class="b-mio" cx="378.5" cy="209.5" r="11.2"/>
+<circle class="b-vcc" cx="407.5" cy="209.5" r="11.2"/>
+<circle class="b-mio" cx="436.5" cy="209.5" r="11.2"/>
+<circle class="b-mio" cx="465.5" cy="209.5" r="11.2"/>
+<circle class="b-mio" cx="494.5" cy="209.5" r="11.2"/>
+<circle class="b-mio" cx="523.5" cy="209.5" r="11.2"/>
+<circle class="b-gnd" cx="552.5" cy="209.5" r="11.2"/>
+<circle class="b-xadc" cx="581.5" cy="209.5" r="11.2"/>
+<circle class="b-dac" cx="610.5" cy="209.5" r="11.2"/>
+<circle class="b-dac" cx="639.5" cy="209.5" r="11.2"/>
+<circle class="b-ddr" cx="88.5" cy="238.5" r="11.2"/>
+<circle class="b-ddr" cx="117.5" cy="238.5" r="11.2"/>
+<circle class="b-ddr" cx="146.5" cy="238.5" r="11.2"/>
+<circle class="b-ddr" cx="175.5" cy="238.5" r="11.2"/>
+<circle class="b-vcc" cx="204.5" cy="238.5" r="11.2"/>
+<circle class="b-mio" cx="233.5" cy="238.5" r="11.2"/>
+<circle class="b-ps" cx="262.5" cy="238.5" r="11.2"/>
+<circle class="b-mio" cx="291.5" cy="238.5" r="11.2"/>
+<circle class="b-mio" cx="320.5" cy="238.5" r="11.2"/>
+<circle class="b-gnd" cx="349.5" cy="238.5" r="11.2"/>
+<circle class="b-mio" cx="378.5" cy="238.5" r="11.2"/>
+<circle class="b-mio" cx="407.5" cy="238.5" r="11.2"/>
+<circle class="b-mio" cx="436.5" cy="238.5" r="11.2"/>
+<circle class="b-mio" cx="465.5" cy="238.5" r="11.2"/>
+<circle class="b-vcc" cx="494.5" cy="238.5" r="11.2"/>
+<circle class="b-mio" cx="523.5" cy="238.5" r="11.2"/>
+<circle class="b-xadc" cx="552.5" cy="238.5" r="11.2"/>
+<circle class="b-xadc" cx="581.5" cy="238.5" r="11.2"/>
+<circle class="b-xadc" cx="610.5" cy="238.5" r="11.2"/>
+<circle class="b-gnd" cx="639.5" cy="238.5" r="11.2"/>
+<circle class="b-ddr" cx="88.5" cy="267.5" r="11.2"/>
+<circle class="b-ddr" cx="117.5" cy="267.5" r="11.2"/>
+<circle class="b-gnd" cx="146.5" cy="267.5" r="11.2"/>
+<circle class="b-ddr" cx="175.5" cy="267.5" r="11.2"/>
+<circle class="b-ddr" cx="204.5" cy="267.5" r="11.2"/>
+<circle class="b-cfg" cx="233.5" cy="267.5" r="11.2"/>
+<circle class="b-gnd" cx="262.5" cy="267.5" r="11.2"/>
+<circle class="b-vcc" cx="291.5" cy="267.5" r="11.2"/>
+<circle class="b-cfg" cx="320.5" cy="267.5" r="11.2"/>
+<circle class="b-gnd" cx="349.5" cy="267.5" r="11.2"/>
+<circle class="b-vcc" cx="378.5" cy="267.5" r="11.2"/>
+<circle class="b-mio" cx="407.5" cy="267.5" r="11.2"/>
+<circle class="b-mio" cx="436.5" cy="267.5" r="11.2"/>
+<circle class="b-mio" cx="465.5" cy="267.5" r="11.2"/>
+<circle class="b-mio" cx="494.5" cy="267.5" r="11.2"/>
+<circle class="b-led" cx="523.5" cy="267.5" r="11.2"/>
+<circle class="b-led" cx="552.5" cy="267.5" r="11.2"/>
+<circle class="b-vcc" cx="581.5" cy="267.5" r="11.2"/>
+<circle class="b-dac" cx="610.5" cy="267.5" r="11.2"/>
+<circle class="b-dac" cx="639.5" cy="267.5" r="11.2"/>
+<circle class="b-vcc" cx="88.5" cy="296.5" r="11.2"/>
+<circle class="b-ddr" cx="117.5" cy="296.5" r="11.2"/>
+<circle class="b-ddr" cx="146.5" cy="296.5" r="11.2"/>
+<circle class="b-ddr" cx="175.5" cy="296.5" r="11.2"/>
+<circle class="b-ddr" cx="204.5" cy="296.5" r="11.2"/>
+<circle class="b-cfg" cx="233.5" cy="296.5" r="11.2"/>
+<circle class="b-vcc" cx="262.5" cy="296.5" r="11.2"/>
+<circle class="b-vcc" cx="291.5" cy="296.5" r="11.2"/>
+<circle class="b-vcc" cx="320.5" cy="296.5" r="11.2"/>
+<circle class="b-gnd" cx="349.5" cy="296.5" r="11.2"/>
+<circle class="b-vcc" cx="378.5" cy="296.5" r="11.2"/>
+<circle class="b-gnd" cx="407.5" cy="296.5" r="11.2"/>
+<circle class="b-vcc" cx="436.5" cy="296.5" r="11.2"/>
+<circle class="b-led" cx="465.5" cy="296.5" r="11.2"/>
+<circle class="b-led" cx="494.5" cy="296.5" r="11.2"/>
+<circle class="b-gnd" cx="523.5" cy="296.5" r="11.2"/>
+<circle class="b-e1" cx="552.5" cy="296.5" r="11.2"/>
+<circle class="b-e1" cx="581.5" cy="296.5" r="11.2"/>
+<circle class="b-dac" cx="610.5" cy="296.5" r="11.2"/>
+<circle class="b-dac" cx="639.5" cy="296.5" r="11.2"/>
+<circle class="b-ddr" cx="88.5" cy="325.5" r="11.2"/>
+<circle class="b-ddr" cx="117.5" cy="325.5" r="11.2"/>
+<circle class="b-ddr" cx="146.5" cy="325.5" r="11.2"/>
+<circle class="b-vcc" cx="175.5" cy="325.5" r="11.2"/>
+<circle class="b-ddr" cx="204.5" cy="325.5" r="11.2"/>
+<circle class="b-ddr" cx="233.5" cy="325.5" r="11.2"/>
+<circle class="b-gnd" cx="262.5" cy="325.5" r="11.2"/>
+<circle class="b-vcc" cx="291.5" cy="325.5" r="11.2"/>
+<circle class="b-gnd" cx="320.5" cy="325.5" r="11.2"/>
+<circle class="b-vcc" cx="349.5" cy="325.5" r="11.2"/>
+<circle class="b-gnd" cx="378.5" cy="325.5" r="11.2"/>
+<circle class="b-vcc" cx="407.5" cy="325.5" r="11.2"/>
+<circle class="b-gnd" cx="436.5" cy="325.5" r="11.2"/>
+<circle class="b-vcc" cx="465.5" cy="325.5" r="11.2"/>
+<circle class="b-led" cx="494.5" cy="325.5" r="11.2"/>
+<circle class="b-e1" cx="523.5" cy="325.5" r="11.2"/>
+<circle class="b-e1" cx="552.5" cy="325.5" r="11.2"/>
+<circle class="b-e1" cx="581.5" cy="325.5" r="11.2"/>
+<circle class="b-gnd" cx="610.5" cy="325.5" r="11.2"/>
+<circle class="b-dac" cx="639.5" cy="325.5" r="11.2"/>
+<circle class="b-ddr" cx="88.5" cy="354.5" r="11.2"/>
+<circle class="b-gnd" cx="117.5" cy="354.5" r="11.2"/>
+<circle class="b-ddr" cx="146.5" cy="354.5" r="11.2"/>
+<circle class="b-ddr" cx="175.5" cy="354.5" r="11.2"/>
+<circle class="b-ddr" cx="204.5" cy="354.5" r="11.2"/>
+<circle class="b-cfg" cx="233.5" cy="354.5" r="11.2"/>
+<circle class="b-vcc" cx="262.5" cy="354.5" r="11.2"/>
+<circle class="b-gnd" cx="291.5" cy="354.5" r="11.2"/>
+<circle class="b-vcc" cx="320.5" cy="354.5" r="11.2"/>
+<circle class="b-gnd" cx="349.5" cy="354.5" r="11.2"/>
+<circle class="b-vcc" cx="378.5" cy="354.5" r="11.2"/>
+<circle class="b-gnd" cx="407.5" cy="354.5" r="11.2"/>
+<circle class="b-vcc" cx="436.5" cy="354.5" r="11.2"/>
+<circle class="b-led" cx="465.5" cy="354.5" r="11.2"/>
+<circle class="b-led" cx="494.5" cy="354.5" r="11.2"/>
+<circle class="b-e1" cx="523.5" cy="354.5" r="11.2"/>
+<circle class="b-vcc" cx="552.5" cy="354.5" r="11.2"/>
+<circle class="b-e1" cx="581.5" cy="354.5" r="11.2"/>
+<circle class="b-dac" cx="610.5" cy="354.5" r="11.2"/>
+<circle class="b-dac" cx="639.5" cy="354.5" r="11.2"/>
+<circle class="b-ddr" cx="88.5" cy="383.5" r="11.2"/>
+<circle class="b-ddr" cx="117.5" cy="383.5" r="11.2"/>
+<circle class="b-ddr" cx="146.5" cy="383.5" r="11.2"/>
+<circle class="b-ddr" cx="175.5" cy="383.5" r="11.2"/>
+<circle class="b-gnd" cx="204.5" cy="383.5" r="11.2"/>
+<circle class="b-vcc" cx="233.5" cy="383.5" r="11.2"/>
+<circle class="b-gnd" cx="262.5" cy="383.5" r="11.2"/>
+<circle class="b-vcc" cx="291.5" cy="383.5" r="11.2"/>
+<circle class="b-cfg" cx="320.5" cy="383.5" r="11.2"/>
+<circle class="b-cfg" cx="349.5" cy="383.5" r="11.2"/>
+<circle class="b-gnd" cx="378.5" cy="383.5" r="11.2"/>
+<circle class="b-vcc" cx="407.5" cy="383.5" r="11.2"/>
+<circle class="b-gnd" cx="436.5" cy="383.5" r="11.2"/>
+<circle class="b-led" cx="465.5" cy="383.5" r="11.2"/>
+<circle class="b-gnd" cx="494.5" cy="383.5" r="11.2"/>
+<circle class="b-e1" cx="523.5" cy="383.5" r="11.2"/>
+<circle class="b-e1" cx="552.5" cy="383.5" r="11.2"/>
+<circle class="b-e1" cx="581.5" cy="383.5" r="11.2"/>
+<circle class="b-dac" cx="610.5" cy="383.5" r="11.2"/>
+<circle class="b-vcc" cx="639.5" cy="383.5" r="11.2"/>
+<circle class="b-ddr" cx="88.5" cy="412.5" r="11.2"/>
+<circle class="b-ddr" cx="117.5" cy="412.5" r="11.2"/>
+<circle class="b-vcc" cx="146.5" cy="412.5" r="11.2"/>
+<circle class="b-ddr" cx="175.5" cy="412.5" r="11.2"/>
+<circle class="b-ddr" cx="204.5" cy="412.5" r="11.2"/>
+<circle class="b-cfg" cx="233.5" cy="412.5" r="11.2"/>
+<circle class="b-vcc" cx="262.5" cy="412.5" r="11.2"/>
+<circle class="b-gnd" cx="291.5" cy="412.5" r="11.2"/>
+<circle class="b-cfg" cx="320.5" cy="412.5" r="11.2"/>
+<circle class="b-cfg" cx="349.5" cy="412.5" r="11.2"/>
+<circle class="b-vcc" cx="378.5" cy="412.5" r="11.2"/>
+<circle class="b-gnd" cx="407.5" cy="412.5" r="11.2"/>
+<circle class="b-vcc" cx="436.5" cy="412.5" r="11.2"/>
+<circle class="b-e1" cx="465.5" cy="412.5" r="11.2"/>
+<circle class="b-e1" cx="494.5" cy="412.5" r="11.2"/>
+<circle class="b-e1" cx="523.5" cy="412.5" r="11.2"/>
+<circle class="b-e1" cx="552.5" cy="412.5" r="11.2"/>
+<circle class="b-gnd" cx="581.5" cy="412.5" r="11.2"/>
+<circle class="b-dac" cx="610.5" cy="412.5" r="11.2"/>
+<circle class="b-dac" cx="639.5" cy="412.5" r="11.2"/>
+<circle class="b-gnd" cx="88.5" cy="441.5" r="11.2"/>
+<circle class="b-ddr" cx="117.5" cy="441.5" r="11.2"/>
+<circle class="b-ddr" cx="146.5" cy="441.5" r="11.2"/>
+<circle class="b-ddr" cx="175.5" cy="441.5" r="11.2"/>
+<circle class="b-ddr" cx="204.5" cy="441.5" r="11.2"/>
+<circle class="b-cfg" cx="233.5" cy="441.5" r="11.2"/>
+<circle class="b-gnd" cx="262.5" cy="441.5" r="11.2"/>
+<circle class="b-vcc" cx="291.5" cy="441.5" r="11.2"/>
+<circle class="b-cfg" cx="320.5" cy="441.5" r="11.2"/>
+<circle class="b-cfg" cx="349.5" cy="441.5" r="11.2"/>
+<circle class="b-gnd" cx="378.5" cy="441.5" r="11.2"/>
+<circle class="b-vcc" cx="407.5" cy="441.5" r="11.2"/>
+<circle class="b-gnd" cx="436.5" cy="441.5" r="11.2"/>
+<circle class="b-e1" cx="465.5" cy="441.5" r="11.2"/>
+<circle class="b-e1" cx="494.5" cy="441.5" r="11.2"/>
+<circle class="b-vcc" cx="523.5" cy="441.5" r="11.2"/>
+<circle class="b-dac" cx="552.5" cy="441.5" r="11.2"/>
+<circle class="b-dac" cx="581.5" cy="441.5" r="11.2"/>
+<circle class="b-dac" cx="610.5" cy="441.5" r="11.2"/>
+<circle class="b-dac" cx="639.5" cy="441.5" r="11.2"/>
+<circle class="b-ddr" cx="88.5" cy="470.5" r="11.2"/>
+<circle class="b-ddr" cx="117.5" cy="470.5" r="11.2"/>
+<circle class="b-ddr" cx="146.5" cy="470.5" r="11.2"/>
+<circle class="b-gnd" cx="175.5" cy="470.5" r="11.2"/>
+<circle class="b-ddr" cx="204.5" cy="470.5" r="11.2"/>
+<circle class="b-vcc" cx="233.5" cy="470.5" r="11.2"/>
+<circle class="b-vcc" cx="262.5" cy="470.5" r="11.2"/>
+<circle class="b-gnd" cx="291.5" cy="470.5" r="11.2"/>
+<circle class="b-vcc" cx="320.5" cy="470.5" r="11.2"/>
+<circle class="b-gnd" cx="349.5" cy="470.5" r="11.2"/>
+<circle class="b-vcc" cx="378.5" cy="470.5" r="11.2"/>
+<circle class="b-gnd" cx="407.5" cy="470.5" r="11.2"/>
+<circle class="b-vcc" cx="436.5" cy="470.5" r="11.2"/>
+<circle class="b-gnd" cx="465.5" cy="470.5" r="11.2"/>
+<circle class="b-dac" cx="494.5" cy="470.5" r="11.2"/>
+<circle class="b-dac" cx="523.5" cy="470.5" r="11.2"/>
+<circle class="b-adcb" cx="552.5" cy="470.5" r="11.2"/>
+<text class="t-adcb" x="552.5" y="473.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">5</text>
+<circle class="b-daisy" cx="581.5" cy="470.5" r="11.2"/>
+<circle class="b-vcc" cx="610.5" cy="470.5" r="11.2"/>
+<circle class="b-adcc" cx="639.5" cy="470.5" r="11.2"/>
+<circle class="b-ddr" cx="88.5" cy="499.5" r="11.2"/>
+<circle class="b-vcc" cx="117.5" cy="499.5" r="11.2"/>
+<circle class="b-ddr" cx="146.5" cy="499.5" r="11.2"/>
+<circle class="b-ddr" cx="175.5" cy="499.5" r="11.2"/>
+<circle class="b-ddr" cx="204.5" cy="499.5" r="11.2"/>
+<circle class="b-ddr" cx="233.5" cy="499.5" r="11.2"/>
+<circle class="b-gnd" cx="262.5" cy="499.5" r="11.2"/>
+<circle class="b-vcc" cx="291.5" cy="499.5" r="11.2"/>
+<circle class="b-gnd" cx="320.5" cy="499.5" r="11.2"/>
+<circle class="b-vcc" cx="349.5" cy="499.5" r="11.2"/>
+<circle class="b-gnd" cx="378.5" cy="499.5" r="11.2"/>
+<circle class="b-vcc" cx="407.5" cy="499.5" r="11.2"/>
+<circle class="b-gnd" cx="436.5" cy="499.5" r="11.2"/>
+<circle class="b-daisy" cx="465.5" cy="499.5" r="11.2"/>
+<circle class="b-dac" cx="494.5" cy="499.5" r="11.2"/>
+<circle class="b-adcb" cx="523.5" cy="499.5" r="11.2"/>
+<text class="t-adcb" x="523.5" y="502.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">3</text>
+<circle class="b-gnd" cx="552.5" cy="499.5" r="11.2"/>
+<circle class="b-adcb" cx="581.5" cy="499.5" r="11.2"/>
+<text class="t-adcb" x="581.5" y="502.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">4</text>
+<circle class="b-daisy" cx="610.5" cy="499.5" r="11.2"/>
+<circle class="b-adcc" cx="639.5" cy="499.5" r="11.2"/>
+<circle class="b-ddr" cx="88.5" cy="528.5" r="11.2"/>
+<circle class="b-ddr" cx="117.5" cy="528.5" r="11.2"/>
+<circle class="b-ddr" cx="146.5" cy="528.5" r="11.2"/>
+<circle class="b-ddr" cx="175.5" cy="528.5" r="11.2"/>
+<circle class="b-vcc" cx="204.5" cy="528.5" r="11.2"/>
+<circle class="b-vcc" cx="233.5" cy="528.5" r="11.2"/>
+<circle class="b-vcc" cx="262.5" cy="528.5" r="11.2"/>
+<circle class="b-gnd" cx="291.5" cy="528.5" r="11.2"/>
+<circle class="b-vcc" cx="320.5" cy="528.5" r="11.2"/>
+<circle class="b-cfg" cx="349.5" cy="528.5" r="11.2"/>
+<circle class="b-cfg" cx="378.5" cy="528.5" r="11.2"/>
+<circle class="b-gnd" cx="407.5" cy="528.5" r="11.2"/>
+<circle class="b-vcc" cx="436.5" cy="528.5" r="11.2"/>
+<circle class="b-daisy" cx="465.5" cy="528.5" r="11.2"/>
+<circle class="b-vcc" cx="494.5" cy="528.5" r="11.2"/>
+<circle class="b-adcb" cx="523.5" cy="528.5" r="11.2"/>
+<text class="t-adcb" x="523.5" y="531.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">1</text>
+<circle class="b-free" cx="552.5" cy="528.5" r="11.2"/>
+<circle class="b-adcb" cx="581.5" cy="528.5" r="11.2"/>
+<text class="t-adcb" x="581.5" y="531.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">2</text>
+<circle class="b-adcb" cx="610.5" cy="528.5" r="11.2"/>
+<text class="t-adcb" x="610.5" y="531.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">6</text>
+<circle class="b-gnd" cx="639.5" cy="528.5" r="11.2"/>
+<circle class="b-ddr" cx="88.5" cy="557.5" r="11.2"/>
+<circle class="b-ddr" cx="117.5" cy="557.5" r="11.2"/>
+<circle class="b-gnd" cx="146.5" cy="557.5" r="11.2"/>
+<circle class="b-ddr" cx="175.5" cy="557.5" r="11.2"/>
+<circle class="b-nc" cx="204.5" cy="557.5" r="11.2"/>
+<circle class="b-vcc" cx="233.5" cy="557.5" r="11.2"/>
+<circle class="b-gnd" cx="262.5" cy="557.5" r="11.2"/>
+<circle class="b-vcc" cx="291.5" cy="557.5" r="11.2"/>
+<circle class="b-nc" cx="320.5" cy="557.5" r="11.2"/>
+<circle class="b-dac" cx="349.5" cy="557.5" r="11.2"/>
+<circle class="b-dac" cx="378.5" cy="557.5" r="11.2"/>
+<circle class="b-daisy" cx="407.5" cy="557.5" r="11.2"/>
+<circle class="b-gnd" cx="436.5" cy="557.5" r="11.2"/>
+<circle class="b-adca" cx="465.5" cy="557.5" r="11.2"/>
+<text class="t-adca" x="465.5" y="560.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">11</text>
+<circle class="b-adca" cx="494.5" cy="557.5" r="11.2"/>
+<text class="t-adca" x="494.5" y="560.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">12</text>
+<circle class="b-adca" cx="523.5" cy="557.5" r="11.2"/>
+<text class="t-adca" x="523.5" y="560.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">14</text>
+<circle class="b-adcb" cx="552.5" cy="557.5" r="11.2"/>
+<text class="t-adcb" x="552.5" y="560.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">0</text>
+<circle class="b-vcc" cx="581.5" cy="557.5" r="11.2"/>
+<circle class="b-adcb" cx="610.5" cy="557.5" r="11.2"/>
+<text class="t-adcb" x="610.5" y="560.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">8</text>
+<circle class="b-adcb" cx="639.5" cy="557.5" r="11.2"/>
+<text class="t-adcb" x="639.5" y="560.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">7</text>
+<circle class="b-vcc" cx="88.5" cy="586.5" r="11.2"/>
+<circle class="b-ddr" cx="117.5" cy="586.5" r="11.2"/>
+<circle class="b-ddr" cx="146.5" cy="586.5" r="11.2"/>
+<circle class="b-ddr" cx="175.5" cy="586.5" r="11.2"/>
+<circle class="b-nc" cx="204.5" cy="586.5" r="11.2"/>
+<circle class="b-gnd" cx="233.5" cy="586.5" r="11.2"/>
+<circle class="b-nc" cx="262.5" cy="586.5" r="11.2"/>
+<circle class="b-nc" cx="291.5" cy="586.5" r="11.2"/>
+<circle class="b-nc" cx="320.5" cy="586.5" r="11.2"/>
+<circle class="b-nc" cx="349.5" cy="586.5" r="11.2"/>
+<circle class="b-vcc" cx="378.5" cy="586.5" r="11.2"/>
+<circle class="b-daisy" cx="407.5" cy="586.5" r="11.2"/>
+<circle class="b-dac" cx="436.5" cy="586.5" r="11.2"/>
+<circle class="b-daisy" cx="465.5" cy="586.5" r="11.2"/>
+<circle class="b-daisy" cx="494.5" cy="586.5" r="11.2"/>
+<circle class="b-gnd" cx="523.5" cy="586.5" r="11.2"/>
+<circle class="b-adca" cx="552.5" cy="586.5" r="11.2"/>
+<text class="t-adca" x="552.5" y="589.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">1</text>
+<circle class="b-adcc" cx="581.5" cy="586.5" r="11.2"/>
+<circle class="b-adcc" cx="610.5" cy="586.5" r="11.2"/>
+<circle class="b-adcb" cx="639.5" cy="586.5" r="11.2"/>
+<text class="t-adcb" x="639.5" y="589.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">9</text>
+<circle class="b-ddr" cx="88.5" cy="615.5" r="11.2"/>
+<circle class="b-ddr" cx="117.5" cy="615.5" r="11.2"/>
+<circle class="b-ddr" cx="146.5" cy="615.5" r="11.2"/>
+<circle class="b-vcc" cx="175.5" cy="615.5" r="11.2"/>
+<circle class="b-nc" cx="204.5" cy="615.5" r="11.2"/>
+<circle class="b-nc" cx="233.5" cy="615.5" r="11.2"/>
+<circle class="b-nc" cx="262.5" cy="615.5" r="11.2"/>
+<circle class="b-nc" cx="291.5" cy="615.5" r="11.2"/>
+<circle class="b-gnd" cx="320.5" cy="615.5" r="11.2"/>
+<circle class="b-nc" cx="349.5" cy="615.5" r="11.2"/>
+<circle class="b-nc" cx="378.5" cy="615.5" r="11.2"/>
+<circle class="b-adca" cx="407.5" cy="615.5" r="11.2"/>
+<text class="t-adca" x="407.5" y="618.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">9</text>
+<circle class="b-adca" cx="436.5" cy="615.5" r="11.2"/>
+<text class="t-adca" x="436.5" y="618.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">10</text>
+<circle class="b-vcc" cx="465.5" cy="615.5" r="11.2"/>
+<circle class="b-adca" cx="494.5" cy="615.5" r="11.2"/>
+<text class="t-adca" x="494.5" y="618.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">13</text>
+<circle class="b-adca" cx="523.5" cy="615.5" r="11.2"/>
+<text class="t-adca" x="523.5" y="618.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">15</text>
+<circle class="b-adca" cx="552.5" cy="615.5" r="11.2"/>
+<text class="t-adca" x="552.5" y="618.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">0</text>
+<circle class="b-adcc" cx="581.5" cy="615.5" r="11.2"/>
+<circle class="b-gnd" cx="610.5" cy="615.5" r="11.2"/>
+<circle class="b-adcb" cx="639.5" cy="615.5" r="11.2"/>
+<text class="t-adcb" x="639.5" y="618.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">10</text>
+<circle class="b-ddr" cx="88.5" cy="644.5" r="11.2"/>
+<circle class="b-gnd" cx="117.5" cy="644.5" r="11.2"/>
+<circle class="b-ddr" cx="146.5" cy="644.5" r="11.2"/>
+<circle class="b-ddr" cx="175.5" cy="644.5" r="11.2"/>
+<circle class="b-ddr" cx="204.5" cy="644.5" r="11.2"/>
+<circle class="b-nc" cx="233.5" cy="644.5" r="11.2"/>
+<circle class="b-vcc" cx="262.5" cy="644.5" r="11.2"/>
+<circle class="b-nc" cx="291.5" cy="644.5" r="11.2"/>
+<circle class="b-nc" cx="320.5" cy="644.5" r="11.2"/>
+<circle class="b-nc" cx="349.5" cy="644.5" r="11.2"/>
+<circle class="b-nc" cx="378.5" cy="644.5" r="11.2"/>
+<circle class="b-gnd" cx="407.5" cy="644.5" r="11.2"/>
+<circle class="b-adca" cx="436.5" cy="644.5" r="11.2"/>
+<text class="t-adca" x="436.5" y="647.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">8</text>
+<circle class="b-adca" cx="465.5" cy="644.5" r="11.2"/>
+<text class="t-adca" x="465.5" y="647.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">6</text>
+<circle class="b-adca" cx="494.5" cy="644.5" r="11.2"/>
+<text class="t-adca" x="494.5" y="647.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">5</text>
+<circle class="b-adca" cx="523.5" cy="644.5" r="11.2"/>
+<text class="t-adca" x="523.5" y="647.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">3</text>
+<circle class="b-vcc" cx="552.5" cy="644.5" r="11.2"/>
+<circle class="b-adcb" cx="581.5" cy="644.5" r="11.2"/>
+<text class="t-adcb" x="581.5" y="647.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">14</text>
+<circle class="b-adcb" cx="610.5" cy="644.5" r="11.2"/>
+<text class="t-adcb" x="610.5" y="647.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">12</text>
+<circle class="b-adcb" cx="639.5" cy="644.5" r="11.2"/>
+<text class="t-adcb" x="639.5" y="647.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">11</text>
+<circle class="b-ddr" cx="88.5" cy="673.5" r="11.2"/>
+<circle class="b-ddr" cx="117.5" cy="673.5" r="11.2"/>
+<circle class="b-ddr" cx="146.5" cy="673.5" r="11.2"/>
+<circle class="b-ddr" cx="175.5" cy="673.5" r="11.2"/>
+<circle class="b-gnd" cx="204.5" cy="673.5" r="11.2"/>
+<circle class="b-nc" cx="233.5" cy="673.5" r="11.2"/>
+<circle class="b-nc" cx="262.5" cy="673.5" r="11.2"/>
+<circle class="b-nc" cx="291.5" cy="673.5" r="11.2"/>
+<circle class="b-nc" cx="320.5" cy="673.5" r="11.2"/>
+<circle class="b-vcc" cx="349.5" cy="673.5" r="11.2"/>
+<circle class="b-nc" cx="378.5" cy="673.5" r="11.2"/>
+<circle class="b-nc" cx="407.5" cy="673.5" r="11.2"/>
+<circle class="b-nc" cx="436.5" cy="673.5" r="11.2"/>
+<circle class="b-adca" cx="465.5" cy="673.5" r="11.2"/>
+<text class="t-adca" x="465.5" y="676.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">7</text>
+<circle class="b-gnd" cx="494.5" cy="673.5" r="11.2"/>
+<circle class="b-adca" cx="523.5" cy="673.5" r="11.2"/>
+<text class="t-adca" x="523.5" y="676.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">4</text>
+<circle class="b-adca" cx="552.5" cy="673.5" r="11.2"/>
+<text class="t-adca" x="552.5" y="676.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">2</text>
+<circle class="b-adcb" cx="581.5" cy="673.5" r="11.2"/>
+<text class="t-adcb" x="581.5" y="676.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">15</text>
+<circle class="b-adcb" cx="610.5" cy="673.5" r="11.2"/>
+<text class="t-adcb" x="610.5" y="676.8" font-size="9" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">13</text>
+<circle class="b-vcc" cx="639.5" cy="673.5" r="11.2"/>
+<circle class="ring" cx="552.5" cy="528.5" r="15.7"/>
+<text class="ti" x="700.0" y="114.0" font-size="12.5" text-anchor="start" font-weight="700">Qué es cada bola</text>
+<circle class="b-adca" cx="709.0" cy="141.0" r="8"/>
+<text class="nm" x="726.0" y="145.0" font-size="10.5" text-anchor="start">ADC · datos canal A (IN1)</text>
+<text class="wd" x="1120.0" y="145.0" font-size="10.5" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">16</text>
+<circle class="b-adcb" cx="709.0" cy="162.0" r="8"/>
+<text class="nm" x="726.0" y="166.0" font-size="10.5" text-anchor="start">ADC · datos canal B (IN2)</text>
+<text class="wd" x="1120.0" y="166.0" font-size="10.5" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">16</text>
+<circle class="b-adcc" cx="709.0" cy="183.0" r="8"/>
+<text class="nm" x="726.0" y="187.0" font-size="10.5" text-anchor="start">ADC · reloj y control</text>
+<text class="wd" x="1120.0" y="187.0" font-size="10.5" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">5</text>
+<circle class="b-dac" cx="709.0" cy="204.0" r="8"/>
+<text class="nm" x="726.0" y="208.0" font-size="10.5" text-anchor="start">DAC y salidas PWM lentas</text>
+<text class="wd" x="1120.0" y="208.0" font-size="10.5" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">22</text>
+<circle class="b-e1" cx="709.0" cy="225.0" r="8"/>
+<text class="nm" x="726.0" y="229.0" font-size="10.5" text-anchor="start">E1 · 16 líneas digitales</text>
+<text class="wd" x="1120.0" y="229.0" font-size="10.5" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">16</text>
+<circle class="b-daisy" cx="709.0" cy="246.0" r="8"/>
+<text class="nm" x="726.0" y="250.0" font-size="10.5" text-anchor="start">S1/S2 · daisy chain</text>
+<text class="wd" x="1120.0" y="250.0" font-size="10.5" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">8</text>
+<circle class="b-led" cx="709.0" cy="267.0" r="8"/>
+<text class="nm" x="726.0" y="271.0" font-size="10.5" text-anchor="start">LEDs</text>
+<text class="wd" x="1120.0" y="271.0" font-size="10.5" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">8</text>
+<circle class="b-xadc" cx="709.0" cy="288.0" r="8"/>
+<text class="nm" x="726.0" y="292.0" font-size="10.5" text-anchor="start">XADC · 4 entradas lentas (AI0–AI3)</text>
+<text class="wd" x="1120.0" y="292.0" font-size="10.5" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">8</text>
+<circle class="b-free" cx="709.0" cy="309.0" r="8"/>
+<text class="nm" x="726.0" y="313.0" font-size="10.5" text-anchor="start">I/O del PL sin usar</text>
+<text class="wd" x="1120.0" y="313.0" font-size="10.5" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">1</text>
+<circle class="b-nc" cx="709.0" cy="330.0" r="8"/>
+<text class="nm" x="726.0" y="334.0" font-size="10.5" text-anchor="start">sin conexión (I/O en el 7020)</text>
+<text class="wd" x="1120.0" y="334.0" font-size="10.5" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">25</text>
+<circle class="b-ddr" cx="709.0" cy="351.0" r="8"/>
+<text class="nm" x="726.0" y="355.0" font-size="10.5" text-anchor="start">PS · DDR3</text>
+<text class="wd" x="1120.0" y="355.0" font-size="10.5" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">75</text>
+<circle class="b-mio" cx="709.0" cy="372.0" r="8"/>
+<text class="nm" x="726.0" y="376.0" font-size="10.5" text-anchor="start">PS · MIO</text>
+<text class="wd" x="1120.0" y="376.0" font-size="10.5" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">55</text>
+<circle class="b-ps" cx="709.0" cy="393.0" r="8"/>
+<text class="nm" x="726.0" y="397.0" font-size="10.5" text-anchor="start">PS · reloj y reset</text>
+<text class="wd" x="1120.0" y="397.0" font-size="10.5" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">3</text>
+<circle class="b-cfg" cx="709.0" cy="414.0" r="8"/>
+<text class="nm" x="726.0" y="418.0" font-size="10.5" text-anchor="start">configuración, JTAG, XADC ded.</text>
+<text class="wd" x="1120.0" y="418.0" font-size="10.5" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">14</text>
+<circle class="b-vcc" cx="709.0" cy="435.0" r="8"/>
+<text class="nm" x="726.0" y="439.0" font-size="10.5" text-anchor="start">alimentación</text>
+<text class="wd" x="1120.0" y="439.0" font-size="10.5" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">67</text>
+<circle class="b-gnd" cx="709.0" cy="456.0" r="8"/>
+<text class="nm" x="726.0" y="460.0" font-size="10.5" text-anchor="start">masa</text>
+<text class="wd" x="1120.0" y="460.0" font-size="10.5" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">61</text>
+<line class="sep" x1="700" y1="470.0" x2="1120" y2="470.0"/>
+<text class="nm" x="726.0" y="487.0" font-size="10.5" text-anchor="start" font-weight="700">total</text>
+<text class="nm" x="1120.0" y="487.0" font-size="10.5" text-anchor="end" font-weight="700" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">400</text>
+<text class="note" x="30.0" y="732.0" font-size="10.5" text-anchor="start">El 7010 tiene 100 bolas de I/O del PL y esta placa usa 99: la única libre es R17, marcada con el anillo azul. Lo que entra y sale del FPGA está, prácticamente, al límite del encapsulado.</text>
+<text class="note" x="30.0" y="749.0" font-size="10.5" text-anchor="start">Las 25 bolas sin conexión son I/O en el 7020, que tiene 125: ahí viven las 6 líneas extra de E1 que el RTL habilita con DWE = 11 en vez de 8 (22 GPIO en vez de 16).</text>
+<text class="note" x="30.0" y="766.0" font-size="10.5" text-anchor="start">El PS se lleva 133 bolas (75 de DDR3, 55 de MIO, 3 de reloj y reset) y la alimentación 128 (67 VCC + 61 GND): de 400 bolas, sólo una cuarta parte es I/O del PL.</text>
+<text class="note" x="30.0" y="783.0" font-size="10.5" text-anchor="start">Las dos entradas analógicas dedicadas del XADC (VP/VN, K9 y L10) no son I/O: son los pines analógicos del conversor interno, y la placa los usa como el par AI de más.</text>
+</svg>

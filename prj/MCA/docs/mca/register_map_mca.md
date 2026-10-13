@@ -180,6 +180,9 @@ fijado por un test. `configure()` levanta `ValueError` si se pide interno con
 
 ### Los dos modos de ventana
 
+> Las dos metodologías, con diagramas y cronogramas, están en
+> [`ventana_de_medicion.md`](ventana_de_medicion.md).
+
 Con **`cfg_gate_mode = 0`** (default, y el comportamiento histórico) la ventana
 cierra al bajar de `cfg_thr − cfg_hyst`, o al llegar a `cfg_maxlen` — esto último
 cuenta como apilamiento. La cola arranca `cfg_tail_dly` muestras después del pico.

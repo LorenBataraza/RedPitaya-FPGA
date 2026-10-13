@@ -165,9 +165,14 @@ def fig_cola_undershoot(out):
         h, limpio, deformado = espectro(t, forma, a1, a2, ventana)
         ax_h.plot(h, limpio, color=TINTA2, lw=1.0, ls='--', label='pico limpio')
         ax_h.plot(h, deformado, color=AZUL, lw=1.6, label='con apilamiento')
+        # las dos áreas tienen que ser iguales: cada cuenta que el pico
+        # pierde (rayado naranja) reaparece corrida en la cola (rayado rojo)
         ax_h.fill_between(h, limpio, deformado, where=deformado > limpio,
                           facecolor='none', edgecolor=ROJO, hatch='////',
-                          lw=0.0, label='exceso por apilamiento')
+                          lw=0.0, label='cuentas ganadas (corridas)')
+        ax_h.fill_between(h, limpio, deformado, where=deformado < limpio,
+                          facecolor='none', edgecolor=NARAN, hatch='\\\\\\\\',
+                          lw=0.0, label='cuentas perdidas del pico')
         ax_h.set_xlim(0.35, 0.95)
         ax_h.set_ylim(0.0, 1.55 * limpio.max())   # aire para la leyenda
         ax_h.set_yticks([])

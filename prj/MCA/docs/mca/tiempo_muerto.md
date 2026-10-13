@@ -20,8 +20,10 @@ medidos a 2 kev/s son entonces una propiedad del estímulo, no del equipo.
 | [`test_poisson_wave.py`](../../software/API/tests/test_poisson_wave.py) | valida el generador Poisson (KS, conteo, costura, pile-up, escala) | PC |
 | [`test_poisson_sweep_sim.py`](../../software/campanas/tests/test_poisson_sweep_sim.py) | corre el barrido entero contra un servidor K=1 **simulado** | PC |
 | [`test_deadtime_estimadores.py`](../../software/API/tests/test_deadtime_estimadores.py) | valida los estimadores **en tiempo de corrida** (ver abajo) | PC |
+| [`figuras_tiempo_muerto.py`](figuras/tiempo_muerto/figuras_tiempo_muerto.py) | las cuatro figuras **teóricas** de "El modelo, en unidades de τ" | PC, sin datos |
 
 ```bash
+python3 figuras/tiempo_muerto/figuras_tiempo_muerto.py   # -> figuras/tiempo_muerto/*.png
 python3 campanas/plot_modelos_tasa.py          # -> ../../datos/modelos_tasa/*.png
 python3 test_poisson_wave.py          # RESULT: PASS
 python3 test_poisson_sweep_sim.py     # RESULT: PASS
@@ -152,6 +154,217 @@ servicio y `ρ = nτ` la ocupación.
 
 La diferencia entre las dos primeras a tasa baja es todo el asunto: a ρ=0.1 una
 predice 0 % de pérdida y la otra 9.1 %.
+
+Lo que sigue es la deducción de esas fórmulas y de dónde sale cada una. Las
+figuras las genera
+[`figuras/tiempo_muerto/figuras_tiempo_muerto.py`](figuras/tiempo_muerto/figuras_tiempo_muerto.py);
+son **teóricas**, no hay datos en ellas.
+
+## El modelo, en unidades de τ
+
+Los tres modelos tienen una sola escala de tiempo, τ, y una sola tasa, `n`. La
+única combinación adimensional es `ρ = n·τ`, así que la tasa registrada tiene
+que ser `m·τ = f(n·τ)`: **una curva por modelo**, la misma para el lector
+(τ ≈ 250 µs) y para el MCA (τ ≈ 2.9 µs). Lo que cambia entre los dos equipos
+es sólo dónde cae cada tasa en el eje: ρ=0.1 son 400 ev/s para el lector y
+35 kcps para el MCA.
+
+![](figuras/tiempo_muerto/01_tasas_adimensionales.png)
+
+**(a)** `m·τ` contra `n·τ`. La diagonal es "no perder nada". El periódico
+(azul) la sigue hasta ρ=1 y después hace **dientes de sierra**: cae a la mitad,
+vuelve a subir, cae a un tercio. Poisson (naranja) se despega desde el origen y
+tiende a 1 sin llegar nunca: el sistema se acerca a estar siempre ocupado pero
+no se satura. El paralizable (verde) tiene máximo en ρ=1 y después se
+desploma; se muestra para descartarlo. **(b)** lo mismo como fracción perdida,
+con ρ logarítmico. Es el panel que importa: a ρ ≤ 1 el periódico da **cero** y
+los otros dos dan **≈ ρ**. Un dato tomado a ρ=0.1 con estímulo periódico no
+dice nada sobre lo que va a pasar con una fuente.
+
+Hay un detalle en (a) que vale la pena ver: la curva de Poisson pasa **justo por
+el fondo de cada diente** del periódico. A ρ=k entero, Poisson da `k/(k+1)`, y
+eso es exactamente lo que da el periódico apenas cruzado el borde,
+`ρ/⌈ρ⌉ = k/(k+1)`. Poisson es, en ese sentido, "siempre el peor diente".
+
+### Poisson: la integral de la exponencial entre 0 y τ
+
+Con arribos Poisson de tasa `n`, el intervalo entre arribos consecutivos es
+exponencial, `f(Δt) = n·e^{−n·Δt}`, y **sin memoria**: desde cualquier instante,
+el tiempo hasta el próximo arribo vuelve a ser exponencial de media `1/n`, no
+importa cuánto haga que llegó el anterior.
+
+Después de un evento registrado en `t=0` el sistema está muerto hasta `t=τ`. La
+probabilidad de que el **próximo** arribo caiga adentro de esa ventana es el
+área de la exponencial entre 0 y τ:
+
+```
+P(Δt < τ) = ∫₀^τ n·e^{−n·t} dt = 1 − e^{−n·τ} = 1 − e^{−ρ}
+```
+
+![](figuras/tiempo_muerto/02_integral_exponencial.png)
+
+**(a)** un tren Poisson con ρ=0.5 en unidades de τ: cada evento registrado
+abre una ventana gris de largo τ, y todo lo que cae adentro (rojo) se pierde.
+Los arribos vienen **agrupados** —tres en menos de un τ, después nada por 5 τ—
+y eso no es una rareza de la semilla, es lo que la exponencial pone: su máximo
+está en `Δt = 0`. **(b)** la densidad de `Δt` para tres valores de ρ, con el
+área entre 0 y τ sombreada. A ρ=0.2 el área es pequeña pero **no es cero**, y
+crece con ρ. **(c)** lo que da esa área, `1 − e^{−ρ}`, junto con las dos
+fórmulas de pérdida.
+
+De ese número salen los dos modelos, según qué se hace con los arribos que
+caen adentro:
+
+- **Paralizable.** Cada arribo, registrado o no, **reabre** la ventana. Un
+  arribo se registra sólo si el anterior —cualquiera— llegó hace más de τ, así
+  que la fracción registrada es `P(Δt > τ) = e^{−ρ}` y la pérdida **es** el
+  área: `1 − e^{−ρ}`. De ahí `m = n·e^{−ρ}`. Es la curva verde de (c), y a
+  ρ grande se va a 1: el sistema no vuelve a liberarse.
+
+- **No paralizable** (el K=1 de este equipo). Los arribos perdidos **no
+  extienden** nada. Después de un registrado, *todos* los que caen en `(0, τ)`
+  se pierden, y su número esperado es la intensidad integrada sobre la
+  ventana, `∫₀^τ n·dt = ρ` —la misma integral, sin el peso exponencial, porque
+  ya no importa cuándo llega cada uno sino cuántos son. Al cerrarse la ventana,
+  por la falta de memoria, el próximo arribo tarda otra vez `Exp(n)`, media
+  `1/n`, y **ése se registra**. Cada ciclo tiene entonces un registrado y `ρ`
+  perdidos en promedio, y dura `τ + 1/n`:
+
+  ```
+  m = 1/(τ + 1/n) = n/(1+ρ)          pérdida = ρ/(1+ρ)
+  ```
+
+  Es el modelo `τ + Exp(n)` que ajusta `tau_poisson` sobre los Δt, y la
+  curva naranja de (c).
+
+Las dos coinciden a primer orden: `1 − e^{−ρ} ≈ ρ ≈ ρ/(1+ρ)` para ρ ≪ 1. A tasa
+baja el área bajo la exponencial en `[0, τ]` es base por altura, `τ·n`, y
+**ésa es la pérdida**: la ocupación misma. Por eso "Poisson pierde a cualquier
+tasa": la exponencial tiene su masa apilada contra `Δt = 0` y **siempre hay
+algo adentro de la ventana**, por corta que sea. El periódico, en cambio, tiene
+toda la masa de `Δt` en un solo punto, `T`, y si `τ < T` la ventana está
+vacía.
+
+Hay una tercera lectura de `ρ/(1+ρ)` que conecta con el contador del FPGA: la
+fracción de tiempo ocupado es `m·τ`, y como los arribos Poisson ven el sistema
+en su estado promedio (PASTA), la fracción de arribos que lo encuentra ocupado
+—y se pierde— es también `m·τ = ρ/(1+ρ)`. **Con K=1 y Poisson, pérdida y
+tiempo muerto son el mismo número.** Es lo que justifica, más arriba, predecir
+la pérdida con fuente real a partir del `deadtime` que ya exporta el MCA.
+
+### Por qué la cola de un solo lugar es el peor caso
+
+`K` es cuántos eventos caben en el sistema, contando el que se está
+atendiendo. `K=1` es sin cola: todo arribo que encuentra el servidor ocupado se
+pierde, no hay dónde esperar. Con `K` lugares un arribo se pierde sólo si
+encuentra el servidor ocupado **y** los `K−1` lugares de espera llenos.
+
+![](figuras/tiempo_muerto/03_cola_K.png)
+
+**(a)** fracción perdida contra ρ con arribos Poisson y servicio fijo τ,
+para `K = 1, 2, 3, 5, 10` e infinito (cadena de Markov embebida en las
+partidas de M/D/1/K; no es simulación). Los números a ρ chico:
+
+| ρ | K=1 | K=2 | K=3 | K=5 | K=∞ |
+|---|---|---|---|---|---|
+| 0.05 | 4.8 % | 0.12 % | 0.00 % | 0 | 0 |
+| 0.1 | **9.1 %** | 0.48 % | 0.02 % | 0 | 0 |
+| 0.2 | 16.7 % | 1.8 % | 0.16 % | 0 | 0 |
+| 0.5 | 33.3 % | 9.6 % | 2.7 % | 0.22 % | 0 |
+| 1 | 50 % | 26.9 % | 17.6 % | 10.3 % | 0 |
+| 2 | 66.7 % | 53.2 % | 50.6 % | 50.0 % | 50 % |
+
+La razón está en cuántos arribos hacen falta para perder uno. Con `K=1`
+alcanza con **un** arribo dentro de una ventana, y eso pasa con probabilidad
+`≈ ρ`: la pérdida es de **primer orden** en ρ. Con `K=2` hacen falta **dos**
+en el mismo servicio, `≈ ρ²/2`; con `K` lugares hace falta una ráfaga de `K`,
+`≈ ρ^K/K!`. Cada lugar de cola sube un orden la pérdida. Y con `K=∞`, para
+ρ<1, la pérdida es **exactamente cero**: la cola convierte el agrupamiento de
+Poisson en **demora** en vez de en pérdida.
+
+Por encima de ρ=1 ninguna cola salva: el servidor no puede atender más de
+`1/τ`, todas las curvas convergen a `1 − 1/ρ`, y el tamaño de la cola sólo
+cambia cuánto tarda en llenarse.
+
+**(b)** es el panel que evita una confusión. La fracción de tiempo ocupado,
+`m·τ`, **sube** con `K`, no baja: con cola el servidor trabaja más, porque
+atiende más. Lo que la cola cambia no es cuánto tiempo el sistema está ocupado
+sino **qué pasa mientras lo está**. Con `K=1` cada instante ocupado es un
+instante en el que un arribo se perdería —por eso pérdida y ocupación coinciden
+en `ρ/(1+ρ)`—, y con `K>1` estar ocupado ya no implica perder. En ese sentido
+preciso, **K=1 es la arquitectura que convierte el 100 % de su tiempo muerto
+en pérdida**, y es la que tienen las dos cadenas de adquisición.
+
+Para el periódico nada de esto hace falta mientras ρ<1: sin agrupamiento no hay
+ráfagas, y `K=1` ya pierde cero. La cola sólo compra algo contra Poisson.
+
+### El productor periódico
+
+Un productor que emite cada `T_prod = T` y un consumidor que tarda `T_cons = τ`
+por evento. En las unidades de arriba, `ρ = τ/T = T_cons/T_prod`. Los arribos
+están en una grilla exacta, `0, T, 2T, …`, y eso hace toda la matemática
+distinta de la de Poisson.
+
+- **`τ ≤ T` (ρ ≤ 1).** Cada arribo llega cuando el anterior ya terminó. No se
+  pierde **ninguno**, `m = n`, exacto. La masa de `Δt` es una delta en `T`,
+  toda fuera de `[0, τ]`.
+
+- **`τ > T` (ρ > 1).** Después de un arribo registrado en `0`, los de `T, 2T,
+  …` caen en la ventana hasta el primero con `k·T ≥ τ`, o sea
+  `k = ⌈τ/T⌉ = ⌈ρ⌉`. Ése se registra y se vuelve a empezar: se registra **uno
+  de cada `k`**, siempre el mismo, sin azar.
+
+  ```
+  m = n/⌈ρ⌉            m·τ = ρ/⌈ρ⌉          pérdida = 1 − 1/⌈ρ⌉
+  ```
+
+![](figuras/tiempo_muerto/04_periodico.png)
+
+**(a)** cuatro trenes con distinta relación `T_prod/T_cons`, en unidades de τ.
+Con `T/τ = 2` y `1.25` no se pierde nada: las ventanas grises nunca alcanzan al
+arribo siguiente. Con `0.8` se pierde uno de cada dos, con `0.4` dos de cada
+tres. **(b)** y **(c)** las curvas, con los cuatro trenes marcados como puntos:
+
+| `T_prod/T_cons` | ρ | `k = ⌈ρ⌉` | `m/n` | pérdida |
+|---|---|---|---|---|
+| 2 | 0.5 | 1 | 1 | 0 |
+| 1.25 | 0.8 | 1 | 1 | 0 |
+| 1 | 1 | 1 | 1 | 0 |
+| 0.8 | 1.25 | 2 | 1/2 | 50 % |
+| 0.5 | 2 | 2 | 1/2 | 50 % |
+| 0.4 | 2.5 | 3 | 1/3 | 67 % |
+| 0.3 | 3.33 | 4 | 1/4 | 75 % |
+
+Entre dientes `k` no cambia y `m` **crece** con `n`: se registra uno de cada
+`k` de un tren cada vez más rápido. En cada entero `k` sube en uno y `m` **cae
+de golpe**. El pico de cada diente, `m·τ = 1`, es el sistema al 100 % de
+ocupación **sin perder nada** —el productor periódico puede llevar al
+consumidor exactamente a su techo `1/τ`, cosa que Poisson sólo alcanza como
+asíntota.
+
+**Con dispersión en τ.** Si el consumidor no tarda siempre lo mismo,
+`τ ~ N(τ̄, σ)`, los arribos siguen en la grilla, así que por cada registrado
+se saltean `⌈τ_i/T⌉ − 1` arribos y
+
+```
+m = n / E[⌈τ/T⌉]
+```
+
+Lejos de un entero no cambia nada: todos los `τ_i` caen en el mismo escalón.
+**Cerca de un borde** el techo se reparte entre `k` y `k+1`, y el diente se
+redondea. Justo en `ρ = k` es mitad y mitad, `E = k + ½`, `m/n = 1/(k+½)`.
+Es el punto de 20 kev/s de la campaña del lector: `τ/T = 5.00`, `1/5.5 =
+18.2 %`, y se midió 18.4 % (3684 de 20 000). El ancho de la transición en ρ es
+`± σ/T = ± (σ/τ)·ρ`, así que con la misma dispersión relativa los dientes
+altos se borran antes que los bajos: con `σ/τ = 10 %` a ρ=6 ya no hay
+escalera, y la curva se promedia a `≈ ρ/(ρ+½)` —que sigue estando **por
+encima** de Poisson, `ρ/(ρ+1)`. Un productor periódico, aun con un consumidor
+con jitter, pierde menos que uno Poisson, porque los arribos nunca se agrupan.
+
+La consecuencia práctica está en la tabla de **Figura 1**, más abajo: para el
+ajuste sobre 6 puntos periódicos cualquier τ en `(200, 250]` µs da la misma
+predicción, porque dentro de ese intervalo ningún punto cambia de `k`. Con
+Poisson `m(n)` es continua en τ y ese problema no existe.
 
 ---
 

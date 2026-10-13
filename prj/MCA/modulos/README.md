@@ -10,7 +10,8 @@ modulos/
 │   ├── module.mk           reglas de sim/lint/syn/cobertura
 │   ├── syn_ooc.tcl         síntesis out-of-context en Vivado
 │   ├── extract_metrics.py  barrido -> CSV + resumen.md
-│   └── plot_sweep.py       barrido -> PNG
+│   ├── plot_sweep.py       barrido -> PNG
+│   └── datasheet.py        RTL -> diagrama de interfaz + datasheet.md
 ├── scripts/create_module.py   generador de módulos nuevos
 ├── comun/                  integration_cfg, dsp_tap_mux (región de TOP, slot 6)
 ├── osc/                    osc_cfg (slot 1) + osc_filter
@@ -91,6 +92,43 @@ Las métricas salen de un `metrics.txt` en `CLAVE=VALOR` que emite el TCL
 leyendo las properties de Vivado, no de parsear los `.rpt`: el formato de los
 reportes cambia entre versiones, las properties no. `extract_metrics.py` sólo
 los junta.
+
+## Datasheet por módulo
+
+```bash
+make -C modulos/mca/work datasheet                    # el TOP del módulo
+make -C modulos/multitrigger/work datasheet DS_TOP=trigger_shield
+make -C modulos/osc/work datasheet DS_ARGS=--all-tops # todos los de files.f
+python3 modulos/mk/datasheet.py --all                 # todos los módulos
+```
+
+Sale en `docs/<módulo>/`:
+
+```
+docs/<m>/datasheet_<top>.md            la página
+docs/<m>/figuras/<top>_interfaz.svg    el diagrama de bloques de la interfaz
+```
+
+El diagrama se arma leyendo la cabecera del RTL: los puertos de entrada a la
+izquierda, los de salida a la derecha, **agrupados por los banners
+`// --- grupo ---`** que el RTL ya tiene, con el ancho de cada bus resuelto con
+los `GENERICS` del `work/Makefile` (no con los defaults). También se reconocen
+los rótulos sueltos de una línea (`// Fuentes de trigger`), que es como agrupa
+`multitrigger_event_logic.v`.
+
+**Lo que se autogenera y lo que no.** Las secciones derivables —interfaces,
+mapa de registros, clock domains, Fmax y camino crítico, testbenches— van entre
+marcas `<!-- AUTO:x -->` y se **reescriben** en cada corrida. Todo lo demás
+—qué hace el bloque, las waveforms, el esquema de laboratorio— es prosa a mano
+y no se toca nunca. O sea: se agrega un puerto, se corre `make datasheet` y la
+tabla se actualiza sin perder lo escrito.
+
+La sección de Fmax sale de `syn/outputs/metrics.txt` y del barrido
+`work/rpt/sweep_results.csv`, así que conviene correrla **después** de `syn` o
+`sweep-all`; si no, la página lo dice y queda el comando para completarla.
+
+`make datasheet-check` no escribe nada y falla si la página quedó vieja
+respecto del RTL: sirve para enganchar en CI.
 
 Ojo con `lut`: cuenta **primitivas** LUT, no los "Slice LUTs" del
 `report_utilization` (dos LUT5 que comparten O5/O6 ocupan un solo sitio). Para

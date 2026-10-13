@@ -1,0 +1,185 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="1250" viewBox="0 0 1240 1250" font-family="DejaVu Sans,Helvetica,Arial,sans-serif">
+<style>
+  .bg{fill:#ffffff}
+  .stage{fill:#ffffff;stroke:#1b1f24;stroke-width:1.5}
+  .card{fill:#f6f8fa;stroke:#8c959f;stroke-width:1}
+  .bif{fill:#ffffff;stroke:#8c959f;stroke-width:1.2;stroke-dasharray:5 3}
+  .ti{fill:#1b1f24} .nm{fill:#1b1f24} .sb{fill:#57606a} .wd{fill:#6e7781}
+  .ttl{fill:#1b1f24} .sub{fill:#57606a} .note{fill:#57606a}
+  .dom{fill:#6e7781;letter-spacing:0.06em}
+  .leader{stroke:#b1b8c0;stroke-width:1;stroke-dasharray:3 3;fill:none}
+
+  .a-cont{stroke:#1b4f8c;stroke-width:4;fill:none}
+  .a-pl{stroke:#5a2ea6;stroke-width:4;fill:none}
+  .a-ps{stroke:#9a3b00;stroke-width:4;fill:none}
+  .a-os{stroke:#0f6e4f;stroke-width:4;fill:none}
+  .a-man{stroke:#5b6670;stroke-width:4;fill:none}
+  .f-cont{fill:#1b4f8c} .f-pl{fill:#5a2ea6} .f-ps{fill:#9a3b00}
+  .f-os{fill:#0f6e4f} .f-man{fill:#5b6670}
+  .f-ra{fill:#0f6e4f}  .f-rc{fill:#5a2ea6}
+
+  @media (prefers-color-scheme: dark){
+    .bg{fill:#0d1117}
+    .stage{fill:#0d1117;stroke:#c9d1d9}
+    .card{fill:#161b22;stroke:#6e7681}
+    .bif{fill:#0d1117;stroke:#6e7681}
+    .ti{fill:#e6edf3} .nm{fill:#e6edf3} .sb{fill:#8b949e} .wd{fill:#8b949e}
+    .ttl{fill:#e6edf3} .sub{fill:#8b949e} .note{fill:#8b949e}
+    .dom{fill:#8b949e}
+    .leader{stroke:#484f58}
+
+    .a-cont{stroke:#58a6ff} .a-pl{stroke:#a371f7} .a-ps{stroke:#e3a008}
+    .a-os{stroke:#3fb950}   .a-man{stroke:#8b949e}
+    .f-cont{fill:#58a6ff} .f-pl{fill:#a371f7} .f-ps{fill:#e3a008}
+    .f-os{fill:#3fb950}   .f-man{fill:#8b949e}
+    .f-ra{fill:#3fb950}   .f-rc{fill:#a371f7}
+  }
+</style>
+<rect class="bg" x="0" y="0" width="1240" height="1250"/>
+<text class="ttl" x="56" y="36" font-size="19" text-anchor="start" font-weight="700">La cadena de un evento, y quién inicia cada tramo</text>
+<text class="sub" x="56" y="57" font-size="10.5" text-anchor="start">El color de cada flecha es el iniciador de la transferencia, no el dominio. A la derecha, las tres bifurcaciones que cambian el camino.</text>
+<rect class="f-cont" x="56" y="74" width="22" height="5" rx="2.5"/>
+<text class="wd" x="85" y="80" font-size="9.5" text-anchor="start">el reloj: continuo, no se puede frenar</text>
+<rect class="f-pl" x="314.29999999999995" y="74" width="22" height="5" rx="2.5"/>
+<text class="wd" x="343.29999999999995" y="80" font-size="9.5" text-anchor="start">la PL: un trigger en RTL</text>
+<rect class="f-ps" x="497.69999999999993" y="74" width="22" height="5" rx="2.5"/>
+<text class="wd" x="526.6999999999999" y="80" font-size="9.5" text-anchor="start">el PS: software, por poll o por umbral</text>
+<rect class="f-os" x="755.9999999999999" y="74" width="22" height="5" rx="2.5"/>
+<text class="wd" x="784.9999999999999" y="80" font-size="9.5" text-anchor="start">el kernel: cuando a él le conviene</text>
+<rect class="f-man" x="992.8999999999999" y="74" width="22" height="5" rx="2.5"/>
+<text class="wd" x="1021.8999999999999" y="80" font-size="9.5" text-anchor="start">una persona o un script, offline</text>
+<rect class="stage" x="56" y="110" width="290" height="60" rx="4"/>
+<text class="ti" x="70" y="131" font-size="11.5" text-anchor="start" font-weight="700">Detector · IN1</text>
+<text class="dom" x="334" y="124" font-size="7.8" text-anchor="end" font-weight="700">ANALÓGICO</text>
+<text class="sb" x="70" y="147" font-size="8.5" text-anchor="start">pulso de ~2 µs sobre ±1 V (jumper LV)</text>
+<rect class="stage" x="56" y="234" width="290" height="60" rx="4"/>
+<text class="ti" x="70" y="255" font-size="11.5" text-anchor="start" font-weight="700">ADC LTC2145-14</text>
+<text class="dom" x="334" y="248" font-size="7.8" text-anchor="end" font-weight="700">ANALÓGICO</text>
+<text class="sb" x="70" y="271" font-size="8.5" text-anchor="start">2 × 14 bit · 125 MS/s</text>
+<text class="sb" x="70" y="283" font-size="8.5" text-anchor="start">una muestra cada 8 ns</text>
+<rect class="stage" x="56" y="358" width="290" height="60" rx="4"/>
+<text class="ti" x="70" y="379" font-size="11.5" text-anchor="start" font-weight="700">PL · datapath a adc_clk</text>
+<text class="dom" x="334" y="372" font-size="7.8" text-anchor="end" font-weight="700">PL · FPGA</text>
+<text class="sb" x="70" y="395" font-size="8.5" text-anchor="start">scope + multitrigger + mca_top,</text>
+<text class="sb" x="70" y="407" font-size="8.5" text-anchor="start">los tres en paralelo sobre la misma muestra</text>
+<rect class="stage" x="56" y="482" width="290" height="60" rx="4"/>
+<text class="ti" x="70" y="503" font-size="11.5" text-anchor="start" font-weight="700">PL · BRAM del scope</text>
+<text class="dom" x="334" y="496" font-size="7.8" text-anchor="end" font-weight="700">PL · FPGA</text>
+<text class="sb" x="70" y="519" font-size="8.5" text-anchor="start">buffer circular: 8192 muestras/canal</text>
+<text class="sb" x="70" y="531" font-size="8.5" text-anchor="start">= 65 µs de historia hacia atrás</text>
+<rect class="stage" x="56" y="606" width="290" height="60" rx="4"/>
+<text class="ti" x="70" y="627" font-size="11.5" text-anchor="start" font-weight="700">PL · ventana congelada</text>
+<text class="dom" x="334" y="620" font-size="7.8" text-anchor="end" font-weight="700">PL · FPGA</text>
+<text class="sb" x="70" y="643" font-size="8.5" text-anchor="start">la PL no captura otro evento</text>
+<text class="sb" x="70" y="655" font-size="8.5" text-anchor="start">hasta que el PS re-arme</text>
+<rect class="stage" x="56" y="730" width="290" height="60" rx="4"/>
+<text class="ti" x="70" y="751" font-size="11.5" text-anchor="start" font-weight="700">PS · RAM del proceso</text>
+<text class="dom" x="334" y="744" font-size="7.8" text-anchor="end" font-weight="700">PS · usuario</text>
+<text class="sb" x="70" y="767" font-size="8.5" text-anchor="start">batch de NumPy en full_q</text>
+<text class="sb" x="70" y="779" font-size="8.5" text-anchor="start">reader.py produce, storage.py consume</text>
+<rect class="stage" x="56" y="854" width="290" height="60" rx="4"/>
+<text class="ti" x="70" y="875" font-size="11.5" text-anchor="start" font-weight="700">PS · page cache del kernel</text>
+<text class="dom" x="334" y="868" font-size="7.8" text-anchor="end" font-weight="700">PS · kernel</text>
+<text class="sb" x="70" y="891" font-size="8.5" text-anchor="start">sigue siendo DDR: el dato todavía</text>
+<text class="sb" x="70" y="903" font-size="8.5" text-anchor="start">no está en la tarjeta</text>
+<rect class="stage" x="56" y="978" width="290" height="60" rx="4"/>
+<text class="ti" x="70" y="999" font-size="11.5" text-anchor="start" font-weight="700">microSD · chunk_000123.npz</text>
+<text class="dom" x="334" y="992" font-size="7.8" text-anchor="end" font-weight="700">PS · kernel</text>
+<text class="sb" x="70" y="1015" font-size="8.5" text-anchor="start">tmp + os.replace: nunca un .npz a medias</text>
+<rect class="stage" x="56" y="1102" width="290" height="60" rx="4"/>
+<text class="ti" x="70" y="1123" font-size="11.5" text-anchor="start" font-weight="700">PC del banco</text>
+<text class="dom" x="334" y="1116" font-size="7.8" text-anchor="end" font-weight="700">AFUERA</text>
+<text class="sb" x="70" y="1139" font-size="8.5" text-anchor="start">y de ahí a su propio disco</text>
+<path class="a-cont" d="M201.0,170 V224"/>
+<path class="f-cont" d="M194.5,223 L201.0,234 L207.5,223 Z"/>
+<path class="leader" d="M209.0,202.0 H380"/>
+<rect class="card" x="380" y="176.0" width="560" height="52" rx="4"/>
+<rect class="f-cont" x="380" y="176.0" width="4.5" height="52" rx="2"/>
+<text class="f-cont" x="395" y="192.0" font-size="10.5" text-anchor="start" font-weight="700" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">front-end analógico: atenuador + filtro ~50 MHz</text>
+<text class="nm" x="395" y="207.0" font-size="9.5" text-anchor="start" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">inicia: nadie — es continuo y analógico</text>
+<text class="sb" x="395" y="221.0" font-size="9.5" text-anchor="start" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">unidad: tensión · ±1 V a fondo de escala</text>
+<path class="a-cont" d="M201.0,294 V348"/>
+<path class="f-cont" d="M194.5,347 L201.0,358 L207.5,347 Z"/>
+<path class="leader" d="M209.0,326.0 H380"/>
+<rect class="card" x="380" y="300.0" width="560" height="52" rx="4"/>
+<rect class="f-cont" x="380" y="300.0" width="4.5" height="52" rx="2"/>
+<text class="f-cont" x="395" y="316.0" font-size="10.5" text-anchor="start" font-weight="700" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">bus paralelo del ADC: 2 × 16 líneas LVCMOS18 + reloj diferencial</text>
+<text class="nm" x="395" y="331.0" font-size="9.5" text-anchor="start" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">inicia: el oscilador de 125 MHz, en cada ciclo · nunca se detiene</text>
+<text class="sb" x="395" y="345.0" font-size="9.5" text-anchor="start" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">unidad: 1 muestra (2 ch × 2 B) · 500 MB/s · valid sin ready: no se puede frenar</text>
+<path class="a-cont" d="M201.0,418 V472"/>
+<path class="f-cont" d="M194.5,471 L201.0,482 L207.5,471 Z"/>
+<path class="leader" d="M209.0,450.0 H380"/>
+<rect class="card" x="380" y="424.0" width="560" height="52" rx="4"/>
+<rect class="f-cont" x="380" y="424.0" width="4.5" height="52" rx="2"/>
+<text class="f-cont" x="395" y="440.0" font-size="10.5" text-anchor="start" font-weight="700" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">escritura circular en la BRAM del scope</text>
+<text class="nm" x="395" y="455.0" font-size="9.5" text-anchor="start" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">inicia: el propio datapath, cada ciclo · no hay condición que esperar</text>
+<text class="sb" x="395" y="469.0" font-size="9.5" text-anchor="start" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">unidad: 1 muestra · no se llena: sobrescribe (es memoria como tiempo, no una cola)</text>
+<path class="a-pl" d="M201.0,542 V596"/>
+<path class="f-pl" d="M194.5,595 L201.0,606 L207.5,595 Z"/>
+<path class="leader" d="M209.0,574.0 H380"/>
+<rect class="card" x="380" y="548.0" width="560" height="52" rx="4"/>
+<rect class="f-pl" x="380" y="548.0" width="4.5" height="52" rx="2"/>
+<text class="f-pl" x="395" y="564.0" font-size="10.5" text-anchor="start" font-weight="700" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">congelar la ventana: adc_we ← 0 y snapshot de wp_trig</text>
+<text class="nm" x="395" y="579.0" font-size="9.5" text-anchor="start" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">inicia: el trigger en RTL · cuando: cruce de umbral, filtrado por trigger_shield</text>
+<text class="sb" x="395" y="593.0" font-size="9.5" text-anchor="start" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">unidad: una ventana (pre+post) · no mueve el dato: lo detiene para que el PS lo lea</text>
+<path class="a-ps" d="M201.0,666 V720"/>
+<path class="f-ps" d="M194.5,719 L201.0,730 L207.5,719 Z"/>
+<path class="leader" d="M209.0,698.0 H380"/>
+<rect class="card" x="380" y="672.0" width="560" height="52" rx="4"/>
+<rect class="f-ps" x="380" y="672.0" width="4.5" height="52" rx="2"/>
+<text class="f-ps" x="395" y="688.0" font-size="10.5" text-anchor="start" font-weight="700" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">lectura por M_AXI_GP0 y re-armado   ←  el cuello de hoy</text>
+<text class="nm" x="395" y="703.0" font-size="9.5" text-anchor="start" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">inicia: el PS, poleando wp_trig cada 2.3 µs · cuando: el snapshot cambió</text>
+<text class="sb" x="395" y="717.0" font-size="9.5" text-anchor="start" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">unidad: 32 muestras × 2 ch (~145 B) · τ = 252.7 µs/evento → techo 3.7 kev/s</text>
+<path class="a-ps" d="M201.0,790 V844"/>
+<path class="f-ps" d="M194.5,843 L201.0,854 L207.5,843 Z"/>
+<path class="leader" d="M209.0,822.0 H380"/>
+<rect class="card" x="380" y="796.0" width="560" height="52" rx="4"/>
+<rect class="f-ps" x="380" y="796.0" width="4.5" height="52" rx="2"/>
+<text class="f-ps" x="395" y="812.0" font-size="10.5" text-anchor="start" font-weight="700" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">np.savez sobre un temporal, y os.replace atómico</text>
+<text class="nm" x="395" y="827.0" font-size="9.5" text-anchor="start" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">inicia: el hilo escritor, nunca el lector · cuando: batch.n == capacity</text>
+<text class="sb" x="395" y="841.0" font-size="9.5" text-anchor="start" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">unidad: un chunk de N eventos + metadata · 12.4 MB/s medidos</text>
+<path class="a-os" d="M201.0,914 V968"/>
+<path class="f-os" d="M194.5,967 L201.0,978 L207.5,967 Z"/>
+<path class="leader" d="M209.0,946.0 H380"/>
+<rect class="card" x="380" y="920.0" width="560" height="52" rx="4"/>
+<rect class="f-os" x="380" y="920.0" width="4.5" height="52" rx="2"/>
+<text class="f-os" x="395" y="936.0" font-size="10.5" text-anchor="start" font-weight="700" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">flush del page cache al dispositivo de bloque (SD0)</text>
+<text class="nm" x="395" y="951.0" font-size="9.5" text-anchor="start" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">inicia: el kernel, no la aplicación · el write() de la app ya había vuelto</text>
+<text class="sb" x="395" y="965.0" font-size="9.5" text-anchor="start" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">unidad: bloques de la SD · 4 bit @ 50 MHz → techo de bus ~25 MB/s</text>
+<path class="a-man" d="M201.0,1038 V1092"/>
+<path class="f-man" d="M194.5,1091 L201.0,1102 L207.5,1091 Z"/>
+<path class="leader" d="M209.0,1070.0 H380"/>
+<rect class="card" x="380" y="1044.0" width="560" height="52" rx="4"/>
+<rect class="f-man" x="380" y="1044.0" width="4.5" height="52" rx="2"/>
+<text class="f-man" x="395" y="1060.0" font-size="10.5" text-anchor="start" font-weight="700" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">rsync / scp por Gigabit Ethernet</text>
+<text class="nm" x="395" y="1075.0" font-size="9.5" text-anchor="start" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">inicia: una persona o un script · cuando: la corrida terminó</text>
+<text class="sb" x="395" y="1089.0" font-size="9.5" text-anchor="start" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">unidad: archivos · 90–110 MB/s de techo de TCP — ver la bifurcación 3</text>
+<path class="leader" d="M940,452.0 H970"/>
+<rect class="bif" x="970" y="406" width="250" height="92" rx="4"/>
+<rect class="f-ra" x="970" y="406" width="4.5" height="92" rx="2"/>
+<text class="f-ra" x="984" y="426" font-size="10.5" text-anchor="start" font-weight="700">Bifurcación 1 · el espectro</text>
+<text class="sb" x="984" y="442.0" font-size="8.5" text-anchor="start">mca_top acumula en su propia BRAM y el</text>
+<text class="sb" x="984" y="454.5" font-size="8.5" text-anchor="start">espectro sale por el socket TCP, ~1 por s.</text>
+<text class="sb" x="984" y="467.0" font-size="8.5" text-anchor="start">32 kB con H_AW=13 (build Z10_2CH);</text>
+<text class="sb" x="984" y="479.5" font-size="8.5" text-anchor="start">64 kB con H_AW=14 (top del event_ring).</text>
+<text class="sb" x="984" y="492.0" font-size="8.5" text-anchor="start">No toca ni la DDR ni el disco.</text>
+<path class="leader" d="M940,636.0 H970"/>
+<rect class="bif" x="970" y="583" width="250" height="106" rx="4"/>
+<rect class="f-rc" x="970" y="583" width="4.5" height="106" rx="2"/>
+<text class="f-rc" x="984" y="603" font-size="10.5" text-anchor="start" font-weight="700">Bifurcación 2 · event_ring</text>
+<text class="sb" x="984" y="619.0" font-size="8.5" text-anchor="start">La PL escribe la ventana en DDR por HP0</text>
+<text class="sb" x="984" y="631.5" font-size="8.5" text-anchor="start">(DMA) y el PS lee por lotes de 64 kB,</text>
+<text class="sb" x="984" y="644.0" font-size="8.5" text-anchor="start">poleando el footer en vez de un registro.</text>
+<text class="sb" x="984" y="656.5" font-size="8.5" text-anchor="start">Reemplaza congelar/leer/re-armar y saca al</text>
+<text class="sb" x="984" y="669.0" font-size="8.5" text-anchor="start">PS del camino crítico: ~3.9 Mev/s.</text>
+<path class="leader" d="M940,1008.0 H970"/>
+<rect class="bif" x="970" y="962" width="250" height="92" rx="4"/>
+<rect class="f-rc" x="970" y="962" width="4.5" height="92" rx="2"/>
+<text class="f-rc" x="984" y="982" font-size="10.5" text-anchor="start" font-weight="700">Bifurcación 3 · NFS</text>
+<text class="sb" x="984" y="998.0" font-size="8.5" text-anchor="start">El write() del escritor va directo a la PC:</text>
+<text class="sb" x="984" y="1010.5" font-size="8.5" text-anchor="start">desaparecen las dos etapas de microSD.</text>
+<text class="sb" x="984" y="1023.0" font-size="8.5" text-anchor="start">El archivo local queda sólo de respaldo si</text>
+<text class="sb" x="984" y="1035.5" font-size="8.5" text-anchor="start">la red se cae (el ring da ~2.3 s de colchón).</text>
+<text class="note" x="56" y="1214" font-size="10" text-anchor="start">Las dos etapas de RAM que es fácil pasar por alto: el batch del proceso y el page cache del kernel. El write() de la aplicación vuelve antes de que el dato esté en la tarjeta.</text>
+<text class="note" x="56" y="1232" font-size="10" text-anchor="start">No hay SSD en la placa: el único almacenamiento local es la microSD por SD0. El throughput y el ajuste de cada tramo están en movimiento_de_datos.md §1.</text>
+</svg>

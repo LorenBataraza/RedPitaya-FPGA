@@ -10,6 +10,10 @@ cual comparar:
    carga/pico), y **¿hace falta hardware nuevo o alcanza con el eje de forma que
    el RTL ya calcula?**
 
+Las dos reglas de ventana que se comparan acá —histéresis y compuertas fijas—
+están explicadas, con diagramas, en
+[`ventana_de_medicion.md`](ventana_de_medicion.md).
+
 **Corre en la PC, sin placa y sin datos medidos.** El estímulo es la misma forma
 semi-gaussiana de la campaña de referencia: `detector_pulse` con FWHM de 2 µs y
 cola τ = 186 muestras, la medida sobre 7054 pulsos reales.

@@ -65,6 +65,16 @@ de 125 MHz que lo maneja (un XO de propósito general: **1–10 ps rms** integra
 en 12 kHz–20 MHz; verificar el componente que monta la placa). El del oscilador
 manda.
 
+Cómo llega el clock a cada lado, según el top
+([`mca_red_pitaya_top.sv`](../../rtl/mine/tops/mca_red_pitaya_top.sv), líneas
+~290–308): el oscilador de la placa maneja **directamente** al ADC y entra a la
+FPGA por `adc_clk_i` (ADCLKP/N) → `IBUFDS` → PLL → `BUFG` → `adc_clk`. La salida
+`adc_clk_o` está sin uso. Consecuencia: **el jitter del PLL de la FPGA no toca el
+instante de muestreo.** Sólo mueve el flanco con el que la lógica captura los
+datos ya convertidos, y para eso hay margen de setup/hold de sobra a 8 ns. El
+único jitter que entra en la conversión es el del oscilador más la apertura del
+ADC; lo demás es digital y determinista.
+
 ### Cómo se convierte en error de amplitud
 
 Un error de tiempo sobre una señal con pendiente es un error de tensión:
@@ -120,6 +130,51 @@ desplazamiento entre el máximo verdadero y la muestra más cercana:
 Esto no es ruido del clock: con un clock perfecto pasa igual. Es el efecto que
 [`decisiones_diseno_mca.md`](decisiones_diseno_mca.md) §5 llama *jitter de
 muestreo* y es la razón de fondo por la que existe `cfg_amp_src`.
+
+### Lo que se puede afirmar sin saber nada del ADC
+
+La fase de muestreo **no depende del conversor**. Es geometría entre dos
+relojes que no se hablan: el del pulso (el detector, o el pulser) y el de la
+placa. Todo lo que sigue vale para cualquier ADC de 125 MSPS, y lo único que
+cambiaría con otro conversor es `Ts`.
+
+1. **Es una variable por evento, no por muestra.** Todas las muestras de un
+   pulso comparten el mismo `φ`. No es ruido que promedie con `1/√N`: es un
+   corrimiento rígido de la grilla. Por eso la integral no lo ve (sumar sobre
+   una grilla corrida da lo mismo) y la muestra de pico lo ve completo (una
+   sola muestra, una sola posición).
+2. **Es uniforme, y eso es verificable.** Dos relojes libres con frecuencias
+   inconmensurables barren todas las fases con la misma probabilidad. El
+   estimador de fase de un evento sale de los propios datos, sin hardware
+   extra: interpolar el cruce de umbral entre las dos muestras que lo encierran
+   da `φ` con resolución sub-`Ts`. El histograma de ese `φ` sobre miles de
+   eventos tiene que ser **plano** entre 0 y 8 ns. Si tiene estructura, o el
+   interpolador está sesgado, o los relojes están acoplados.
+3. **La trampa del acoplamiento.** Si el pulser y la placa compartieran
+   referencia (el Rigol tiene entrada de 10 MHz; la Pitaya no la usa), `φ` sería
+   una *constante* por configuración, no una variable: el histograma de fase
+   sería un pico, el fotopico se afinaría artificialmente y el "jitter de
+   muestreo" desaparecería de la medición sin haber desaparecido del sistema.
+   Con un detector real nunca hay acoplamiento; con pulser hay que
+   asegurarse de que tampoco. Hoy no lo hay: los relojes son independientes y la
+   fase barre.
+4. **La distribución del error de amplitud no es gaussiana.** Con `φ` uniforme
+   y `δ ∝ φ²` (pico redondeado), el error tiene una densidad que se acumula en
+   `δ = 0` y cae hacia el máximo: asimétrica, con sesgo hacia subestimar.
+   Ensancha el fotopico *y* lo corre hacia abajo en `E[δ]`. El desplazamiento se
+   calibra; el ancho no. Con `δ ∝ |φ|` (cúspide) el error es uniforme en
+   `[0, A·Ts/2t_r]`, FWHM igual al ancho completo, sin cola.
+5. **Se elimina por software, no por hardware.** Un clock mejor no cambia
+   nada. Las opciones son: integrar (`cfg_amp_src = 1`), conformar para
+   redondear el pico (`τ_c` grande), o interpolar el máximo con un ajuste
+   parabólico sobre tres muestras — que recupera el pico verdadero a segundo
+   orden y deja la muestra de pico casi tan buena como la integral para picos
+   redondeados. Esta última no está en el RTL, pero es barata (una división
+   por dos muestras y un cuadrado) y es la primera cosa a probar si hay que
+   quedarse con el estimador de pico.
+
+Lo que sí requiere hoja de datos es el jitter de apertura de §2 — y ése ya
+quedó dos órdenes de magnitud por debajo de todo lo demás.
 
 ### Efecto sobre la muestra de pico
 
@@ -213,7 +268,9 @@ Dos cosas que **no son jitter** pero aparecen en la misma distribución:
   amplitud (`t_cruce ≈ t_r · thr / (0.8·A)`). Es sistemático y se corrige
   conociendo `A`, o se elimina con un discriminador de fracción constante. El
   RTL actual no tiene CFD; el walk está en el timestamp y hay que corregirlo en
-  software si importa.
+  software si importa. Además entra en la integral cerca del umbral y, en modo
+  histéresis, en el **largo de la ventana**:
+  [`ventana_de_medicion.md`](ventana_de_medicion.md) §5.
 - **Latencia del pipeline**: el detector de cruce, el registro de timestamp y
   el CDC al bus agregan ciclos, pero **un número fijo** de ciclos. La lógica es
   síncrona con `adc_clk`; no agrega jitter. El único cruce de dominio
@@ -267,7 +324,7 @@ Resumen para `A = 1920` cuentas, `t_r = 100 ns`, pulso de 2 µs, `σ_t,clk = 1 p
 |---|---|---|---|---|
 | Ruido ADC + front-end | todo | 2.8 cuentas | 0.18 ns | RMS de la línea de base con la entrada terminada en 50 Ω, sin pulser |
 | Fase de muestreo, pico | `cfg_amp_src = 0` | 0.006 (parábola) … 11 (cúspide) | — | `compare_estimators()` vs ancho de pulso; forma del pico con el osciloscopio |
-| Fase de muestreo, timestamp | timestamp | — | 2.31 ns | Histograma de `ts` con pulser periódico: tiene que ser plano de 8 ns |
+| Fase de muestreo, timestamp | timestamp | — | 2.31 ns | Histograma de `φ` interpolado del cruce de umbral: tiene que ser plano entre 0 y 8 ns (`ts` solo no la ve, está cuantizado) |
 | Apertura + clock | flanco, integral | 0.07 cuentas | 1 ps | No vale la pena; sólo si aparecen `t_r < 20 ns` |
 | Cierre de ventana (histéresis) | `cfg_amp_src = 1`, `gate_mode = 0` | ≈ 0.15 % de A | 28 ns | Barrido `gate_mode` 0 vs 1 sobre el mismo estímulo (ya hecho: 0.53 → 0.15 %) |
 | Walk de amplitud | timestamp | — | sistemático, hasta `t_r·thr/A` | `ts` vs amplitud con el pulser barrido |

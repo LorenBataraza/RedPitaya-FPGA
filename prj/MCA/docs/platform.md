@@ -22,6 +22,7 @@ Documentos hermanos, para no duplicar:
 
 | Documento | Qué contiene |
 |---|---|
+| [`movimiento_de_datos.md`](movimiento_de_datos.md) | el overlay sobre este diagrama: qué mueve, cuánta CPU cuesta y cuánto ajuste lleva cada conexión |
 | [`TOP/bus_sistema_redpitaya.md`](TOP/bus_sistema_redpitaya.md) | el bus de registros GP0 → `sys_bus`, en detalle |
 | [`TOP/register_map_top.md`](TOP/register_map_top.md) | el mapa de los 8 slots |
 | [`puesta_en_marcha.md`](puesta_en_marcha.md) | el montaje del banco y el orden de arranque |
