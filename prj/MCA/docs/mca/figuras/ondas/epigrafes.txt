@@ -1,0 +1,133 @@
+EPÍGRAFES DE LAS FIGURAS DE ONDAS DEL MODULO MCA
+================================================
+
+Las cuatro primeras las escribe `ondas_mca.py` leyendo los VCD de
+`tb_mca_pulse_feature`, `tb_mca_hist` y `tb_mca_top`. Los números de abajo
+--cuántos ciclos dura la ventana del pulso, cuántos incrementos seguidos
+absorbe el histograma, cuántos ciclos tarda el ack-- los mide el script sobre
+el VCD, así que no pueden desincronizarse de los dibujos.
+
+La quinta es un esquema de secuencia y no tiene VCD detrás.
+
+Reloj de la simulación: tb_mca_hist a 100 MHz, tb_mca_pulse_feature a 100 MHz, tb_mca_top a 125 MHz
+
+Escenas de tb_mca_pulse_feature:
+
+  1) Pulso rectangular: ventana, q_tot, q_tail, amplitud de pico, psd
+  2) Estimador de INTEGRAL: amp = q_tot >> q_shift = 10000>>5 = 312
+  3) Pulso por debajo del umbral: no genera evento
+  4) Ventana de aceptación de amplitud
+  5) APILAMIENTO: la ventana llega a maxlen
+  6) Pulso que NUNCA vuelve a bajar de la histéresis: cierra por maxlen
+  7) Línea de base FIJA distinta de cero: q_tot usa (muestra - base)
+  8) Línea de base AUTOMÁTICA: converge al valor DC de la entrada
+  9) Caso borde PSD: q_tot == 0  -> err del divisor -> cnt_rej_psd
+  10) Caso borde PSD: q_tail == q_tot -> guarda psd_inputs_ok
+  11) Dos pulsos SEPARADOS (hueco > latencia del divisor): se cuentan los dos
+  12) cfg_run=0 inhibe la detección
+  13) COMPUERTAS DE LARGO FIJO (cfg_gate_mode = 1)
+
+Escenas de tb_mca_hist:
+
+  1) Estado inicial: todos los bins en cero
+  2) Incremento simple y acumulación
+  3) FORWARDING: incrementos en ciclos CONSECUTIVOS a la misma dirección
+  4) Saturación: se queda en 2^CW-1, NO envuelve a 0
+  5) Barrido de borrado
+  6) El puerto de LECTURA sigue vivo durante el barrido
+  7) Contador de descartes: eventos que llegan durante el barrido
+  8) Los eventos en vuelo al arrancar un borrado se descartan
+
+Escenas de tb_mca_top:
+
+  1) Identificación
+  2) Escritura y relectura de todos los registros RW
+  3) BARRIDO DE ACK — la regresión importante
+  4) El mismo barrido en el DUT B, con el motor 2D AUSENTE
+  5) Lectura DURANTE el barrido de borrado
+  6) CAMINO DE DATOS COMPLETO: inyectar pulsos y ver el bin correcto
+  7) El borrado deja el espectro y los contadores en cero
+
+FIGURA — mca_pulso_vida.svg
+---------------------------
+LA VIDA DE UN PULSO  -  cruce de umbral, ventana, carga acumulada y evento
+
+Es la figura central del modulo: todo lo que el MCA hace por evento pasa aca.
+La muestra cruza el umbral, `busy` sube y marca la ventana abierta, las dos
+cargas se acumulan mientras la ventana dura --q_tot sobre toda la ventana y
+q_tail desde la segunda muestra, que es lo que hace separable la forma del
+pulso-- y al cerrar sale `ev_valid` con la amplitud y el bus de features. El
+pulso es RECTANGULAR a proposito, igual que en el testbench: su ventana es
+inequivoca, asi que los numeros del epigrafe salen de una multiplicacion y no
+de reimplementar el DUT.
+
+  · Umbral 100, maxlen 1000: la ventana queda abierta 38 ciclos.
+  · q_tot=10000, q_tail=9500, amplitud=500: el pulso se ACEPTA.
+  · Contadores al final de la ventana: total=1, aceptados=1, apilados=0.
+  · 13 señales, 52 columnas, ventana 60 a 565 ns.
+
+FIGURA — mca_apilamiento.svg
+----------------------------
+APILAMIENTO  -  la ventana llega a maxlen: el pulso se cuenta pero NO se acepta
+
+El mismo bloque con `maxlen` chico y un pulso mas largo que eso. La ventana se
+cierra por limite y el evento cae en `cnt_pileup` sin pasar por
+`cnt_accepted`: no sale `ev_valid`. Lo que importa es que SI se cuenta en
+`cnt_total`. Un evento descartado que no se cuenta en ningun lado es tiempo
+muerto invisible, y sin ese numero no se puede corregir el espectro por
+eventos perdidos.
+
+  · Umbral 100, maxlen 10: la ventana queda abierta 10 ciclos.
+  · No sale ev_valid: el pulso se cierra por maxlen y se cuenta como apilamiento.
+  · Contadores al final de la ventana: total=1, aceptados=0, apilados=1.
+  · 13 señales, 24 columnas, ventana 11080 a 11305 ns.
+
+FIGURA — mca_hist_rmw.svg
+-------------------------
+READ-MODIFY-WRITE AL MISMO BIN  -  la cuenta no se pierde aunque los eventos lleguen pegados
+
+El histograma es una BRAM: incrementar un bin es leerlo, sumarle uno y
+escribirlo, y eso tarda varios ciclos. Si dos eventos consecutivos caen en el
+MISMO bin, el segundo leeria el valor viejo --el que todavia no se escribio--
+y una de las dos cuentas se perderia. La figura muestra cuatro incrementos
+seguidos al mismo bin y la lectura posterior dando el total correcto: el
+bloque puentea la escritura en vuelo. Es el peor caso realista, porque un pico
+del espectro es justamente muchos eventos al mismo bin.
+
+  · 4 incrementos seguidos al bin 3, y la lectura posterior da el total.
+  · 7 señales, 21 columnas, ventana 1955 a 2155 ns.
+
+FIGURA — mca_ack_borrado.svg
+----------------------------
+ACK DE LATENCIA FIJA  -  el barrido de borrado dura miles de ciclos y el bus no se entera
+
+Lo que la cabecera del RTL marca como lo mas importante del modulo. El barrido
+de borrado recorre 2^H_AW bins y dura miles de ciclos, muchisimo mas que los
+32 ciclos de timeout del axi4_slave. Si el ack dependiera de que el motor este
+libre, una lectura durante el barrido no haria ack nunca, y eso no produce una
+lectura mala: deja el CDC del slot desincronizado para siempre --reg_do !=
+reg_done-- y ese slot no acepta mas transacciones. El ack sale de un shift
+register incondicional, asi que llega con la misma latencia este barriendo o
+no, que es lo que la figura mide.
+
+  · Latencia del ack en las lecturas de la ventana: [4, 4, 4, 4] ciclos (siempre el mismo), con el barrido en curso.
+  · El presupuesto es 32 ciclos (el timeout de `axi4_slave.sv:193`).
+  · 8 señales, 74 columnas, ventana 97072 a 97652 ns.
+
+FIGURA — mca_flujo.svg
+----------------------
+FLUJO DE UNA MEDICION  -  mca_top
+
+Es un esquema de la SECUENCIA, no una medicion. Las dos cosas que fija: el
+borrado hay que ESPERARLO --`clear_busy` avisa, y los eventos que llegan
+mientras barre se descartan y se cuentan en `dropped`--, y los contadores se
+pueden leer con la medicion corriendo, que es lo que permite supervisar sin
+frenar. La misma secuencia en software esta en docs/API/guia_de_uso.md; si las
+dos se contradicen, una de las dos esta mal.
+
+  · ESQUEMA: una columna es un paso del software, no un ciclo de reloj.
+
+Las ventanas se ubican por condiciones sobre las señales --el cruce del
+umbral, el valor de cfg_maxlen que define la escena, la racha de incrementos, la
+escritura de run|clear_all-- y nunca por un tiempo fijo: si el testbench agrega
+una escena antes, las figuras siguen saliendo donde corresponde.

@@ -32,36 +32,15 @@ import mca_utils as mu                                          # noqa: E402
 DATOS_DEF = os.path.join(_AQUI, '..', '..', '..', 'software', 'datos',
                          'mca_20260528_001034')
 
-# --- paleta (validada con scripts/validate_palette.js, modo claro) -----------
-SUP    = '#fcfcfb'   # superficie
-TINTA  = '#0b0b0b'   # tinta primaria
-TINTA2 = '#52514e'   # tinta secundaria
-MUDO   = '#898781'   # ejes y etiquetas
-GRILLA = '#e1e0d9'
-AZUL   = '#2a78d6'   # serie 1: lo medido
-NARAN  = '#eb6834'   # serie 2: lo real/deformado en los esquemas
-ROJO   = '#d03b3b'   # crítico: el desvío que se está señalando
-RAMPA  = ['#86b6ef', '#5598e7', '#2a78d6', '#1c5cab', '#104281']  # ordinal
-
-plt.rcParams.update({
-    'figure.facecolor': SUP, 'axes.facecolor': SUP, 'savefig.facecolor': SUP,
-    'font.size': 10, 'axes.titlesize': 10, 'axes.labelsize': 10,
-    'axes.edgecolor': '#c3c2b7', 'axes.labelcolor': TINTA2,
-    'text.color': TINTA, 'xtick.color': MUDO, 'ytick.color': MUDO,
-    'axes.grid': True, 'grid.color': GRILLA, 'grid.linewidth': 0.6,
-    'axes.axisbelow': True, 'legend.frameon': False, 'figure.dpi': 140,
-})
-
-FWHM_K = 2.0 * np.sqrt(2.0 * np.log(2.0))          # sigma -> FWHM
-
-
-def _limpiar(ax):
-    for lado in ('top', 'right'):
-        ax.spines[lado].set_visible(False)
-
-
-def _panel(ax, letra):
-    ax.set_title(letra, loc='left', fontweight='bold', color=TINTA2, pad=6)
+# La paleta, los rcParams y los helpers de eje viven en `docs/figuras/estilo.py`
+# desde que hay figuras de otros modulos que los necesitan: importar ESTE modulo
+# para conseguir un color arrastraba `mca_utils` y la ruta de los `.npz` de la
+# campana del MCA. Se reexportan por nombre porque las otras figuras del MCA
+# --figuras_cadena_estatica, figuras_limites, ventana/, pileup/, tiempo_muerto/--
+# los importan de aca.
+sys.path.insert(0, os.path.join(_AQUI, '..', '..', 'figuras'))
+from estilo import (SUP, TINTA, TINTA2, MUDO, GRILLA, AZUL, NARAN,   # noqa: E402,F401
+                    ROJO, RAMPA, FWHM_K, _limpiar, _panel)
 
 
 def _gauss(x, c, s):
@@ -276,8 +255,9 @@ def fig_tres_metricas(out, seed=3):
     fig, axs = plt.subplots(1, 3, figsize=(9.6, 3.4), sharey=True)
     for ax, (nombre, y) in zip(axs, casos):
         ax.step(centros_id, ref, where='mid', color=TINTA2, lw=1.2, ls='--',
-                label='ideal')
-        ax.step(centros_id, y, where='mid', color=NARAN, lw=1.8, label='medido')
+                label='referencia')
+        ax.step(centros_id, y, where='mid', color=NARAN, lw=1.8,
+                label='con el defecto')
         ax.fill_between(centros_id, y, step='mid', color=NARAN, alpha=0.16, lw=0)
         ax.set_title(nombre, loc='left', fontweight='bold', pad=6)
         ax.set_xlabel('Canal')
@@ -649,6 +629,12 @@ Las tres métricas son independientes y arruinan cosas distintas:
 
 Un espectro con INL alta se ve perfectamente limpio y aun así miente la energía.
 
+La línea de trazos es *referencia*, no el ideal: es el mismo pico en los tres
+paneles, para que cada defecto se vea solo. El ideal de la FWHM es una delta —
+pulsos idénticos caen todos en el mismo canal— y el ancho de la referencia ya
+es ensanchamiento. Se la dibuja con ancho finito porque la DNL sólo se ve si el
+pico ocupa varios canales: contra una delta no habría nada que deformar.
+
 
 FIGURA 5 — 05_bineado.png
 -------------------------
@@ -726,22 +712,44 @@ tiempo. El video lo muestra avanzando y el estático lo muestra desplegado: 07a
 elige una ventana donde se ven todos los casos a la vez, y 07c elige tres cuadros
 en vez de uno.
 
-  (7a) 07a_senal.png — 25.4 us de señal con 6 pulsos. Sombreado, el tramo sobre
-       el umbral: es la ventana que pulse_feature abre y cierra, y por eso se ve
-       que el módulo SEGMENTA antes de medir. Los dos bordes de la ventana caen
-       entre pulsos y bajo el umbral, así que no hay ningún pulso a medio dibujar
-       ni sin etiquetar: los 6 están numerados al pie y los 6 están en la tabla
-       de 07b. El #3 no cruza el umbral y no produce nada.
+  (7a) 07a_senal.png — unas decenas de microsegundos de señal con media docena de
+       pulsos, numerados al pie en el mismo orden que la tabla de 07b. Las dos
+       bandas son los dos estados de pulse_feature y entre las dos cubren TODO el
+       eje. La banda azul es la ventana ABIERTA: dispara al cruzar thr hacia
+       arriba y cierra recién al bajar de thr - hyst, no de thr, y por eso termina
+       bastante después del pico, sobre la cola. La banda gris es el reposo
+       PREVIO al disparo, que no es tiempo perdido: ahí el módulo se re-arma
+       —pide bajar de thr - hyst— y el seguidor de línea de base corre, que es
+       contra qué se mide después la amplitud. Los dos bordes del gráfico caen
+       entre pulsos y por debajo de thr - hyst, así que no hay ningún pulso a
+       medio dibujar ni sin etiquetar. Los que no cruzan el umbral están
+       numerados igual y marcados "no cuenta": se ven en la traza y nunca
+       aparecen en el espectro.
   (7b) 07b_cadena.png — el camino de datos, con el tren de registros de evento
-       sobre el cable, y abajo la tabla de los 6 pulsos de 07a tal como los ve el
-       histograma: tiempo, amplitud y canal. El #2 y el #5 son pulsos distintos
-       (1402 y 1383 cuentas) que caen en el MISMO canal 21: eso es lo que hace
-       h_shift, y por eso la figura 5 discute cuánto se puede agrupar.
+       sobre el cable, y abajo la tabla de los mismos pulsos de 07a tal como los
+       ve el histograma: tiempo, amplitud y canal. Los rechazados figuran en la
+       tabla con el motivo —amp < thr— en lugar del canal, y no emiten nada.
   (7c) 07c_histograma.png — el espectro en tres momentos de la misma
        acumulación: 12, 64 y 227 cuentas. Con 12 son cuentas sueltas y no se
        puede afirmar nada; recién con 227 las dos líneas se ven como líneas. La
        raya roja marca el canal del umbral (300 >> 6 = 4): a su izquierda el
        espectro está vacío por construcción, no por falta de estadística.
+
+Un cuidado con la palabra: las bandas de 07a NO son una segmentación de la señal
+en eventos. Lo que se parte es el EJE DE TIEMPO en los dos estados del módulo, y
+las dos cosas no coinciden. Por un lado hay pulsos sin banda propia: los que no
+llegan al umbral no abren ninguna ventana. Por el otro, si un segundo pulso llega
+antes del cierre queda adentro de la MISMA ventana y los dos salen como UNA sola
+cuenta —es el apilamiento de apilamiento.md, que el RTL señala con gate_pileup—,
+así que una ventana tampoco equivale a un evento. La ventana del gráfico se
+eligió a propósito sin ese caso, porque el apilamiento tiene sus propias figuras
+en pileup/ y la ventana de medición las suyas en ventana/.
+
+Cuál es el tramo de señal que se dibuja lo elige el script, y cambia si se
+cambian la semilla o los cuadros, así que acá no se citan sus números: los
+bordes, las amplitudes y los canales de la ventana que se generó los imprime el
+propio figuras_cadena_estatica.py al correr, y están en el gráfico y en la tabla
+de 07b.
 
 Además, 07_cadena.png junta las tres etapas en una sola figura: es la que
 conviene poner si entra una sola. El detalle evento por evento queda en 07b.
@@ -751,6 +759,14 @@ el RTL con amp_src = 0, y no la amplitud con que se generó el pulso: el ruido d
 línea de base y la cola del pulso anterior también entran en esa muestra. La
 diferencia entre las dos es, en chiquito, el apilamiento que trata
 apilamiento.md.
+
+Los dos niveles del dibujo son thr = 300 cuentas y hyst = 150: el umbral viene de
+la simulación de los videos y la histéresis se escaló con él para conservar la
+proporción de los defaults de mca_top.sv (cfg_thr = 100, cfg_hyst = 50). En la
+placa son cfg_thr (0x014) y cfg_hyst (0x018), y todo esto es el modo 0 de
+cfg_gate_mode. Con compuertas fijas (modo 1) la banda azul no cerraría en
+thr - hyst sino a cfg_gate_long muestras del disparo, siempre el mismo largo;
+las dos reglas, con sus números medidos, están en ventana_de_medicion.md.
 """
     destino = os.path.join(out, 'epigrafes.txt')
     with open(destino, 'w') as fh:

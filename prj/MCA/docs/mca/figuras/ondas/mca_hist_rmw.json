@@ -1,0 +1,56 @@
+{
+  "signal": [
+    {
+      "name": "clk  100 MHz",
+      "wave": "ppppppppppppppppppppp"
+    },
+    {
+      "name": "inc_i",
+      "wave": "0...1...0............",
+      "node": "....a...b............"
+    },
+    {
+      "name": "inc_addr_i  (el MISMO bin)",
+      "wave": "5....................",
+      "data": [
+        "3"
+      ]
+    },
+    {},
+    {
+      "name": "busy_o",
+      "wave": "10..............1...."
+    },
+    {
+      "name": "rd_i",
+      "wave": "0............10......"
+    },
+    {
+      "name": "rd_addr_i",
+      "wave": "5....................",
+      "data": [
+        "3"
+      ]
+    },
+    {
+      "name": "rd_data_o  (la cuenta del bin)",
+      "wave": "3.............3......",
+      "data": [
+        "3",
+        "4"
+      ]
+    }
+  ],
+  "edge": [
+    "a<->b 4 incrementos seguidos"
+  ],
+  "head": {
+    "text": "READ-MODIFY-WRITE AL MISMO BIN  -  la cuenta no se pierde aunque los eventos lleguen pegados"
+  },
+  "foot": {
+    "text": "tb_mca_hist - 4 incrementos al bin 3 en ciclos consecutivos - 1 columna = 1 ciclo de clk (10 ns)"
+  },
+  "config": {
+    "hscale": 1
+  }
+}

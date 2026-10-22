@@ -1,0 +1,102 @@
+Epigrafes de las figuras de `figuras_mapa2d.py` — la geometria N1 x N2 del
+mapa 2D contra el limite de memoria. Los escribe el mismo script que dibuja,
+con los numeros recalculados, para que no puedan desincronizarse.
+
+Son esquemas de diseño. Los dos unicos numeros medidos son el FWHM del eje
+(8.6 canales sobre 2^13, 2a campaña) y el costo en tiles del build actual, con
+el que se valida el modelo de ocupacion de BRAM.
+
+-------------------------------------------------------------------------------
+01_plano_decision.png
+-------------------------------------------------------------------------------
+El plano de decision. Cada cuadrado es una geometria (N1 = 2^H2_AW en
+abscisas, N2 = 2^PSD_AW en ordenadas) y su color dice que hace falta para
+construirla. Las diagonales punteadas son curvas de costo constante: el mapa
+ocupa 2^(H2_AW+PSD_AW) palabras, asi que el costo depende de la SUMA de los
+dos exponentes y no de como se reparta entre los ejes. Esa es la propiedad que
+ordena el plano: moverse por una diagonal es gratis.
+
+El resultado que importa: con CW = 32 el limite que ata NO es la BRAM, es la
+apertura del bus. La apertura de 64 KB se llena a 2^14 bins, que son 16 tiles,
+cuando en el 7010 quedan 43 libres. Hay un factor 2.7 de BRAM comprada y no
+usada, y para llegar a ella hay que tocar el decode de sys_addr[19:16], no el
+chip. Con la apertura ensanchada el techo del 7010 pasa a 2^15 bins totales;
+el 7020 llega a 2^16.
+
+El circulo rojo es el build de hoy, 128 x 64. Los numeros son las aplicaciones
+de la tabla del README.
+
+-------------------------------------------------------------------------------
+02_limite_memoria.png
+-------------------------------------------------------------------------------
+(a) Tiles de BRAM contra bins totales, para tres anchos de contador, con los
+dos techos de chip y la apertura. El modelo de ocupacion son las palabras que
+entran en un RAMB36 segun el ancho nativo (1Kx36, 2Kx18, 4Kx9) y se valida
+contra el build: predice 8 tiles para el histograma 1D y 8 para el mapa 2D,
+que es lo que factura platform.md §4.7. El circulo rojo es el mapa de hoy.
+
+(b) Por que CW = 32 es gratis, y es el panel que mas decisiones cierra. El
+escalon azul es la granularidad del tile: cualquier contador de 19 a 36 bits
+cuesta EXACTAMENTE lo mismo, porque en los tres casos entran 1024 palabras por
+RAMB36 (banda verde). Bajar de 32 a 24 bits no ahorra un solo tile. El unico
+ahorro real es cruzar a <= 18 bits, que duplica los bins por tile, y la curva
+naranja dice lo que cuesta: con el bin caliente llevandose el 2 % de los
+eventos a 50 kev/s, un contador de 16 bits satura en 66 s y uno de 18 en 262
+s, contra 50 dias con los 32 de hoy. Un contador de 24 bits aguanta 4.7 h y no
+ahorra nada: es el peor punto de la curva.
+
+-------------------------------------------------------------------------------
+03_requisito_vs_alcance.png
+-------------------------------------------------------------------------------
+Lo que pide cada aplicacion contra lo que se alcanza. En abscisas el FWHM del
+pico mas angosto que hay que resolver, como fraccion del fondo de escala; en
+ordenadas el N1 que hace falta para meterle 3, 4 o 5 bins adentro. Las tres
+rectas son N1 = nb / (FWHM/FS), que en log-log son paralelas.
+
+Las lineas horizontales son los techos con N2 = 64 bins de forma, que es el
+reparto de uso real: 256 bins de amplitud hoy, 512 en este mismo chip si se
+ensancha la apertura, y 1024 en un 7020. Los cuadrados numerados son las
+aplicaciones de la tabla del README, con el FWHM tipico de cada familia de
+detector --valores de literatura, no medidos.
+
+La estrella roja es el unico punto medido: el FWHM del eje de esta placa, 8.6
+canales sobre 2^13, o sea 1.05e-03 del fondo de escala. Para ponerlo en el eje
+X del mapa con 4 bins por FWHM harian falta 3810 bins. Es el numero que
+explica por que las matrices gamma-gamma historicas son de 4096 x 4096 y por
+que no viven en BRAM: con esa geometria el mapa son 2^24 palabras, tres
+ordenes de magnitud por encima de lo que hay en el chip. Esa familia de
+aplicaciones pide modo lista en DDR y histogramado offline, no un mapa mas
+grande.
+
+-------------------------------------------------------------------------------
+04_bineado_y_zoom.png
+-------------------------------------------------------------------------------
+(a) La perdida por bineado (Sheppard): un bin rectangular de ancho w suma una
+varianza w^2/12, asi que el pico aparece ensanchado en sqrt(1 + 0.68^2
+(w/FWHM)^2). A 1 bin por FWHM son +21 %, a 3 son +2.5 % --el piso practico-- y
+a los 8.6 bins por FWHM del eje 1D de esta placa son +0.31 %. La regla que
+sale de la curva: 3 bins por FWHM de piso, 4 a 5 de objetivo, y por encima de
+8 la curva ya es plana y los bins de mas no compran nada.
+
+(b) Por que N1 no necesita ser grande si el zoom puede moverlo, y es el panel
+que contesta la pregunta de diseño. Con los 128 bins de hoy y sin zoom, el bin
+del eje X mide 7.4 veces el FWHM medido y el pico aparece ensanchado 5.2x.
+Pero mca_zoom entra con los 16 bits de la feature y no con los 7 del eje, asi
+que z llega a 9: con z = 6 los mismos 128 bins cubren 1/64 del fondo de escala
+y el bin vuelve a valer lo que el del espectro 1D, con un ensanchamiento de
+0.31 %. Las ventanas estan anidadas en potencias de 2 por diseño, asi que dos
+tomas con zoom distinto se suman con aritmetica entera sin re-samplear.
+
+La banda roja es el limite de k: en mca_zoom el enmascarado es 8'hFF >> (4'd8
+- z), que para z >= 9 envuelve en 4 bits y deja k = 0. Con esos niveles solo
+se puede entrar a la ventana mas baja del rango. Para F_INVW, que vive cerca
+de cero, es justo lo que hace falta; para F_PSD, cuyo cociente cae en 0.3-0.6
+del fondo, manda todo al bin 0.
+
+-------------------------------------------------------------------------------
+Las aplicaciones numeradas, en el mismo orden en las figuras 1 y 3: 1.
+Apilamiento (corte en forma) -> 64 x 64 2. n/gamma PSD, plastico o liquido ->
+128 x 64 3. alfa/beta/gamma, CsI(Tl) phoswich -> 256 x 128 4. NaI(Tl) con
+compuerta -> 512 x 64 5. CdZnTe, corte por tiempo de subida -> 1024 x 64 6.
+Telescopio dE-E -> 512 x 512 7. HPGe, limpieza del fotopico -> 4096 x 128 8.
+Matriz gamma-gamma -> 4096 x 4096

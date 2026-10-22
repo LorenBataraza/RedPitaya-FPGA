@@ -39,13 +39,17 @@ las otras dos y los videos son **esquemas sintéticos**.
 | [`07a_senal.mp4`](07a_senal.mp4) | **Video**: la señal de entrada, con pulsos de distinta altura y el umbral | simulados |
 | [`07b_cadena.mp4`](07b_cadena.mp4) | **Video**: `pulse_feature` emite un número por pulso y viaja al `histograma` | simulados |
 | [`07c_histograma.mp4`](07c_histograma.mp4) | **Video**: el espectro que se acumula, una barra por cuenta | simulados |
-| [`07a_senal.png`](07a_senal.png) | **Estática**: una ventana de 25 µs con los seis pulsos numerados, el umbral y —sombreada— la ventana que abre `pulse_feature` | simulados |
+| [`07a_senal.png`](07a_senal.png) | **Estática**: 26 µs con los seis pulsos numerados y las dos bandas de `pulse_feature` — la ventana abierta (dispara en `thr`, cierra en `thr − hyst`) y el reposo previo, donde se re-arma y sigue la línea de base. Ojo: parten el eje de tiempo en estados, **no** la señal en eventos | simulados |
 | [`07b_cadena.png`](07b_cadena.png) | **Estática**: el tren de registros de evento sobre el cable, y la tabla de los seis pulsos como los ve el `histograma` | simulados |
 | [`07c_histograma.png`](07c_histograma.png) | **Estática**: el mismo espectro en tres momentos de la acumulación (12, 64 y 227 cuentas) | simulados |
 | [`07_cadena.png`](07_cadena.png) | **Estática, las tres juntas**: la que conviene poner si en el informe entra una sola | simulados |
 | [`09_fwhm_vs_eje.png`](09_fwhm_vs_eje.png) | La barra de error de la figura 2 **desplegada**: el FWHM a lo largo del eje, separado en su término aditivo y el proporcional | medidos |
 | [`10_sintesis_triangular.png`](10_sintesis_triangular.png) | Cómo se aproxima un triángulo sumando CR-RC^n de distinto orden (Knoll fig. 17.6, de Goulding). Genera [`figuras_conformado.py`](figuras_conformado.py) | esquema |
 | [`11_trapezoidal_tiempo_subida.png`](11_trapezoidal_tiempo_subida.png) | El conformador trapezoidal (Jordanov-Knoll) con tres tiempos de subida: si el techo dura más que su dispersión, los tres llegan a la misma amplitud — **sin déficit balístico** (Knoll fig. 17.7). Genera [`figuras_conformado.py`](figuras_conformado.py) | esquema |
+| [`12_varianza_estimadores.png`](12_varianza_estimadores.png) | Dónde cae cada estimador de amplitud sobre cada familia de forma, contra la cota de Cramér-Rao, y de qué término está hecha su varianza. Genera [`varianza_estimadores.py`](../../../software/monte-carlo/varianza_estimadores.py) | simulados sobre ruido **medido** |
+| [`13_estimadores_vs_ancho.png`](13_estimadores_vs_ancho.png) | Los cuatro estimadores contra el ancho del pulso, de 0.1 a 4 µs: dónde se cruzan y dónde empieza a pesar la fase de muestreo. Mismo script | simulados sobre ruido **medido** |
+| [`14_cuentas_vs_separacion.png`](14_cuentas_vs_separacion.png) | **Qué compran las cuentas**: un doblete de 1.2 FWHM que emerge del ruido entre 10² y 10⁴ cuentas, otro de 0.13 FWHM que no se ve en ninguna N, y la curva de significancia que explica a los dos. Genera [`figuras_limites.py`](figuras_limites.py) | esquema |
+| [`15_bineado_vs_deteccion.png`](15_bineado_vs_deteccion.png) | **Qué compran los canales**, a N fija: la misma muestra con 1 a 16 canales/FWHM, y la información de Fisher que sobrevive al bineado — plana por encima de 4. Genera [`figuras_limites.py`](figuras_limites.py) | esquema |
 
 ---
 

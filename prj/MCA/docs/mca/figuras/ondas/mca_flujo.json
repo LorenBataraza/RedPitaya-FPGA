@@ -1,0 +1,64 @@
+{
+  "signal": [
+    {
+      "name": "escritura del PS",
+      "wave": "x3x4x5x.....x6x",
+      "data": [
+        "thr/hyst/base",
+        "maxlen/amp",
+        "clear + run",
+        "stop"
+      ],
+      "node": ".a..b..c.......g"
+    },
+    {
+      "name": "clear_busy",
+      "wave": "0..1.0.........",
+      "node": "...h.i........."
+    },
+    {
+      "name": "pulsos en la entrada",
+      "wave": "0.....1......0.",
+      "node": "......j........"
+    },
+    {
+      "name": "cnt_total / cnt_accepted",
+      "wave": "x.....=.=.=.=..",
+      "data": [
+        "0",
+        "N1",
+        "N2",
+        "N3"
+      ]
+    },
+    {},
+    {
+      "name": "lectura del PS",
+      "wave": "x.......7.7...8x",
+      "data": [
+        "contadores",
+        "contadores",
+        "histograma"
+      ],
+      "node": "........k.....l"
+    }
+  ],
+  "config": {
+    "hscale": 2
+  },
+  "head": {
+    "text": "FLUJO DE UNA MEDICION  -  mca_top"
+  },
+  "foot": {
+    "text": "ESQUEMA: una columna es un paso, no un ciclo. El clear hay que esperarlo (clear_busy); los contadores se pueden leer corriendo."
+  },
+  "edge": [
+    "a|->b",
+    "b|->c",
+    "c~>h barrido",
+    "h~>i",
+    "i~>j ya cuenta",
+    "k~>l",
+    "g|->l"
+  ]
+}

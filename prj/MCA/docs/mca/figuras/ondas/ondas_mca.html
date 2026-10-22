@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Ondas del modulo MCA</title>
+<script src="https://cdn.jsdelivr.net/npm/wavedrom@3.5.0/wavedrom.unpkg.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/wavedrom@3.5.0/skins/default.js"></script>
+<style>
+  :root { color-scheme: light; --ink: #1F2933; --muted: #6B7280; }
+  body { margin: 0 auto; padding: 24px 16px 64px; max-width: 1400px;
+         background: #fff; color: var(--ink);
+         font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, sans-serif; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 36px 0 2px; }
+  p.sub { color: var(--muted); margin: 0 0 20px; }
+  p.nota { color: var(--muted); margin: 2px 0 10px; max-width: 80ch; }
+  .wave { overflow-x: auto; }
+</style>
+</head>
+<body onload="WaveDrom.ProcessAll()">
+<h1>Ondas del m&oacute;dulo MCA</h1>
+<p class="sub">Generado por docs/mca/figuras/ondas/ondas_mca.py desde los VCD de tb_mca_pulse_feature, tb_mca_hist y tb_mca_top.</p>
+<h2>LA VIDA DE UN PULSO  -  cruce de umbral, ventana, carga acumulada y evento</h2>
+<p class="nota">Es la figura central del modulo: todo lo que el MCA hace por evento pasa aca. La muestra cruza el umbral, `busy` sube y marca la ventana abierta, las dos cargas se acumulan mientras la ventana dura --q_tot sobre toda la ventana y q_tail desde la segunda muestra, que es lo que hace separable la forma del pulso-- y al cerrar sale `ev_valid` con la amplitud y el bus de features. El pulso es RECTANGULAR a proposito, igual que en el testbench: su ventana es inequivoca, asi que los numeros del epigrafe salen de una multiplicacion y no de reimplementar el DUT.</p>
+<div class="wave"><script type="WaveDrom">
+{
+  "signal": [
+    {
+      "name": "clk  100 MHz",
+      "wave": "pppppppppppppppppppppppppppppppppppppppppppppppppppp"
+    },
+    {
+      "name": "dat_i  (muestra)",
+      "wave": "3...3...................3...........................",
+      "data": [
+        "0",
+        "500",
+        "0"
+      ],
+      "node": "....a..............................................."
+    },
+    {
+      "name": "val_i",
+      "wave": "1..01....................0.........................."
+    },
+    {
+      "name": "cfg_thr_i  (umbral)",
+      "wave": "=...................................................",
+      "data": [
+        "100"
+      ]
+    },
+    {
+      "name": "cfg_maxlen_i",
+      "wave": "=...................................................",
+      "data": [
+        "1000"
+      ]
+    },
+    {},
+    {
+      "name": "busy_o  (ventana abierta)",
+      "wave": "0....1.....................................0........",
+      "node": ".....b.....................................c........"
+    },
+    {
+      "name": "q_tot  (carga total)",
+      "wave": "5........................5..........................",
+      "data": [
+        "0",
+        "10000"
+      ]
+    },
+    {
+      "name": "q_tail  (carga de cola)",
+      "wave": "5........................5..........................",
+      "data": [
+        "0",
+        "9500"
+      ]
+    },
+    {},
+    {
+      "name": "ev_valid_o",
+      "wave": "0..........................................10.......",
+      "node": "...........................................d........"
+    },
+    {
+      "name": "ev_amp_o",
+      "wave": "3..........................................3........",
+      "data": [
+        "0",
+        "500"
+      ]
+    },
+    {
+      "name": "cnt_total_o",
+      "wave": "=........................=..........................",
+      "data": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "cnt_accepted_o",
+      "wave": "=..........................................=........",
+      "data": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "cnt_pileup_o",
+      "wave": "=...................................................",
+      "data": [
+        "0"
+      ]
+    }
+  ],
+  "edge": [
+    "a~>b abre la ventana",
+    "b<->c 38 ciclos",
+    "c~>d"
+  ],
+  "head": {
+    "text": "LA VIDA DE UN PULSO  -  cruce de umbral, ventana, carga acumulada y evento"
+  },
+  "foot": {
+    "text": "tb_mca_pulse_feature - thr=100, maxlen=1000 - 1 columna = 1 ciclo de clk (10 ns)"
+  },
+  "config": {
+    "hscale": 1
+  }
+}
+</script></div>
+<h2>APILAMIENTO  -  la ventana llega a maxlen: el pulso se cuenta pero NO se acepta</h2>
+<p class="nota">El mismo bloque con `maxlen` chico y un pulso mas largo que eso. La ventana se cierra por limite y el evento cae en `cnt_pileup` sin pasar por `cnt_accepted`: no sale `ev_valid`. Lo que importa es que SI se cuenta en `cnt_total`. Un evento descartado que no se cuenta en ningun lado es tiempo muerto invisible, y sin ese numero no se puede corregir el espectro por eventos perdidos.</p>
+<div class="wave"><script type="WaveDrom">
+{
+  "signal": [
+    {
+      "name": "clk  100 MHz",
+      "wave": "pppppppppppppppppppppppp"
+    },
+    {
+      "name": "dat_i  (muestra)",
+      "wave": "3...3...................",
+      "data": [
+        "0",
+        "500"
+      ],
+      "node": "....a..................."
+    },
+    {
+      "name": "val_i",
+      "wave": "1..01..................."
+    },
+    {
+      "name": "cfg_thr_i  (umbral)",
+      "wave": "=.......................",
+      "data": [
+        "100"
+      ]
+    },
+    {
+      "name": "cfg_maxlen_i",
+      "wave": "=..=....................",
+      "data": [
+        "1000",
+        "10"
+      ]
+    },
+    {},
+    {
+      "name": "busy_o  (ventana abierta)",
+      "wave": "0....1.........0........",
+      "node": ".....b.........c........"
+    },
+    {
+      "name": "q_tot  (carga total)",
+      "wave": "5..............5........",
+      "data": [
+        "0",
+        "5000"
+      ]
+    },
+    {
+      "name": "q_tail  (carga de cola)",
+      "wave": "5..............5........",
+      "data": [
+        "0",
+        "4500"
+      ]
+    },
+    {},
+    {
+      "name": "ev_valid_o",
+      "wave": "0......................."
+    },
+    {
+      "name": "ev_amp_o",
+      "wave": "3.......................",
+      "data": [
+        "0"
+      ]
+    },
+    {
+      "name": "cnt_total_o",
+      "wave": "=..............=........",
+      "data": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "cnt_accepted_o",
+      "wave": "=.......................",
+      "data": [
+        "0"
+      ]
+    },
+    {
+      "name": "cnt_pileup_o",
+      "wave": "=..............=........",
+      "data": [
+        "0",
+        "1"
+      ]
+    }
+  ],
+  "edge": [
+    "a~>b abre la ventana",
+    "b<->c 10 ciclos"
+  ],
+  "head": {
+    "text": "APILAMIENTO  -  la ventana llega a maxlen: el pulso se cuenta pero NO se acepta"
+  },
+  "foot": {
+    "text": "tb_mca_pulse_feature - thr=100, maxlen=10 - 1 columna = 1 ciclo de clk (10 ns)"
+  },
+  "config": {
+    "hscale": 1
+  }
+}
+</script></div>
+<h2>READ-MODIFY-WRITE AL MISMO BIN  -  la cuenta no se pierde aunque los eventos lleguen pegados</h2>
+<p class="nota">El histograma es una BRAM: incrementar un bin es leerlo, sumarle uno y escribirlo, y eso tarda varios ciclos. Si dos eventos consecutivos caen en el MISMO bin, el segundo leeria el valor viejo --el que todavia no se escribio-- y una de las dos cuentas se perderia. La figura muestra cuatro incrementos seguidos al mismo bin y la lectura posterior dando el total correcto: el bloque puentea la escritura en vuelo. Es el peor caso realista, porque un pico del espectro es justamente muchos eventos al mismo bin.</p>
+<div class="wave"><script type="WaveDrom">
+{
+  "signal": [
+    {
+      "name": "clk  100 MHz",
+      "wave": "ppppppppppppppppppppp"
+    },
+    {
+      "name": "inc_i",
+      "wave": "0...1...0............",
+      "node": "....a...b............"
+    },
+    {
+      "name": "inc_addr_i  (el MISMO bin)",
+      "wave": "5....................",
+      "data": [
+        "3"
+      ]
+    },
+    {},
+    {
+      "name": "busy_o",
+      "wave": "10..............1...."
+    },
+    {
+      "name": "rd_i",
+      "wave": "0............10......"
+    },
+    {
+      "name": "rd_addr_i",
+      "wave": "5....................",
+      "data": [
+        "3"
+      ]
+    },
+    {
+      "name": "rd_data_o  (la cuenta del bin)",
+      "wave": "3.............3......",
+      "data": [
+        "3",
+        "4"
+      ]
+    }
+  ],
+  "edge": [
+    "a<->b 4 incrementos seguidos"
+  ],
+  "head": {
+    "text": "READ-MODIFY-WRITE AL MISMO BIN  -  la cuenta no se pierde aunque los eventos lleguen pegados"
+  },
+  "foot": {
+    "text": "tb_mca_hist - 4 incrementos al bin 3 en ciclos consecutivos - 1 columna = 1 ciclo de clk (10 ns)"
+  },
+  "config": {
+    "hscale": 1
+  }
+}
+</script></div>
+<h2>ACK DE LATENCIA FIJA  -  el barrido de borrado dura miles de ciclos y el bus no se entera</h2>
+<p class="nota">Lo que la cabecera del RTL marca como lo mas importante del modulo. El barrido de borrado recorre 2^H_AW bins y dura miles de ciclos, muchisimo mas que los 32 ciclos de timeout del axi4_slave. Si el ack dependiera de que el motor este libre, una lectura durante el barrido no haria ack nunca, y eso no produce una lectura mala: deja el CDC del slot desincronizado para siempre --reg_do != reg_done-- y ese slot no acepta mas transacciones. El ack sale de un shift register incondicional, asi que llega con la misma latencia este barriendo o no, que es lo que la figura mide.</p>
+<div class="wave"><script type="WaveDrom">
+{
+  "signal": [
+    {
+      "name": "clk  125 MHz",
+      "wave": "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp"
+    },
+    {
+      "name": "sys_addr",
+      "wave": "5...5.....5......5.....5......5.....5......5.....5......5.....5......5....",
+      "data": [
+        "0x00000",
+        "0x4070000C",
+        "0x00000",
+        "0x40700010",
+        "0x00000",
+        "0x40700050",
+        "0x00000",
+        "0x40710000",
+        "0x00000",
+        "0x40700050",
+        "0x00000",
+        "0x40710004"
+      ]
+    },
+    {
+      "name": "sys_wdata",
+      "wave": "3...3.....................................................................",
+      "data": [
+        "0x00000101",
+        "0x00000003"
+      ]
+    },
+    {
+      "name": "sys_wen",
+      "wave": "0...1.....0..............................................................."
+    },
+    {},
+    {
+      "name": "sys_ren",
+      "wave": "0................1.....0......1.....0......1.....0......1.....0......1....",
+      "node": ".................a....b.......c....d.......e....f.......g....h............"
+    },
+    {
+      "name": "sys_rdata",
+      "wave": "3....33....3......3.....3......3.....3......3.....3......3.....3......3...",
+      "data": [
+        "0x4D434131",
+        "0x00000101",
+        "0x00000001",
+        "0x4D434131",
+        "0x00000001",
+        "0x4D434131",
+        "0x00000000",
+        "0x4D434131",
+        "0x00000000",
+        "0x4D434131",
+        "0x00000000",
+        "0x4D434131",
+        "0x00000000"
+      ]
+    },
+    {
+      "name": "sys_ack",
+      "wave": "0........1.....0......1.....0......1.....0......1.....0......1.....0......"
+    },
+    {
+      "name": "sys_err",
+      "wave": "0........................................................................."
+    }
+  ],
+  "edge": [
+    "a<->b 4 ciclos",
+    "c<->d 4 ciclos",
+    "e<->f 4 ciclos",
+    "g<->h 4 ciclos"
+  ],
+  "head": {
+    "text": "ACK DE LATENCIA FIJA  -  el barrido de borrado dura miles de ciclos y el bus no se entera"
+  },
+  "foot": {
+    "text": "tb_mca_top - escritura de run|clear_all y lecturas con el barrido en curso - 1 columna = 1 ciclo de clk (8 ns)"
+  },
+  "config": {
+    "hscale": 1
+  }
+}
+</script></div>
+<h2>FLUJO DE UNA MEDICION  -  mca_top</h2>
+<p class="nota">Es un esquema de la SECUENCIA, no una medicion. Las dos cosas que fija: el borrado hay que ESPERARLO --`clear_busy` avisa, y los eventos que llegan mientras barre se descartan y se cuentan en `dropped`--, y los contadores se pueden leer con la medicion corriendo, que es lo que permite supervisar sin frenar. La misma secuencia en software esta en docs/API/guia_de_uso.md; si las dos se contradicen, una de las dos esta mal.</p>
+<div class="wave"><script type="WaveDrom">
+{
+  "signal": [
+    {
+      "name": "escritura del PS",
+      "wave": "x3x4x5x.....x6x",
+      "data": [
+        "thr/hyst/base",
+        "maxlen/amp",
+        "clear + run",
+        "stop"
+      ],
+      "node": ".a..b..c.......g"
+    },
+    {
+      "name": "clear_busy",
+      "wave": "0..1.0.........",
+      "node": "...h.i........."
+    },
+    {
+      "name": "pulsos en la entrada",
+      "wave": "0.....1......0.",
+      "node": "......j........"
+    },
+    {
+      "name": "cnt_total / cnt_accepted",
+      "wave": "x.....=.=.=.=..",
+      "data": [
+        "0",
+        "N1",
+        "N2",
+        "N3"
+      ]
+    },
+    {},
+    {
+      "name": "lectura del PS",
+      "wave": "x.......7.7...8x",
+      "data": [
+        "contadores",
+        "contadores",
+        "histograma"
+      ],
+      "node": "........k.....l"
+    }
+  ],
+  "config": {
+    "hscale": 2
+  },
+  "head": {
+    "text": "FLUJO DE UNA MEDICION  -  mca_top"
+  },
+  "foot": {
+    "text": "ESQUEMA: una columna es un paso, no un ciclo. El clear hay que esperarlo (clear_busy); los contadores se pueden leer corriendo."
+  },
+  "edge": [
+    "a|->b",
+    "b|->c",
+    "c~>h barrido",
+    "h~>i",
+    "i~>j ya cuenta",
+    "k~>l",
+    "g|->l"
+  ]
+}
+</script></div>
+
+</body>
+</html>

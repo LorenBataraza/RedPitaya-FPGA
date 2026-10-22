@@ -1,0 +1,32 @@
+[
+  {
+    "archivo": "mca_pulso_vida.svg",
+    "titulo": "LA VIDA DE UN PULSO  -  cruce de umbral, ventana, carga acumulada y evento",
+    "origen": "`tb_mca_pulse_feature`, escena 1 (pulso rectangular)",
+    "nota": "Es la figura central del modulo: todo lo que el MCA hace por evento pasa aca. La muestra cruza el umbral, `busy` sube y marca la ventana abierta, las dos cargas se acumulan mientras la ventana dura --q_tot sobre toda la ventana y q_tail desde la segunda muestra, que es lo que hace separable la forma del pulso-- y al cerrar sale `ev_valid` con la amplitud y el bus de features. El pulso es RECTANGULAR a proposito, igual que en el testbench: su ventana es inequivoca, asi que los numeros del epigrafe salen de una multiplicacion y no de reimplementar el DUT."
+  },
+  {
+    "archivo": "mca_apilamiento.svg",
+    "titulo": "APILAMIENTO  -  la ventana llega a maxlen: el pulso se cuenta pero NO se acepta",
+    "origen": "`tb_mca_pulse_feature`, escena 5 (apilamiento)",
+    "nota": "El mismo bloque con `maxlen` chico y un pulso mas largo que eso. La ventana se cierra por limite y el evento cae en `cnt_pileup` sin pasar por `cnt_accepted`: no sale `ev_valid`. Lo que importa es que SI se cuenta en `cnt_total`. Un evento descartado que no se cuenta en ningun lado es tiempo muerto invisible, y sin ese numero no se puede corregir el espectro por eventos perdidos."
+  },
+  {
+    "archivo": "mca_hist_rmw.svg",
+    "titulo": "READ-MODIFY-WRITE AL MISMO BIN  -  la cuenta no se pierde aunque los eventos lleguen pegados",
+    "origen": "`tb_mca_hist`, escena 3 (forwarding)",
+    "nota": "El histograma es una BRAM: incrementar un bin es leerlo, sumarle uno y escribirlo, y eso tarda varios ciclos. Si dos eventos consecutivos caen en el MISMO bin, el segundo leeria el valor viejo --el que todavia no se escribio-- y una de las dos cuentas se perderia. La figura muestra cuatro incrementos seguidos al mismo bin y la lectura posterior dando el total correcto: el bloque puentea la escritura en vuelo. Es el peor caso realista, porque un pico del espectro es justamente muchos eventos al mismo bin."
+  },
+  {
+    "archivo": "mca_ack_borrado.svg",
+    "titulo": "ACK DE LATENCIA FIJA  -  el barrido de borrado dura miles de ciclos y el bus no se entera",
+    "origen": "`tb_mca_top`, escena 5 (lectura durante el borrado)",
+    "nota": "Lo que la cabecera del RTL marca como lo mas importante del modulo. El barrido de borrado recorre 2^H_AW bins y dura miles de ciclos, muchisimo mas que los 32 ciclos de timeout del axi4_slave. Si el ack dependiera de que el motor este libre, una lectura durante el barrido no haria ack nunca, y eso no produce una lectura mala: deja el CDC del slot desincronizado para siempre --reg_do != reg_done-- y ese slot no acepta mas transacciones. El ack sale de un shift register incondicional, asi que llega con la misma latencia este barriendo o no, que es lo que la figura mide."
+  },
+  {
+    "archivo": "mca_flujo.svg",
+    "titulo": "FLUJO DE UNA MEDICION  -  mca_top",
+    "origen": "esquema (sin VCD)",
+    "nota": "Es un esquema de la SECUENCIA, no una medicion. Las dos cosas que fija: el borrado hay que ESPERARLO --`clear_busy` avisa, y los eventos que llegan mientras barre se descartan y se cuentan en `dropped`--, y los contadores se pueden leer con la medicion corriendo, que es lo que permite supervisar sin frenar. La misma secuencia en software esta en docs/API/guia_de_uso.md; si las dos se contradicen, una de las dos esta mal."
+  }
+]

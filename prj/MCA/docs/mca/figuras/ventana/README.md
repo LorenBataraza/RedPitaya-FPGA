@@ -26,7 +26,7 @@ eventos con **sólo** el ruido blanco del ADC (σ_v = 2.8 cuentas).
 
 | Figura | Qué muestra | Datos |
 |---|---|---|
-| [`01_ventana_histeresis.png`](01_ventana_histeresis.png) | La ventana del modo 0: abre en el cruce de subida de `cfg_thr`, cierra en el de bajada de `cfg_thr − cfg_hyst`, y el cronograma de la FSM que lo implementa | esquema |
+| [`01_ventana_histeresis.png`](01_ventana_histeresis.png) | La ventana del modo 0: abre en el cruce de subida de `cfg_thr`, cierra en el de bajada de `cfg_thr − cfg_hyst`, y qué parte de la carga es la cola | esquema |
 | [`02_ventana_fija.png`](02_ventana_fija.png) | La ventana del modo 1: `cfg_gate_short` y `cfg_gate_long` medidas **desde el disparo**, y los dos casos de apilamiento —el que `gate_2nd` marca y el que no— | esquema |
 | [`03_quien_decide_el_cierre.png`](03_quien_decide_el_cierre.png) | Por qué las dos reglas no dan lo mismo: la pendiente en el punto de cierre, la dispersión del largo y la de `Q_total` | esquema + Monte Carlo |
 | [`04_amplitude_walk.png`](04_amplitude_walk.png) | El walk del cruce de umbral contra la amplitud, comparado con el ruido y con `Ts/2`, y lo que le hace al largo de la ventana del modo 0 | esquema |
@@ -37,7 +37,7 @@ eventos con **sólo** el ruido blanco del ADC (σ_v = 2.8 cuentas).
 ## Epígrafes
 
 **Figura 1.** Determinación de la ventana por **histéresis** (`cfg_gate_mode =
-0`), con un pulso de 1920 cuentas. (a) La ventana abre en la muestra donde la
+0`), con un pulso de 1920 cuentas. La ventana abre en la muestra donde la
 señal cruza `cfg_thr` hacia arriba estando previamente armada —es decir,
 habiendo estado por debajo de `cfg_thr − cfg_hyst`— y cierra en la primera
 muestra que vuelve a caer por debajo de ese mismo nivel inferior: un Schmitt,
@@ -47,12 +47,8 @@ del pico; con el default `cfg_tail_dly = 4` la cola se lleva casi toda la
 carga, que es el problema de rango dinámico del eje de forma. `cfg_maxlen` es
 el tope: si la ventana llega ahí, el evento se cierra y se cuenta como
 apilamiento. El largo que resulta, 778 muestras, reproduce las 779 medidas en
-la placa. (b) El mismo intervalo visto como cronograma de la FSM: los dos
-comparadores, `armed`, el estado `S_ACTIVE`, `in_tail` y el pulso de cierre.
-`armed` se limpia al abrir y vuelve a ponerse en la misma muestra en que la
-señal cae por debajo del nivel inferior, que es la que cierra. Nótese que
-`x ≥ thr_hi` cae mucho antes que el cierre: lo que cierra la ventana es el
-cruce del nivel **inferior**, no el del umbral.
+la placa. Lo que cierra la ventana es el cruce del nivel **inferior**, no el
+del umbral: la señal baja de `cfg_thr` mucho antes del cierre.
 
 **Figura 2.** Determinación de la ventana por **compuertas fijas**
 (`cfg_gate_mode = 1`), el método de comparación de carga (Brooks 1959; Knoll
@@ -72,7 +68,6 @@ pulso monta sobre ella sin que la señal pase nunca por debajo del nivel
 inferior, y `gate_2nd` queda en 0: el evento se histogramea como limpio. Es el
 mecanismo por el que `cnt_pileup` marca entre 0.00 % y 0.45 % donde el 40-47 %
 de los eventos tiene más de un pulso ([`../../apilamiento.md`](../../apilamiento.md) §1).
-(d) Los flags de los dos casos, con la compuerta sombreada.
 
 **Figura 3.** Quién decide el cierre en cada modo. (a) Módulo de la derivada
 del pulso contra el tiempo, en ejes logarítmicos. En el cruce de apertura la

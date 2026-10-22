@@ -24,18 +24,25 @@ la amplitud es la muestra de pico sobre la línea de base y el canal es
 """
 
 import argparse
+import json
 import os
+import sys
+
+_AQUI_LIB = os.path.dirname(os.path.abspath(__file__))
 
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
-from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
+from matplotlib.lines import Line2D
+from matplotlib.patches import FancyBboxPatch, FancyArrowPatch, Patch
 from matplotlib.ticker import MaxNLocator
 
 from figuras_resolucion import (SUP, TINTA, TINTA2, MUDO, AZUL, NARAN, ROJO,
                                 _limpiar, _panel)
+sys.path.insert(0, os.path.join(_AQUI_LIB, '..', '..', 'figuras'))
+import transacciones as T                                       # noqa: E402
 from animacion_cadena_mca import (DT_TRAZA, VENTANA, UMBRAL, H_SHIFT,
                                   N_CANALES, simular)
 
@@ -43,6 +50,16 @@ _AQUI = os.path.dirname(os.path.abspath(__file__))
 
 # cuántas cuentas lleva acumuladas cada panel de 07c (el último es el final)
 HITOS = (12, 64)
+
+# Histéresis de la ilustración: el módulo cierra al bajar de thr - hyst, no de
+# thr, y sólo vuelve a disparar después de haberse re-armado por debajo de ese
+# mismo nivel. El umbral de la simulación es 300 y no los 100 del default, así
+# que la histéresis se escala igual para conservar la proporción hyst/thr = 1/2
+# de `mca_top.sv` (cfg_thr = 100, cfg_hyst = 50). La ventana en serio —las dos
+# reglas de cierre y lo que cada una le hace a la medida— está en
+# ventana_de_medicion.md y sus figuras en figuras/ventana/.
+HYST = UMBRAL // 2
+THR_LO = UMBRAL - HYST
 
 
 # =============================================================================
@@ -61,19 +78,20 @@ def medir_pico(sim, tk):
     return j, float(sim['traza'][j])
 
 
-def segmento(sim, j):
-    """Tramo contiguo sobre el umbral que contiene a la muestra j.
+def ventana(sim, j):
+    """(disparo, cierre) de la ventana del evento cuyo pico está en la muestra j.
 
-    Es la ventana que `pulse_feature` abre y cierra por comparación con `thr`;
-    acá se dibuja sombreada para que se vea que el módulo SEGMENTA antes de
-    medir.
+    Igual que `mca_pulse_feature.sv` en modo histéresis: abre al cruzar `cfg_thr`
+    hacia arriba y cierra recién al bajar de `cfg_thr - cfg_hyst`, no de
+    `cfg_thr`. Esa asimetría es la que hace que la ventana termine bastante
+    después del pico, sobre la cola.
     """
-    sobre = sim['traza'] >= UMBRAL
+    y = sim['traza']
     a = b = j
-    while a > 0 and sobre[a - 1]:
-        a -= 1
-    while b < sobre.size - 1 and sobre[b + 1]:
-        b += 1
+    while a > 0 and y[a - 1] >= UMBRAL:
+        a -= 1                                 # atrás hasta el cruce de thr
+    while b < y.size - 1 and y[b + 1] >= THR_LO:
+        b += 1                                 # adelante hasta bajar de thr-hyst
     return sim['grid'][a], sim['grid'][b]
 
 
@@ -85,10 +103,15 @@ def elegir_ventana(sim):
     """Ventana que muestra todos los casos a la vez, cortada en los huecos.
 
     Pide al menos un pulso que NO cruza el umbral —el caso que hay que ver— y
-    entre cuatro y seis que sí. Los dos bordes caen donde la traza está bajo el
-    umbral y entre dos pulsos, así que NO queda ningún pulso a medio dibujar ni
-    sin etiquetar: todo lo que cruza el umbral adentro de la ventana está en la
-    tabla de la figura 7b.
+    entre cuatro y seis que sí. Los dos bordes caen entre dos pulsos y por debajo
+    de thr - hyst, así que NO queda ningún pulso a medio dibujar ni sin
+    etiquetar: todo lo que dispara adentro de la ventana está en la tabla de la
+    figura 7b.
+
+    Pide además que ninguna ventana abierta se trague el disparo siguiente. Eso
+    PUEDE pasar —es el apilamiento, y entonces dos pulsos caen en una sola
+    ventana y en una sola cuenta—, pero acá se busca el caso limpio, porque el
+    apilamiento tiene sus propias figuras en pileup/.
 
     Devuelve (t0, t1, eventos), con los eventos numerados en orden y cada uno
     descripto por lo que el MCA mediría de él.
@@ -98,14 +121,14 @@ def elegir_ventana(sim):
 
     for k0 in range(1, n - 2):
         t0 = float(t_ev[k0]) - 1.6
-        if t0 <= t_ev[k0 - 1] or _traza_en(sim, t0) >= UMBRAL:
+        if t0 <= t_ev[k0 - 1] or _traza_en(sim, t0) >= THR_LO:
             continue                       # el pulso anterior sigue a la vista
 
         k1 = k0                            # estirar mientras entre el siguiente
         while k1 + 2 < n and float(t_ev[k1 + 2]) - 0.35 - t0 <= VENTANA:
             k1 += 1
         t1 = float(t_ev[k1 + 1]) - 0.35     # justo antes de que arranque el que sigue
-        if not (20.0 <= t1 - t0 <= VENTANA) or _traza_en(sim, t1) >= UMBRAL:
+        if not (20.0 <= t1 - t0 <= VENTANA) or _traza_en(sim, t1) >= THR_LO:
             continue
 
         idx = range(k0, k1 + 1)
@@ -116,9 +139,20 @@ def elegir_ventana(sim):
         eventos = []
         for i, k in enumerate(idx, start=1):
             j, amp = medir_pico(sim, t_ev[k])
-            eventos.append(dict(n=i, t=float(sim['grid'][j]), amp=amp,
-                                canal=min(int(amp) >> H_SHIFT, N_CANALES - 1),
-                                gen=float(a_ev[k]), j=j, ok=bool(ok[k])))
+            ev = dict(n=i, t=float(sim['grid'][j]), amp=amp,
+                      canal=min(int(amp) >> H_SHIFT, N_CANALES - 1),
+                      gen=float(a_ev[k]), j=j, ok=bool(ok[k]))
+            if ev['ok']:
+                ev['disparo'], ev['cierre'] = ventana(sim, j)
+            eventos.append(ev)
+
+        cierres = [e['cierre'] for e in eventos if e['ok']]
+        disparos = [e['disparo'] for e in eventos if e['ok']]
+        if any(c >= d for c, d in zip(cierres, disparos[1:])):
+            continue                       # una ventana se come el disparo siguiente
+        if cierres[-1] >= t1:
+            continue                       # la última no cierra adentro del gráfico
+
         return t0, t1, eventos
 
     raise RuntimeError('ninguna ventana cumple; probá otro --frames')
@@ -140,14 +174,29 @@ def panel_senal(ax, sim, t0, t1, eventos):
     acep = [e for e in eventos if e['ok']]
     rech = [e for e in eventos if not e['ok']]
 
-    for ev in acep:                      # la ventana que abre pulse_feature
-        ta, tb = segmento(sim, ev['j'])
-        ax.axvspan(ta, min(tb, t1), color=AZUL, alpha=0.10, lw=0, zorder=1)
+    # Los dos estados de pulse_feature, que entre los dos cubren todo el eje: la
+    # ventana ABIERTA y el reposo PREVIO al disparo. El reposo no es tiempo
+    # perdido —ahí el módulo se re-arma y el seguidor sigue la línea de base
+    # contra la que después se mide la amplitud—, y por eso también va marcado.
+    activas = [(e['disparo'], e['cierre']) for e in acep]
+    reposo, cursor = [], t0
+    for ta, tb in activas:
+        if ta > cursor:
+            reposo.append((cursor, ta))
+        cursor = tb
+    if cursor < t1:
+        reposo.append((cursor, t1))
+
+    for ta, tb in reposo:
+        ax.axvspan(ta, tb, color=MUDO, alpha=0.07, lw=0, zorder=1)
+    for ta, tb in activas:
+        ax.axvspan(ta, min(tb, t1), color=AZUL, alpha=0.14, lw=0, zorder=1)
 
     ax.plot(sim['grid'][i0:i1], sim['traza'][i0:i1], lw=1.4, color=AZUL,
             zorder=3)
     ax.axhline(UMBRAL, color=ROJO, lw=1.1, ls='--', zorder=2)
-    ax.text(0.008, UMBRAL, 'umbral', color=ROJO, va='bottom', ha='left',
+    ax.axhline(THR_LO, color=ROJO, lw=1.0, ls=':', alpha=0.85, zorder=2)
+    ax.text(0.008, UMBRAL, 'umbral (thr)', color=ROJO, va='bottom', ha='left',
             fontsize=9, transform=ax.get_yaxis_transform())
 
     ax.plot([e['t'] for e in acep], [e['amp'] for e in acep], 'o', ms=7,
@@ -171,9 +220,18 @@ def panel_senal(ax, sim, t0, t1, eventos):
                     style='normal' if ev['ok'] else 'italic')
 
     ax.set_xlim(t0, t1)
-    ax.set_ylim(-260, 3350)
+    ax.set_ylim(-260, 3700)
     ax.set_xlabel('Tiempo [µs]')
     ax.set_ylabel('Amplitud sobre la base\n[cuentas de ADC]')
+    ax.legend(handles=[
+        Patch(fc=AZUL, alpha=0.14, ec='none', label='ventana abierta'),
+        Patch(fc=MUDO, alpha=0.07, ec='none',
+              label='reposo: sigue la línea de base'),
+        Line2D([], [], color=ROJO, ls=':', lw=1.0,
+               label='thr − hyst: cierra y re-arma')],
+        loc='upper center', ncol=3, fontsize=8.5, handlelength=1.6,
+        handleheight=0.9, borderpad=0.1, columnspacing=1.6,
+        labelcolor=TINTA2)
     _limpiar(ax)
 
 
@@ -181,80 +239,53 @@ def panel_senal(ax, sim, t0, t1, eventos):
 # Panel B — la cadena
 # =============================================================================
 def panel_cadena(ax, eventos):
+    """El panel (b): los dos bloques y el tren de amplitudes en el cable.
+
+    Las primitivas --la caja, el cable, la ficha del valor que viaja-- estan en
+    `docs/figuras/transacciones.py`, que es de donde las toman las figuras de
+    transacciones de los otros modulos. Las coordenadas quedan explicitas acá
+    porque esta composicion ya estaba ajustada a mano.
+    """
     ax.set_xlim(0, 10)
     ax.set_ylim(0.58, 2.88)
     ax.axis('off')
 
-    def caja(x, w, etiqueta, sub, color):
-        ax.add_patch(FancyBboxPatch(
-            (x, 1.15), w, 1.15,
-            boxstyle='round,pad=0.06,rounding_size=0.12',
-            fc=SUP, ec=color, lw=2.0))
-        ax.text(x + w / 2, 1.88, etiqueta, ha='center', va='center',
-                fontsize=12.5, fontweight='bold', color=color)
-        ax.text(x + w / 2, 1.45, sub, ha='center', va='center', fontsize=9,
-                color=TINTA2)
+    T.caja(ax, 1.05, 2.70, 'pulse_feature',
+           'abre una ventana con thr\ny mide la amplitud', AZUL)
+    T.caja(ax, 6.45, 2.70, 'histograma',
+           'incrementa el canal\ncorrespondiente', NARAN)
 
-    caja(0.55, 2.9, 'pulse_feature', 'segmenta el pulso\ny mide su amplitud',
-         AZUL)
-    caja(6.55, 2.9, 'histograma', 'incrementa el canal\ncorrespondiente',
-         NARAN)
-    for x0, x1 in ((0.0, 0.50), (3.50, 6.50), (9.50, 10.0)):
-        ax.add_patch(FancyArrowPatch((x0, 1.72), (x1, 1.72), arrowstyle='-|>',
-                                     mutation_scale=13, lw=1.6, color=MUDO,
-                                     shrinkA=0, shrinkB=0))
-    ax.text(0.25, 2.42, 'señal', ha='center', fontsize=9, color=TINTA2)
-    ax.text(5.0, 2.52, 'un registro de evento por pulso', ha='center',
-            fontsize=9, color=TINTA2)
-    ax.text(9.75, 2.42, 'espectro', ha='center', fontsize=9, color=TINTA2)
-    ax.text(5.0, 0.74, f'canal = amp >> {H_SHIFT}', ha='center', fontsize=9,
-            color=MUDO, style='italic')
+    T.cable(ax, 0.30, 1.00, 1.72, etiqueta='señal')
+    T.cable(ax, 9.15, 9.85, 1.72, etiqueta='espectro')
 
     # el tren de números que viaja por el cable: los del panel A, en orden
     acep = [e for e in eventos if e['ok']]
-    for ev, x in zip(acep, np.linspace(3.95, 5.65, 3)):
-        ax.text(x, 1.72, f"{ev['amp']:.0f}", ha='center', va='center',
-                fontsize=10.5, fontweight='bold', color=NARAN,
-                bbox=dict(fc=SUP, ec=NARAN, lw=1.2,
-                          boxstyle='round,pad=0.26'))
-    if len(acep) > 3:
-        ax.text(6.2, 1.72, '…', ha='center', va='center', fontsize=13,
-                color=MUDO)
+    T.cable(ax, 3.75, 6.40, 1.72,
+            etiqueta='un registro de evento por pulso',
+            tren=[f"{e['amp']:.0f}" for e in acep],
+            xs=np.linspace(4.28, 5.62, 3), xpuntos=6.05, dy=0.70,
+            xetq=5.05)
+    ax.text(7.80, 0.90, f'canal = amp >> {H_SHIFT}', ha='center', fontsize=9,
+            color=MUDO, style='italic')
 
 
 def panel_tabla(ax, eventos):
     """Los eventos del panel A, como los ve el histograma."""
-    ax.set_xlim(0, 10)
-    ax.set_ylim(0, 1)
-    ax.axis('off')
-
     cols = ((0.6, 'pulso', 'left'), (3.0, 't [µs]', 'right'),
-            (5.8, 'amp [cuentas]', 'right'), (9.3, f'canal = amp >> {H_SHIFT}',
-                                              'right'))
-    dy = 0.86 / (len(eventos) + 1)
-    y = 0.93
-
-    for x, txt, ha in cols:
-        ax.text(x, y, txt, ha=ha, va='center', fontsize=9, color=TINTA2,
-                fontweight='bold')
-    ax.plot([0.4, 9.4], [y - dy * 0.5] * 2, lw=0.8, color=MUDO, clip_on=False)
-
-    for i, ev in enumerate(eventos, start=1):
-        y = 0.93 - i * dy
+            (5.8, 'amp [cuentas]', 'right'),
+            (9.3, f'canal = amp >> {H_SHIFT}', 'right'))
+    filas = []
+    for ev in eventos:
         ok = ev['ok']
-        color = TINTA if ok else MUDO
-        ax.text(cols[0][0], y, f"#{ev['n']}", ha='left', va='center',
-                fontsize=9.5, color=color)
-        ax.text(cols[1][0], y, f"{ev['t']:.1f}", ha='right', va='center',
-                fontsize=9.5, color=color)
-        ax.text(cols[2][0], y, f"{ev['amp']:.0f}", ha='right', va='center',
-                fontsize=9.5, color=color,
-                fontweight='bold' if ok else 'normal')
-        ax.text(cols[3][0], y,
-                f"{ev['canal']}" if ok else 'rechazado: amp < thr',
-                ha='right', va='center', fontsize=9.5, color=color,
-                fontweight='bold' if ok else 'normal',
-                style='normal' if ok else 'italic')
+        col = TINTA if ok else MUDO
+        filas.append([
+            {'t': f"#{ev['n']}", 'color': col},
+            {'t': f"{ev['t']:.1f}", 'color': col},
+            {'t': f"{ev['amp']:.0f}", 'color': col, 'bold': ok},
+            {'t': f"{ev['canal']}" if ok else 'rechazado: amp < thr',
+             'color': col, 'bold': ok, 'italic': not ok},
+        ])
+    T.panel_tabla(ax, cols, filas)
 
 
 # =============================================================================
@@ -343,6 +374,63 @@ def _guardar(fig, out, nombre):
     return destino
 
 
+# =============================================================================
+# Manifiesto
+#
+# Las figuras del MCA son ANTERIORES a la convencion de
+# `docs/<m>/figuras/transacciones/`, y mover cuatro PNG versionados para que la
+# ruta quede prolija no vale la pena. Lo que se escribe es el manifiesto, en el
+# lugar donde `datasheet.py` lo busca, apuntando a los archivos donde estan.
+# =============================================================================
+
+MANIFIESTO = os.path.join(_AQUI, 'transacciones', 'transacciones.json')
+
+ITEMS = [
+    dict(archivo='../07_cadena.png',
+         titulo='LA CADENA DE UN EVENTO  -  senal, registro y espectro',
+         origen='simulacion con semilla fija (`animacion_cadena_mca.py`), '
+                'los mismos cuadros que los videos',
+         nota='La transaccion del MCA es UN EVENTO, y la figura la sigue '
+              'entera: (a) la senal de entrada con el umbral y la ventana que '
+              '`pulse_feature` abre y cierra, (b) el camino de datos, donde '
+              'entre los dos bloques no va una flecha pelada sino el tren de '
+              'amplitudes concretas que viaja --un registro de evento por '
+              'pulso--, y (c) el espectro que se acumula del otro lado, una '
+              'cuenta por numero. Los numeros de los tres paneles son los '
+              'mismos: la amplitud que se mide en (a) es la que viaja en (b) '
+              'y la que cae en un canal en (c), con el mismo `amp >> h_shift` '
+              'que hace el RTL. Es la unica figura del proyecto que muestra '
+              'la cuenta completa de punta a punta.'),
+    dict(archivo='../07a_senal.png',
+         titulo='(a) LA SENAL: UN PULSO POR EVENTO',
+         origen='la misma simulacion, panel (a) suelto',
+         nota='Las bandas parten el eje de TIEMPO en estados --ventana '
+              'abierta, reposo-- y no la senal en eventos. La ventana abre al '
+              'cruzar `thr` y cierra recien al bajar de `thr - hyst`, que es '
+              'lo que hace que termine bastante despues del pico.'),
+    dict(archivo='../07b_cadena.png',
+         titulo='(b) EL CAMINO DE DATOS: UN NUMERO POR PULSO',
+         origen='la misma simulacion, panel (b) suelto',
+         nota='`pulse_feature` emite un registro de evento por pulso y el '
+              'histograma lo convierte en una cuenta. La tabla de abajo son '
+              'los mismos pulsos como los ve el histograma, incluido el que '
+              'no cruza el umbral y no produce nada.'),
+    dict(archivo='../07c_histograma.png',
+         titulo='(c) EL ESPECTRO: UNA CUENTA POR NUMERO',
+         origen='la misma simulacion, panel (c) suelto',
+         nota='El mismo espectro en tres momentos de la acumulacion (12, 64 y '
+              '227 cuentas): la forma aparece recien cuando hay estadistica.'),
+]
+
+
+def escribir_manifiesto():
+    os.makedirs(os.path.dirname(MANIFIESTO), exist_ok=True)
+    with open(MANIFIESTO, 'w', encoding='utf-8') as fh:
+        json.dump(ITEMS, fh, ensure_ascii=False, indent=2)
+        fh.write('\n')
+    print('  transacciones/transacciones.json')
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--frames', type=int, default=700,
@@ -370,6 +458,7 @@ def main():
     print(f"espectro: {ult['emitidos']} cuentas, hitos en "
           f"{', '.join(str(n) for n in HITOS)}, canal más poblado {pico} "
           f"({int(ult['cuentas'][pico])} cuentas)")
+    escribir_manifiesto()
 
 
 if __name__ == '__main__':

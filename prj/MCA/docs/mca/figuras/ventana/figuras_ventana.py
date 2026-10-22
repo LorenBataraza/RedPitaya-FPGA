@@ -18,12 +18,10 @@ largo de ventana medido en la placa (779 muestras en modo histéresis). Los
 los epígrafes, no dentro de los gráficos.
 
   01_ventana_histeresis.png
-      (a) El pulso con `cfg_thr` y `cfg_thr − cfg_hyst`, la ventana que abre
-          en el cruce de subida y cierra en el cruce de bajada, el pico, el
-          arranque de la cola a `t_pico + cfg_tail_dly` y dónde estaría
-          `cfg_maxlen`.
-      (b) El cronograma de la FSM: los dos comparadores, `armed`, `S_ACTIVE`,
-          `in_tail` y `close_hyst`, con la misma escala de tiempo que (a).
+      El pulso con `cfg_thr` y `cfg_thr − cfg_hyst`, la ventana que abre
+      en el cruce de subida y cierra en el cruce de bajada, el pico, el
+      arranque de la cola a `t_pico + cfg_tail_dly` y dónde estaría
+      `cfg_maxlen`.
 
   02_ventana_fija.png
       (a) El mismo pulso con `cfg_gate_mode = 1`: cierre a `cfg_gate_long`
@@ -36,7 +34,6 @@ los epígrafes, no dentro de los gráficos.
           cruzar `cfg_thr`.
       (c) El que NO marca: primer pulso de la línea, el segundo monta sobre
           una cola que nunca bajó de `thr_lo`, así que `gate_2nd` queda en 0.
-      (d) El cronograma de `gate_rearm` y `gate_2nd` de los dos casos.
 
   03_quien_decide_el_cierre.png
       (a) |dV/dt| a lo largo del pulso, con la pendiente en el cruce de
@@ -185,26 +182,6 @@ def _eje_muestras(ax, lo, hi, origen='el disparo'):
     return sec
 
 
-def _fila(ax, y0, t, v, color, alto=0.62):
-    """Una señal digital del cronograma, en la fila y0."""
-    ax.step(t, y0 + alto * np.asarray(v, float), where='post',
-            color=color, lw=1.3)
-
-
-def _cronograma(ax, nombres, t, señales, colores):
-    """Dibuja len(nombres) filas digitales de abajo hacia arriba."""
-    for i, (v, c) in enumerate(zip(señales, colores)):
-        y0 = len(nombres) - 1 - i
-        ax.axhline(y0, color=GRILLA, lw=0.6, zorder=0)
-        _fila(ax, y0, t, v, c)
-    ax.set_yticks(np.arange(len(nombres))[::-1])
-    ax.set_yticklabels(nombres, fontsize=8.5, color=TINTA2,
-                       fontfamily='monospace')
-    ax.set_ylim(-0.4, len(nombres) - 0.2)
-    ax.grid(False)
-    _limpiar(ax)
-
-
 # =============================================================================
 # 1. La ventana por histéresis
 # =============================================================================
@@ -218,11 +195,9 @@ def fig_histeresis(out):
     s_pk = t_pico() / TS
     s_cola = s_pk + TAIL_DLY
 
-    fig, (ax, axc) = plt.subplots(2, 1, figsize=(7.8, 5.8), sharex=True,
-                                  layout='constrained',
-                                  gridspec_kw={'height_ratios': [2.3, 1.25]})
+    fig, ax = plt.subplots(figsize=(7.8, 4.2), layout='constrained')
 
-    # --- (a) la señal y la ventana
+    # --- la señal y la ventana
     ax.axvspan(s_hi, s_lo, color=AZUL, alpha=0.10, lw=0,
                label='ventana abierta ($Q_{tot}$)')
     ax.fill_between(t, 0, y, where=(t >= s_cola) & (t <= s_lo),
@@ -246,28 +221,9 @@ def fig_histeresis(out):
     ax.set_ylabel('Cuentas sobre la base')
     ax.set_ylim(-0.06 * A_REF, 1.12 * A_REF)
     ax.legend(loc='center right', fontsize=8.5)
+    ax.set_xlabel('Muestras (Ts = 8 ns)')
     _limpiar(ax)
-    _panel(ax, 'a')
     _eje_muestras(ax, n0, n1)
-
-    # --- (b) el cronograma de la FSM
-    td = np.arange(n0, n1, 1.0)
-    yd = A_REF * forma(td * TS)
-    c_hi = (yd >= THR).astype(float)
-    c_lo = (yd < THR_LO).astype(float)
-    activo = ((td >= s_hi) & (td < s_lo)).astype(float)
-    armado = np.ones_like(td)
-    armado[(td >= s_hi) & (td < s_lo)] = 0.0          # se limpia al abrir
-    cola = ((td >= s_cola) & (td < s_lo)).astype(float)
-    cierre = ((td >= s_lo) & (td < s_lo + 1)).astype(float)
-
-    _cronograma(axc,
-                ['x >= thr_hi', 'x < thr_lo', 'armed', 'S_ACTIVE',
-                 'in_tail', 'close_hyst'],
-                td, [c_hi, c_lo, armado, activo, cola, cierre],
-                [TINTA2, ROJO, MUDO, AZUL, NARAN, ROJO])
-    axc.set_xlabel('Muestras (Ts = 8 ns)')
-    _panel(axc, 'b')
 
     fig.savefig(os.path.join(out, '01_ventana_histeresis.png'))
     plt.close(fig)
@@ -308,12 +264,11 @@ def fig_fija(out):
     t = np.arange(n0, n1, 0.25)
     td = np.arange(n0, n1, 1.0)
 
-    fig = plt.figure(figsize=(7.8, 9.4), layout='constrained')
-    gs = fig.add_gridspec(4, 1, height_ratios=[2.0, 1.7, 1.7, 1.35])
+    fig = plt.figure(figsize=(7.8, 8.0), layout='constrained')
+    gs = fig.add_gridspec(3, 1, height_ratios=[2.0, 1.7, 1.7])
     ax_a = fig.add_subplot(gs[0])
     ax_b = fig.add_subplot(gs[1])
     ax_c = fig.add_subplot(gs[2], sharex=ax_b)
-    ax_d = fig.add_subplot(gs[3], sharex=ax_b)
 
     # --- (a) un pulso solo: las dos compuertas
     y = A_REF * forma(t * TS)
@@ -382,16 +337,8 @@ def fig_fija(out):
         _limpiar(ax)
         _panel(ax, letra)
 
-    # --- (d) los flags de los dos casos
-    _cronograma(ax_d,
-                ['gate_rearm (b)', 'gate_2nd (b)',
-                 'gate_rearm (c)', 'gate_2nd (c)'],
-                td, [rearm_b, seg_b, rearm_c, seg_c],
-                [VERDE, ROJO, VERDE, ROJO])
-    ax_d.axvspan(0, GATE_LONG, color=NARAN, alpha=0.10, lw=0, zorder=0)
-    ax_d.set_xlabel('Muestras desde el disparo (Ts = 8 ns)')
-    ax_d.set_xlim(n0, n1)
-    _panel(ax_d, 'd')
+    ax_c.set_xlabel('Muestras desde el disparo (Ts = 8 ns)')
+    ax_c.set_xlim(n0, n1)
 
     fig.savefig(os.path.join(out, '02_ventana_fija.png'))
     plt.close(fig)

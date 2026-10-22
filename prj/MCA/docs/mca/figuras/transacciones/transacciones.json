@@ -1,0 +1,26 @@
+[
+  {
+    "archivo": "../07_cadena.png",
+    "titulo": "LA CADENA DE UN EVENTO  -  senal, registro y espectro",
+    "origen": "simulacion con semilla fija (`animacion_cadena_mca.py`), los mismos cuadros que los videos",
+    "nota": "La transaccion del MCA es UN EVENTO, y la figura la sigue entera: (a) la senal de entrada con el umbral y la ventana que `pulse_feature` abre y cierra, (b) el camino de datos, donde entre los dos bloques no va una flecha pelada sino el tren de amplitudes concretas que viaja --un registro de evento por pulso--, y (c) el espectro que se acumula del otro lado, una cuenta por numero. Los numeros de los tres paneles son los mismos: la amplitud que se mide en (a) es la que viaja en (b) y la que cae en un canal en (c), con el mismo `amp >> h_shift` que hace el RTL. Es la unica figura del proyecto que muestra la cuenta completa de punta a punta."
+  },
+  {
+    "archivo": "../07a_senal.png",
+    "titulo": "(a) LA SENAL: UN PULSO POR EVENTO",
+    "origen": "la misma simulacion, panel (a) suelto",
+    "nota": "Las bandas parten el eje de TIEMPO en estados --ventana abierta, reposo-- y no la senal en eventos. La ventana abre al cruzar `thr` y cierra recien al bajar de `thr - hyst`, que es lo que hace que termine bastante despues del pico."
+  },
+  {
+    "archivo": "../07b_cadena.png",
+    "titulo": "(b) EL CAMINO DE DATOS: UN NUMERO POR PULSO",
+    "origen": "la misma simulacion, panel (b) suelto",
+    "nota": "`pulse_feature` emite un registro de evento por pulso y el histograma lo convierte en una cuenta. La tabla de abajo son los mismos pulsos como los ve el histograma, incluido el que no cruza el umbral y no produce nada."
+  },
+  {
+    "archivo": "../07c_histograma.png",
+    "titulo": "(c) EL ESPECTRO: UNA CUENTA POR NUMERO",
+    "origen": "la misma simulacion, panel (c) suelto",
+    "nota": "El mismo espectro en tres momentos de la acumulacion (12, 64 y 227 cuentas): la forma aparece recien cuando hay estadistica."
+  }
+]
