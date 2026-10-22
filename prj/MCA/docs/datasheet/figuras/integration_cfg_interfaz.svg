@@ -1,0 +1,163 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="815" height="708" viewBox="0 0 815 708" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
+<style>
+  .bg{fill:#ffffff}            .box{fill:#ffffff;stroke:#1b1f24;stroke-width:1.6}
+  .hdr{fill:#f2f4f7;stroke:none}
+  .rule{stroke:#1b1f24;stroke-width:1.1}
+  .sep{stroke:#c3cad1;stroke-width:0.9;stroke-dasharray:4 4}
+  .pin{stroke:#1b1f24;stroke-width:1.3;fill:none}
+  .arr{fill:#1b1f24;stroke:none}
+  .nm{fill:#1b1f24}            .wd{fill:#57606a}
+  .gp{fill:#0b6bcb;font-style:italic}
+  .ti{fill:#1b1f24;font-weight:700} .sb{fill:#57606a} .pr{fill:#24292f}
+  /* Tintes planos y no fill-opacity: hay renderers de SVG a PNG que ignoran la
+     opacidad y dejan la elipse maciza, tapando los cables que abarca. */
+  .brc{fill:none;stroke:#8c959f;stroke-width:1.2}
+  .bus {fill:#eceff2;stroke:#aeb7c0;stroke-width:1.1}
+  .busm{fill:#dcebfb;stroke:#0b6bcb;stroke-width:1.3}
+  .buss{fill:#fbefd6;stroke:#bf8700;stroke-width:1.3}
+  .dotm{fill:#0b6bcb;stroke:none}
+  .dots{fill:#ffffff;stroke:#bf8700;stroke-width:1.6}
+  @media (prefers-color-scheme: dark){
+    .bg{fill:#0d1117}          .box{fill:#0d1117;stroke:#c9d1d9}
+    .hdr{fill:#161b22}         .rule{stroke:#c9d1d9}
+    .sep{stroke:#30363d}       .pin{stroke:#c9d1d9}
+    .arr{fill:#c9d1d9}         .nm{fill:#e6edf3} .wd{fill:#8b949e}
+    .gp{fill:#58a6ff}          .ti{fill:#e6edf3} .sb{fill:#8b949e} .pr{fill:#c9d1d9}
+    .brc{stroke:#6e7681}
+    .bus {fill:#21262d;stroke:#6e7681}
+    .busm{fill:#10243e;stroke:#58a6ff}
+    .buss{fill:#2b2008;stroke:#d29922}
+    .dotm{fill:#58a6ff}        .dots{fill:#0d1117;stroke:#d29922}
+  }
+</style>
+<rect class="bg" x="0" y="0" width="815" height="708"/>
+<rect class="box" x="238.2" y="14.0" width="326.3" height="659.0" rx="4"/>
+<rect class="hdr" x="239.2" y="15.0" width="324.3" height="165.0" rx="3"/>
+<text class="ti" x="401.3" y="42.0" font-size="16" text-anchor="middle">integration_cfg</text>
+<text class="sb" x="401.3" y="56.5" font-size="9.5" text-anchor="middle">prj/MCA/modulos/comun/rtl/integration_cfg.sv</text>
+<text class="pr" x="250.2" y="79.0" font-size="10.5">MAGIC=32'h494E5447</text>
+<text class="pr" x="250.2" y="93.5" font-size="10.5">VERSION=32'h0001_0000</text>
+<text class="pr" x="250.2" y="108.0" font-size="10.5">GITH='0</text>
+<text class="pr" x="250.2" y="122.5" font-size="10.5">EN_OSC=1</text>
+<text class="pr" x="250.2" y="137.0" font-size="10.5">EN_MTRG=1</text>
+<text class="pr" x="250.2" y="151.5" font-size="10.5">EN_MCA=1</text>
+<text class="pr" x="250.2" y="166.0" font-size="10.5">EN_RING=0</text>
+<text class="pr" x="404.5" y="79.0" font-size="10.5">EN_ASG=0</text>
+<text class="pr" x="404.5" y="93.5" font-size="10.5">EN_PID=0</text>
+<text class="pr" x="404.5" y="108.0" font-size="10.5">SLOT_OSC=1</text>
+<text class="pr" x="404.5" y="122.5" font-size="10.5">SLOT_RING=2</text>
+<text class="pr" x="404.5" y="137.0" font-size="10.5">SLOT_MTRG=3</text>
+<text class="pr" x="404.5" y="151.5" font-size="10.5">SLOT_TOP=6</text>
+<text class="pr" x="404.5" y="166.0" font-size="10.5">SLOT_MCA=7</text>
+<text class="pr" x="495.8" y="79.0" font-size="10.5">N_CH=2</text>
+<text class="pr" x="495.8" y="93.5" font-size="10.5">DW=14</text>
+<text class="pr" x="495.8" y="108.0" font-size="10.5">RSZ=14</text>
+<text class="pr" x="495.8" y="122.5" font-size="10.5">EN_FILT=0</text>
+<text class="pr" x="495.8" y="137.0" font-size="10.5">H_AW=14</text>
+<text class="pr" x="495.8" y="151.5" font-size="10.5">H2_AW=7</text>
+<text class="pr" x="495.8" y="166.0" font-size="10.5">PSD_AW=6</text>
+<line class="rule" x1="238.2" y1="180.0" x2="564.5" y2="180.0"/>
+<ellipse class="bus" cx="213.8" cy="222.0" rx="12.0" ry="17.5"/>
+<path class="brc" d="M138.0,207.5 Q131.0,207.5 131.0,214.8 L131.0,214.8 Q131.0,222.0 126.8,222.0 Q131.0,222.0 131.0,229.2 L131.0,229.2 Q131.0,236.5 138.0,236.5"/>
+<text class="gp" x="125.0" y="226.0" font-size="10" text-anchor="end">reloj y reset</text>
+<line class="pin" x1="180.2" y1="211.5" x2="238.2" y2="211.5"/>
+<path class="arr" d="M231.2,208.1 L238.2,211.5 L231.2,214.9 Z"/>
+<text class="nm" x="250.2" y="215.5" font-size="12">adc_clk_i</text>
+<line class="pin" x1="180.2" y1="232.5" x2="238.2" y2="232.5"/>
+<path class="arr" d="M231.2,229.1 L238.2,232.5 L231.2,235.9 Z"/>
+<text class="nm" x="250.2" y="236.5" font-size="12">adc_rstn_i</text>
+<line class="sep" x1="238.2" y1="243.0" x2="564.5" y2="243.0"/>
+<ellipse class="bus" cx="588.9" cy="348.0" rx="12.0" ry="80.5"/>
+<path class="brc" d="M664.7,270.5 Q671.7,270.5 671.7,278.5 L671.7,340.0 Q671.7,348.0 675.9,348.0 Q671.7,348.0 671.7,356.0 L671.7,417.5 Q671.7,425.5 664.7,425.5"/>
+<text class="gp" x="677.7" y="334.0" font-size="10" text-anchor="start">ruteo del datapath:</text>
+<text class="gp" x="677.7" y="346.0" font-size="10" text-anchor="start">2 b de selección +</text>
+<text class="gp" x="677.7" y="358.0" font-size="10" text-anchor="start">enable por</text>
+<text class="gp" x="677.7" y="370.0" font-size="10" text-anchor="start">consumidor</text>
+<line class="pin" x1="564.5" y1="274.5" x2="622.5" y2="274.5"/>
+<path class="arr" d="M615.5,271.1 L622.5,274.5 L615.5,277.9 Z"/>
+<text class="wd" x="628.5" y="277.9" font-size="9.5">[1:0]</text>
+<text class="nm" x="552.5" y="278.5" font-size="12" text-anchor="end">route_osc_tap_o</text>
+<line class="pin" x1="564.5" y1="295.5" x2="622.5" y2="295.5"/>
+<path class="arr" d="M615.5,292.1 L622.5,295.5 L615.5,298.9 Z"/>
+<text class="nm" x="552.5" y="299.5" font-size="12" text-anchor="end">route_osc_en_o</text>
+<line class="pin" x1="564.5" y1="316.5" x2="622.5" y2="316.5"/>
+<path class="arr" d="M615.5,313.1 L622.5,316.5 L615.5,319.9 Z"/>
+<text class="wd" x="628.5" y="319.9" font-size="9.5">[1:0]</text>
+<text class="nm" x="552.5" y="320.5" font-size="12" text-anchor="end">route_mtrg_tap_o</text>
+<line class="pin" x1="564.5" y1="337.5" x2="622.5" y2="337.5"/>
+<path class="arr" d="M615.5,334.1 L622.5,337.5 L615.5,340.9 Z"/>
+<text class="nm" x="552.5" y="341.5" font-size="12" text-anchor="end">route_mtrg_en_o</text>
+<line class="pin" x1="564.5" y1="358.5" x2="622.5" y2="358.5"/>
+<path class="arr" d="M615.5,355.1 L622.5,358.5 L615.5,361.9 Z"/>
+<text class="wd" x="628.5" y="361.9" font-size="9.5">[1:0]</text>
+<text class="nm" x="552.5" y="362.5" font-size="12" text-anchor="end">route_mca_tap_o</text>
+<line class="pin" x1="564.5" y1="379.5" x2="622.5" y2="379.5"/>
+<path class="arr" d="M615.5,376.1 L622.5,379.5 L615.5,382.9 Z"/>
+<text class="nm" x="552.5" y="383.5" font-size="12" text-anchor="end">route_mca_en_o</text>
+<line class="pin" x1="564.5" y1="400.5" x2="622.5" y2="400.5"/>
+<path class="arr" d="M615.5,397.1 L622.5,400.5 L615.5,403.9 Z"/>
+<text class="wd" x="628.5" y="403.9" font-size="9.5">[1:0]</text>
+<text class="nm" x="552.5" y="404.5" font-size="12" text-anchor="end">route_ring_tap_o</text>
+<line class="pin" x1="564.5" y1="421.5" x2="622.5" y2="421.5"/>
+<path class="arr" d="M615.5,418.1 L622.5,421.5 L615.5,424.9 Z"/>
+<text class="nm" x="552.5" y="425.5" font-size="12" text-anchor="end">route_ring_en_o</text>
+<line class="sep" x1="238.2" y1="432.0" x2="564.5" y2="432.0"/>
+<ellipse class="bus" cx="588.9" cy="484.5" rx="12.0" ry="28.0"/>
+<path class="brc" d="M664.7,459.5 Q671.7,459.5 671.7,467.5 L671.7,476.5 Q671.7,484.5 675.9,484.5 Q671.7,484.5 671.7,492.5 L671.7,501.5 Q671.7,509.5 664.7,509.5"/>
+<text class="gp" x="677.7" y="476.5" font-size="10" text-anchor="start">control global</text>
+<text class="gp" x="677.7" y="488.5" font-size="10" text-anchor="start">(abarca los módulos</text>
+<text class="gp" x="677.7" y="500.5" font-size="10" text-anchor="start">propios, no el hk)</text>
+<line class="pin" x1="564.5" y1="463.5" x2="622.5" y2="463.5"/>
+<path class="arr" d="M615.5,460.1 L622.5,463.5 L615.5,466.9 Z"/>
+<text class="nm" x="552.5" y="467.5" font-size="12" text-anchor="end">ctrl_run_o</text>
+<line class="pin" x1="564.5" y1="484.5" x2="622.5" y2="484.5"/>
+<path class="arr" d="M615.5,481.1 L622.5,484.5 L615.5,487.9 Z"/>
+<text class="nm" x="552.5" y="488.5" font-size="12" text-anchor="end">ctrl_clear_o</text>
+<line class="pin" x1="564.5" y1="505.5" x2="622.5" y2="505.5"/>
+<path class="arr" d="M615.5,502.1 L622.5,505.5 L615.5,508.9 Z"/>
+<text class="nm" x="552.5" y="509.5" font-size="12" text-anchor="end">ctrl_srst_o</text>
+<line class="sep" x1="238.2" y1="516.0" x2="564.5" y2="516.0"/>
+<ellipse class="bus" cx="213.8" cy="547.5" rx="12.0" ry="9.0"/>
+<path class="brc" d="M138.0,543.5 Q131.0,543.5 131.0,545.5 L131.0,545.5 Q131.0,547.5 126.8,547.5 Q131.0,547.5 131.0,549.5 L131.0,549.5 Q131.0,551.5 138.0,551.5"/>
+<text class="gp" x="125.0" y="551.5" font-size="10" text-anchor="end">estado observable</text>
+<line class="pin" x1="180.2" y1="547.5" x2="238.2" y2="547.5"/>
+<path class="arr" d="M231.2,544.1 L238.2,547.5 L231.2,550.9 Z"/>
+<text class="nm" x="250.2" y="551.5" font-size="12">pll_locked_i</text>
+<line class="sep" x1="238.2" y1="558.0" x2="564.5" y2="558.0"/>
+<ellipse class="buss" cx="213.8" cy="621.0" rx="12.0" ry="38.5"/>
+<circle class="dots" cx="213.8" cy="582.5" r="3.6"/>
+<path class="brc" d="M138.0,585.5 Q131.0,585.5 131.0,593.5 L131.0,613.0 Q131.0,621.0 126.8,621.0 Q131.0,621.0 131.0,629.0 L131.0,648.5 Q131.0,656.5 138.0,656.5"/>
+<text class="gp" x="125.0" y="625.0" font-size="10" text-anchor="end">bus de sistema</text>
+<ellipse class="buss" cx="588.9" cy="610.5" rx="12.0" ry="28.0"/>
+<circle class="dots" cx="588.9" cy="582.5" r="3.6"/>
+<path class="brc" d="M664.7,585.5 Q671.7,585.5 671.7,593.5 L671.7,602.5 Q671.7,610.5 675.9,610.5 Q671.7,610.5 671.7,618.5 L671.7,627.5 Q671.7,635.5 664.7,635.5"/>
+<text class="gp" x="677.7" y="614.5" font-size="10" text-anchor="start">bus de sistema</text>
+<line class="pin" x1="180.2" y1="589.5" x2="238.2" y2="589.5"/>
+<path class="arr" d="M231.2,586.1 L238.2,589.5 L231.2,592.9 Z"/>
+<text class="wd" x="174.2" y="592.9" font-size="9.5" text-anchor="end">[31:0]</text>
+<text class="nm" x="250.2" y="593.5" font-size="12">sys_addr</text>
+<line class="pin" x1="180.2" y1="610.5" x2="238.2" y2="610.5"/>
+<path class="arr" d="M231.2,607.1 L238.2,610.5 L231.2,613.9 Z"/>
+<text class="wd" x="174.2" y="613.9" font-size="9.5" text-anchor="end">[31:0]</text>
+<text class="nm" x="250.2" y="614.5" font-size="12">sys_wdata</text>
+<line class="pin" x1="180.2" y1="631.5" x2="238.2" y2="631.5"/>
+<path class="arr" d="M231.2,628.1 L238.2,631.5 L231.2,634.9 Z"/>
+<text class="nm" x="250.2" y="635.5" font-size="12">sys_wen</text>
+<line class="pin" x1="180.2" y1="652.5" x2="238.2" y2="652.5"/>
+<path class="arr" d="M231.2,649.1 L238.2,652.5 L231.2,655.9 Z"/>
+<text class="nm" x="250.2" y="656.5" font-size="12">sys_ren</text>
+<line class="pin" x1="564.5" y1="589.5" x2="622.5" y2="589.5"/>
+<path class="arr" d="M615.5,586.1 L622.5,589.5 L615.5,592.9 Z"/>
+<text class="wd" x="628.5" y="592.9" font-size="9.5">[31:0]</text>
+<text class="nm" x="552.5" y="593.5" font-size="12" text-anchor="end">sys_rdata</text>
+<line class="pin" x1="564.5" y1="610.5" x2="622.5" y2="610.5"/>
+<path class="arr" d="M615.5,607.1 L622.5,610.5 L615.5,613.9 Z"/>
+<text class="nm" x="552.5" y="614.5" font-size="12" text-anchor="end">sys_err</text>
+<line class="pin" x1="564.5" y1="631.5" x2="622.5" y2="631.5"/>
+<path class="arr" d="M615.5,628.1 L622.5,631.5 L615.5,634.9 Z"/>
+<text class="nm" x="552.5" y="635.5" font-size="12" text-anchor="end">sys_ack</text>
+<circle class="dotm" cx="238.2" cy="683.6" r="3.6"/>
+<text class="sb" x="247.2" y="687.0" font-size="9.5">maestro: el módulo inicia las transacciones</text>
+<circle class="dots" cx="514.3" cy="683.6" r="3.6"/>
+<text class="sb" x="523.3" y="687.0" font-size="9.5">esclavo: las recibe y contesta</text>
+</svg>

@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="674" height="432" viewBox="0 0 674 432" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
+<style>
+  .bg{fill:#ffffff}            .box{fill:#ffffff;stroke:#1b1f24;stroke-width:1.6}
+  .hdr{fill:#f2f4f7;stroke:none}
+  .rule{stroke:#1b1f24;stroke-width:1.1}
+  .sep{stroke:#c3cad1;stroke-width:0.9;stroke-dasharray:4 4}
+  .pin{stroke:#1b1f24;stroke-width:1.3;fill:none}
+  .arr{fill:#1b1f24;stroke:none}
+  .nm{fill:#1b1f24}            .wd{fill:#57606a}
+  .gp{fill:#0b6bcb;font-style:italic}
+  .ti{fill:#1b1f24;font-weight:700} .sb{fill:#57606a} .pr{fill:#24292f}
+  /* Tintes planos y no fill-opacity: hay renderers de SVG a PNG que ignoran la
+     opacidad y dejan la elipse maciza, tapando los cables que abarca. */
+  .brc{fill:none;stroke:#8c959f;stroke-width:1.2}
+  .bus {fill:#eceff2;stroke:#aeb7c0;stroke-width:1.1}
+  .busm{fill:#dcebfb;stroke:#0b6bcb;stroke-width:1.3}
+  .buss{fill:#fbefd6;stroke:#bf8700;stroke-width:1.3}
+  .dotm{fill:#0b6bcb;stroke:none}
+  .dots{fill:#ffffff;stroke:#bf8700;stroke-width:1.6}
+  @media (prefers-color-scheme: dark){
+    .bg{fill:#0d1117}          .box{fill:#0d1117;stroke:#c9d1d9}
+    .hdr{fill:#161b22}         .rule{stroke:#c9d1d9}
+    .sep{stroke:#30363d}       .pin{stroke:#c9d1d9}
+    .arr{fill:#c9d1d9}         .nm{fill:#e6edf3} .wd{fill:#8b949e}
+    .gp{fill:#58a6ff}          .ti{fill:#e6edf3} .sb{fill:#8b949e} .pr{fill:#c9d1d9}
+    .brc{stroke:#6e7681}
+    .bus {fill:#21262d;stroke:#6e7681}
+    .busm{fill:#10243e;stroke:#58a6ff}
+    .buss{fill:#2b2008;stroke:#d29922}
+    .dotm{fill:#58a6ff}        .dots{fill:#0d1117;stroke:#d29922}
+  }
+</style>
+<rect class="bg" x="0" y="0" width="674" height="432"/>
+<rect class="box" x="214.2" y="14.0" width="257.2" height="404.0" rx="4"/>
+<rect class="hdr" x="215.2" y="15.0" width="255.2" height="78.0" rx="3"/>
+<text class="ti" x="342.8" y="42.0" font-size="16" text-anchor="middle">osc_filter</text>
+<text class="sb" x="342.8" y="56.5" font-size="9.5" text-anchor="middle">prj/MCA/modulos/osc/rtl/osc_filter.v</text>
+<text class="pr" x="327.0" y="79.0" font-size="10.5">DW=16</text>
+<line class="rule" x1="214.2" y1="93.0" x2="471.4" y2="93.0"/>
+<ellipse class="bus" cx="189.8" cy="135.0" rx="12.0" ry="17.5"/>
+<path class="brc" d="M114.0,120.5 Q107.0,120.5 107.0,127.8 L107.0,127.8 Q107.0,135.0 102.8,135.0 Q107.0,135.0 107.0,142.2 L107.0,142.2 Q107.0,149.5 114.0,149.5"/>
+<text class="gp" x="101.0" y="139.0" font-size="10" text-anchor="end">reloj y reset</text>
+<line class="pin" x1="156.2" y1="124.5" x2="214.2" y2="124.5"/>
+<path class="arr" d="M207.2,121.1 L214.2,124.5 L207.2,127.9 Z"/>
+<text class="nm" x="226.2" y="128.5" font-size="12">clk</text>
+<line class="pin" x1="156.2" y1="145.5" x2="214.2" y2="145.5"/>
+<path class="arr" d="M207.2,142.1 L214.2,145.5 L207.2,148.9 Z"/>
+<text class="nm" x="226.2" y="149.5" font-size="12">rst_n</text>
+<line class="sep" x1="214.2" y1="156.0" x2="471.4" y2="156.0"/>
+<ellipse class="bus" cx="189.8" cy="198.0" rx="12.0" ry="17.5"/>
+<path class="brc" d="M114.0,183.5 Q107.0,183.5 107.0,190.8 L107.0,190.8 Q107.0,198.0 102.8,198.0 Q107.0,198.0 107.0,205.2 L107.0,205.2 Q107.0,212.5 114.0,212.5"/>
+<text class="gp" x="101.0" y="202.0" font-size="10" text-anchor="end">Slave AXI-S</text>
+<ellipse class="bus" cx="495.8" cy="187.5" rx="12.0" ry="9.0"/>
+<path class="brc" d="M571.6,183.5 Q578.6,183.5 578.6,185.5 L578.6,185.5 Q578.6,187.5 582.8,187.5 Q578.6,187.5 578.6,189.5 L578.6,189.5 Q578.6,191.5 571.6,191.5"/>
+<text class="gp" x="584.6" y="191.5" font-size="10" text-anchor="start">Slave AXI-S</text>
+<line class="pin" x1="156.2" y1="187.5" x2="214.2" y2="187.5"/>
+<path class="arr" d="M207.2,184.1 L214.2,187.5 L207.2,190.9 Z"/>
+<text class="wd" x="150.2" y="190.9" font-size="9.5" text-anchor="end">[15:0]</text>
+<text class="nm" x="226.2" y="191.5" font-size="12">s_axis_tdata</text>
+<line class="pin" x1="156.2" y1="208.5" x2="214.2" y2="208.5"/>
+<path class="arr" d="M207.2,205.1 L214.2,208.5 L207.2,211.9 Z"/>
+<text class="nm" x="226.2" y="212.5" font-size="12">s_axis_tvalid</text>
+<line class="pin" x1="471.4" y1="187.5" x2="529.4" y2="187.5"/>
+<path class="arr" d="M522.4,184.1 L529.4,187.5 L522.4,190.9 Z"/>
+<text class="nm" x="459.4" y="191.5" font-size="12" text-anchor="end">s_axis_tready</text>
+<line class="sep" x1="214.2" y1="219.0" x2="471.4" y2="219.0"/>
+<ellipse class="bus" cx="189.8" cy="250.5" rx="12.0" ry="9.0"/>
+<path class="brc" d="M114.0,246.5 Q107.0,246.5 107.0,248.5 L107.0,248.5 Q107.0,250.5 102.8,250.5 Q107.0,250.5 107.0,252.5 L107.0,252.5 Q107.0,254.5 114.0,254.5"/>
+<text class="gp" x="101.0" y="254.5" font-size="10" text-anchor="end">Master AXI-</text>
+<ellipse class="bus" cx="495.8" cy="261.0" rx="12.0" ry="17.5"/>
+<path class="brc" d="M571.6,246.5 Q578.6,246.5 578.6,253.8 L578.6,253.8 Q578.6,261.0 582.8,261.0 Q578.6,261.0 578.6,268.2 L578.6,268.2 Q578.6,275.5 571.6,275.5"/>
+<text class="gp" x="584.6" y="265.0" font-size="10" text-anchor="start">Master AXI-</text>
+<line class="pin" x1="156.2" y1="250.5" x2="214.2" y2="250.5"/>
+<path class="arr" d="M207.2,247.1 L214.2,250.5 L207.2,253.9 Z"/>
+<text class="nm" x="226.2" y="254.5" font-size="12">m_axis_tready</text>
+<line class="pin" x1="471.4" y1="250.5" x2="529.4" y2="250.5"/>
+<path class="arr" d="M522.4,247.1 L529.4,250.5 L522.4,253.9 Z"/>
+<text class="wd" x="535.4" y="253.9" font-size="9.5">[15:0]</text>
+<text class="nm" x="459.4" y="254.5" font-size="12" text-anchor="end">m_axis_tdata</text>
+<line class="pin" x1="471.4" y1="271.5" x2="529.4" y2="271.5"/>
+<path class="arr" d="M522.4,268.1 L529.4,271.5 L522.4,274.9 Z"/>
+<text class="nm" x="459.4" y="275.5" font-size="12" text-anchor="end">m_axis_tvalid</text>
+<line class="sep" x1="214.2" y1="282.0" x2="471.4" y2="282.0"/>
+<ellipse class="bus" cx="189.8" cy="355.5" rx="12.0" ry="49.0"/>
+<path class="brc" d="M114.0,309.5 Q107.0,309.5 107.0,317.5 L107.0,347.5 Q107.0,355.5 102.8,355.5 Q107.0,355.5 107.0,363.5 L107.0,393.5 Q107.0,401.5 114.0,401.5"/>
+<text class="gp" x="101.0" y="359.5" font-size="10" text-anchor="end">Confi</text>
+<line class="pin" x1="156.2" y1="313.5" x2="214.2" y2="313.5"/>
+<path class="arr" d="M207.2,310.1 L214.2,313.5 L207.2,316.9 Z"/>
+<text class="nm" x="226.2" y="317.5" font-size="12">cfg_bypass</text>
+<line class="pin" x1="156.2" y1="334.5" x2="214.2" y2="334.5"/>
+<path class="arr" d="M207.2,331.1 L214.2,334.5 L207.2,337.9 Z"/>
+<text class="wd" x="150.2" y="337.9" font-size="9.5" text-anchor="end">[17:0]</text>
+<text class="nm" x="226.2" y="338.5" font-size="12">cfg_coeff_aa</text>
+<line class="pin" x1="156.2" y1="355.5" x2="214.2" y2="355.5"/>
+<path class="arr" d="M207.2,352.1 L214.2,355.5 L207.2,358.9 Z"/>
+<text class="wd" x="150.2" y="358.9" font-size="9.5" text-anchor="end">[24:0]</text>
+<text class="nm" x="226.2" y="359.5" font-size="12">cfg_coeff_bb</text>
+<line class="pin" x1="156.2" y1="376.5" x2="214.2" y2="376.5"/>
+<path class="arr" d="M207.2,373.1 L214.2,376.5 L207.2,379.9 Z"/>
+<text class="wd" x="150.2" y="379.9" font-size="9.5" text-anchor="end">[24:0]</text>
+<text class="nm" x="226.2" y="380.5" font-size="12">cfg_coeff_kk</text>
+<line class="pin" x1="156.2" y1="397.5" x2="214.2" y2="397.5"/>
+<path class="arr" d="M207.2,394.1 L214.2,397.5 L207.2,400.9 Z"/>
+<text class="wd" x="150.2" y="400.9" font-size="9.5" text-anchor="end">[24:0]</text>
+<text class="nm" x="226.2" y="401.5" font-size="12">cfg_coeff_pp</text>
+</svg>

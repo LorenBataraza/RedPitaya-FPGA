@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="471" height="180" viewBox="0 0 471 180" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
+<style>
+  .bg{fill:#ffffff}            .box{fill:#ffffff;stroke:#1b1f24;stroke-width:1.6}
+  .hdr{fill:#f2f4f7;stroke:none}
+  .rule{stroke:#1b1f24;stroke-width:1.1}
+  .sep{stroke:#c3cad1;stroke-width:0.9;stroke-dasharray:4 4}
+  .pin{stroke:#1b1f24;stroke-width:1.3;fill:none}
+  .arr{fill:#1b1f24;stroke:none}
+  .nm{fill:#1b1f24}            .wd{fill:#57606a}
+  .gp{fill:#0b6bcb;font-style:italic}
+  .ti{fill:#1b1f24;font-weight:700} .sb{fill:#57606a} .pr{fill:#24292f}
+  /* Tintes planos y no fill-opacity: hay renderers de SVG a PNG que ignoran la
+     opacidad y dejan la elipse maciza, tapando los cables que abarca. */
+  .brc{fill:none;stroke:#8c959f;stroke-width:1.2}
+  .bus {fill:#eceff2;stroke:#aeb7c0;stroke-width:1.1}
+  .busm{fill:#dcebfb;stroke:#0b6bcb;stroke-width:1.3}
+  .buss{fill:#fbefd6;stroke:#bf8700;stroke-width:1.3}
+  .dotm{fill:#0b6bcb;stroke:none}
+  .dots{fill:#ffffff;stroke:#bf8700;stroke-width:1.6}
+  @media (prefers-color-scheme: dark){
+    .bg{fill:#0d1117}          .box{fill:#0d1117;stroke:#c9d1d9}
+    .hdr{fill:#161b22}         .rule{stroke:#c9d1d9}
+    .sep{stroke:#30363d}       .pin{stroke:#c9d1d9}
+    .arr{fill:#c9d1d9}         .nm{fill:#e6edf3} .wd{fill:#8b949e}
+    .gp{fill:#58a6ff}          .ti{fill:#e6edf3} .sb{fill:#8b949e} .pr{fill:#c9d1d9}
+    .brc{stroke:#6e7681}
+    .bus {fill:#21262d;stroke:#6e7681}
+    .busm{fill:#10243e;stroke:#58a6ff}
+    .buss{fill:#2b2008;stroke:#d29922}
+    .dotm{fill:#58a6ff}        .dots{fill:#0d1117;stroke:#d29922}
+  }
+</style>
+<rect class="bg" x="0" y="0" width="471" height="180"/>
+<rect class="box" x="106.5" y="14.0" width="252.0" height="152.0" rx="4"/>
+<rect class="hdr" x="107.5" y="15.0" width="250.0" height="78.0" rx="3"/>
+<text class="ti" x="232.5" y="42.0" font-size="16" text-anchor="middle">dsp_tap_mux</text>
+<text class="sb" x="232.5" y="56.5" font-size="9.5" text-anchor="middle">prj/MCA/modulos/comun/rtl/dsp_tap_mux.sv</text>
+<text class="pr" x="216.8" y="79.0" font-size="10.5">DW=14</text>
+<line class="rule" x1="106.5" y1="93.0" x2="358.5" y2="93.0"/>
+<ellipse class="bus" cx="82.1" cy="135.0" rx="12.0" ry="17.5"/>
+<ellipse class="bus" cx="382.9" cy="135.0" rx="12.0" ry="17.5"/>
+<line class="pin" x1="48.5" y1="124.5" x2="106.5" y2="124.5"/>
+<path class="arr" d="M99.5,121.1 L106.5,124.5 L99.5,127.9 Z"/>
+<text class="wd" x="42.5" y="127.9" font-size="9.5" text-anchor="end">[1:0]</text>
+<text class="nm" x="118.5" y="128.5" font-size="12">tap_sel_i</text>
+<line class="pin" x1="48.5" y1="145.5" x2="106.5" y2="145.5"/>
+<path class="arr" d="M99.5,142.1 L106.5,145.5 L99.5,148.9 Z"/>
+<text class="nm" x="118.5" y="149.5" font-size="12">en_i</text>
+<line class="pin" x1="358.5" y1="124.5" x2="416.5" y2="124.5"/>
+<path class="arr" d="M409.5,121.1 L416.5,124.5 L409.5,127.9 Z"/>
+<text class="wd" x="422.5" y="127.9" font-size="9.5">[13:0]</text>
+<text class="nm" x="346.5" y="128.5" font-size="12" text-anchor="end">dat_o</text>
+<line class="pin" x1="358.5" y1="145.5" x2="416.5" y2="145.5"/>
+<path class="arr" d="M409.5,142.1 L416.5,145.5 L409.5,148.9 Z"/>
+<text class="nm" x="346.5" y="149.5" font-size="12" text-anchor="end">val_o</text>
+</svg>
