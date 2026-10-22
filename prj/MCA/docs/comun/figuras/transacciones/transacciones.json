@@ -1,0 +1,26 @@
+[
+  {
+    "archivo": "comun_a_pulso.png",
+    "titulo": "LO QUE ENTRA: EL PULSO AL RITMO DEL ADC",
+    "origen": "campaña e2e, `software/datos/e2e_20260528_013404/principal/chunk_000000.npz`, evento 1",
+    "nota": "Que entra a la cadena. Una muestra por ciclo de adc_clk, 125 MSPS, continua: en este nodo el valid vale siempre 1, asi que no hay nada que un consumidor pueda esperar. Son las 160 muestras del flanco de un pulso real de la campana e2e, el mismo que usa la figura de event_ring --hay una sola copia del dato en el repo--."
+  },
+  {
+    "archivo": "comun_b_taps.png",
+    "titulo": "UNA SOLA CADENA, CUATRO NODOS",
+    "origen": "estructura de `dsp_tap_mux.sv` y del top",
+    "nota": "Que viaja. No hay una cadena por consumidor: hay UNA, y cuatro puntos utilizables sobre ella. Cada consumidor tiene su propio mux 4:1 y elige el suyo en runtime con los registros ROUTE_* de la region de TOP. El mux es COMBINACIONAL a proposito: registrarlo corrorria el dato un ciclo respecto de las senales de control que lo acompanan --adc_we y el write pointer del osciloscopio, la alineacion trigger-vs-captura del multitrigger-- y en modo nativo el hardware dejaria de ser identico al de antes del refactor, que es justo la propiedad que se quiso preservar."
+  },
+  {
+    "archivo": "comun_c_nodos.png",
+    "titulo": "EL MISMO PULSO EN LOS CUATRO NODOS",
+    "origen": "el pulso medido, con el diezmado y el retardo aplicados",
+    "nota": "Que sale, y lo que importa no es solo el valor: es el RITMO. En A y B hay una muestra por ciclo y el valid es constante; en C y D sale una cada 8 ciclos y el dato viaja con estrobo --512 muestras contra 64, 8x menos--. Por eso la cabecera del RTL insiste en que el dato y su valid viajan JUNTOS: un consumidor que cambie de nodo sin arrastrar el valid leeria muestras repetidas o se saltearia muestras, segun el sentido del cambio. El diezmado es con promediado, o sea un promedio de bloque de 8 muestras: es el unico bloque de la cadena que cambia la FORMA del pulso, y lo paga en ritmo. D es C corrido 4 muestras diezmadas (32 ciclos). A y B salen IGUALES en el dibujo y eso no es que la calibracion no haga nada: es que esta captura ya paso por ella y el archivo no guarda los coeficientes, asi que re-aplicarlos seria inventarlos."
+  },
+  {
+    "archivo": "comun_transaccion.png",
+    "titulo": "LA TRANSACCION COMPLETA",
+    "origen": "las tres anteriores, en una figura",
+    "nota": "Las tres preguntas en una imagen: que entra, que viaja y que sale."
+  }
+]
