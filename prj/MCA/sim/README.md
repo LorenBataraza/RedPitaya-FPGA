@@ -11,6 +11,7 @@ la vez, no pertenece a ninguno y va acá.
 | `tb_slots_integration` | comun + multitrigger + mca |
 | `tb_trig_capture` | multitrigger + `rtl/classic/rp_bram_sm.v` (repo raíz) |
 | `tb_osc_cfg` | osc contra multitrigger (diferencial) |
+| `tb_sys_bus_proto` | mca + el bus del repo raíz (`sys_bus_interconnect`, `sys_bus_cdc`, `sys_bus_stub`) |
 
 ## Requisitos
 
@@ -33,11 +34,11 @@ make rtl-tb_trig_capture      # un TB suelto, lo busca solo
 make wave TB=tb_trig_capture  # abre las ondas ya grabadas
 ```
 
-O directamente acá, para los tres de integración:
+O directamente acá, para los cuatro de integración:
 
 ```bash
 cd prj/MCA/sim
-make                    # los 3
+make                    # los 4
 make tb_trig_capture    # uno solo
 make clean
 ```
@@ -56,6 +57,7 @@ para cuando el chequeo falla, el tiempo que hay que mirar ya pasó. Se abren con
 |-----------|--------------|
 | `tb_slots_integration` | las tres regiones cableadas como en el top: independencia entre slots y **ruteo del datapath de punta a punta** (con `TAP_ADC` el MCA ve la muestra cruda, no la calibrada). |
 | `tb_osc_cfg` | **diferencial contra `multitrigger_rp_scope_cfg`**: mismo estímulo por los offsets legacy, salidas idénticas. Más el alias legacy↔canónico y la regresión del cuelgue de `ack` en las aperturas de canales no construidos. |
+| `tb_sys_bus_proto` | **el protocolo del bus, con el RTL de verdad**: el único TB del árbol que instancia `sys_bus_interconnect` (con su `sys_bus_cdc` por slot) en vez de un BFM que lo imita, y el único con dos dominios de reloj asíncronos. Mide la vuelta completa contra el timeout de 32 ciclos de `axi4_slave`, verifica que el `ack` es un pulso de un ciclo, que una dirección no mapeada también hace `ack` (el deadlock de slot de [`../docs/TOP/bus_sistema_redpitaya.md`](../docs/TOP/bus_sistema_redpitaya.md) §7.1) y que sin PLL enganchado se lee `0xDEADBEEF`. De sus ondas salen los [diagramas de tiempo del protocolo](../docs/TOP/figuras/bus_sistema/README.md). |
 | `tb_trig_capture` | **centro del debug del race arm-vs-máscara**: `event_logic` + `rp_bram_sm` como en `rp_scope_multitrigger_com`. Escenario A (máscara-antes-de-arm + flanco pre-arm) → **deadlock** (`wp_trig=0`, `adc_trg_rd=0`); escenario B (arm-antes-de-máscara) → **captura**; escenario C (SW trigger) → captura (inmune al orden). Ver [`../docs/multitrigger/orden_arm_trigger_captura.md`](../docs/multitrigger/orden_arm_trigger_captura.md). |
 
 ## Fuentes bajo test
@@ -63,6 +65,11 @@ para cuando el chequeo falla, el tiempo que hay que mirar ya pasó. Se abren con
 No hay RTL propio acá: todo entra por `DEPS` en el [`Makefile`](Makefile), que
 lee los `files.f`/`extra.f` de `comun`, `osc`, `multitrigger` y `mca`. Así esta
 carpeta no puede desincronizarse del RTL de los módulos.
+
+La excepción es el [`extra.f`](extra.f) de esta carpeta: trae las cuatro fuentes
+del bus de sistema (`rtl/interface/sys_bus_if.sv`, `sys_bus_cdc.sv`,
+`sys_bus_interconnect.sv`, `sys_bus_stub.sv`) del repo raíz, que no son de
+ningún módulo y sólo las usa `tb_sys_bus_proto`.
 
 ## Los testbenches unitarios
 
