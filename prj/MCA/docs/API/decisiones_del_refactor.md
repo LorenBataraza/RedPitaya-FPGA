@@ -56,7 +56,7 @@ problema de coherencia, pero un fd de menos es un fd de menos.
 
 `arm_for_adc_trigger` escribía histéresis (`0x20`/`0x24`, osciloscopio) → arm
 (`0x00`, osciloscopio) → máscara OR (`0x240`/`0x244`, multitrigger). **Ese orden
-es load-bearing** ([por qué](../multitrigger/orden_arm_trigger_captura.md)), y al
+es load-bearing** ([por qué](../osc/orden_arm_trigger_captura.md)), y al
 partir la clase pasó a ser un punto de fallo nuevo: nada impide reordenarlo, y el
 síntoma aparece sólo en la placa y sólo con señal viva.
 

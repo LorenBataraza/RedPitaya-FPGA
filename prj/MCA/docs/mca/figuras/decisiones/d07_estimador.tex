@@ -1,0 +1,38 @@
+% D7 — el estimador de la ventana de amplitud (cfg_amp_src). Vive en mca_window.
+% Compilar:   pdflatex d07_estimador.tex && pdftocairo -svg d07_estimador.pdf d07_estimador.svg
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../../figuras/estilo_tikz.tex}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\node[decision] (d) at (-0.9,1.3) {D7};
+\node[anchor=west, font=\small] at (d.east)
+  {\textbf{Qué amplitud mira la ventana} \quad {\scriptsize\ttfamily mca\_window}};
+
+\node[etapa, defecto, text width=3.2cm] (o0) at (0.9,0)
+  {\etq{pico}{máximo de \texttt{xc}, primera\\ ocurrencia (comparación $>$)}};
+\node[etapa, text width=3.2cm] (o1) at (0.9,-1.5)
+  {\etq{integral}{$Q_\mathrm{tot} \gg$ \texttt{q\_shift},\\ saturada a 16 b}};
+
+\muxdec{m}{(3.9,-0.75)}{2.8}
+\foreach \k in {0,1} {
+  \draw[flujo] (o\k.east) -- (m-in |- o\k.east);
+  \node[font=\scriptsize, anchor=west] at ($(m-in |- o\k.east)+(0.05,0)$) {\k};
+}
+\draw[ctrl] ($(m-sel)+(0,-0.9)$) node[below, sen, black, align=center]
+  {cfg\_amp\_src\;\normalfont(0x038[0])\\[-1pt]\normalfont\scriptsize q\_shift = 0x038[12:8]}
+  -- (m-sel);
+
+\node[etapa, text width=2.6cm] (win) at (6.4,-0.75)
+  {\etq{ventana}{\texttt{amp\_min} $\le$ amp $\le$ \texttt{amp\_max}\\ (0x030, 0x034)}};
+\draw[flujo] (m-out) -- node[sen, below, pos=0.6] {amp} (win.west);
+\draw[flujo] (win.east) -- ++(1.0,0) node[right, sen, align=left] {amp\_ok\\[-1pt]\normalfont\scriptsize fuera: cnt\_rej\_amp};
+\draw[ctrl] ($(m-out)+(0.5,0)$) |- ++(0,1.25) -- ++(4.0,0) node[right, sen, black] {ev\_amp (0x080)};
+
+\end{tikzpicture}
+\end{document}

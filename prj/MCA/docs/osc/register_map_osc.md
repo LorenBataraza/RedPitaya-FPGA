@@ -1,13 +1,13 @@
 # Mapa de registros — región de OSC
 
 **Base:** `0x4010_0000` (slot 1 del bus de sistema) · **Tamaño de mmap:** `0x50000`
-**RTL:** [`osc_cfg.sv`](../../rtl/mine/osc/osc_cfg.sv)
-**Datapath:** [`rp_scope_multitrigger_com.sv`](../../rtl/mine/multitrigger/rp_scope_multitrigger_com.sv)
+**RTL:** [`osc_cfg.sv`](../../modulos/osc/rtl/osc_cfg.sv)
+**Datapath:** [`rp_scope_mt_com.sv`](../../modulos/osc/rtl/rp_scope_mt_com.sv)
 
-Sale de `multitrigger_rp_scope_cfg`, quitándole los registros del multitrigger
-—que se mudaron al [slot 3](../multitrigger/register_map_multitrigger.md)— y
+Sale de `mt_rp_scope_cfg`, quitándole los registros del multitrigger
+—que se mudaron al [slot 3](../mt/register_map_mt.md)— y
 reorganizando el mapa. El mapa original se conserva como referencia histórica en
-[`register_map_multitrigger_rp_scope_cfg.md`](../multitrigger/register_map_multitrigger_rp_scope_cfg.md).
+[`register_map_mt_rp_scope_cfg.md`](register_map_mt_rp_scope_cfg.md).
 
 Contrato del bus: [`../TOP/bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md).
 Mapa de slots: [`../TOP/register_map_top.md`](../TOP/register_map_top.md).
@@ -54,41 +54,80 @@ Es el único lugar que hay que tocar.
 
 ## Mapa canónico
 
+Los registros compartidos por los canales van en la base; después, un bloque
+por canal con un stride fijo, que del lado del software es un arreglo de
+`struct`. La figura sigue una dirección (`HYST` del canal 1) desde el mapa del
+sistema hasta el bloque
+([fuente](figuras/mapa_registros_osc.tex)):
+
+![Ejemplo de mapa de registros: el mapa canónico de osc_cfg](figuras/mapa_registros_osc.svg)
+
+La dirección física de un registro es la suma de cuatro términos, y cada uno lo
+fija un nivel distinto. Para `HYST` del canal 1
+([fuente](figuras/calculo_direccion_osc.tex)):
+
+![Cálculo de la dirección física de HYST del canal 1](figuras/calculo_direccion_osc.svg)
+
+La base del slot la decide el top al conectar el módulo al bus. El resto es
+propio del módulo y no cambia si el módulo se mueve de slot.
+
+Como las bases y el stride son potencias de dos, la suma es en realidad una
+**concatenación de campos de bits**, y cada nivel decodifica sólo los suyos: el
+`sys_bus_interconnect` mira `addr[22:20]` para elegir el slot, y `osc_cfg` mira
+`addr[19:8]` para reconocer el bloque, `addr[7:6]` para el canal y `addr[5:0]`
+para el registro. Ningún nivel suma nada.
+
 ### Globales — base `0x01000`
 
-| Offset | R/W | Campo | Descripción |
-|---|---|---|---|
-| `+0x000` | R | `MAGIC` | `0x4F534331` (`"OSC1"`) |
-| `+0x004` | R | `CAPS` | `{RSZ[21:16], DW[13:8], N_CH[3:0]}` |
-| `+0x008` | W | `CMD_ARM` | bit por canal |
-| `+0x00C` | W | `CMD_RST` | bit por canal |
-| `+0x010` | RW | `CFG_WE_KEEP` | bit por canal — el ARM sigue activo tras el trigger |
-| `+0x014` | RW | `CFG_INDEP` | bit por canal — modo de adquisición independiente |
-| `+0x018` | R | `ADC_STATE` | |
-| `+0x01C` | RW | `DEB_LEN` | largo del debouncer del trigger externo (reset 62500) |
-| `+0x020` | RW | `FILT_BYP` | bypass del ecualizador, bit por canal |
-| `+0x024` | RW | `AVG_EN` | averaging, bit por canal |
+| Offset | R/W | Campo | Reset | Descripción |
+|---|---|---|---|---|
+| `+0x000` | R | `MAGIC` | constante | `0x4F534331` (`"OSC1"`) |
+| `+0x004` | R | `CAPS` | constante | `{RSZ[21:16], DW[13:8], N_CH[3:0]}` |
+| `+0x008` | W | `CMD_ARM` | — (pulso) | bit por canal |
+| `+0x00C` | W | `CMD_RST` | — (pulso) | bit por canal |
+| `+0x010` | RW | `CFG_WE_KEEP` | `0` — single-shot | bit por canal — el ARM sigue activo tras el trigger |
+| `+0x014` | RW | `CFG_INDEP` | `0` — todos siguen al ch0 | bit por canal — modo de adquisición independiente |
+| `+0x018` | R | `ADC_STATE` | | |
+| `+0x01C` | RW | `DEB_LEN` | `62500` (500 µs) | largo del debouncer del trigger externo |
+| `+0x020` | RW | `FILT_BYP` | `0` | bypass del ecualizador, bit por canal |
+| `+0x024` | RW | `AVG_EN` | `0` | averaging, bit por canal |
 
 ### Por canal — base `0x01100` + `0x40`·ch
 
-| Offset | R/W | Campo | | Offset | R/W | Campo |
-|---|---|---|---|---|---|---|
-| `+0x00` | RW | `THRESH` (signed) | | `+0x1C` | RW | `CALIB_OFFSET` |
-| `+0x04` | RW | `HYST` | | `+0x20` | RW | `CALIB_GAIN` (reset `0x8000` = ×1) |
-| `+0x08` | RW | `DLY` (post-trigger) | | `+0x24` | RW | `FILT_AA` |
-| `+0x0C` | RW | `DEC` (decimación) | | `+0x28` | RW | `FILT_BB` |
-| `+0x10` | R | `WP_CUR` | | `+0x2C` | RW | `FILT_KK` |
-| `+0x14` | R | `WP_TRIG` | | `+0x30` | RW | `FILT_PP` |
-| `+0x18` | R | `WE_CNT` | | | | |
+| Offset | R/W | Campo | Reset |
+|---|---|---|---|
+| `+0x00` | RW | `THRESH` (signed) | ch0 `+5000`, ch1 `−5000`, ch2 `+5000`, ch3 `−5000` |
+| `+0x04` | RW | `HYST` | `20` |
+| `+0x08` | RW | `DLY` (post-trigger) | **`0` — caso degenerado: la FSM ignora el trigger** |
+| `+0x0C` | RW | `DEC` (decimación) | `1` (sin decimar) |
+| `+0x10` | R | `WP_CUR` | |
+| `+0x14` | R | `WP_TRIG` | |
+| `+0x18` | R | `WE_CNT` | |
+| `+0x1C` | RW | `CALIB_OFFSET` | `0` |
+| `+0x20` | RW | `CALIB_GAIN` | `0x8000` (×1) |
+| `+0x24` | RW | `FILT_AA` | `0` |
+| `+0x28` | RW | `FILT_BB` | `0` |
+| `+0x2C` | RW | `FILT_KK` | `0xFFFFFF` |
+| `+0x30` | RW | `FILT_PP` | `0` |
 
 ### AXI por canal — base `0x01200` + `0x20`·ch
 
-| Offset | R/W | Campo |
-|---|---|---|
-| `+0x00` / `+0x04` / `+0x08` | RW | `AXI_START` / `AXI_STOP` / `AXI_DLY` |
-| `+0x0C` | RW | `AXI_EN` — el write con bit0=1 emite `axi_en_pulse` |
-| `+0x10` / `+0x14` | R | `AXI_WP_TRIG` / `AXI_WP_CUR` |
-| `+0x18` | R | `AXI_STATE` |
+| Offset | R/W | Campo | Reset |
+|---|---|---|---|
+| `+0x00` / `+0x04` / `+0x08` | RW | `AXI_START` / `AXI_STOP` / `AXI_DLY` | `0` |
+| `+0x0C` | RW | `AXI_EN` — el write con bit0=1 emite `axi_en_pulse` | `0` |
+| `+0x10` / `+0x14` | R | `AXI_WP_TRIG` / `AXI_WP_CUR` | |
+| `+0x18` | R | `AXI_STATE` | |
+
+**Reset** es el valor tras cargar el bitstream o un reset de `adc_rstn`
+(`osc_cfg.sv`, el bloque `if (!adc_rstn_i)` de los `set_*`). Vale para los dos
+mapas, porque es el mismo banco físico. El software **no** lo restaura entre
+programas: si no se escribe un registro, queda lo que dejó el anterior. Con
+estos valores el filtro es transparente (`aa = bb = pp = 0`, `kk = 2²⁴−1`: sólo
+agrega latencia), pero la captura por trigger **no anda**: `DLY = 0` es el caso
+degenerado de `rp_bram_sm` (ver
+[`sistema_adquisicion_original.md`](sistema_adquisicion_original.md)), y el
+umbral del ch1 es negativo. Hay que escribir al menos `DLY ≥ 1`.
 
 El mapa canónico cubre **ch0..ch3** aunque `N_CH = 2`: es un superset del
 legacy, que sólo decodificaba dos canales para la mayoría de los registros.
@@ -152,13 +191,13 @@ válidos y `librp` los usa tal cual.
 | `0x040`–`0x04C` | filtros ch2 | | `0x200`–`0x20C` | calibración ch1 / ch2 |
 
 El detalle bit a bit está en el
-[mapa histórico](../multitrigger/register_map_multitrigger_rp_scope_cfg.md).
+[mapa histórico](register_map_mt_rp_scope_cfg.md).
 
 ### El puente legacy hacia el slot 3
 
 Dos offsets legacy pertenecen a lógica que se mudó al multitrigger, y `librp`
 los usa. `osc_cfg` los sigue decodificando y manda el pulso **ya decodificado
-por canal** a `multitrigger_cfg`, donde se OR-ea con el registro propio:
+por canal** a `mt_cfg`, donde se OR-ea con el registro propio:
 
 | Offset legacy | Puerto | Va a |
 |---|---|---|
@@ -174,7 +213,7 @@ proyecto. Ahí sólo hay que reapuntar el driver de Python al slot 3.
 ## Un bug arreglado de paso
 
 El módulo original sacaba el `ack` de las aperturas BRAM de `bram_ack_i[i]`, y
-`rp_scope_multitrigger_com` ata `bram_ack[2]`/`[3]` a cero para los canales no
+`rp_scope_mt_com` ata `bram_ack[2]`/`[3]` a cero para los canales no
 construidos: **cualquier lectura en `0x4013_0000`–`0x4014_FFFF` no hacía `ack`
 nunca** y dejaba el CDC del slot desincronizado
 ([§7.1](../TOP/bus_sistema_redpitaya.md)).

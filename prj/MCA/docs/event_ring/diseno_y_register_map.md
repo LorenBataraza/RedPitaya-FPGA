@@ -8,7 +8,7 @@ una cola productor/consumidor de N_SLOTS eventos.
 > forman las transferencias AXI— está en
 > [`logica_de_captura_y_axi.md`](logica_de_captura_y_axi.md). La máquina que esto
 > reemplaza está en
-> [`../multitrigger/sistema_adquisicion_original.md`](../multitrigger/sistema_adquisicion_original.md).
+> [`../osc/sistema_adquisicion_original.md`](../osc/sistema_adquisicion_original.md).
 
 ## Por qué "ring" y no "arbiter"
 
@@ -22,13 +22,16 @@ nombre. El stub viejo quedó como
 
 ## Estructura
 
-```
-trigger ──► event_window_capture ──► event_stage_fifo ──► event_slot_writer
-            (ventana pre+post)       (E eventos, BRAM)     (serializa el slot)
-                                                                  │
-                                                          axi_wr_fifo ──► HP2 ──► DDR
-                    wr_slot ──────── comparador de créditos ──────── rd_slot (PS)
-```
+![Panorama de event_ring_top](figuras/panorama_event_ring_top.svg)
+
+El evento baja de izquierda a derecha: la captura saca una ventana pre + post
+del pre-buffer, el stage la guarda entera (o la rechaza entera, con `accept` en
+el SOF), el writer la serializa en un slot y el `axi_wr_fifo` la escribe en DDR
+por HP2. Arriba, lo que frena al writer sin perder datos: los **créditos**
+contra el `RD_SLOT` que publica el PS. Abajo, la contrapresión del FIFO, la FSM
+global y los registros. La fuente es
+[`figuras/panorama_event_ring_top.tex`](figuras/panorama_event_ring_top.tex)
+(TikZ).
 
 | módulo | archivo | qué hace |
 |---|---|---|
@@ -37,7 +40,7 @@ trigger ──► event_window_capture ──► event_stage_fifo ──► even
 | `event_slot_writer` | `.../event_slot_writer.sv` | layout del slot, relleno, footer de commit |
 | `event_ring_top` | `.../event_ring_top.sv` | FSM global, créditos, contadores, bus de sistema |
 
-**Un solo dominio de reloj.** `rp_scope_multitrigger_com.sv:686` hace
+**Un solo dominio de reloj.** `rp_scope_mt_com.sv:686` hace
 `assign axi_clk = adc_clk_i`, y el bus llega ya sincronizado a `adc_clk` por
 `sys_bus_cdc`. Captura, writer y registros comparten `adc_clk`: **no hace falta
 CDC ni codificación Gray** entre `WR_SLOT` y `RD_SLOT`.
@@ -176,7 +179,7 @@ un caso de regresión en los testbenches.
 
 ### 1. El trigger es un NIVEL, no un pulso
 
-`multitrigger_trig_src.sv:113` hace `adc_trig <= trig_comb` — un nivel
+`mt_trig_src.sv:113` hace `adc_trig <= trig_comb` — un nivel
 registrado — y el strobe de escritura que llega por `sys_bus_cdc` puede durar más
 de un ciclo de `adc_clk`. Resultado en la placa: **cada trigger producía dos
 eventos**, uno capturado y otro contado como `drop_busy` (`suma = 2 × triggers`).

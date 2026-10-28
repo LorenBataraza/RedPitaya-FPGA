@@ -1,0 +1,89 @@
+% Panorama de TRIGGER_SHIELD: el escudo por dentro. Un solo contador de holdoff
+% que carga `dur` cuando dispara alguna fuente habilitada; al expirar emite un
+% pulso de re-arm hacia los canales de destino, y mientras corre da el veto al
+% MCA. El borde grueso es el límite del módulo; lo que lo cruza son sus
+% puertos, sólo con el nombre.
+% Fuente: modulos/mt/rtl/trigger_shield.sv. Estilo: docs/figuras/estilo_tikz.tex.
+%
+% Compilar:   pdflatex panorama_trigger_shield.tex
+%             pdftocairo -svg panorama_trigger_shield.pdf panorama_trigger_shield.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{logica/.style = {etapa=amarillo!40, text width=3.0cm}}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\def\xin{-0.4}    % donde arrancan las entradas
+\def\xout{17.6}   % donde terminan las salidas
+\def\ytop{4.6}    % de donde bajan las de configuración
+
+% ================================================================ bloques ===
+\node[logica, minimum height=1.6cm] (dis) at (2.6,0.0)
+  {\etq{disparo del escudo}{\texttt{src\_fire =}\\ \texttt{|(trig\_event \& src)}\\ combinacional}};
+\node[logica, minimum height=1.9cm] (cnt) at (6.4,0.0)
+  {\etq{contador de holdoff}{con \texttt{src\_fire} carga \texttt{dur}\\ (cada disparo recarga);\\ si no, cuenta hasta 1\\ \texttt{active}: está contando}};
+\node[logica, minimum height=1.5cm] (pul) at (10.4,1.7)
+  {\etq{pulso de re-arm}{\texttt{clr\_q <= dst[N-1:0]}\\ al expirar; con \texttt{dur=0},\\ al disparar \;(1 ciclo)}};
+\node[logica, minimum height=1.3cm] (vet) at (10.4,-1.9)
+  {\etq{veto al MCA}{\texttt{dst[N] \& (src\_fire | active)}\\ registrado}};
+\node[logica, text width=2.4cm, minimum height=1.5cm,
+      double copy shadow={shadow xshift=2pt, shadow yshift=-2pt}] (mux) at (14.5,1.7)
+  {\etq{mux {\normalfont$\times$} N}{\texttt{dst[i] ? clr\_q[i]}\\ \texttt{: sw\_clr[i]}}};
+
+% ============================================================== el límite ===
+\node[contenedor, fit={(0.65,3.75) (16.3,-3.95)}] (lim) {};
+\node[titulo, anchor=south west, inner sep=2pt, align=left] at (lim.north west)
+  {\texttt{\bfseries trigger\_shield}\\ \prm{N=SHIELD\_N & DURATION\_W=16\\ N\_SRC=N+3 & N\_DST=N+1}};
+
+% ============================================================== flechas ====
+% --- entradas por la izquierda ---
+\draw[flujo, ancho=N\_SRC, ancho en=0.4] (\xin,0.35) node[left, sen] {trig\_event\_i} -- (dis.west |- 0,0.35);
+\draw[ctrl] (\xin,-0.4) node[left, sen, black!80] {shield\_src\_i} -- (dis.west |- 0,-0.4);
+\draw[flujo, ancho=N, ancho en=0.2] (\xin,3.0) node[left, sen] {sw\_trig\_dis\_clr\_i}
+  -- (13.05,3.0) -- (13.05,2.15) -- (mux.west |- 0,2.15);
+
+% --- configuración, por arriba ---
+\draw[ctrl] (cnt.north |- 0,\ytop) node[above, sen, black!80] {shield\_dur\_i} -- (cnt.north);
+\draw[ctrl] (12.7,\ytop) node[above, sen, black!80] {shield\_dst\_i} -- (12.7,3.45);
+\draw[ctrl] (pul.north |- 0,3.45) -- (mux.north |- 0,3.45);
+\punto{12.7,3.45}
+\draw[ctrl, cruce] (pul.north |- 0,3.45) -- node[sen, right, pos=0.35, black!80] {dst[N-1:0]} (pul.north);
+\draw[ctrl] (mux.north |- 0,3.45) -- node[sen, right, pos=0.35, black!80] {dst[i]: elige} (mux.north);
+\draw[ctrl, cruce] (12.7,3.45) -- (12.7,-0.6) -- (vet.north |- 0,-0.6)
+  -- node[sen, right, pos=0.5, black!80] {dst[N]} (vet.north);
+
+% --- adentro ---
+\draw[flujo] (dis.east) -- node[sen, above, pos=0.5] {src\_fire} (cnt.west);
+\draw[flujo] (cnt.east |- 0,0.45) -- (8.35,0.45) -- (8.35,1.7) -- (pul.west);
+\node[sen, above left] at (pul.west) {expira};
+\draw[flujo] (cnt.east |- 0,-0.45) -- (8.65,-0.45) -- (8.65,-2.15) -- (vet.west |- 0,-2.15);
+\node[sen, below left] at (vet.west |- 0,-2.15) {active};
+\punto{4.5,0.0}
+\draw[flujo, cruce] (4.5,0.0) -- (4.5,-1.65) -- (vet.west |- 0,-1.65);
+\node[sen, above left] at (vet.west |- 0,-1.65) {src\_fire};
+\draw[flujo, cruce] (pul.east |- 0,1.25) -- node[sen, below, pos=0.35] {clr\_q} (mux.west |- 0,1.25);
+
+% --- salidas: sólo el nombre ---
+\draw[flujo, ancho=N, ancho en=0.55] (mux.east) -- (\xout,0 |- mux.east) node[right, sen] {trig\_dis\_clr\_o};
+\draw[flujo] (vet.east) -- (\xout,0 |- vet.east) node[right, sen] {mca\_veto\_o};
+\draw[flujo] (cnt.south) -- (cnt.south |- 0,-3.3) -- (\xout,-3.3)
+  node[right, sen, align=left] {cnt\_o, active\_o};
+
+% ================================================================= leyenda ===
+\leyenda{-1.0,-4.8}{amarillo!40/lógica del escudo}
+  {Hay un solo contador para todos los destinos. Con una fuente de nivel
+   (\texttt{ext\_lvl}) el escudo dispara cada ciclo que la línea está alta y
+   cada disparo recarga \texttt{dur}: el veto dura la línea más \texttt{dur}
+   ciclos. Los canales que no están en \texttt{dst} siguen al clear de software
+   (\texttt{sw\_clr}) sin cambio.\\ \texttt{NOMBRE=valor}: parámetros con que lo
+   instancia \texttt{mt\_event\_logic}.}
+
+\end{tikzpicture}
+\end{document}

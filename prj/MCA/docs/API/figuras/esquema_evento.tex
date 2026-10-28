@@ -1,0 +1,90 @@
+% El esquema del evento se arma en runtime: la fuente declara sus columnas
+% (BASE_FIELDS), cada annotator suma las suyas y merge_fields() las junta. El
+% resultado es un EventBatch: un array por columna, todos de largo capacity, y
+% la onda como (capacity, n_ch, samples). Una fila atraviesa todos los arrays:
+% es un evento.
+% Fuentes: software/API/osciloscope_store/events.py (BASE_FIELDS, EventBatch),
+% annotators.py (CachedAnnotator, DeadTimeAnnotator, merge_fields). El texto que
+% acompaña está en docs/API/arquitectura_software.md §4. Estilo:
+% docs/figuras/estilo_tikz.tex.
+%
+% Compilar:   pdflatex esquema_evento.tex
+%             pdftocairo -svg esquema_evento.pdf esquema_evento.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{
+  decl/.style  = {bloque=none, text width=3.1cm, minimum height=0.6cm},
+  col/.style   = {font=\scriptsize\ttfamily, inner sep=1pt, rotate=90, anchor=west},
+  eje/.style   = {font=\scriptsize\ttfamily, inner sep=1pt},
+}
+% columnas declaradas: nombre y dtype
+\newcommand{\campos}[1]{{\ttfamily\scriptsize
+  \begin{tabular}{@{}l@{\hspace{8pt}}l@{}}#1\end{tabular}}}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+% ====================================================== quién declara qué ===
+\node[decl, param={azul!35}{azul!12}] (A) at (0,1.15)
+  {\blk{BASE\_FIELDS}{la fuente}
+   \nodepart{two}\campos{t\_ns & int64\\ wp & int32\\ snap & uint32\\ gap & uint8}};
+\node[decl, param={verde!45}{verde!15}] (B) at (0,-0.85)
+  {\blk{CachedAnnotator}{prefijo \texttt{<p>}}
+   \nodepart{two}\campos{<p>\_\dots & sus valores\\ <p>\_age\_ns & int64}};
+\node[decl, param={verde!45}{verde!15}] (C) at (0,-2.4)
+  {\blk{DeadTimeAnnotator}{}
+   \nodepart{two}\campos{dead\_ns & int64}};
+
+\node[trig, text width=2.1cm] (mf) at (4.0,-0.85) {\blk{merge\_fields()}{falla si un nombre se repite}};
+\draw[line width=0.8pt] (A.east) -- (2.35,0 |- A.east) |- (2.35,-0.85);
+\draw[line width=0.8pt] (C.east) -- (2.35,0 |- C.east) -- (2.35,-0.85);
+\draw[flujo] (B.east) -- (mf.west);
+\punto{2.35,-0.85}
+
+% ============================================================ EventBatch ===
+\draw[contenedor, fill=black!3] (5.7,2.85) rectangle (15.1,-3.35);
+\node[rotulo, font=\scriptsize\ttfamily\bfseries, black] at (5.75,2.85) {EventBatch};
+
+\def\yt{0.9}    % arriba de los arrays
+\def\yb{-2.6}   % abajo: capacity eventos
+\def\ri{-1.05}  % la fila del evento i
+
+% una columna escalar por campo
+\foreach \n/\c [count=\k from 0] in {t\_ns/azul!35, wp/azul!35, snap/azul!35, gap/azul!35,
+                                     <p>\_\dots/verde!45, <p>\_age\_ns/verde!45, dead\_ns/verde!45} {
+  \pgfmathsetmacro\x{6.3+0.55*\k}
+  \draw[line width=0.5pt, fill=\c] (\x,\yb) rectangle (\x+0.42,\yt);
+  \fill[black!55] (\x,\ri-0.11) rectangle (\x+0.42,\ri+0.11);
+  \node[col] at (\x+0.21,\yt+0.08) {\n};
+}
+\draw[flujo] (mf.east) -- (6.2,0 |- mf.east);
+
+% la onda: (capacity, n_ch, samples)
+\foreach \k in {3,2,1}
+  \draw[line width=0.5pt, fill=azul!12] (10.9+0.17*\k,\yb+0.17*\k) rectangle (13.7+0.17*\k,\yt+0.17*\k);
+\draw[line width=0.6pt, fill=azul!20] (10.9,\yb) rectangle (13.7,\yt);
+\fill[black!55] (10.9,\ri-0.11) rectangle (13.7,\ri+0.11);
+\node[eje, font=\scriptsize\ttfamily\bfseries, above] at (12.55,\yt+0.5) {wave};
+\node[eje, below] at (12.3,\yb) {samples};
+\node[eje, rotate=90, above] at (10.9,{(\yt+\yb)/2}) {capacity};
+\draw[->, line width=0.5pt, black!70] (13.75,\yt+0.05) -- (14.25,\yt+0.55)
+  node[eje, right] {n\_ch};
+
+\node[sen, anchor=north west, black!80] at (6.25,\yb-0.05) {una por campo, de largo capacity};
+
+% la fila i: un evento
+\draw[<-, line width=0.6pt] (14.35,\ri) -- (14.75,\ri);
+\node[font=\scriptsize, anchor=north, align=center] at (14.55,\ri-0.2) {evento\\[-1pt] \texttt{i}};
+
+% ============================================================== leyenda ===
+\leyenda{-1.6,-3.95}{azul!35/de la fuente, verde!45/de los annotators}
+  {La franja oscura es un evento: la misma fila \texttt{i} en todos los arrays.}
+
+\end{tikzpicture}
+\end{document}

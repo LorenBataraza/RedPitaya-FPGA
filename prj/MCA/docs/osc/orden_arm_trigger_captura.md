@@ -38,7 +38,7 @@ trigger ocurrió, pero fuera de la ventana en que la `bram_sm` podía registrarl
 La causa raíz es confundir dos señales que son **independientes**:
 
 1. **`set_trig_src` (OR-mask, `0x4030_0040`/`0x044`)** — qué fuentes de trigger
-   están *vivas*. Vive en [`multitrigger_trig_src.sv`](../../rtl/mine/multitrigger/multitrigger_trig_src.sv).
+   están *vivas*. Vive en [`mt_trig_src.sv`](../../modulos/mt/rtl/mt_trig_src.sv).
 2. **`adc_arm_do` / `adc_we` (reg `0x00` bit0)** — la FSM de captura
    ([`rp_bram_sm.v`](../../../../rtl/classic/rp_bram_sm.v)) está *armada y
    escribiendo al buffer*.
@@ -47,15 +47,15 @@ La lógica de trigger reacciona a los flancos **apenas se carga la máscara** �
 espera a que la `bram_sm` esté armada. Y la `bram_sm` solo registra el trigger si
 ya estaba armada cuando llega el pulso.
 
-### El comportamiento de `multitrigger_trig_src` (idéntico al stock `rp_trig_src`)
+### El comportamiento de `mt_trig_src` (idéntico al stock `rp_trig_src`)
 
 Al disparar (`adc_trig`), en modo **single-shot** (`adc_we_keep=0`):
 
 - **Auto-clear** de la máscara:
-  [`multitrigger_trig_src.sv:67`](../../rtl/mine/multitrigger/multitrigger_trig_src.sv#L67) —
+  [`mt_trig_src.sv:67`](../../modulos/mt/rtl/mt_trig_src.sv#L67) —
   `set_trig_src <= 0`. Es de un solo tiro.
 - **Trigger-protect**:
-  [`:73`](../../rtl/mine/multitrigger/multitrigger_trig_src.sv#L73) — `adc_trg_dis <= 1`. Bloquea
+  [`:73`](../../modulos/mt/rtl/mt_trig_src.sv#L73) — `adc_trg_dis <= 1`. Bloquea
   la máscara hasta que se limpie (`0x94` o el `trigger_shield`).
 
 En modo **continuo** (`adc_we_keep=1`) la máscara **no** se auto-limpia (la
@@ -143,7 +143,7 @@ robusto al orden** (aún así conviene respetar arm→fuente).
 > (slot 3, `0x040`/`0x044`).** Igual que `rp_AcqStart` antes de
 > `rp_AcqSetTriggerSrc`.
 
-En [`API/multitrigger.py`](../../software/API/multitrigger.py) esto ya está
+En [`../../software/API/multitrigger.py`](../../software/API/multitrigger.py) esto ya está
 resuelto dentro de `multitrigger_arm(osc, mt, ...)`, que arma y después llama a
 `set_or_mask`. Si armás "a mano" por escritura directa, respetá el orden.
 

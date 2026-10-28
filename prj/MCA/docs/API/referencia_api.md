@@ -4,7 +4,7 @@ Todas las funciones públicas por módulo, y **a qué registro pega cada una**. 
 nomenclatura de tres capas está en [`README.md`](README.md).
 
 Los mapas de registros completos (con la semántica de cada bit) viven aparte:
-[MCA](../mca/register_map_mca.md) · [OSC](../osc/register_map_osc.md) · [multitrigger](../multitrigger/register_map_multitrigger.md) · [event_ring](../event_ring/diseno_y_register_map.md).
+[MCA](../mca/register_map_mca.md) · [OSC](../osc/register_map_osc.md) · [multitrigger](../mt/register_map_mt.md) · [event_ring](../event_ring/diseno_y_register_map.md).
 
 ---
 
@@ -129,15 +129,12 @@ releído del csv no comparaba igual que el que se escribió.
 ---
 
 ### 1.6 El mismo MCA, por red
-
 Código: [`API/mca_net.py`](../../software/API/mca_net.py) (protocolo) y
 [`API/mca_remote.py`](../../software/API/mca_remote.py) (handles). La
 aplicación que los usa está en [`software/app/`](../../software/app/README.md).
 
 `MCARemote` **hereda de `class MCA`** y sólo redefine `r32`/`w32` y las
-lecturas en bloque. Como todas las funciones de arriba acceden al hardware
-únicamente a través del handle, **la superficie `mca_*` entera funciona por
-socket sin cambiar nada**:
+lecturas en bloque. Como todas las funciones de arriba acceden al hardware únicamente a través del handle, **la superficie `mca_*` entera funciona por socket sin cambiar nada**:
 
 ```python
 h = MCARemote.connect('10.73.28.27')     # en vez de mca_open()
@@ -150,9 +147,7 @@ hist = mca_read_histogram(h)
 | `MCARemote.connect(host, port=1001, timeout=10)` | el MCA de la placa, por TCP |
 | `FakeMCA(h_aw=14, …)` | un MCA que no existe: fotopico gaussiano que crece con el tiempo vivo, y respeta `amp_min`/`amp_max`. Es a `mca.py` lo que `FakeSource` a `osciloscope_store` |
 
-Extras que sólo tienen sentido por red — `h.status()` (contadores + tasas +
-exposición en una vuelta), `h.config()`, `h.metadata()`, `h.fpga_state()` y
-`h.load_bitstream(path)`.
+Extras que sólo tienen sentido por red — `h.status()` (contadores + tasas + exposición en una vuelta), `h.config()`, `h.metadata()`, `h.fpga_state()` y `h.load_bitstream(path)`.
 
 > **La exposición la implementa el servidor, no el hardware.** El MCA es
 > free-running y no tiene registro de tiempo de medida: `ctrl.start` con
@@ -264,7 +259,7 @@ Los `set_` aceptan `ch=None` (los dos canales, por defecto) o `ch=0`/`ch=1`.
 ## 3. `API.multitrigger` — máscaras OR, shield y snapshot
 
 Base `0x4010_0000`, registros `0x210`–`0x24C`. Código:
-[`API/multitrigger.py`](../../software/API/multitrigger.py).
+[`../../software/API/multitrigger.py`](../../software/API/multitrigger.py).
 
 ### 3.1 Registros
 
@@ -311,7 +306,7 @@ una clase sería accidental.
 > engancha `adc_trg_dis` y, en single-shot, auto-limpia `set_trig_src` antes de
 > que la máquina esté armada, dejándola esperando un trigger imposible
 > (`wp_trig=0` permanente). Detalle completo en
-> [`orden_arm_trigger_captura.md`](../multitrigger/orden_arm_trigger_captura.md).
+> [`orden_arm_trigger_captura.md`](../osc/orden_arm_trigger_captura.md).
 >
 > Ese orden lo congela una traza del test de compatibilidad, así que reordenarlo
 > falla en la PC en vez de en la placa.
@@ -344,7 +339,7 @@ así que el lector no distingue una fuente de otra. Añade `hw_counters()`.
 
 Código: [`API/osciloscope_store/`](../../software/API/osciloscope_store/).
 Arquitectura y números medidos:
-[`arquitectura_adquisicion_software.md`](../multitrigger/arquitectura_adquisicion_software.md).
+[`arquitectura_adquisicion_software.md`](arquitectura_adquisicion_software.md).
 
 Es el antiguo paquete `mca/`, renombrado por lo que hace. Exporta
 `AcquisitionSession`, `ReaderThread`, `ChunkWriter`, `BramSource`, `FakeSource`,

@@ -1,0 +1,89 @@
+% Panorama de MT_TRIG_SRC: la selección y el enmascarado de UN canal. Concatena
+% las 25 fuentes en un vector, lo enmascara con la OR-mask (set_trig_src) y con
+% el protect (adc_trg_dis), y registra el OR del resultado. El disparo se
+% realimenta: engancha el protect y, en single-shot, limpia la máscara. El
+% borde grueso es el límite del módulo; lo que lo cruza son sus puertos, sólo
+% con el nombre.
+% Fuente: modulos/mt/rtl/mt_trig_src.sv. Estilo: docs/figuras/estilo_tikz.tex.
+%
+% Compilar:   pdflatex panorama_mt_trig_src.tex
+%             pdftocairo -svg panorama_mt_trig_src.pdf panorama_mt_trig_src.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{logica/.style = {etapa=amarillo!40, text width=3.0cm}}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\def\xin{-0.6}    % donde arrancan las entradas
+\def\xout{16.4}   % donde terminan las salidas
+\def\ytop{6.4}    % de donde bajan las de control
+
+% ================================================================ bloques ===
+\node[logica, text width=2.4cm, minimum height=1.3cm] (sw) at (2.2,2.75)
+  {\etq{SW estirado}{\texttt{trig\_sw} espera a la\\ próxima muestra válida}};
+\node[logica, minimum height=1.6cm] (msk) at (7.6,4.1)
+  {\etq{máscara \texttt{set\_trig\_src}}{carga con \texttt{set\_trg\_new};\\ la limpia \texttt{rst\_do}, y en\\ single-shot \texttt{dly\_do} o el disparo}};
+\node[logica, text width=3.5cm, minimum height=1.6cm] (and) at (7.6,0.6)
+  {\etq{enmascarado}{\texttt{hit = fuentes \& máscara}\\ \texttt{\& !adc\_trg\_dis}\\[1pt] \texttt{trig\_comb = |hit}}};
+\node[logica, minimum height=1.4cm] (pro) at (7.6,-2.8)
+  {\etq{\emph{protect} \texttt{adc\_trg\_dis}}{se engancha con el disparo;\\ lo limpia \texttt{trig\_dis\_clr}}};
+\node[comp, text width=1.6cm, minimum height=1.0cm] (ff) at (11.6,0.6)
+  {\etq{registro}{\texttt{adc\_trig}}};
+
+% ============================================================== el límite ===
+\node[contenedor, fit={(0.55,5.55) (14.0,-3.95)}] (lim) {};
+\node[titulo, anchor=south west, inner sep=2pt, align=left] at (lim.north west)
+  {\texttt{\bfseries mt\_trig\_src}\;\; {\scriptsize\itshape uno por canal}\\ \prm{CHN=GV & SRC\_W=32}};
+
+% ============================================================ las fuentes ===
+\def\xb{4.3}     % el bus de 25 fuentes
+\draw[line width=2.0pt] (\xb,3.3) -- (\xb,-1.45);
+\node[sen, anchor=south] at (\xb,3.3) {25 fuentes};
+\draw[flujo] (\xin,3.05) node[left, sen] {adc\_trig\_sw\_i} -- (sw.west |- 0,3.05);
+\draw[ctrl] (\xin,2.45) node[left, sen, black!80] {dly\_valp\_i} -- (sw.west |- 0,2.45);
+\draw[flujo] (sw.east) -- node[sen, below, pos=0.5] {0} (\xb,0 |- sw.east);
+\draw[flujo, ancho=8, ancho en=0.35] (\xin,1.35) node[left, sen] {adc\_trig\_p/n\_i} -- node[sen, below, pos=0.75] {1--8} (\xb,1.35);
+\draw[flujo, ancho=4, ancho en=0.35] (\xin,0.55) node[left, sen, align=right] {ext\_trig\_p/n\_i\\ asg\_trig\_p/n\_i} -- node[sen, below, pos=0.75] {9--12} (\xb,0.55);
+\draw[flujo, ancho=4, ancho en=0.35] (\xin,-0.25) node[left, sen] {trig\_ch\_i} -- node[sen, below, pos=0.75] {13--16} (\xb,-0.25);
+\draw[flujo, ancho=8, ancho en=0.35] (\xin,-1.05) node[left, sen] {slope\_p/n\_i} -- node[sen, below, pos=0.75] {17--24} (\xb,-1.05);
+\draw[flujo, ancho=32, ancho en=0.5] (\xb,0.6) -- (and.west);
+
+% ============================================================ control ======
+\draw[ctrl] (6.6,\ytop) node[above left, sen, black!80, align=right] {set\_trg\_src\_i\\ set\_trg\_new\_i} -- (6.6,0 |- msk.north);
+\draw[ctrl] (8.6,\ytop) node[above right, sen, black!80, align=left] {adc\_rst\_do\_i, adc\_dly\_do\_i\\ adc\_we\_keep\_i} -- (8.6,0 |- msk.north);
+\draw[ctrl] (\xin,-2.8) node[left, sen, black!80] {trig\_dis\_clr\_i} -- (pro.west);
+
+% ============================================================ adentro ======
+\draw[flujo, anchov=32, ancho en=0.45] (msk.south) -- (and.north);
+\draw[flujo] (pro.north) -- (and.south);
+\draw[flujo] (and.east) -- node[sen, above, pos=0.45] {trig\_comb} (ff.west);
+
+% --- el disparo se realimenta ---
+\coordinate (jt) at (13.0,0.6);
+\punto{jt}
+\draw[flujo] (jt) -- (13.0,4.5) -- node[sen, above, pos=0.5] {disparo} (msk.east |- 0,4.5);
+\draw[flujo] (jt) -- (13.0,-2.45) -- node[sen, above, pos=0.5] {disparo} (pro.east |- 0,-2.45);
+
+% --- salidas: sólo el nombre ---
+\draw[flujo] (ff.east) -- (\xout,0.6) node[right, sen] {adc\_trig\_o};
+\draw[flujo, ancho=32, ancho en=0.82, cruce] (msk.east |- 0,3.7) -- (\xout,3.7) node[right, sen] {trg\_state\_o};
+\draw[flujo, cruce] (pro.east |- 0,-3.15) -- (\xout,-3.15) node[right, sen] {adc\_trg\_dis\_o};
+
+% ================================================================= leyenda ===
+\leyenda{-2.6,-4.8}{amarillo!40/lógica del canal, grisr/registro}
+  {Los números sobre el bus son los bits de la máscara (\texttt{OR\_MASK}); los
+   25--31 están reservados. El software también pasa por la máscara: es el
+   bit 0, así que con \texttt{OR\_MASK = 0} ni \texttt{TRIG\_SW} dispara. En
+   modo continuo (\texttt{we\_keep = 1}) la máscara no se limpia sola; el
+   \emph{protect} se engancha igual.\\ \texttt{NOMBRE=valor}: parámetros con que
+   lo instancia \texttt{mt\_event\_logic}.}
+
+\end{tikzpicture}
+\end{document}

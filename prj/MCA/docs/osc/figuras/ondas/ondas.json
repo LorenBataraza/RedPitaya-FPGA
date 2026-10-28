@@ -1,0 +1,20 @@
+[
+  {
+    "archivo": "osc_filter_impulso.svg",
+    "titulo": "RESPUESTA AL IMPULSO  -  coeficientes de reset (la cadena es transparente), osc_filter vs osc_filter_ref",
+    "origen": "`tb_osc_filter`, caso de coeficientes de reset",
+    "nota": "Los coeficientes de reset son los que usa el driver hoy, asi que es la configuracion que mas importa que no haya cambiado. Un impulso entra y sale UN solo impulso, del mismo tamano: con aa=bb=pp=0 y kk en 2^24-1 la cadena es transparente y lo unico que agrega es latencia, que es el numero que da esta figura. Las dos salidas se dibujan superpuestas a proposito: tb_osc_filter es un test de EQUIVALENCIA contra el filtro original del repo, asi que las filas de osc_filter y osc_filter_ref tienen que ser la misma onda columna por columna. Si en alguna se separan, el testbench esta fallando y la figura lo muestra."
+  },
+  {
+    "archivo": "osc_filter_polocero.svg",
+    "titulo": "RESPUESTA AL IMPULSO  -  compensacion polo-cero (aa=25000): la cola que compensa el preamplificador",
+    "origen": "`tb_osc_filter`, caso de compensacion polo-cero",
+    "nota": "La misma entrada que la figura anterior --un impulso-- con el lazo recursivo activo. Ahora la salida no es un impulso sino un pico seguido de una COLA que decae: eso es la compensacion polo-cero, que cancela la cola del preamplificador para que el pulso vuelva a la linea de base antes del siguiente. Es la parte del filtro que se rediseno, y la figura muestra que la cola entera --mas de veinte muestras-- coincide con la del filtro original muestra por muestra. Se dibuja el impulso y no un escalon porque con aa=25000 la constante de tiempo es de cientos de ciclos: un escalon no se asienta dentro de una ventana que se pueda mirar."
+  },
+  {
+    "archivo": "osc_cfg_adquisicion.svg",
+    "titulo": "FLUJO DE UNA ADQUISICION  -  osc_cfg",
+    "origen": "esquema (sin VCD: `osc_cfg` no tiene testbench)",
+    "nota": "Es un esquema de la SECUENCIA, no una medicion: no hay testbench de osc_cfg del que sacar las ondas (ver §1.7 de su datasheet, que lo marca como deuda de verificacion). La configuracion es una escalera: el bus del PS escribe un registro por vez, primero los modos globales y despues la cadena de cada canal en el orden del datapath; DLY tiene que quedar en 1 o mas, porque el 0 de reset es el caso degenerado de rp_bram_sm. Lo que la figura fija es el orden y las dependencias: la configuracion del filtro y del diezmado va ANTES del armado, porque cambiarla con el buffer llenandose mezcla muestras de dos configuraciones en la misma traza; y la lectura va despues de que el puntero deje de moverse, porque leer durante la captura devuelve una traza partida entre dos vueltas del buffer."
+  }
+]

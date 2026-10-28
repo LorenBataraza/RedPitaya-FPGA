@@ -1,0 +1,63 @@
+Epigrafes de las figuras de transacciones de event_ring. Los genera
+transacciones_event_ring.py; no editar a mano.
+
+-------------------------------------------------------------------------------
+event_ring_a_ventana.png
+-------------------------------------------------------------------------------
+Que entra al modulo. Un evento es una ventana de 512 muestras por canal --32
+antes del disparo y 480 despues, 4.10 us en total a 125 MSPS-- congelada en el
+instante en que el canal 0 cruza el umbral de 1229 cuentas (0.15 V a 8192
+cuentas/V). El cruce de subida cae en la muestra 31 y el pre-buffer mide 32:
+la figura no dibuja esa coincidencia, la MIDE sobre el dato, y es lo que
+confirma que la ventana esta alineada con el disparo. El pico llega 69
+muestras despues del cruce, con 2420 cuentas. La banda gris de la izquierda es
+la historia que el pre-buffer ya tenia guardada cuando el trigger llego: sin
+ella el flanco de subida no estaria en el archivo.
+
+-------------------------------------------------------------------------------
+event_ring_b_slot.png
+-------------------------------------------------------------------------------
+Que viaja. La ventana cruza tres bloques --captura, cola elastica de 4 eventos
+en vuelo y serializador-- y sale por AXI HP0 como exactamente 512 palabras de
+64 b, en orden de direccion creciente para que el generador lineal del
+axi_wr_fifo las coloque sin saltos. La tabla son las palabras de este evento
+concreto, no un ejemplo: cabecera de 32 B, 2048 B de muestras, 2008 B de
+relleno y 8 B de footer. El relleno existe porque el slot tiene que ser
+potencia de dos para que la direccion salga de un shift, asi que de los 4096 B
+del slot solo 50 % son muestras. El FOOTER vale {~seq, seq} y es la MARCA DE
+COMMIT: como todas las escrituras salen por un unico master con un unico ID,
+AXI garantiza que se observan en orden, asi que si el footer esta bien formado
+todo lo anterior ya llego a DDR. Por eso el PS no necesita leer ningun
+registro por GP0 para saber que hay un evento nuevo. Los rangos de bits
+exactos de cada campo estan en la cabecera de `event_slot_writer.sv`; aca va
+el valor, que es lo que la figura puede mostrar y el RTL no.
+
+-------------------------------------------------------------------------------
+event_ring_c_ring.png
+-------------------------------------------------------------------------------
+Que sale. Los slots forman una cola productor/consumidor en DDR: la PL avanza
+WR_SLOT al terminar de escribir y el PS avanza RD_SLOT al terminar de leer, y
+los dos son contadores LIBRES de 32 b --la resta cierra en modulo 2^32 aunque
+hayan dado la vuelta, que es exactamente lo que hace el comparador de creditos
+del RTL--. En el dibujo hay 4 slots ocupados. El rectangulo verde de cada slot
+lleno es el footer. La diferencia con el esquema anterior (K=1, tau = 252.7
+us) es que aca la PL no espera a nadie: mientras queden creditos sigue
+capturando, y el tiempo muerto deja de depender de la latencia del lector. Es
+un esquema: la cantidad de slots del dibujo es ilustrativa, la real sale de
+RING_SZ / SLOT_SZ.
+
+-------------------------------------------------------------------------------
+event_ring_transaccion.png
+-------------------------------------------------------------------------------
+Las tres preguntas en una imagen: que entra, que viaja y que sale. Es la que
+va al informe si entra una sola.
+
+-------------------------------------------------------------------------------
+PROCEDENCIA. La ventana sale de la campana e2e
+(`software/datos/e2e_20260528_013404/principal/chunk_000000.npz`), recortada a
+tres eventos en `datos_e2e.npz` para que la figura se pueda regenerar sin
+tener los 14 MB del chunk. El slot se arma con el layout de
+`event_slot_writer.sv` y se decodifica con `ring_format.decode_slot()`, el
+mismo decodificador que usa el lector de produccion, comprobando que las 1024
+muestras vuelven bit a bit. Si el RTL y el software se separan, el script
+falla en vez de dibujar un slot que no existe.

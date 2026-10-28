@@ -1,0 +1,161 @@
+% Las fuentes de eventos. Arriba, la interfaz EventSource (no es una clase: es
+% el contrato que documenta sources.py y que se cumple por duck typing) y
+% quién llama cada parte: AcquisitionSession el ciclo de vida, ReaderThread el
+% lazo caliente. Al medio, las tres implementaciones. Abajo, de dónde lee cada
+% una: BramSource por librp sobre la BRAM del scope, RingSource por mmap del
+% ring en DDR; las dos reciben el scope (un MultiTriggerScope) sólo para armar
+% el trigger.
+% Fuentes: software/API/osciloscope_store/sources.py (interfaz, BramSource,
+% FakeSource), software/API/osciloscope_ring.py (RingSource),
+% software/API/osciloscope_store/reader.py (_loop), session.py (__init__,
+% start, stop). El texto que acompaña está en
+% docs/API/arquitectura_software.md §4. Estilo: docs/figuras/estilo_tikz.tex y
+% clases_estilo.tex.
+%
+% Compilar:   pdflatex clases_fuentes.tex
+%             pdftocairo -svg clases_fuentes.pdf clases_fuentes.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+\input{clases_estilo.tex}
+
+\begin{document}
+\catcode`\_=12
+\begin{tikzpicture}[fondo]
+
+% ============================================================= interfaz ===
+\node[interfaz=5.2cm, anchor=north] (es) at (6.3,0) {
+  \clase{EventSource \es{interfaz}}{osciloscope_store/sources.py · sin clase base}
+  \nodepart{two}
+  scalar_fields · n_ch · samples
+  \nodepart{three}
+  arm() · close()\\
+  wait_event(deadline_ns) -> wp | None\\
+  snapshot() -> int\\
+  read_into(batch, i, wp)\\
+  rearm()\\
+  meta() -> dict\\
+  exhausted \es{opcional}
+};
+
+% quién llama qué
+\node[modulo=4.4cm, anchor=north] (ses) at (0,0) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont AcquisitionSession}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont session.py · hilo principal, una vez}\\[3pt]
+  lee: n_ch · samples · scalar_fields\\
+  llama: arm() · close() · meta()
+};
+\node[modulo=4.4cm, anchor=north] (rdr) at (12.6,0) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont ReaderThread}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont reader.py · hilo mca-reader, por evento}\\[3pt]
+  wait_event() -> snapshot() ->\\
+  read_into() -> rearm()\\
+  lee: exhausted
+};
+\draw[usa] (ses.east) -- (ses.east -| es.west) node[rol, midway, above] {source};
+\draw[usa] (rdr.west) -- (rdr.west -| es.east) node[rol, midway, above] {source};
+
+% ======================================================= implementaciones ===
+\node[clase=5.2cm, anchor=north] (bram) at (0,-4.6) {
+  \clase{BramSource}{osciloscope_store/sources.py · BRAM, slot 1}
+  \nodepart{two}
+  scalar_fields = BASE_FIELDS\\
+  sc · _mem · _u32\\
+  pre · post · samples · n_ch\\
+  thr · hyst · mask · delay\\
+  read_snap · wp_addr · single_shot\\
+  _wp_prev · _fbufs · _views · _chs
+  \nodepart{three}
+  arm() · rearm() · close()\\
+  wait_event(deadline_ns) -> wp | None\\
+  snapshot() -> int\\
+  read_into(batch, i, wp)\\
+  meta() -> dict
+};
+
+\node[clase=5.6cm, anchor=north] (ring) at (6.3,-4.6) {
+  \clase{RingSource}{osciloscope_ring.py · ring en DDR, slot 2 · "EVNT"}
+  \nodepart{two}
+  scalar_fields = BASE_FIELDS\\
+  sc · _rg · _mem · ddr_phys · ddr_size\\
+  pre · post · samples · n_ch\\
+  thr · hyst · mask\\
+  slot_shift · slot_sz · n_slots · batch_slots\\
+  _next · _buf · _buf_first · _buf_n · _buf_i\\
+  _last_meta · _published
+  \nodepart{three}
+  arm() · rearm() · close()\\
+  wait_event(deadline_ns) -> seq | None\\
+  snapshot() -> int\\
+  read_into(batch, i, seq)\\
+  \gr{propios}
+  _r(off) · _w(off, v)\\
+  _prefetch() · _slot_ok(i) · _publish_rd()\\
+  hw_counters() -> dict
+};
+
+\node[falsa=4.6cm, anchor=north] (fake) at (12.6,-4.6) {
+  \clase{FakeSource}{osciloscope_store/sources.py · sin placa}
+  \nodepart{two}
+  scalar_fields = BASE_FIELDS\\
+  pre · post · samples · n_ch\\
+  period_ns · amplitude · n_events\\
+  _rng · _wp · _emitted\\
+  _next_ns · _shape
+  \nodepart{three}
+  arm() · rearm() · close()\\
+  wait_event(deadline_ns) -> wp | None\\
+  snapshot() -> int\\
+  read_into(batch, i, wp)\\
+  meta() -> dict\\
+  exhausted \es{prop}
+};
+
+\coordinate (j) at ($(es.south)+(0,-0.55)$);
+\draw[rama, dashed] (bram.north) |- (j);
+\draw[rama, dashed] (fake.north) |- (j);
+\draw[rama, dashed] (ring.north) -- (j);
+\draw[cumple] (j) -- (es.south);
+
+% ======================================================= de dónde leen ===
+\node[shim=4.0cm, anchor=north] (mts) at (3.15,-10.7) {
+  \clase{MultiTriggerScope}{multitrigger_utils.py}
+  \nodepart{two}
+  _mt · _mmap · _fd
+  \nodepart{three}
+  arm_for_adc_trigger(…)\\
+  disarm() · w32(off, v)
+};
+\draw[usa] (bram.south) |- ([yshift=0.25cm]mts.west) node[rol, pos=0.25, left] {sc};
+\draw[usa] ([xshift=-0.6cm]ring.south) |- ([yshift=0.25cm]mts.east)
+  node[rol, pos=0.25, right] {sc};
+
+\node[modulo=3.0cm, anchor=north] (rp) at (-1.3,-10.7) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont librp}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont import rp · solo en la placa}\\[3pt]
+  rp_AcqGetDataPosV()\\
+  fBuffer(n)
+};
+\draw[usa] ([xshift=-1.3cm]bram.south) -- ([xshift=-1.3cm]bram.south |- rp.north)
+  node[rol, midway, left] {read_into};
+
+\node[modulo=4.0cm, anchor=north] (ddr) at (8.6,-10.7) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont /dev/mem + mmap}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont los abre quien crea la fuente}\\[3pt]
+  _rg : 0x4020_0000 (registros)\\
+  _mem : región reservada de DDR
+};
+\draw[usa] ([xshift=2.3cm]ring.south) -- ([xshift=2.3cm]ring.south |- ddr.north)
+  node[rol, midway, right] {_rg · _mem};
+
+% ============================================================== leyenda ===
+\leyendac{-2.6,-12.9}{17.5cm}{verde!45/{interfaz, por duck typing}, azul!30/{fuente sobre la placa},
+                              grisr/{sustituto sin placa}, amarillo/{shim de compatibilidad}}
+  {Triángulo hueco punteado: cumple la interfaz sin heredar. Flecha punteada: usa.}
+
+\end{tikzpicture}
+\end{document}

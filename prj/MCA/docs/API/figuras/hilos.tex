@@ -1,0 +1,114 @@
+% Los tres sistemas de concurrencia del software, uno por banda: el pipeline de
+% adquisición (colas), el servidor (un lock) y la GUI (señales de Qt). Cada uno
+% elige su primitiva y no comparte hilos con los otros; el servidor y la GUI
+% sólo se hablan por el socket. A la izquierda de cada banda, el recurso que se
+% protege; a la derecha, lo que sale de la máquina (disco o red).
+% Fuentes: software/API/osciloscope_store/{session,reader,storage,annotators}.py,
+% software/app/mca_server.py, software/app/mcamon.py. El texto que acompaña está
+% en docs/API/arquitectura_software.md §2. Estilo: docs/figuras/estilo_tikz.tex.
+%
+% Compilar:   pdflatex hilos.tex
+%             pdftocairo -svg hilos.pdf hilos.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{
+  hilo/.style     = {bloque=azul!30, text width=2.3cm, minimum height=1.0cm},
+  recurso/.style  = {bloque=grisr, text width=2.3cm, minimum height=1.0cm},
+  prim/.style     = {bloque=amarillo, text width=2.1cm, minimum height=0.9cm},
+  descarte/.style = {bloque=rojo!25, text width=2.6cm, minimum height=0.9cm},
+  puerto/.style   = {bloque=white, text width=1.3cm, minimum height=0.7cm},
+  % una cola: cuatro celdas
+  cola/.style     = {draw, line width=0.6pt, fill=amarillo, minimum width=1.3cm,
+                     minimum height=0.34cm, inner sep=0pt,
+                     path picture={\foreach \k in {1,2,3}
+                       \draw[line width=0.4pt]
+                         ([xshift=\k*0.325cm]path picture bounding box.south west) --
+                         ([xshift=\k*0.325cm]path picture bounding box.north west);}},
+  parte/.style    = {anchor=north west, font=\small\bfseries, inner sep=0pt},
+  donde/.style    = {anchor=north east, font=\scriptsize\itshape, black!70, inner sep=0pt},
+}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+% columnas
+\def\xA{1.3} \def\xB{4.9} \def\xC{8.25} \def\xD{11.6} \def\xE{15.0}
+
+% ============================================================== bandas ===
+\fill[black!3] (-0.2,0.3)    rectangle (16.4,-4.55);
+\fill[black!7] (-0.2,-4.55)  rectangle (16.4,-8.35);
+\fill[black!3] (-0.2,-8.35)  rectangle (16.4,-11.55);
+\node[parte] at (0.0,0.1)   {Pipeline de adquisición\quad\normalfont colas};
+\node[donde] at (16.2,0.1)  {en la placa · \texttt{API/osciloscope\_store/}};
+\node[parte] at (0.0,-4.75) {Servidor\quad\normalfont un lock};
+\node[donde] at (16.2,-4.75){en la placa · \texttt{app/mca\_server.py}};
+\node[parte] at (0.0,-8.55) {GUI\quad\normalfont señales de Qt};
+\node[donde] at (16.2,-8.55){en la PC · \texttt{app/mcamon.py}};
+
+% ============================================================ pipeline ===
+\node[recurso] (src) at (\xA,-1.95) {\blk{EventSource}{el scope}};
+\node[hilo]    (rd)  at (\xB,-1.95) {\blk{mca-reader}{único que toca el scope}};
+\node[cola]    (fq)  at (\xC,-1.65) {};
+\node[cola]    (frq) at (\xC,-2.25) {};
+\node[sen, above=1pt of fq]  {full\_q};
+\node[sen, below=1pt of frq] {free\_q};
+\node[hilo]    (wr)  at (\xD,-1.95) {\blk{mca-writer}{un \texttt{.npz} por batch}};
+\node[recurso] (dir) at (\xE,-1.95) {\blk{run\_dir/}{\texttt{chunk\_*.npz}}};
+\node[grupo, fit={(\xC-0.85,-0.95) (\xC+0.85,-2.95)}] (pool) {};
+\node[rotulo, anchor=south] at (pool.north) {pool fijo de batches};
+
+\draw[flujo] (src) -- (rd);
+\draw[flujo] (rd.east |- fq) -- (fq.west);
+\draw[flujo] (fq.east) -- (wr.west |- fq);
+\draw[flujo] (wr.west |- frq) -- (frq.east);
+\draw[flujo] (frq.west) -- (rd.east |- frq);
+\draw[flujo] (wr) -- (dir);
+
+\node[hilo]     (an)  at (\xA+0.3,-3.75) {\blk{annot-<prefijo>}{uno por annotator lento}};
+\node[descarte] (dsc) at (\xC,-3.75) {\etq{descarte}{\texttt{n\_dropped += 1}\\ \texttt{rearm()}}};
+\draw[flujo] (an.east) -- (\xB-0.5,0 |- an.east) -- node[sen, left, pos=0.55] {valor cacheado} (\xB-0.5,0 |- rd.south);
+\draw[flujo, rojo!80!black] (\xB+0.5,0 |- rd.south) |- node[sen, right, pos=0.3] {sin batch libre} (dsc.west);
+
+% ============================================================= servidor ===
+\node[recurso] (hdl) at (\xA,-6.55) {\blk{MCA}{el handle, sobre \texttt{/dev/mem}}};
+\node[prim]    (lk)  at (\xB,-6.55) {\blk{threading.Lock}{todo acceso al handle}};
+\node[hilo]    (cli) at (\xC,-5.8)  {\blk{mca-cliente}{atiende el socket}};
+\node[hilo]    (exp) at (\xC,-7.3)  {\blk{mca-exposicion}{poléa \texttt{livetime\_s}}};
+\node[hilo]    (acc) at (\xD+0.3,-5.8)  {\blk{principal}{\texttt{accept()}, de a uno}};
+\node[puerto]  (ps)  at (\xE,-5.8)  {\texttt{socket}};
+
+\draw[flujo] (lk) -- (hdl);
+\draw[flujo] (cli.west) -- ++(-0.55,0) |- ([yshift=4pt]lk.east);
+\draw[flujo] (exp.west) -- ++(-0.55,0) |- ([yshift=-4pt]lk.east);
+\draw[flujo] (ps) -- (acc);
+\draw[ctrl, dashed] (acc) -- node[sen, above, black!80] {lanza} (cli);
+
+% ================================================================== GUI ===
+\node[hilo]    (win) at (\xA,-10.2)  {\blk{Mcamon}{la ventana, hilo de Qt}};
+\node[prim]    (sig) at (\xB,-10.2)  {\blk{pyqtSignal}{encoladas}};
+\node[hilo]    (trb) at (\xC,-10.2)  {\blk{Trabajador}{en su \texttt{QThread}}};
+\node[recurso] (rem) at (\xD,-10.2)  {\blk{MCARemote}{su único dueño es el Trabajador}};
+\node[puerto]  (pg)  at (\xE,-10.2)  {\texttt{socket}};
+
+\draw[flujo] ([yshift=5pt]win.east) -- ([yshift=5pt]sig.west);
+\draw[flujo] ([yshift=5pt]sig.east) -- ([yshift=5pt]trb.west);
+\draw[flujo] ([yshift=-5pt]trb.west) -- ([yshift=-5pt]sig.east);
+\draw[flujo] ([yshift=-5pt]sig.west) -- ([yshift=-5pt]win.east);
+\draw[flujo] (trb) -- (rem);
+\draw[flujo] (rem) -- (pg);
+
+% la única conexión entre bandas
+\draw[<->, line width=1.0pt, dashed] (pg) -- node[sen, right=2pt] {TCP :1001} (ps);
+
+% ============================================================== leyenda ===
+\leyenda{0.3,-12.25}{azul!30/hilo, amarillo/primitiva de sincronización, grisr/recurso, rojo!25/descarte}
+  {Cada banda es un sistema de concurrencia aparte: no comparten hilos ni primitivas.}
+
+\end{tikzpicture}
+\end{document}

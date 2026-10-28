@@ -1,0 +1,110 @@
+% Panorama de MT_EVENT_LOGIC: la lógica de eventos del multitrigger. Instancia
+% un mt_trig_src por canal y el trigger_shield, hace el OR de los disparos
+% (trigger_event: el mismo evento para la captura, el event_ring y el MCA),
+% guarda el snapshot de qué fuentes dispararon y saca la cadena hacia el otro
+% scope. El borde grueso es el límite del módulo; lo que lo cruza son sus
+% puertos, sólo con el nombre.
+% Fuente: modulos/mt/rtl/mt_event_logic.v. Estilo: docs/figuras/estilo_tikz.tex.
+%
+% Compilar:   pdflatex panorama_mt_event_logic.tex
+%             pdftocairo -svg panorama_mt_event_logic.pdf panorama_mt_event_logic.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{logica/.style = {etapa=amarillo!40, text width=2.6cm}}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\def\xin{-0.6}    % donde arrancan las entradas
+\def\xout{14.4}   % donde terminan las salidas
+\def\ytop{6.8}    % de donde bajan las de control
+
+% ================================================================ bloques ===
+\node[logica, text width=3.0cm, minimum height=1.3cm] (now) at (3.0,4.0)
+  {\etq{fuentes ahora}{25 b, orden histórico;\\ retardo de 1 ciclo}};
+\node[logica, text width=3.2cm, minimum height=1.4cm] (snp) at (9.6,4.0)
+  {\etq{snapshot}{pegajoso: carga con el\\ evento; lo limpian\\ \texttt{rst\_do} y \texttt{sw\_clr}}};
+\node[trig, param={amarillo}{amarillo!35}, text width=2.8cm,
+      double copy shadow={shadow xshift=2pt, shadow yshift=-2pt}] (src) at (5.6,1.3)
+  {\blk{mt\_trig\_src {\normalfont$\times$} N\_CH}{\prm{CHN=GV & SRC\_W=SRC\_W}}
+   \nodepart{two}máscara OR y \emph{protect},\\ uno por canal};
+\node[draw, circle, line width=0.6pt, fill=amarillo, inner sep=1pt,
+      minimum size=0.55cm, font=\scriptsize] (or) at (9.0,0.7) {$\geq\!1$};
+\node[logica, text width=2.8cm, minimum height=1.0cm] (cad) at (2.6,-0.9)
+  {\etq{cadena}{flancos p/n de ch0, ch1}};
+\node[trig, param={amarillo}{amarillo!35}, text width=3.2cm] (shd) at (9.6,-3.3)
+  {\blk{trigger\_shield}{\prm{N=SHIELD\_N & DURATION\_W\\ N\_SRC=SHIELD\_SRC\\ N\_DST=SHIELD\_DST}}
+   \nodepart{two}holdoff \texttt{src}$\to$\texttt{dst}\\ y veto al MCA};
+
+% ============================================================== el límite ===
+\node[contenedor, fit={(0.35,5.4) (12.3,-5.2)}] (lim) {};
+\node[titulo, anchor=south west, inner sep=2pt, align=left] at (lim.north west)
+  {\texttt{\bfseries mt\_event\_logic}\\
+   \prm{N\_CH=N\_CH & DW=DW & SRC\_W=32\\ SHIELD\_N=4 & DURATION\_W=16}};
+\node[rotulo, anchor=south east, align=right] at ([xshift=-3pt, yshift=3pt]lim.south east)
+  {canales $\geq$ \texttt{N\_CH}: en 0};
+
+% ============================================================== flechas ====
+% --- las fuentes, por la izquierda; una sola línea para todas ---
+\coordinate (jf) at (0.95,1.3);
+\draw[flujo] (\xin,1.3) node[left, sen, align=right]
+  {adc\_trig\_sw\_i, adc\_trig\_p/n\_i\\ ext\_trig\_p/n\_i, asg\_trig\_p/n\_i\\ trig\_ch\_i, slope\_p/n\_i}
+  -- (src.west |- jf);
+\punto{jf}
+\draw[flujo] (jf) |- (now.west);
+\draw[flujo] (jf) |- (cad.west);
+\draw[flujo] (jf) -- (0.95,-3.0) -- node[sen, above, pos=0.12] {ext\_p/n} (shd.west |- 0,-3.0);
+\draw[ctrl] (\xin,-3.5) node[left, sen, black!80] {ext\_lvl\_i} -- (shd.west |- 0,-3.5);
+\draw[ctrl] (\xin,-4.0) node[left, sen, black!80] {sw\_trig\_dis\_clr\_i} -- (shd.west |- 0,-4.0);
+
+% --- control de la captura, por arriba ---
+\draw[ctrl] (5.0,\ytop) node[above left, sen, black!80, align=right]
+  {adc\_rst\_do\_i, adc\_dly\_do\_i\\ adc\_we\_keep\_i} -- (5.0,0 |- src.north);
+\draw[ctrl] (6.2,\ytop) node[above right, sen, black!80, align=left]
+  {set\_trg\_src\_i, set\_trg\_new\_i\\ dly\_valp\_i} -- (6.2,0 |- src.north);
+
+% --- el disparo de cada canal: al OR y al escudo ---
+\draw[flujo, ancho=4, ancho en=0.4] (src.east |- or.west) -- node[sen, above, pos=0.5] {adc\_trig} (or.west);
+\punto{7.6,0.7}
+\draw[flujo] (7.6,0.7) -- (7.6,-2.5) -- (shd.west |- 0,-2.5);
+
+% --- el escudo re-arma los canales ---
+\draw[flujo, cruce] (shd.south -| 10.4,0) -- (10.4,-4.75) -- (4.8,-4.75)
+  -- node[sen, right, pos=0.82] {trig\_dis\_clr} (4.8,0 |- src.south);
+\draw[ctrl] (8.8,-6.0) node[below, sen, black!80] {shield\_src\_i, shield\_dst\_i, shield\_dur\_i}
+  -- (shd.south -| 8.8,0);
+
+% --- el snapshot ---
+\draw[flujo, ancho=25, ancho en=0.25] (now.east) -- (snp.west);
+\coordinate (je) at (10.3,0.7);
+\punto{je}
+\draw[flujo] (or.east) -- (\xout,0.7) node[right, sen, align=left] {trigger\_event\_o\\ event\_arm\_o, daisy\_trig\_o};
+\draw[flujo] (je) -- node[sen, right, pos=0.6] {evento} (je |- snp.south);
+\draw[ctrl, cruce] (5.0,\ytop) -- (5.0,0 |- src.north);
+\draw[ctrl, cruce] (6.2,\ytop) -- (6.2,0 |- src.north);
+
+% --- salidas: sólo el nombre ---
+\draw[flujo, ancho=25, ancho en=0.6] (snp.east) -- (\xout,4.0) node[right, sen] {trig\_snapshot\_o};
+\draw[flujo, cruce] (src.east |- 0,1.9) -- (\xout,1.9) node[right, sen, align=left] {trg\_state\_o\\ adc\_trg\_dis\_o};
+\draw[flujo, cruce] (cad.east) -- (\xout,-0.9) node[right, sen] {trig\_ch\_o};
+\draw[flujo] (shd.east |- 0,-2.7) -- (\xout,-2.7) node[right, sen] {mca\_veto\_o};
+\draw[flujo] (shd.east |- 0,-3.6) -- (\xout,-3.6) node[right, sen, align=left] {shield\_cnt\_o\\ shield\_active\_o};
+
+% ================================================================= leyenda ===
+\leyenda{-3.6,-6.9}{amarillo/submódulos del trigger, amarillo!40/lógica propia}
+  {\texttt{trigger\_event\_o}, \texttt{event\_arm\_o} y \texttt{daisy\_trig\_o} son
+   la misma señal: el OR de los disparos de los canales. Las fuentes del escudo
+   son los disparos por canal más la entrada externa cruda (flancos y nivel), así
+   que se puede vetar desde afuera sin gastar la máscara de un canal. El
+   snapshot guarda las fuentes \emph{crudas} del ciclo del evento, retrasadas uno
+   para alinearlas con el registro de \texttt{mt\_trig\_src}.\\
+   \texttt{NOMBRE=valor}: parámetros con que lo instancia \texttt{rp\_scope\_mt\_com}.}
+
+\end{tikzpicture}
+\end{document}

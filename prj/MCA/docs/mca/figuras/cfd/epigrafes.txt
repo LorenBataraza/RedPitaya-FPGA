@@ -1,0 +1,85 @@
+Epígrafes de las figuras del timestamp con CFD. Los escribe figuras_cfd.py; no
+editar a mano. Documento: docs/mca/timestamp_cfd.md.
+
+-------------------------------------------------------------------------------
+01_cfd_principio.png
+-------------------------------------------------------------------------------
+El principio del CFD, sobre el pulso del generador (subida de 100 ns 10-90 %,
+cola de 1650 ns), sin ruido.
+
+(a) Tres amplitudes que llegan en el MISMO instante. El umbral fijo de 100
+cuentas (punteada) las cruza en instantes distintos (círculos): ese
+corrimiento es el walk del disparo de nivel, y es lo que hoy lleva el
+timestamp.
+
+(b) La construcción, para A = 400: la señal atenuada f·x(t) (naranja), la
+señal retardada D muestras e invertida (verde), y su suma y(t) (azul). Es la
+superposición de dos copias del mismo pulso, como el trapezoidal.
+
+(c) y(t) para las tres amplitudes. Como y es lineal en A, las tres curvas son
+la misma escalada, y cruzan cero en el MISMO instante (rayada): el cruce no
+depende de la amplitud por construcción. Los puntos son las muestras de un
+evento: el cruce cae entre dos de ellas y hay que interpolarlo para no volver
+a cuantizar a 8 ns.
+
+-------------------------------------------------------------------------------
+02_walk_jitter.png
+-------------------------------------------------------------------------------
+Los cinco estimadores contra la amplitud, 4000 eventos por punto, ruido σ =
+4.47 cuentas por muestra y fase de arribo al azar. Arriba, subida de 100 ns
+(CFD f = 0.25, D = 8); abajo, subida de 20 ns (f = 0.5, D = 3).
+
+(a), (c) Walk: el sesgo medio del instante estimado, relativo al del pulso más
+grande (una latencia constante no importa; lo que importa es que cambie con
+A). El disparo de nivel, con o sin interpolación, se atrasa decenas de ns para
+los pulsos chicos. La corrección por software lo lleva a cero salvo cerca del
+umbral, donde la amplitud medida ya es ruidosa. El CFD no tiene walk: queda en
+cero en todo el rango.
+
+(b), (d) Jitter: la dispersión del instante. La punteada es Ts/√12 = 2.31 ns,
+la cuantización del RTL actual, que es exactamente lo que da el LED sin
+interpolar. La interpolación del LED funciona en la primera década sobre el
+umbral pero EMPEORA para pulsos grandes: el umbral cae en el quiebre donde
+arranca el pulso y la recta entre dos muestras no lo sigue. El CFD interpolado
+cae como σ_w/pendiente en todo el rango, hasta decenas de ps.
+
+-------------------------------------------------------------------------------
+03_coincidencias.png
+-------------------------------------------------------------------------------
+El caso de uso: dos canales reciben pulsos SIMULTÁNEOS con amplitudes
+independientes, log-uniformes entre 150 y 8192 cuentas, y se mide Δt = t_a −
+t_b. Lo ideal es una delta en cero. Histogramas normalizados, en escala log,
+centrados en la mediana. (a) subida de 100 ns, (b) de 20 ns.
+
+El disparo de nivel da una distribución ancha y de colas largas: el walk de
+cada canal se resta y queda un ancho del orden del walk total. Con la
+corrección por software se angosta mucho, pero conserva colas de los eventos
+cerca del umbral. El CFD interpolado queda por debajo de 1 ns de FWHM.
+
+FWHM y σ de Δt, en ns:
+
+| método | FWHM (100 ns) | σ (100 ns) | FWHM (20 ns) | σ (20 ns) |
+| LED (RTL actual) | 13.70 | 13.98 | 9.70 | 4.47 |
+| LED + interpolación | 12.95 | 14.45 | 10.10 | 5.19 |
+| LED + interp. + corr. walk | 2.85 | 1.62 | 4.60 | 1.88 |
+| CFD | 8.60 | 3.37 | 8.20 | 3.27 |
+| CFD + interpolación | 0.45 | 0.68 | 0.85 | 0.49 |
+
+-------------------------------------------------------------------------------
+04_parametros_cfd.png
+-------------------------------------------------------------------------------
+Cómo se eligieron f y D: jitter del CFD interpolado para un pulso de 400
+cuentas, contra el retardo D, para tres fracciones que se implementan con
+desplazamientos (1/8, 1/4, 1/2). (a) subida de 100 ns, (b) de 20 ns. Los
+puntos que faltan a la izquierda son los D con los que el cruce cae ANTES del
+armado (el cruce de thr) en más del 1 % de los eventos: el CFD necesita D lo
+bastante largo para que el pulso más chico ya esté armado cuando y cruza cero.
+La rayada es la elección: f = 0.25, D = 8 para 100 ns; f = 0.5, D = 3 para 20
+ns.
+
+Con flanco lento (a), f = 1/2 es la peor: el cruce cae arriba en el flanco,
+donde la pendiente ya bajó. 1/8 y 1/4 empatan a esta amplitud, pero 1/8 se
+degrada cerca del umbral (con D = 8, 1.6 contra 1.3 ns a A = 150), así que
+queda 1/4. Con flanco rápido (b) manda la interpolación: f = 1/2 pone el cruce
+en el medio del flanco, donde y es más recta, y el error de la recta es
+mínimo.

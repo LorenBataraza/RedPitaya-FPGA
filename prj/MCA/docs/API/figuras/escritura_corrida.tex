@@ -1,0 +1,72 @@
+% Lo que la API escribe cuando mide: el directorio de una corrida. Los dos
+% escritores van primero a un .tmp y después hacen os.replace, así que todo
+% .npz o .json visible está completo. Debajo, el camino físico de un write().
+% Fuentes: software/API/osciloscope_store/storage.py (ChunkWriter._write),
+% session.py (AcquisitionSession, run_summary.json). El 12.4 MB/s es el medido
+% en docs/movimiento_de_datos.md. El texto que acompaña está en
+% docs/API/arquitectura_software.md §3. Estilo: docs/figuras/estilo_tikz.tex.
+%
+% Compilar:   pdflatex escritura_corrida.tex
+%             pdftocairo -svg escritura_corrida.pdf escritura_corrida.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{
+  hilo/.style    = {bloque=azul!30, text width=2.6cm, minimum height=0.9cm},
+  archivo/.style = {draw=black, line width=0.5pt, fill=white, font=\scriptsize\ttfamily,
+                    minimum width=2.9cm, minimum height=0.38cm, inner sep=1pt},
+  tmp/.style     = {archivo, dashed, draw=black!60, text=black!65},
+  fis/.style     = {bloque=grisr, text width=2.3cm, minimum height=0.9cm},
+}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+% ========================================================= el directorio ===
+\draw[contenedor, fill=black!3] (2.55,1.25) rectangle (11.55,-2.25);
+\node[rotulo, font=\scriptsize\ttfamily] at (2.6,1.25) {<run\_dir>/};
+
+% lo visible
+\node[archivo] (f0)  at (9.6,0.6)   {chunk\_000000.npz};
+\node[archivo] (f1)  at (9.6,0.17)  {chunk\_000001.npz};
+\node[font=\scriptsize] at (9.6,-0.2) {$\vdots$};
+\node[archivo, line width=1.0pt] (fn) at (9.6,-0.6) {chunk\_000042.npz};
+\node[archivo, line width=1.0pt] (fs) at (9.6,-1.7) {run\_summary.json};
+
+% a medio escribir
+\node[tmp] (tn) at (4.65,-0.6) {chunk\_000042.npz.tmp};
+\node[tmp] (ts) at (4.65,-1.7) {run\_summary.json.tmp};
+\draw[flujo] (tn) -- node[sen, above] {os.replace} (fn);
+\draw[flujo] (ts) -- node[sen, above] {os.replace} (fs);
+
+% ========================================================= los escritores ===
+\node[hilo] (wr) at (0,-0.6) {\blk{mca-writer}{un batch, un chunk}};
+\node[hilo] (ss) at (0,-1.95) {\blk{AcquisitionSession}{al cerrar}};
+\draw[flujo] (wr) -- (tn);
+\draw[flujo] (ss.east |- ts) -- (ts);
+
+% ========================================================= quien consume ===
+\node[bloque=white, text width=2.3cm, minimum height=0.9cm] (con) at (13.6,-0.6)
+  {\etq{consumidor}{file pusher, análisis}};
+\draw[flujo] (11.55,-0.6) -- node[sen, above] {*.npz} (con);
+
+% =================================================== el camino físico ===
+\node[fis] (pc)  at (4.65,-3.7) {\etq{page cache}{del kernel}};
+\node[fis] (sd)  at (9.6,-3.7)  {\etq{microSD}{12.4 MB/s}};
+\node[mudo, text width=2.3cm, minimum height=0.9cm] (nfs) at (13.6,-3.7)
+  {\etq{NFS}{el disco, fuera de la placa}};
+\draw[flujo] (4.65,-2.25) -- node[sen, right] {write()} (pc);
+\draw[flujo] (pc) -- node[sen, above] {writeback} (sd);
+\draw[flujo, dashed] (pc.south) -- ++(0,-0.45) -| (nfs.south);
+
+% ============================================================== leyenda ===
+\leyenda{-1.3,-5.2}{azul!30/hilo, grisr/camino físico}
+  {Punteado: archivo a medio escribir, o camino opcional. Borde grueso: lo último que se escribió.}
+
+\end{tikzpicture}
+\end{document}

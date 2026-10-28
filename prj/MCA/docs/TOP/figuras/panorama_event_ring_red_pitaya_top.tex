@@ -1,0 +1,15 @@
+% Panorama de event_ring_red_pitaya_top: el top de integración con el event
+% ring (xc7z010). Igual que mca_red_pitaya_top salvo el slot 2, que pasa de
+% stub a event_ring_top, y el puerto HP2, que ahora escribe el ring.
+% El dibujo está en panorama_top_cuerpo.tex, compartido con el top del MCA.
+% Fuente: rtl/mine/tops/event_ring_red_pitaya_top.sv.
+%
+% Compilar:   pdflatex panorama_event_ring_red_pitaya_top.tex
+%             pdftocairo -svg panorama_event_ring_red_pitaya_top.pdf panorama_event_ring_red_pitaya_top.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\newif\ifring \ringtrue
+\input{panorama_top_cuerpo.tex}

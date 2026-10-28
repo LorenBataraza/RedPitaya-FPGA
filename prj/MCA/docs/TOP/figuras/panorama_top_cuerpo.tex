@@ -1,0 +1,132 @@
+% Cuerpo común de los panoramas de los dos tops de integración:
+%   panorama_mca_red_pitaya_top.tex         \ringfalse  (slot 2 = stub)
+%   panorama_event_ring_red_pitaya_top.tex  \ringtrue   (slot 2 = event_ring_top, HP2)
+% Los dos tops son la misma copia de red_pitaya_top.sv salvo el slot 2 y el
+% puerto HP2, así que se dibujan desde un solo archivo para que no diverjan.
+% Fuentes: rtl/mine/tops/{mca,event_ring}_red_pitaya_top.sv.
+%
+% Este archivo no compila solo: lo incluye cada envoltorio.
+
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+% geometría que cambia con el ring
+\ifring
+  \def\icx{10.85}\def\icw{19.4cm}\def\derecha{22.6}
+  \def\nombretop{event\_ring\_red\_pitaya\_top}
+\else
+  \def\icx{9.6}\def\icw{16.8cm}\def\derecha{20.2}
+  \def\nombretop{mca\_red\_pitaya\_top}
+\fi
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+% ============================================================ red_pitaya_ps
+\node[comp, text width=2.6cm] (zyn) at (2.2,0)  {\etq{Zynq PS}{ARM + controlador DDR\\ \texttt{fclk[0..3]}}};
+\node[bus, param={rojo!45}{rojo!18}] (a4s) at (7.6,0)
+  {\blk{axi4\_slave}{\prm{DW=32 & AW=32 & IW=12}}\nodepart{two}AXI4-Lite $\to$ \texttt{sys\_bus}\\ sin ráfagas};
+\node[ddr, param={naranja!70}{naranja!30}] (axm) at (16.2,0)
+  {\blk{axi\_master {\normalfont$\times$} \ifring 3\else 2\fi}{\prm{DW=64 & AW=32\\ IW=4 & LW=4}}
+   \nodepart{two}bus custom $\to$ ráfagas\\ AXI4 de 64 b};
+\node[grupo, fit={(0.4,1.75) (17.55,-0.95)}] (ps) {};
+\node[rotulo, anchor=north east] at (ps.north east) {\texttt{red\_pitaya\_ps}};
+
+% ===================================================== sys_bus_interconnect
+\node[bus, param={rojo!45}{rojo!18}, text width=\icw] (ic) at (\icx,-2.75)
+  {\blk{sys\_bus\_interconnect}{\prm{SN=8 & SW=20}}
+   \nodepart{two}1 maestro $\to$ 8 slots de 1 MiB \;$\cdot$\; un CDC por slot, \texttt{fclk[0]} $\leftrightarrow$ \texttt{adc\_clk}};
+
+% ===================================================================== slots
+\node[comp] (hk)  at (1.6,-5.3) {\blk{red\_pitaya\_hk}{slot 0 \;$\cdot$\; LED, DIO,\\ \texttt{digital\_loop}}};
+\node[comp] (ams) at (4.0,-5.3) {\blk{red\_pitaya\_ams}{slot 4 \;$\cdot$\; config.\\ de las salidas PWM}};
+\node[comp] (dsy) at (6.4,-5.3) {\blk{red\_pitaya\_daisy}{slot 5 \;$\cdot$\; enlace\\ serie por SATA}};
+\ifring\else
+\node[mudo, text width=1.4cm] (stb) at (8.25,-5.3) {\blk{stub}{slot 2\\ ASG quitado}};
+\fi
+\node[comp, param={grisr}{grisr!35}, text width=2.0cm] (itg) at (10.2,-5.6)
+  {\blk{integration\_cfg}{\prm{EN\_RING=\ifring 1\else 0\fi & EN\_ASG=0\\ EN\_PID=0 & H\_AW=\ifring 14\else 13\fi\\ +17 más}}
+   \nodepart{two}slot 6 \;$\cdot$\; ID del\\ bitstream y ruteo};
+\node[datos, param={azul!35}{azul!12}, text width=2.8cm] (scp) at (14.0,-6.0)
+  {\blk{rp\_scope\_mt\_com}{\prm{CHN=0 & N\_CH=2\\ DW=14 & RSZ=13\\ EN\_FILT=0}}
+   \nodepart{two}\texttt{i\_scope}\\ OSC \;(slot 1) \;$\cdot$\; MTRG \;(slot 3)};
+\node[captura, param={verde!55}{verde!20}, text width=2.6cm] (mca) at (18.1,-6.0)
+  {\blk{mca\_top}{\prm{DW=14 & H\_AW=13\\ H2\_AW=7 & PSD\_AW=6\\
+     \multicolumn{2}{@{}l@{}}{EN\_HIST\_H=1}\\ \multicolumn{2}{@{}l@{}}{EN\_HIST\_H\_PSD=1}}}
+   \nodepart{two}slot 7 \;$\cdot$\; espectro 1D\\ y mapa 2D};
+\ifring
+\node[ddr, param={naranja!70}{naranja!30}, text width=2.4cm] (rng) at (19.4,-9.5)
+  {\blk{event\_ring\_top}{\prm{DW=14 & N\_CH=2\\ PRE\_AW=9 & S\_AW=11\\ DATA\_AW=12 & E=4}}
+   \nodepart{two}slot 2 \;$\cdot$\; ventanas\\ a un ring en DDR};
+\fi
+
+% ============================================================ fila de E/S
+\node[comp] (pdm) at (4.0,-7.7)  {\blk{red\_pitaya\_pdm}{4 salidas PWM}};
+\node[comp] (pll) at (10.4,-9.6) {\blk{red\_pitaya\_pll}{\texttt{adc\_clk}: el reloj\\ de todo el PL}};
+\node[mudo] (dac) at (8.0,-9.6) {\etq{DAC IO}{\texttt{asg} = \texttt{pid} = 0:\\ salida muda}};
+\node[datos] (adc) at (13.0,-9.6) {\etq{ADC IO}{offset binario $\to$\\ complemento a 2}};
+
+% ======================================================= caja del top
+\node[contenedor, fit={(-0.4,2.55) (\derecha,-10.9)}] (top) {};
+\node[titulo] at (top.north west)
+  {\texttt{\bfseries\nombretop}\;\; {\scriptsize\itshape xc7z010 \;$\cdot$\; un solo reloj de datapath: \texttt{adc\_clk}}};
+
+% ============================================================== flechas ====
+% --- PS: los dos caminos ---
+\draw[flujo] ([yshift=2mm]zyn.east) -- node[sen, above] {M\_AXI\_GP0} ([yshift=2mm]zyn.east -| a4s.west);
+\draw[flujo] (axm.north) -- ++(0,0.45) -| node[sen, above, pos=0.25]
+  {S\_AXI\_HP0/1\ifring/2\fi\ $\to$ DDR} (zyn.north);
+\draw[<->, line width=0.8pt] (-1.6,0) node[left, pin, align=right] {PS DDR\\MIO, CLK} -- (zyn.west);
+\draw[flujo] (-1.6,-1.15) node[left, pin] {XADC} -| ([xshift=-6mm]zyn.south);
+\draw[<->, line width=0.8pt] (a4s.south) -- node[sen, right] {ps\_sys \,(32 b)} (a4s.south |- ic.north);
+
+% --- los ocho slots ---
+\foreach \b in {hk, ams, dsy, itg, mca}
+  \draw[<->, line width=0.7pt] (\b.north |- ic.south) -- (\b.north);
+\ifring
+  \draw[<->, line width=0.7pt] (20.45,0 |- ic.south) -- (20.45,0 |- rng.north);
+\else
+  \draw[<->, line width=0.7pt] (stb.north |- ic.south) -- (stb.north);
+\fi
+\draw[<->, line width=0.7pt] (13.3,0 |- ic.south) -- (13.3,0 |- scp.north)
+  node[sen, pos=0.45, left] {1};
+\draw[<->, line width=0.7pt] (14.7,0 |- ic.south) -- (14.7,0 |- scp.north)
+  node[sen, pos=0.45, right] {3};
+
+% --- datapath ---
+\draw[flujo] (itg.east) -- node[sen, above] {route\_*} (itg.east -| scp.west);
+\draw[flujo] (adc.north) -- node[sen, left] {adc\_dat} (adc.north |- scp.south);
+\draw[flujo] ([yshift=4mm]scp.east) -- node[sen, above] {mca\_dat} ([yshift=4mm]scp.east -| mca.west);
+\draw[flujo] (scp.east) -- node[sen, above] {veto} (scp.east -| mca.west);
+\draw[flujo] ([yshift=-4mm]scp.east) -- node[sen, above] {trig} ([yshift=-4mm]scp.east -| mca.west);
+\ifring
+  % el ring toma las mismas muestras que el MCA y el mismo trigger conjunto
+  \draw[flujo] (16.3,0 |- scp.south) |- node[sen, above, pos=0.75, align=center]
+    {dat, trig,\\ snap} (rng.west);
+  \draw[flujo] (rng.east) -- (21.6,0 |- rng.east) |- ([yshift=2mm]axm.east)
+    node[sen, pos=0.12, right] {axi2\_sys};
+  \draw[flujo] (15.2,0 |- scp.south) -- (15.2,-10.55) -- (22.1,-10.55) |- ([yshift=-2mm]axm.east)
+    node[sen, pos=0.06, right] {axi0/1\_sys};
+\else
+  \draw[flujo] (15.2,0 |- scp.south) -- (15.2,-10.3) -- (19.75,-10.3) |- (axm.east)
+    node[sen, pos=0.1, left] {axi0/1\_sys};
+\fi
+\draw[flujo] (ams.south) -- node[sen, right] {pdm\_cfg} (pdm.north);
+
+% --- pines de la placa (borde inferior) ---
+\draw[<->, line width=0.8pt] (hk.south) -- (hk.south |- 0,-11.5) node[below, pin] {LED\\DIO};
+\draw[flujo] (pdm.south) -- (pdm.south |- 0,-11.5) node[below, pin] {PWM\\DAC};
+\draw[<->, line width=0.8pt] (dsy.south) -- (dsy.south |- 0,-11.5) node[below, pin] {SATA};
+\draw[flujo, black!50] (dac.south) -- (dac.south |- 0,-11.5) node[below, pin, black!55] {DAC};
+\draw[flujo] (pll.south |- 0,-11.5) node[below, pin] {ADC\\CLK} -- (pll.south);
+\draw[flujo, ancho en=0.15, anchov=16] (adc.south |- 0,-11.5) node[below, pin] {ADC\\2 canales} -- (adc.south);
+
+% ================================================================= leyenda ===
+\leyenda{-0.4,-13.0}{azul!35/acondicionamiento y trigger, verde!55/MCA,
+  naranja!70/camino a DDR, grisr/periferia e infraestructura, rojo!45/bus del sistema}
+  {Los pines físicos quedan en el borde. Control: GP0 $\to$ \texttt{sys\_bus}. Datos:
+   \texttt{i\_scope}\ifring{} y \texttt{event\_ring\_top}\fi{} $\to$ HP $\to$ DDR, sin pasar por el ARM.
+   \notaparam{} En \texttt{integration\_cfg} se muestran 4 de sus 21.}
+
+\end{tikzpicture}
+\end{document}

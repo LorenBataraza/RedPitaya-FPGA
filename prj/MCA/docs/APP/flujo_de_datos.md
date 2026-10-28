@@ -10,7 +10,7 @@ la dirección contraria. Es lo que hace falta para tocar el código sin romperlo
 
 Lo que **no** cubre: el presupuesto de rendimiento del lector de formas de onda
 del osciloscopio, que está medido y cerrado en
-[`arquitectura_adquisicion_software.md`](../multitrigger/arquitectura_adquisicion_software.md)
+[`arquitectura_adquisicion_software.md`](../API/arquitectura_adquisicion_software.md)
 (Parte 3); y el volcado masivo de ficheros por NFS, que es otro problema con
 otras respuestas y vive en
 [`salida_por_red.md`](../event_ring/salida_por_red.md). Acá hay un solo socket

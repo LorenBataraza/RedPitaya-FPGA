@@ -8,8 +8,9 @@ centroide**, por un factor 38 sobre su propia tolerancia.
 
 Los números salen de la campaña de [§14.1b](../resultados_validacion_hw.md) y de
 fórmulas recalculadas en
-[`figuras/figuras_limites.py`](figuras/figuras_limites.py), que también genera la
-figura. Si el documento y la figura no coinciden, es un bug del script.
+[`figuras/figuras_limites.py`](figuras/figuras_limites.py), que también genera
+las tres figuras. Si el documento y una figura no coinciden, es un bug del
+script.
 
 ![jerarquía de límites](figuras/08_jerarquia_limites.png)
 
@@ -17,11 +18,11 @@ figura. Si el documento y la figura no coinciden, es un bug del script.
 
 ## 1. Tres límites que se confunden todo el tiempo
 
-| | Qué es | ¿Las cuentas lo mejoran? |
-|---|---|---|
-| **Resolución instrumental (FWHM)** | El ancho del pico de un pulser: es el ruido de la cadena | **No.** Nunca |
-| **Pérdida por binning** | El histograma discretiza y eso agrega varianza | No: se arregla con más canales, no con más cuentas |
-| **Poder resolutivo estadístico** | Sabiendo que hay dos gaussianas de ancho conocido, con qué separación se puede afirmar que son dos | **Sí**, pero lentísimo |
+|                                    | Qué es                                                                                             | ¿Las cuentas lo mejoran?                           |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| **Resolución instrumental (FWHM)** | El ancho del pico de un pulser: es el ruido de la cadena                                           | **No.** Nunca                                      |
+| **Pérdida por binning**            | El histograma discretiza y eso agrega varianza                                                     | No: se arregla con más canales, no con más cuentas |
+| **Poder resolutivo estadístico**   | Sabiendo que hay dos gaussianas de ancho conocido, con qué separación se puede afirmar que son dos | **Sí**, pero lentísimo                             |
 
 Casi todas las discusiones sobre "cuántos canales necesito" mezclan las tres. Van
 por separado en las secciones 2, 3 y 4.
@@ -56,7 +57,10 @@ compuerta fija, datos de §14.1b reescalados):
 | 1.00 Vpp | 8191 | 8.64 | **0.31 %** |
 
 Entre 6.3 y 8.6 canales por FWHM en toda una década de amplitud, o sea **dentro
-de la regla en todo el rango** y tirando menos del 0.6 %.
+de la regla en todo el rango** y tirando menos del 0.6 %. La
+[figura de la sección 5](#el-zoom-no-mejora-el-poder-resolutivo) muestra lo mismo
+medido como información de Fisher en vez de como inflación de σ, y da la misma
+respuesta: en esa banda ya sobrevive el 98–99 %.
 
 > **Corolario que conviene tener escrito:** más canales no es una decisión de
 > diseño, es una **consecuencia** de mejor resolución. Con la resolución medida
@@ -72,6 +76,35 @@ de la regla en todo el rango** y tirando menos del 0.6 %.
 La pregunta precisa es: dadas N cuentas de una mezcla de dos gaussianas iguales
 de ancho σ separadas `2d`, ¿con qué `d` mínimo se puede afirmar que son dos y no
 una sola más ancha?
+
+![qué compran las cuentas](figuras/14_cuentas_vs_separacion.png)
+
+**(a)** Un doblete separado 1.2 FWHM, histogramado con 6 canales/FWHM —el
+bineado del MCA— con N creciente. Con 100 cuentas no hay nada que afirmar; con
+10³ asoma el valle; de 10⁴ en adelante son dos picos y no se discute. Es lo que
+uno espera que compren las cuentas.
+**(b)** La misma secuencia con el doblete separado **0.13 FWHM**. En ninguna N se
+ve nada: la mezcla verdadera y la gaussiana única de los mismos momentos se
+superponen en los cinco paneles. Éste es el caso que gobierna el límite, y el
+ojo nunca lo resuelve.
+**(c)** Por qué (b) no es un callejón sin salida: la significancia con que un
+estimador óptimo detecta la separación crece como `√N`, así que el doblete
+invisible de (b) cruza los 3σ en **N ≈ 9.3 × 10³**. Lo que crece con las cuentas
+no es el valle: es la evidencia.
+
+Dos lecturas que conviene no saltear:
+
+- **De dónde sale el exponente ¼, leído en (c).** A `d` fijo la significancia
+  sube como `√N` —pendiente ½ en el log-log—, pero la significancia es
+  proporcional a `d²`. Pedir que cruce un umbral fijo deja `d² ∝ N^(−1/2)`, o
+  sea `d ∝ N^(−1/4)`. El ¼ es el ½ de siempre, dividido por el 2 del exponente
+  con que `d` entra.
+- **(c) es un techo, no una predicción de lo que verías.** Es la cota de
+  Cramér-Rao con σ y posición conocidos: lo mejor que puede hacer cualquier
+  método. El ojo, que además tiene que estimar ancho y posición, llega mucho más
+  tarde — a N = 10² la cota ya marca 13σ para el doblete ancho y el panel de (a)
+  correspondiente es puro ruido. La brecha entre (a) y (c) **es** la diferencia
+  entre el óptimo y lo ingenuo que se cuantifica más abajo.
 
 ### La derivación
 
@@ -91,6 +124,11 @@ Cramér-Rao da entonces `σ_d ≥ 1/(d√(2N))`. Pidiendo detección a 3σ (`d >
 
 **La separación detectable mejora como la raíz CUARTA de las cuentas.** Para
 duplicar el poder resolutivo hacen falta **16×** más cuentas.
+
+El desarrollo completo —qué objeto es la información de Fisher, por qué este
+problema en particular da raíz cuarta y no la raíz cuadrada de siempre, y qué
+supone cada paso— está en el
+[apéndice A](#apéndice-a-información-de-fisher-en-detalle).
 
 ### Y en la práctica se hace peor
 
@@ -112,7 +150,7 @@ carísima de comprar separación.**
 
 ## 4. El límite del contador de 32 bits
 
-Cada bin es un `uint32` saturante ([`mca_hist.sv:139`](../../rtl/mine/mca/mca_hist.sv#L139)):
+Cada bin es un `uint32` saturante ([`mca_hist.sv:160`](../../modulos/mca/rtl/mca_hist.sv#L160)):
 al llegar a `0xFFFFFFFF` se queda ahí, no envuelve.
 
 Con FWHM = 8.64 canales, σ = 3.67, el bin del pico se lleva `1/(σ√2π)` = **10.9 %**
@@ -151,6 +189,40 @@ canales/FWHM sólo recupera la pérdida por binning de la sección 2 — y esa p
 **ya es menor al 0.6 %**. Hacer zoom 8× la llevaría a ~0.01 %: no hay nada que
 recuperar. Y no toca ninguno de los otros dos límites: la FWHM instrumental es
 del ruido, y el poder resolutivo estadístico depende de N, no del binning.
+
+Dicho con números en vez de con un argumento, a **N fija**:
+
+![el bineado contra la detección](figuras/15_bineado_vs_deteccion.png)
+
+**(a)** La misma muestra de 10⁵ cuentas histogramada con 1, 2, 4 y 16 canales por
+FWHM. Con 1 el valle desaparece; con 2 ya está; de 4 en adelante las curvas son
+indistinguibles entre sí y de la densidad real.
+**(b)** El mismo efecto medido como **información**: la fracción de la
+información de Fisher sobre la separación que sobrevive al bineado (eje
+izquierdo) y lo que eso cuesta en `d_min` (eje derecho).
+
+| canales/FWHM | 1 | 2 | 4 | **6.31** | **8.64** | 16 | 64 |
+|---|---|---|---|---|---|---|---|
+| información retenida | 0.51 | 0.81 | 0.95 | **0.978** | **0.988** | 0.997 | 1.000 |
+| `d_min` relativo | 1.18 | 1.05 | 1.014 | **1.006** | **1.003** | 1.001 | 1.000 |
+
+**El MCA trabaja en la banda sombreada, 6.3–8.6 canales/FWHM, donde ya conserva
+el 98–99 % de la información.** Llevarlo a 64 canales/FWHM mejora `d_min` un
+**0.30 %** y cuesta **7.4× la BRAM**. Ésa es la cuenta que respalda el párrafo
+de arriba, y es la misma conclusión por otro camino que la regla de 4–10 de la
+sección 2.
+
+> **Un detalle que vale la pena, porque la corrección de Sheppard se cita de
+> más:** la curva punteada de (b) es `1/(1+Δ²/12)`, y queda **por encima** de las
+> dos curvas reales — a 4 canales/FWHM predice 0.97 y lo que sobrevive es 0.95.
+> Sheppard describe la **inflación del ancho**, no la pérdida de información
+> sobre la **separación**, y subestima la segunda. Para decidir bineado da lo
+> mismo (las dos saturan en el mismo lugar); para citar un número, no.
+
+Y la asimetría entre las dos curvas de (b) no es casual: el doblete fino pierde
+**más** información que el ancho con el mismo bineado. Su firma vive en la
+curvatura de la distribución (`φ''`, sección 3), que es justo lo primero que un
+bin ancho promedia.
 
 **Para qué sirve entonces**: permite usar un histograma más chico (8192 en vez de
 16384 canales) sin ceder nada, y encuadrar el eje sobre dos picos juntos. Es un
@@ -310,6 +382,15 @@ explicar.** Eso mueve la sospecha *afuera* del MCA digital.
    a la inyección, o sea del generador o del frente analógico.
 3. **Que sea del frente analógico** del Red Pitaya (térmica, asentamiento).
 
+**Un candidato ya descartado con número.** El recorte `xc >= 0` de
+`mca_pulse_feature` rectifica el ruido donde la señal vale ~0, así que le mete a
+`q_tot` un pedestal que **depende de σ**: un cambio del ruido correría el
+centroide sin que la señal cambie. No alcanza ni de lejos — con el estímulo de
+la campaña ni siquiera se activa (la cola del ARB todavía vale 528 cuentas
+cuando la compuerta cierra), y en el caso general harían falta ~3200 muestras en
+cero para que un cambio del 10 % en σ corriera el centroide 0.1 %. Ver
+[`../ruido_del_sistema.md`](../ruido_del_sistema.md) §6.
+
 > **Consecuencia para el conformado trapezoidal.** §5 de
 > [`decisiones_diseno_mca.md`](decisiones_diseno_mca.md) da el corrimiento con la
 > tasa como *el argumento principal* de la cancelación polo-cero. Si el
@@ -401,17 +482,240 @@ contra la saturación silenciosa, no como mecanismo principal.
 
 ---
 
+## Apéndice A. Información de Fisher, en detalle
+
+La sección 3 usa la cota de Cramér-Rao en tres líneas y sigue de largo. Acá va el
+desarrollo: qué mide la información de Fisher, por qué este problema **no es
+regular** —que es de donde sale el exponente ¼—, qué tan buena es la aproximación
+que se usa, y en qué dirección se rompe cada supuesto.
+
+Todo lo numérico de este apéndice lo recalcula
+[`figuras/figuras_limites.py`](figuras/figuras_limites.py), incluidas las
+integrales de Fisher que acá aparecen resueltas.
+
+### A.1 Qué mide
+
+Para una densidad `p(x; θ)` la información de Fisher por muestra es
+
+    I(θ) = E[(∂/∂θ · log p)²] = −E[∂²/∂θ² · log p]
+
+o sea **la curvatura esperada de la log-verosimilitud** en el valor verdadero. Si
+mover `θ` casi no cambia la distribución de los datos, la log-verosimilitud es
+plana, `I` es chica y ningún estimador puede distinguir valores vecinos. Las dos
+propiedades que se usan abajo:
+
+- **Es aditiva**: `N` muestras independientes dan `N·I(θ)`.
+- **Cota de Cramér-Rao**: para cualquier estimador insesgado, `Var(θ̂) ≥ 1/(N·I)`.
+
+Lo importante de la cota es que es un **piso sobre los estimadores, no sobre un
+estimador**: no hay ajuste más astuto, deconvolución ni algoritmo que la baje.
+Sólo se mueve agregando información —más cuentas, menos σ, menos pérdida por
+bineado—. Las condiciones de regularidad (soporte independiente de `θ`,
+derivabilidad, intercambio de derivada e integral) se cumplen sin drama acá: una
+mezcla de gaussianas es analítica y de soporte completo.
+
+### A.2 El caso regular de referencia: el centroide de un pico
+
+Conviene tener a mano el problema fácil, porque es el que todo el mundo
+extrapola. Un solo pico gaussiano de σ conocido y centroide `μ` desconocido:
+
+    log p = −(x−μ)²/(2σ²) + cte    →    ∂²/∂μ² log p = −1/σ²    →    I(μ) = 1/σ²
+
+`I` **no depende de `μ`**: el problema es regular y la cota se evalúa sin más,
+`σ_μ = σ/√N`.
+
+| N | `σ_μ` en σ | `σ_μ` en FWHM |
+|---|---|---|
+| 10⁴ | 0.0100 | 0.0042 |
+| 10⁶ | 0.0010 | 0.00042 |
+
+Raíz cuadrada de las cuentas: para duplicar la precisión, 4× más cuentas. **Éste
+es el comportamiento que uno espera, y no es el que rige separar dos picos.**
+
+### A.3 Por qué separar dos picos NO es un problema regular
+
+Con `p(x; d) = ½[φ(x−d) + φ(x+d)]` la densidad es **par en `d`**, así que
+`∂p/∂d` se anula idénticamente en `d = 0`: a separación nula, mover `d` no cambia
+la distribución a primer orden, sólo la ensancha a segundo. De ahí sale toda la
+sección 3:
+
+    p(x; d) = φ(x) + (d²/2)·φ''(x) + O(d⁴)        ∂p/∂d = d·φ''(x) + O(d³)
+    I(d)    = ∫ (∂p/∂d)²/p dx ≈ d² ∫ φ''²/φ dx = d²·E[(X²−1)²] = 2d²
+
+usando `φ'' = (x²−1)φ` y `E[(X²−1)²] = E[X⁴] − 2E[X²] + 1 = 3 − 2 + 1 = 2`.
+
+**La información se anula cuando `d → 0`, y se anula como `d²`.** En `d = 0` el
+parámetro es localmente **no identificable**: no es que cueste medirlo, es que no
+hay nada que medir. Dos consecuencias:
+
+1. **La cota depende del valor desconocido**: `σ_d ≥ 1/(d√(2N))` empeora justo
+   cuando lo que se quiere medir es chico, que es siempre el caso de interés.
+2. **Por eso el criterio de detección es una condición de punto fijo**, no una
+   evaluación: hay que pedir `d > 3·σ_d(d)`, y recién al resolverla aparece el
+   exponente.
+
+```
+d > 3/(d√(2N))   →   d² > 3/√(2N)   →   d_min = √3/(2N)^(1/4)
+```
+
+| N | `d_min` (Cramér-Rao) | separación `2d` en FWHM |
+|---|---|---|
+| 10⁴ | 0.1457 σ | 0.124 |
+| 10⁵ | 0.0819 σ | 0.070 |
+| 10⁶ | 0.0461 σ | 0.039 |
+| 3.95 × 10¹⁰ (saturación, §4) | 0.00327 σ | 0.0028 |
+
+**El ¼ es una raíz cuadrada aplicada dos veces**: una por la estadística de
+siempre, y otra porque el parámetro entra en la información al cuadrado. Es la
+firma de un problema degenerado, y vale para cualquier parámetro que sólo se
+manifieste a segundo orden. El panel (c) de la
+[figura de la sección 3](#3-poder-resolutivo-estadístico-información-de-fisher)
+es esta misma cuenta dibujada: la significancia sube con pendiente ½ y el `d`
+detectable baja con ¼.
+
+### A.4 Qué tan buena es la aproximación `I ≈ 2d²`
+
+Es el límite `d → 0`, y el documento la usa en `d` finito. La información exacta,
+integrada numéricamente:
+
+| `d` (σ) | 0.0033 | 0.046 | 0.082 | 0.146 | 0.20 | 0.30 |
+|---|---|---|---|---|---|---|
+| `I_exacta / 2d²` | 1.0000 | 0.9958 | 0.9868 | 0.9596 | 0.9275 | 0.8533 |
+
+La exacta queda **por debajo** de la cuadrática, así que la fórmula cerrada es
+algo optimista. Resolviendo el punto fijo con la `I` exacta:
+
+| N | fórmula | exacta | desvío |
+|---|---|---|---|
+| 10⁴ | 0.1457 | 0.1472 | +1.1 % |
+| 10⁵ | 0.0819 | 0.0822 | +0.3 % |
+| 10⁶ | 0.0461 | 0.0461 | +0.1 % |
+| 3.95 × 10¹⁰ | 0.00327 | 0.00327 | 0.00 % |
+
+El error se amortigua con exponente ¼ (`d_min ∝ I^(−1/4)` a `d` fijo), así que un
+4 % de error en la información es 1 % en `d_min`. **La aproximación no es el punto
+débil del argumento**, y en la N que de verdad importa —la de la saturación del
+contador— no se nota en las cifras publicadas.
+
+### A.5 De dónde sale el 3, y por qué el exponente no se negocia
+
+El criterio de `k` sigmas da `d_min = √k/(2N)^(1/4)`: la convención sólo mueve el
+prefactor.
+
+| criterio | prefactor | `d_min` a N = 10⁶ |
+|---|---|---|
+| 1σ | 1.00 | 0.0266 σ |
+| 2σ | 1.41 | 0.0376 σ |
+| **3σ** (el del texto) | **1.73** | **0.0461 σ** |
+| 5σ | 2.24 | 0.0595 σ |
+
+Pasar de 3σ a 2σ mejora `d_min` un 18 %, que es lo mismo que comprar **2.25× más
+cuentas**: la convención de reporte vale casi tanto como una campaña, y conviene
+decir siempre con qué `k` se está hablando. El exponente, en cambio, no depende de
+nada de esto.
+
+### A.6 Los supuestos, uno por uno
+
+| Supuesto | Qué pasa si no vale |
+|---|---|
+| σ conocido e **igual** en los dos picos | hay que estimarlo junto con `d`; parte de la información se va al ancho y `d_min` empeora |
+| **intensidades iguales** (50/50) | sobrevive con una N efectiva — ver abajo |
+| posición global del doblete conocida | en la práctica **no** lo es, y resulta que eso es lo que *sostiene* el exponente — ver abajo |
+| sin continuo de fondo | lo que entra en la cota es la N **del pico**, no la del espectro: un fondo bajo el doblete diluye la información |
+| cuentas sin bineado | el bineado destruye información, y es irrecuperable; con 6.3–8.6 canales/FWHM sobrevive el 98–99 % (§5), despreciable frente a todo lo demás |
+
+**Intensidades desiguales y el parámetro de molestia.** Con pesos `w` y `1−w` la
+densidad ya no es par en `d`: mover `d` corre la media de la mezcla, que es un
+efecto de **primer** orden. Eso volvería el problema regular y daría `N^(−1/2)`…
+pero sólo si se supiera de antemano dónde tiene que estar el centro. En un
+espectro real la posición global es un parámetro de molestia que se ajusta junto
+con todo lo demás, y al perfilarlo se absorbe exactamente la dirección de primer
+orden. La información que le queda a `d` vuelve a anularse como `d²`:
+
+    I_perfilada(d) = I_dd − I_dμ²/I_μμ = 2·[4w(1−w)]²·d²
+
+(verificada numéricamente a 4 cifras para `w` = 0.05 … 0.5). O sea que **todo el
+apéndice sobrevive cambiando N por una N efectiva**:
+
+    N_ef = [4w(1−w)]² · N
+
+| `w` | 0.5 | 0.4 | 0.3 | 0.2 | 0.1 |
+|---|---|---|---|---|---|
+| `N_ef/N` | 1.00 | 0.92 | 0.71 | 0.41 | 0.13 |
+| `d_min` relativo | 1.00 | 1.02 | 1.09 | 1.25 | **1.67** |
+
+Y el resultado es tranquilizador: un doblete 10:1 —bastante asimétrico— cuesta
+1.67× en separación detectable, no un orden de magnitud. **El exponente ¼ es lo
+robusto del asunto; los supuestos mueven el prefactor.**
+
+### A.7 El estimador ingenuo, con el término exacto
+
+La tabla de §3 compara la cota con un estimador por momentos, y vale hacer la
+cuenta completa porque **acá la aproximación de `d` chico sí se rompe**. Para
+`X = εd + Z` con `ε = ±1` equiprobable y `Z ~ N(0,1)`:
+
+    m₂ = 1 + d²        m₄ = 3 + 6d² + d⁴
+    γ₂ = m₄/m₂² − 3 = −2d⁴/(1+d²)²        →    −2d⁴   sólo si d ≪ 1
+
+El exceso de curtosis muestral de una muestra casi normal tiene
+`SE ≈ √(24/N)`, así que la detección a 3σ pide `2d⁴/(1+d²)² = 3√(24/N)`:
+
+| N | con `γ₂` exacta | con la aproximación `−2d⁴` | Monte-Carlo (§3) |
+|---|---|---|---|
+| 10⁴ | 0.610 σ | 0.521 σ | 0.580 σ |
+| 10⁵ | 0.424 σ | 0.390 σ | 0.403 σ |
+| 10⁶ | 0.306 σ | 0.293 σ | 0.302 σ |
+
+El estimador por momentos opera en `d ≈ 0.3–0.6`, donde el denominador `(1+d²)²`
+ya se come un 25 % de la curtosis: usar `−2d⁴` subestima `d_min` un 15 % a
+N = 10⁴. **Es el contraste exacto con A.4**: en la cota de Cramér-Rao la
+aproximación de `d` chico es inocua porque el óptimo trabaja en `d ≈ 0.05–0.15`;
+en el estimador ingenuo no lo es, porque trabaja diez veces más lejos. La forma
+cerrada acota al Monte-Carlo por arriba y converge a él (+5 % a 10⁴, +1.3 % a 10⁶).
+
+De la relación `d⁴ ∝ N^(−1/2)` sale el `N^(−1/8)` de §3. Y la lectura conceptual
+es que la caída no es un defecto del método de momentos en abstracto: **la
+curtosis mira un solo número de la muestra, mientras que la verosimilitud mira la
+forma entera.** La distancia entre ⅛ y ¼ es el precio de resumir.
+
+### A.8 Lo que el apéndice le aporta a la tesis del documento
+
+El poder resolutivo es el único de los tres límites de §1 que las cuentas
+mejoran, y mejora como la raíz cuarta. Puesto al lado de la deriva:
+
+| | En FWHM |
+|---|---|
+| Incertidumbre estadística del centroide a N = 10⁶ (A.2) | 0.00042 |
+| Deriva medida, ×36 de tasa (§7) | **12** |
+
+**La deriva es 2.8 × 10⁴ veces la incertidumbre estadística del propio
+centroide.** Es el resultado de la sección 7 visto desde la teoría de estimación:
+la varianza no es el límite por cuatro órdenes de magnitud, **el MCA está limitado
+por un sesgo** — y ninguna cantidad de cuentas corrige un sesgo. Ésa es la razón
+de fondo por la que la sección 6 es la que importa.
+
+---
+
 ## Cómo reproducir
 
 ```bash
 cd prj/MCA/docs/mca/figuras
-python3 figuras_limites.py          # imprime todos los números y regenera la figura
+python3 figuras_limites.py          # imprime todos los números y regenera las tres figuras
 ```
+
+| Figura | Qué muestra |
+|---|---|
+| `08_jerarquia_limites.png` | Los cuatro límites en un eje logarítmico común, contra la tolerancia (sección 7) |
+| `14_cuentas_vs_separacion.png` | Qué compran las cuentas: el valle que emerge, el que nunca se ve, y la significancia que explica a los dos (sección 3) |
+| `15_bineado_vs_deteccion.png` | Qué compran los canales a N fija: nada por encima de 4 por FWHM (sección 5) |
 
 Todo se recalcula desde `software/datos/mca_gate_esp_v2/sweep_gate_espectro.npz`
 y las fórmulas; no hay constantes copiadas a mano salvo la resolución de
 referencia (0.106 %) y la tasa máxima (794 kcps), que están declaradas arriba del
-script con el enlace a la sección que las midió.
+script con el enlace a la sección que las midió. Las tablas del apéndice A las
+imprime el mismo script: las integrales de Fisher se resuelven por cuadratura,
+así que las aproximaciones analíticas de A.4, A.6 y A.7 quedan verificadas y no
+afirmadas.
 
 ## Bibliografía
 
@@ -421,7 +725,11 @@ script con el enlace a la sección que las midió.
 | **M. A. Mariscotti**, *A method for automatic identification of peaks in the presence of background*, Nucl. Instrum. Methods **50** (1967) 309. | Búsqueda de picos por diferencias segundas y la significancia estadística de un pico sobre el continuo. |
 | **L. A. Currie**, *Limits for qualitative detection and quantitative determination*, Anal. Chem. **40** (1968) 586. | Los límites de detección en conteo (L_C, L_D, L_Q), el marco estándar. |
 | **V. T. Jordanov, G. F. Knoll**, *Digital synthesis of pulse shapes in real time…*, Nucl. Instrum. Methods A **345** (1994) 337. | El trapecio y la cancelación polo-cero: la solución al problema de la sección 6. |
+| **C. R. Rao**, *Information and the accuracy attainable in the estimation of statistical parameters*, Bull. Calcutta Math. Soc. **37** (1945) 81. | La cota original. El apéndice A es un caso particular suyo. |
+| **E. L. Lehmann, G. Casella**, *Theory of Point Estimation*, 2ª ed., Springer, 1998. | Cap. 2: información de Fisher y condiciones de regularidad. Cap. 6: el perfilado de parámetros de molestia que usa A.6. |
 
 La cota de Cramér-Rao de la sección 3 se deriva acá en vez de citarse, porque el
 caso concreto (mezcla simétrica de dos gaussianas de ancho conocido) sale en tres
-líneas y así queda claro qué se está suponiendo.
+líneas y así queda claro qué se está suponiendo. El
+[apéndice A](#apéndice-a-información-de-fisher-en-detalle) hace el desarrollo
+completo, con los supuestos y su sensibilidad.

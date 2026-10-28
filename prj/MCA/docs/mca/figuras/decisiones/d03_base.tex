@@ -1,0 +1,38 @@
+% D3 — la línea de base (cfg_bl_auto). Vive en mca_baseline.
+% Compilar:   pdflatex d03_base.tex && pdftocairo -svg d03_base.pdf d03_base.svg
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../../figuras/estilo_tikz.tex}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\node[decision] (d) at (-0.9,1.3) {D3};
+\node[anchor=west, font=\small] at (d.east)
+  {\textbf{Línea de base} \quad {\scriptsize\ttfamily mca\_baseline}};
+
+\node[etapa, defecto, text width=3.4cm] (o0) at (0.9,0)
+  {\etq{fija}{\texttt{cfg\_baseline} (0x01C)}};
+\node[etapa, text width=3.4cm] (o1) at (0.9,-1.5)
+  {\etq{seguidor IIR}{$\alpha = 2^{-k}$, congelado en el pulso\\ y \texttt{holdoff} muestras después}};
+
+\muxdec{m}{(4.1,-0.75)}{2.8}
+\foreach \k in {0,1} {
+  \draw[flujo] (o\k.east) -- (m-in |- o\k.east);
+  \node[font=\scriptsize, anchor=west] at ($(m-in |- o\k.east)+(0.05,0)$) {\k};
+}
+\draw[ctrl] ($(m-sel)+(0,-0.9)$) node[below, sen, black, align=center]
+  {cfg\_bl\_auto\;\normalfont(0x020[0])\\[-1pt]\normalfont\scriptsize $k$ = [7:4], holdoff = [31:16]}
+  -- (m-sel);
+
+\node[comp, text width=1.5cm] (reg) at (6.1,-0.75) {\etq{registro}{base}};
+\draw[flujo] (m-out) -- (reg.west);
+\node[etapa, text width=2.4cm] (x) at (8.6,-0.75) {\etq{resta}{$x$ = dat $-$ base\\ (en \texttt{mca\_window})}};
+\draw[flujo] (reg.east) -- (x.west);
+\draw[flujo] (x.east) -- ++(0.9,0) node[right, sen] {x};
+
+\end{tikzpicture}
+\end{document}

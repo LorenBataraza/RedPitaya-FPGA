@@ -1,0 +1,62 @@
+{
+  "signal": [
+    {
+      "name": "clk  125 MHz",
+      "wave": "pppppppppppppppppppp"
+    },
+    {
+      "name": "s_axis_tdata",
+      "wave": "3..33...............",
+      "data": [
+        "0",
+        "4000",
+        "0"
+      ],
+      "node": "...a................"
+    },
+    {
+      "name": "s_axis_tvalid",
+      "wave": "01.................."
+    },
+    {},
+    {
+      "name": "m_axis_tdata  (osc_filter)",
+      "wave": "3..........33.......",
+      "data": [
+        "0",
+        "3999",
+        "0"
+      ],
+      "node": "...........b........"
+    },
+    {
+      "name": "m_axis_tdata  (osc_filter_ref)",
+      "wave": "5..........55.......",
+      "data": [
+        "0",
+        "3999",
+        "0"
+      ]
+    },
+    {
+      "name": "discrepancias",
+      "wave": "=...................",
+      "data": [
+        "0"
+      ]
+    }
+  ],
+  "edge": [
+    "a~>b pico: 8 ciclos"
+  ],
+  "head": {
+    "text": "RESPUESTA AL IMPULSO  -  coeficientes de reset (la cadena es transparente), osc_filter vs osc_filter_ref",
+    "tick": 0
+  },
+  "foot": {
+    "text": "tb_osc_filter - aa=0 bb=0 kk=0xFFFFFF pp=0 - 1 columna = 1 ciclo de clk (8 ns)"
+  },
+  "config": {
+    "hscale": 1
+  }
+}

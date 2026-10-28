@@ -1,0 +1,68 @@
+% Estilo de los diagramas de clases de la API (clases_*.tex). Va DESPUÉS de
+% ../../figuras/estilo_tikz.tex: usa su paleta y sus puntas de flecha.
+%
+% Notación: la de UML, recortada a lo que hace falta acá.
+%   caja de tres partes        nombre · atributos · métodos
+%   triángulo hueco, llena     hereda
+%   triángulo hueco, punteada  cumple la interfaz sin heredar (duck typing)
+%   rombo lleno                compone: el dueño crea la parte y la cierra
+%   flecha punteada            usa, o recibe por parámetro
+% El color del encabezado dice qué clase de clase es; va en la leyenda de cada
+% figura.
+%
+% Los nombres llevan '_' sin escapar: cada figura pone \catcode`\_=12 al
+% abrir el documento.
+
+\tikzset{
+  clase/.style      = {rectangle split, rectangle split parts=3,
+                       rectangle split part align={center,left,left},
+                       rectangle split part fill={azul!30,white,white},
+                       draw=black, line width=0.6pt, inner sep=3pt,
+                       text width=#1, font=\fontsize{6.2}{7.5}\selectfont\ttfamily},
+  clase/.default    = 4.4cm,
+  falsa/.style      = {clase=#1, rectangle split part fill={grisr,white,white}},
+  falsa/.default    = 4.4cm,
+  shim/.style       = {clase=#1, rectangle split part fill={amarillo,white,white}},
+  shim/.default     = 4.4cm,
+  interfaz/.style   = {clase=#1, rectangle split part fill={verde!45,white,white},
+                       dashed},
+  interfaz/.default = 4.4cm,
+  hilo/.style       = {clase=#1, rectangle split part fill={naranja!70,white,white}},
+  hilo/.default     = 4.4cm,
+  % caja de una sola parte: módulos de funciones, referencias a otra figura
+  modulo/.style     = {draw=black, line width=0.6pt, inner sep=3pt, align=left,
+                       text width=#1, fill=white,
+                       font=\fontsize{6.2}{7.5}\selectfont\ttfamily},
+  modulo/.default   = 4.4cm,
+  hereda/.style     = {-{Triangle[open,length=2.6mm,width=2.8mm]}, line width=0.6pt},
+  cumple/.style     = {hereda, dashed},
+  compone/.style    = {{Diamond[length=3.2mm,width=2.2mm]}->, line width=0.6pt},
+  usa/.style        = {->, densely dashed, line width=0.55pt, black!70},
+  rama/.style       = {line width=0.6pt},
+  rol/.style        = {font=\fontsize{5.8}{6.8}\selectfont\ttfamily, inner sep=1.2pt,
+                       fill=white, text=black!80},
+}
+
+% encabezado: nombre de la clase y, debajo, de dónde sale
+\newcommand{\clase}[2]{{\bfseries\fontsize{7.8}{9.2}\selectfont #1}\\[0.8pt]%
+  {\fontsize{5.6}{6.6}\selectfont #2}}
+% estereotipo: «classmethod», «prop», «static», «opcional»
+\newcommand{\es}[1]{{\normalfont\itshape\fontsize{5.4}{6.4}\selectfont «#1»}}
+% rótulo de grupo dentro de la caja de métodos
+\newcommand{\gr}[1]{{\normalfont\itshape\color{black!55}#1}\\}
+
+% La misma leyenda que \leyenda de estilo_tikz.tex, con el ancho de la nota
+% como argumento: la común lo fija en 19 cm y eso ensancha la figura entera.
+% #1 = posición, #2 = ancho de la nota, #3 = color/texto, #4 = nota.
+\newcommand{\leyendac}[4]{%
+  \begin{scope}[shift={(#1)}, every node/.style={font=\scriptsize}]
+    \coordinate (t0) at (-0.5,0);
+    \foreach \c/\t [count=\i] in {#3} {
+      \pgfmathtruncatemacro\j{\i-1}
+      \node[draw, fill=\c, minimum width=4mm, minimum height=3mm, inner sep=0pt,
+            right=5mm of t\j.east, anchor=west] (l\i) {};
+      \node[right=1.5mm of l\i] (t\i) {\t};
+    }
+    \node[anchor=north west, black!70, text width=#2, align=left]
+      at (-0.05,-0.3) {#4};
+  \end{scope}}

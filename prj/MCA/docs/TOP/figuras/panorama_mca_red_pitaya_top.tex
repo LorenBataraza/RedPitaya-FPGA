@@ -1,0 +1,15 @@
+% Panorama de mca_red_pitaya_top: el top de integración del MCA (xc7z010).
+% El PS y sus dos caminos (control por GP0 + sys_bus, datos por HP), los ocho
+% slots del bus, el datapath ADC -> scope/multitrigger -> MCA y los pines.
+% El dibujo está en panorama_top_cuerpo.tex, compartido con el top del ring.
+% Fuente: rtl/mine/tops/mca_red_pitaya_top.sv.
+%
+% Compilar:   pdflatex panorama_mca_red_pitaya_top.tex
+%             pdftocairo -svg panorama_mca_red_pitaya_top.pdf panorama_mca_red_pitaya_top.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\newif\ifring \ringfalse
+\input{panorama_top_cuerpo.tex}

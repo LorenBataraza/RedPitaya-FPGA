@@ -4,8 +4,8 @@ Qué mide la suite de caracterización del scope, cómo lo mide y —sobre todo�
 trampas hay que esquivar para que el número signifique algo**. Casi todo el
 documento son cosas que costó descubrir midiendo en la placa.
 
-Código: [`campanas/testbench_multitrigger.py`](../../software/campanas/testbench_multitrigger.py)
-Driver: [`API/osciloscope.py`](../../software/API/osciloscope.py) + [`API/multitrigger.py`](../../software/API/multitrigger.py)
+Código: [`../../software/campanas/testbench_multitrigger.py`](../../software/campanas/testbench_multitrigger.py)
+Driver: [`API/osciloscope.py`](../../software/API/osciloscope.py) + [`../../software/API/multitrigger.py`](../../software/API/multitrigger.py)
 API: [`docs/API/referencia_api.md`](../API/referencia_api.md)
 
 ---
@@ -88,8 +88,8 @@ antes de creerle a una curva de eficiencia.
 `(adc_rst_do || adc_arm_do) || (trig_dis_clr && adc_we_keep)`
 (`rp_bram_sm.v:71`), y el `trig_dis_clr` que llega al `bram_sm` es el del
 **registro 0x94 (clear de software)**, no el del `trigger_shield` —el clear del
-shield se queda dentro de `multitrigger_event_logic`, porque
-`rp_scope_multitrigger_com.sv:597` lo cablea desde el `cfg`, no desde el shield.
+shield se queda dentro de `mt_event_logic`, porque el `trig_dis_clr_o` de
+`mt_top` es el de `mt_cfg`, no el del shield.
 
 Consecuencia, verificada en la placa: **con `auto_rearm` este contador NO marca
 el tiempo desde el último disparo**, crece libre desde el arm. Para saber si el
@@ -284,10 +284,10 @@ así que **todo se puede reanalizar sin volver a medir**.
   descrito en [`bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md).
 - **La lógica de trigger en sí**: eso lo cubren los testbenches de RTL de
   [`../sim/`](../../sim/), que reproducen el race arm-vs-máscara documentado en
-  [`orden_arm_trigger_captura.md`](orden_arm_trigger_captura.md).
+  [`orden_arm_trigger_captura.md`](../osc/orden_arm_trigger_captura.md).
 
 ## Notebooks que la manejan
 
-- [`../software/multitrigger_test_deadtime.ipynb`](../../software/multitrigger_test_deadtime.ipynb)
-- [`../software/multitrigger_test_adq_dg4162.ipynb`](../../software/multitrigger_test_adq_dg4162.ipynb)
-- [`../software/multitrigger_test_cfg.ipynb`](../../software/multitrigger_test_cfg.ipynb)
+- [`../../software/jupyters_viejos/multitrigger_test_deadtime.ipynb`](../../software/jupyters_viejos/multitrigger_test_deadtime.ipynb)
+- [`../../software/jupyters_viejos/multitrigger_test_adq_dg4162.ipynb`](../../software/jupyters_viejos/multitrigger_test_adq_dg4162.ipynb)
+- [`../../software/jupyters_viejos/multitrigger_test_cfg.ipynb`](../../software/jupyters_viejos/multitrigger_test_cfg.ipynb)

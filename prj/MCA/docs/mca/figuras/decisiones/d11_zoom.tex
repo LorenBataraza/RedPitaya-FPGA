@@ -1,0 +1,50 @@
+% D11 — el zoom de cada eje (cfg_z_*, cfg_k_*). Vive en mca_zoom, una instancia
+% por eje.
+% Compilar:   pdflatex d11_zoom.tex && pdftocairo -svg d11_zoom.pdf d11_zoom.svg
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../../figuras/estilo_tikz.tex}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\node[decision] (d) at (-0.9,1.3) {D11};
+\node[anchor=west, font=\small] at (d.east)
+  {\textbf{De feature a bin: el zoom} \quad {\scriptsize\ttfamily mca\_zoom $\times$ 3}};
+
+\node[etapa, text width=3.3cm] (o0) at (1.6,0)
+  {\etq{por encima}{satura arriba: el último bin}};
+\node[etapa, defecto, text width=3.3cm] (o1) at (1.6,-1.5)
+  {\etq{dentro de la ventana}{los \texttt{AW} bits que siguen\\ a los $z$ altos (\texttt{feat} $\ll z$)}};
+\node[etapa, text width=3.3cm] (o2) at (1.6,-3.0)
+  {\etq{por debajo}{satura abajo: el bin 0}};
+
+\draw[flujo] (-1.3,-1.5) node[left, sen, align=right] {f\_eje\\[-1pt]\normalfont\scriptsize 16 b} -- ++(0.65,0) coordinate (fj);
+\draw[flujo] (fj) |- (o0.west);
+\draw[flujo] (fj) -- (o1.west);
+\draw[flujo] (fj) |- (o2.west);
+
+\muxdec{m}{(4.7,-1.5)}{4.3}
+\foreach \k/\t in {0/>,1/=,2/<} {
+  \draw[flujo] (o\k.east) -- (m-in |- o\k.east);
+  \node[font=\scriptsize, anchor=west] at ($(m-in |- o\k.east)+(0.05,0)$) {$\t$};
+}
+\node[etapa, text width=2.9cm] (cmp) at (4.7,-4.75)
+  {\etq{comparador}{los $z$ bits altos de \texttt{f} contra $k$}};
+\draw[ctrl] (cmp.north) -- (m-sel);
+\draw[ctrl] ($(cmp.south)+(0,-0.6)$) node[below, sen, black, align=center]
+  {cfg\_z, cfg\_k\;\normalfont(0x094 1D, 0x0B8 2D-x, 0x0BC 2D-y)\\[-1pt]
+   \normalfont\scriptsize $z=0$: fondo de escala (el reset); $z_\mathrm{max}$ = 16 $-$ AW}
+  -- (cmp.south);
+\draw[flujo] (m-out) -- ++(1.3,0) node[right, sen, align=left] {bin\\[-1pt]\normalfont\scriptsize AW b};
+
+\node[rotulo, anchor=north west, text width=8.8cm] at (-1.4,-6.55)
+  {Ventana alineada a potencias de 2: $[k\,2^{16-z},\,(k+1)\,2^{16-z})$. Con los
+   tops, AW = 13 / 7 / 6 en los ejes 1D / 2D-x / 2D-y, así que el 1D llega a
+   $z = 3$ y el 2D a $z = 9$ y $10$.};
+
+\end{tikzpicture}
+\end{document}

@@ -1,0 +1,125 @@
+% Panorama de MT_CFG: el esclavo del bus del slot 3 por dentro. Los registros de
+% configuración (escudo, pendiente y la copia de la máscara), los pulsos de
+% comando (que se OR-ean con el puente legacy del slot 1), el fan-out por
+% indep_mode, el mux de lectura y el ack de latencia fija. Es el patrón de
+% docs/TOP/figuras/panorama_modulo_cfg.tex con los registros de esta región. El
+% borde grueso es el límite del módulo; lo que lo cruza son sus puertos, sólo
+% con el nombre.
+% Fuente: modulos/mt/rtl/mt_cfg.sv. Estilo: docs/figuras/estilo_tikz.tex.
+%
+% Compilar:   pdflatex panorama_mt_cfg.tex
+%             pdftocairo -svg panorama_mt_cfg.pdf panorama_mt_cfg.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{
+  lado/.style  = {etapa=rojo!18, text width=2.9cm},
+  reg/.style   = {comp, text width=2.9cm, minimum height=1.05cm},
+}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\def\xout{18.2}   % donde terminan las salidas
+\def\ytop{6.0}    % de donde bajan las del puente y el modo
+
+% ================================================================ sys_bus
+\node[bus, text width=1.1cm, minimum height=11.6cm] (sb) at (-1.8,-1.6)
+  {\texttt{\bfseries sys\_bus}};
+
+% ====================================================== lado del bus (rojo)
+\node[lado, minimum height=5.6cm] (wr) at (2.4,1.25)
+  {\etq{escritura}{\texttt{sys\_wen} y\\ \texttt{sys\_addr[19:0]}\\[3pt]
+   sin estrobo: un\\ registro se escribe\\ y un pulso dura\\ lo que la transacción\\ ($\sim$5 ciclos)}};
+\node[lado, minimum height=1.7cm] (rd) at (10.0,-4.3)
+  {\etq{lectura}{\texttt{casez (sys\_addr)}\\ registro plano;\\ \texttt{default}: 0}};
+\node[lado, minimum height=1.2cm] (ack) at (2.4,-6.4)
+  {\etq{ack de latencia fija}{\texttt{sys\_ack <= en\_sr[3]}}};
+\node[sen] (cero) at (0.75,-7.3) {1'b0};
+
+% ========================================================== el estado (gris)
+\node[reg] (sh) at (6.6,3.4)
+  {\etq{\texttt{SHIELD\_CFG}}{\texttt{0x010}: src, dst, dur}};
+\node[reg] (sl) at (6.6,1.95)
+  {\etq{\texttt{SLOPE\_*} {\normalfont$\times$} 4}{\texttt{0x060/070/080}: en, G, L, thr, hyst}};
+\node[reg] (om) at (6.6,0.5)
+  {\etq{\texttt{OR\_MASK} {\normalfont$\times$} 4}{\texttt{0x040}: copia, sólo readback}};
+\node[reg, minimum height=1.5cm] (pu) at (6.6,-1.15)
+  {\etq{pulsos}{\texttt{TRIG\_SW} \texttt{0x020}\\ \texttt{TRIG\_DIS\_CLR} \texttt{0x024}\\
+   escritura a \texttt{0x040}: \texttt{new\_trg\_src}}};
+\node[reg, text width=2.4cm, minimum height=1.0cm] (id) at (13.6,-3.6)
+  {\etq{identificación}{\texttt{MAGIC} ``MTRG'', \texttt{CAPS}}};
+
+% ================================================== hacia mt_event_logic
+\node[draw, circle, line width=0.6pt, fill=amarillo, inner sep=1pt,
+      minimum size=0.55cm, font=\scriptsize] (or) at (10.0,-0.75) {$\geq\!1$};
+\node[etapa=amarillo!40, text width=2.7cm, minimum height=1.6cm] (fan) at (13.6,-1.1)
+  {\etq{fan-out por \texttt{indep\_mode}}{sin modo independiente,\\ los canales 1--3\\ siguen al canal 0}};
+
+% ============================================================== el límite ===
+\node[contenedor, fit={(0.6,4.4) (15.3,-7.8)}] (lim) {};
+\node[titulo, anchor=south west, inner sep=2pt, align=left] at (lim.north west)
+  {\texttt{\bfseries mt\_cfg}\;\; {\scriptsize\itshape slot 3, todo en \texttt{adc\_clk}}\\
+   \prm{N\_CH=N\_CH & SRC\_W=32 & SHIELD\_N=4\\ SLOPE\_LW & SLOPE\_GW & SLOPE\_TW}};
+
+% ============================================================== flechas ====
+% --- del bus ---
+\draw[flujo, ancho en=0.85, ancho=20] (sb.east |- 0,2.9) node[sen, above right] {sys\_addr} -- (wr.west |- 0,2.9);
+\draw[flujo, ancho en=0.85, ancho=32] (sb.east |- 0,1.6) node[sen, above right] {sys\_wdata} -- (wr.west |- 0,1.6);
+\draw[flujo] (sb.east |- 0,0.3) node[sen, above right] {sys\_wen} -- (wr.west |- 0,0.3);
+\punto{0.3,2.9}
+\draw[flujo, cruce] (0.3,2.9) -- (0.3,-4.3) -- (rd.west);
+\draw[flujo] (sb.east |- 0,-6.15) node[sen, above right] {sys\_wen | sys\_ren} -- (ack.west |- 0,-6.15);
+
+% --- de vuelta al bus ---
+\draw[flujo, ancho=32, ancho en=0.15] (rd.south) -- (rd.south |- 0,-5.45) -- (sb.east |- 0,-5.45)
+  node[sen, above right] {sys\_rdata};
+\draw[flujo] (ack.west |- 0,-6.65) -- (sb.east |- 0,-6.65) node[sen, below right] {sys\_ack};
+\draw[flujo] (cero.west) -- (sb.east |- cero.west) node[sen, below right] {sys\_err};
+
+% --- escritura -> estado ---
+\foreach \n in {sh, sl, om, pu} \draw[flujo] (wr.east |- \n.west) -- (\n.west);
+
+% --- registros -> salidas, y su readback ---
+\draw[flujo] (sh.east) -- (\xout,0 |- sh.east) node[right, sen, align=left] {shield\_src\_o, shield\_dst\_o\\ shield\_dur\_o};
+\draw[flujo] (sl.east) -- (\xout,0 |- sl.east) node[right, sen, align=left] {slope\_en\_o, slope\_len\_o, slope\_gap\_o\\ slope\_thr\_o, slope\_hyst\_o};
+\foreach \y in {3.4, 1.95} \punto{8.6,\y}
+\draw[flujo] (om.east) -- (8.6,0 |- om.east);
+\draw[flujo, cruce] (8.6,3.4) -- node[sen, left, pos=0.93] {readback} (8.6,-3.6) -- (rd.west |- 0,-3.6);
+
+% --- pulsos: los dos comandos pasan por el puente legacy ---
+\draw[flujo] (pu.east |- or.west) -- node[sen, above, pos=0.3] {sw, dis\_clr} (or.west);
+\draw[flujo] (or.east) -- (fan.west |- or.east);
+\draw[flujo, cruce] (pu.east |- 0,-1.55) -- node[sen, below, pos=0.55] {new\_trg\_src, wdata} (fan.west |- 0,-1.55);
+\draw[ctrl, cruce] (or.north |- 0,\ytop) node[above, sen, black!80, align=center]
+  {legacy\_trig\_sw\_i\\ legacy\_trig\_dis\_clr\_i} -- (or.north);
+\draw[ctrl, cruce] (fan.north |- 0,\ytop) node[above, sen, black!80] {indep\_mode\_i} -- (fan.north);
+\draw[flujo] (fan.east |- 0,-0.75) -- (\xout,-0.75) node[right, sen, align=left] {adc\_trig\_sw\_o\\ trig\_dis\_clr\_o};
+\draw[flujo] (fan.east |- 0,-1.55) -- (\xout,-1.55) node[right, sen, align=left] {new\_trg\_src\_o\\ trg\_src\_o};
+
+% --- lo que vuelve a la lectura ---
+\draw[flujo] (id.west) -- (rd.east |- id.west);
+\draw[flujo] (\xout,-4.75) node[right, sen, align=left]
+  {trg\_state\_i, adc\_trg\_dis\_act\_i, adc\_we\_keep\_i\\ shield\_cnt\_i, shield\_active\_i, mca\_veto\_i\\ trig\_snapshot\_i}
+  -- (rd.east |- 0,-4.75);
+
+% ================================================================= leyenda ===
+\leyenda{-2.3,-8.6}{rojo!45/bus del sistema, rojo!18/lógica del lado del bus,
+  grisr/registros y comandos, amarillo!40/hacia la lógica del trigger}
+  {Los registros retienen el último valor escrito; los pulsos valen 1 sólo mientras
+   dura la escritura. \texttt{OR\_MASK} no se guarda acá para el datapath: la
+   escritura emite \texttt{new\_trg\_src} y el dato pasa directo a
+   \texttt{mt\_trig\_src}, que tiene su propia máscara (la que se limpia sola en
+   single-shot); la copia es sólo para leer el último valor escrito.
+   \texttt{TRIG\_SW} y \texttt{TRIG\_DIS\_CLR} también llegan por el puente legacy
+   del slot 1 (\texttt{0x004}, \texttt{0x094}) y se OR-ean. Los registros de
+   pendiente no pasan por el fan-out: son de cada canal.\\
+   \texttt{NOMBRE=valor}: parámetros con que lo instancia \texttt{rp\_scope\_mt\_com}.}
+
+\end{tikzpicture}
+\end{document}

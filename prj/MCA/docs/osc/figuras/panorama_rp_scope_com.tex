@@ -1,0 +1,137 @@
+% Panorama de rp_scope_com (osciloscopio stock de Red Pitaya): cadena por canal,
+% fabricación del trigger, captura en BRAM, camino a DDR y bloques compartidos.
+% Fuente: rtl/classic/rp_scope_com.v — documentado en
+% docs/osc/sistema_adquisicion_original.md §1
+%
+% Compilar:   pdflatex panorama_rp_scope_com.tex
+%             pdftocairo -svg panorama_rp_scope_com.pdf panorama_rp_scope_com.svg
+% Incluir:    \includegraphics[width=\textwidth]{panorama_rp_scope_com.pdf}
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+% ============================================================ cadena de datos
+\node[datos, param={azul!35}{azul!12}] (cal) at (0,0)
+  {\blk{rp\_scope\_calib}{\prm{DBITS=DW}}\nodepart{two}offset + ganancia};
+\node[datos]   (flt) at (2.8,0)  {\blk{osc\_filter}{IIR, coef.\ \texttt{aa/bb/kk/pp}}};
+\node[datos]   (dec) at (7.1,0)  {\blk{rp\_decim}{diezmado 1\ldots65536\\ con/sin promedio}};
+\node[datos]   (dly) at (10.6,0) {\blk{rp\_delay}{alinea el dato\\ con su trigger}};
+
+% mux de bypass del filtro (trapecio dibujado a mano)
+\coordinate (mx) at (4.95,0);
+\draw[line width=0.6pt, fill=azul!35]
+  ($(mx)+(-0.2,0.55)$) -- ($(mx)+(0.2,0.3)$) -- ($(mx)+(0.2,-0.3)$)
+  -- ($(mx)+(-0.2,-0.55)$) -- cycle;
+\node[font=\tiny] at ($(mx)+(-0.07,0.25)$)  {1};
+\node[font=\tiny] at ($(mx)+(-0.07,-0.25)$) {0};
+
+% ================================================================ captura ===
+\node[captura] (bram) at (14.6,0)    {\blk{rp\_acq\_bram}{$2^{\mathrm{RSZ}}\times14$\,b}};
+\node[captura] (fsm)  at (14.6,-2.7) {\blk{rp\_bram\_sm}{FSM de captura}};
+\node[ddr]     (axi)  at (14.6,2.5)  {\blk{rp\_axi\_sm}{empaqueta 4$\times$16\,b\\ + \texttt{axi\_wr\_fifo}}};
+
+% ================================================================ trigger ===
+\node[trig] (atr) at (7.1,-2.7)  {\blk{rp\_adc\_trig}{Schmitt + histéresis}};
+\node[trig] (tsr) at (10.6,-2.7) {\blk{rp\_trig\_src}{mux 4\,b + protect}};
+
+% ============================================================ caja por canal
+\node[canal, fit={(-1.35,3.55) (15.95,-3.75)}] (box) {};
+\node[anchor=north west, font=\scriptsize\itshape, black!70]
+  at (box.north west) {por canal \;(\texttt{generate GV < N\_CH})};
+
+% ============================================================ compartidos ===
+\node[comp] (ext) at (11.4,-5.15) {\blk{rp\_ext\_trig}{debounce ext.\ y ASG}};
+\node[comp, text width=17.1cm, minimum height=0.9cm] (cfg) at (7.3,-7.1)
+  {\blk{rp\_scope\_cfg}{registros \;$\cdot$\; strobes de comando \;$\cdot$\; mux de lectura}};
+
+% ======================================================= caja rp_scope_com
+\node[contenedor, fit={(-1.75,4.3) (18.15,-7.9)}] (top) {};
+\node[anchor=north west, font=\small, inner sep=4pt] at (top.north west)
+  {\texttt{\bfseries rp\_scope\_com}\;\; {\scriptsize\itshape contenedor: sólo cableado}\quad
+   \prm{CHN=0 & N\_CH=2 & DW=14 & RSZ=14}};
+
+% ============================================================== flechas ====
+% entrada
+\draw[flujo, ancho=14] (-2.9,0) node[left, sen, align=right]
+  {ADC\\[-1pt]\normalfont\scriptsize 125\,MSPS} -- (cal.west);
+
+% calib -> filtro -> mux, con bypass
+\draw[flujo] (cal.east) -- (flt.west);
+\coordinate (tap) at ($(cal.east)!0.5!(flt.west)$);
+\fill (tap) circle (1.3pt);
+\draw[flujo] (flt.east) -- ($(mx)+(-0.2,-0.25)$);
+\draw[flujo] (tap) -- ++(0,0.95) -| ($(mx)+(-0.5,0.25)$) -- ($(mx)+(-0.2,0.25)$);
+\draw[ctrl] ($(mx)+(0,-1.15)$) node[below, sen, black!80] {set\_filt\_byp}
+  -- ($(mx)+(0,-0.43)$);
+
+% mux -> decim -> delay
+\draw[flujo] ($(mx)+(0.2,0)$) -- (dec.west);
+\draw[flujo] (dec.east) -- (dly.west);
+
+% toma cruda del diezmador para el trigger
+\draw[flujo] (dec.south) -- node[sen, right, align=left]
+  {adc\_dly\_in\\\normalfont\scriptsize(sin retardo)} (atr.north);
+
+% delay -> BRAM y -> AXI
+\draw[flujo] (dly.east) -- node[sen, above, pos=0.38] {adc\_bram\_in} (bram.west);
+\draw[flujo] (dly.north) |- node[sen, above, pos=0.7] {axi\_ram\_in}
+  ([yshift=2.5mm]axi.west);
+
+% trigger
+\draw[flujo] (atr.east) -- node[sen, above] {trig\_p/n} (tsr.west);
+\draw[flujo] (tsr.east) -- node[sen, above, pos=0.3] {adc\_trig}
+  node[sen, below, pos=0.3, font=\tiny, black!70] {1 ciclo} (fsm.west);
+\coordinate (tb) at ($(tsr.east)!0.86!(fsm.west)$);
+\fill (tb) circle (1.3pt);
+\draw[flujo] (tb) |- ([yshift=-2.5mm]axi.west);
+
+% FSM -> BRAM
+\draw[flujo] (fsm.north) -- node[sen, right, align=left] {adc\_wp\\adc\_we} (bram.south);
+
+% fuentes adicionales del trigger
+\draw[ctrl] (ext.north -| {$(tsr.south)+(0.6,0)$}) -- node[sen, right, black!80, pos=0.25] {ext/ASG p/n}
+  ($(tsr.south)+(0.6,0)$);
+\draw[ctrl] ($(tsr.south)+(-0.5,-1.3)$) node[left, sen, black!80, align=right]
+  {trig\_p/n de\\otros canales} -- ($(tsr.south)+(-0.5,0)$);
+\draw[ctrl, cruce] (ext.east -| 18.75,0) node[right, sen, black!80, align=left]
+  {trig\_ext\_i\\trig\_asg\_i} -- (ext.east);
+
+% salidas
+\draw[flujo] (axi.east) -- (axi.east -| 18.75,0) node[right, sen, align=left]
+  {S\_AXI\_HP\\[-1pt]\normalfont\scriptsize$\to$ DDR};
+% El dato leído vuelve por el mux de rp_scope_cfg (el único que maneja
+% sys_rdata); la dirección y el enable llegan directo del sys_bus.
+\draw[flujo] ([yshift=-2.5mm]bram.east) -- ++(1.35,0) |- node[sen, right, pos=0.25] {bram\_rd\_dat}
+  (cfg.east);
+
+% configuración y estado (compartido <-> canal)
+\draw[ctrl] (cfg.north -| -0.6,0) -- (box.south -| -0.6,0)
+  node[sen, pos=0.5, right, black!80, align=left]
+  {set\_*, arm, rst,\\trig\_sw, trig\_dis\_clr};
+\draw[ctrl] (box.south -| 3.0,0) -- (cfg.north -| 3.0,0)
+  node[sen, pos=0.5, right, black!80, align=left]
+  {adc\_state, wp\_trig,\\wp\_cur, we\_cnt};
+
+% bus del sistema
+\node[bus, text width=2.4cm] (sys) at (7.3,-9.3) {\texttt{\bfseries sys\_bus}};
+\draw[<->, line width=0.8pt] (cfg.south) -- (sys.north);
+\draw[<->, line width=0.8pt] (sys.west) -- ++(-1.6,0) node[left, sen, align=right]
+  {M\_AXI\_GP0\\[-1pt]\normalfont\scriptsize ARM $\leftrightarrow$};
+\draw[flujo] (sys.east) -- (17.7,0 |- sys.east) |- ([yshift=2.5mm]bram.east);
+\node[sen, anchor=south east, align=right] at (17.6,-9.3) {sys\_addr, sys\_en};
+
+% ================================================================= leyenda ===
+\leyenda{-1.3,-10.8}{azul!35/acondicionamiento, amarillo/trigger,
+  verde!55/captura en BRAM, naranja!70/camino a DDR,
+  grisr/compartido (una vez), rojo!45/bus del sistema}
+  {Un solo dominio de reloj: \texttt{axi\_clk = adc\_clk}. \notaparam}
+
+\end{tikzpicture}
+\end{document}

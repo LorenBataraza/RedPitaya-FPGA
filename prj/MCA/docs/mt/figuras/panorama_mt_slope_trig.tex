@@ -1,0 +1,122 @@
+% Panorama de MT_SLOPE_TRIG: el disparo por pendiente de un canal. Un
+% trapezoidal rápido s = Σ_L x[n-i] - Σ_L x[n-L-G-i], recursivo y exacto en
+% enteros, con tres líneas de retardo en cascada (L, G, L) y un Schmitt
+% simétrico a la salida. El borde grueso es el límite del módulo; lo que lo
+% cruza son sus puertos, sólo con el nombre.
+% Fuente: modulos/mt/rtl/mt_slope_trig.sv; teoría en docs/mt/trigger_pendiente.md.
+% Estilo: docs/figuras/estilo_tikz.tex.
+%
+% Compilar:   pdflatex panorama_mt_slope_trig.tex
+%             pdftocairo -svg panorama_mt_slope_trig.pdf panorama_mt_slope_trig.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{
+  logica/.style = {etapa=amarillo!40, text width=2.9cm},
+  linea/.style  = {comp, text width=1.9cm, minimum height=1.0cm},
+}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\def\xin{-0.6}    % donde arrancan las entradas
+\def\xout{19.0}   % donde terminan las salidas
+\def\ytop{6.2}    % de donde bajan las de configuración
+
+% ======================================================= configuración ===
+\node[logica, text width=3.7cm, minimum height=1.4cm] (cfg) at (6.6,4.4)
+  {\etq{configuración}{satura \texttt{L} y \texttt{G} (\texttt{L=0} vale 1);\\
+   dos registros; da las tomas\\ \texttt{L}, \texttt{L+G}, \texttt{2L+G}}};
+\node[logica, minimum height=1.4cm] (rst) at (11.4,4.4)
+  {\etq{re-arranque}{cambio de \texttt{L}/\texttt{G}, \texttt{en=0}\\ o reset: vacía el filtro\\ (\texttt{s=0}, \texttt{fill=0})}};
+
+% ================================================ líneas de retardo (SRL) ===
+\node[linea] (l1) at (3.4,1.8) {\etq{línea de \texttt{L}}{SRL, sin reset}};
+\node[linea] (lg) at (6.9,1.8) {\etq{línea de \texttt{G}}{SRL, sin reset}};
+\node[linea] (l2) at (10.4,1.8) {\etq{línea de \texttt{L}}{SRL, sin reset}};
+
+% ============================================================= pipeline ===
+\node[logica, text width=11.6cm, minimum height=1.1cm] (tom) at (7.0,-0.6)
+  {\etq{1 $\cdot$ tomas}{\texttt{x[n]}, \;\texttt{x[n-L]}, \;\texttt{x[n-L-G]}, \;\texttt{x[n-2L-G]};
+   \;una toma más vieja que \texttt{fill} lee 0 (historia en cero)}};
+\node[logica, text width=2.3cm, minimum height=1.2cm] (fil) at (15.6,-0.6)
+  {\etq{\texttt{fill}}{muestras válidas\\ desde el re-arranque}};
+\node[logica, minimum height=1.3cm] (dif) at (2.6,-3.0)
+  {\etq{2 $\cdot$ diferencia}{\texttt{(x[n]-x[n-L])}\\ \texttt{- (x[n-L-G]-x[n-2L-G])}}};
+\node[logica, text width=2.2cm, minimum height=1.3cm] (acu) at (6.4,-3.0)
+  {\etq{3 $\cdot$ acumulador}{\texttt{s <= s + d}\\ exacto: no deriva}};
+\node[logica, text width=3.9cm, minimum height=1.6cm] (sch) at (10.6,-3.0)
+  {\etq{Schmitt simétrico}{\texttt{p}: dispara con \texttt{s >= thr}\\
+   \texttt{n}: con \texttt{s <= -thr}\\ re-arman a \texttt{hyst} del umbral\\
+   ventana incompleta: no dispara}};
+\node[logica, text width=2.0cm, minimum height=1.3cm] (fla) at (14.8,-3.0)
+  {\etq{flanco}{pulso de 1 ciclo\\ al disparar}};
+\node[logica, text width=2.4cm, minimum height=1.1cm] (umb) at (10.6,-5.4)
+  {\etq{umbrales}{\texttt{$\pm$thr}, \texttt{$\pm$(thr-hyst)}, registrados}};
+
+% ============================================================== el límite ===
+\node[contenedor, fit={(0.55,5.4) (17.4,-6.3)}] (lim) {};
+\node[titulo, anchor=south west, inner sep=2pt, align=left] at (lim.north west)
+  {\texttt{\bfseries mt\_slope\_trig}\;\; {\scriptsize\itshape uno por canal}\\
+   \prm{DW=DW & LMAX=16 & GMAX=31\\ LW=SLOPE\_LW & GW=SLOPE\_GW}};
+
+% ============================================================== flechas ====
+% --- la muestra, por la izquierda, y las tres líneas en cascada ---
+\draw[flujo, ancho=DW, ancho en=0.35] (\xin,1.8) node[left, sen] {adc\_dat\_i} -- (l1.west);
+\draw[ctrl] (\xin,-0.6) node[left, sen, black!80] {adc\_dv\_i} -- (tom.west);
+\draw[flujo] (l1.east) -- (lg.west);
+\draw[flujo] (lg.east) -- (l2.west);
+\draw[line width=0.8pt] (l2.east) -- (12.4,1.8);
+% el puente de G = 0
+\draw[ctrl, dashed] (5.2,1.8) -- (5.2,2.75) -- node[sen, above, pos=0.22, black!80] {\texttt{G=0}: puente} (8.6,2.75) -- (8.6,1.8);
+
+% --- las cuatro tomas bajan al pipeline ---
+\foreach \x/\t in {1.6/x[n], 5.2/x[n-L], 8.6/x[n-L-G], 12.4/x[n-2L-G]} {
+  \punto{\x,1.8}
+  \draw[flujo, cruce] (\x,1.8) -- node[sen, right, pos=0.45] {\t} (\x,0 |- tom.north);
+}
+
+% --- configuración, por arriba ---
+\draw[ctrl] (cfg.north |- 0,\ytop) node[above, sen, black!80] {cfg\_len\_i, cfg\_gap\_i} -- (cfg.north);
+\draw[ctrl] (rst.north |- 0,\ytop) node[above, sen, black!80] {cfg\_en\_i} -- (rst.north);
+\draw[ctrl] (cfg.east) -- node[sen, above, pos=0.5, black!80] {L, G} (rst.west);
+\draw[ctrl] (cfg.south) -- (cfg.south |- 0,3.3);
+\draw[ctrl] (l1.north |- 0,3.3) -- (l2.north |- 0,3.3);
+\punto{cfg.south |- 0,3.3}
+\draw[ctrl] (l1.north |- 0,3.3) -- node[sen, left, pos=0.4, black!80] {dirección} (l1.north);
+\draw[ctrl, cruce] (lg.north |- 0,3.3) -- (lg.north);
+\draw[ctrl] (l2.north |- 0,3.3) -- (l2.north);
+\draw[ctrl] (rst.east) -- (15.6,4.4) -- node[sen, right, pos=0.3, black!80] {vacía} (fil.north);
+
+% --- el pipeline ---
+\draw[flujo] (fil.west) -- (tom.east);
+\draw[flujo] (dif.north |- tom.south) -- (dif.north);
+\draw[flujo] (dif.east) -- node[sen, above, pos=0.5] {d} (acu.west);
+\draw[flujo] (acu.east) -- node[sen, above, pos=0.5] {s} (sch.west);
+\draw[flujo] (sch.east) -- (fla.west);
+\draw[flujo] (umb.north) -- (sch.south);
+
+% --- umbrales, por abajo ---
+\draw[ctrl] (umb.south |- 0,-7.0) node[below, sen, black!80] {cfg\_thr\_i, cfg\_hyst\_i} -- (umb.south);
+
+% --- salidas: sólo el nombre ---
+\draw[flujo] (fla.east |- 0,-2.7) -- (\xout,-2.7) node[right, sen] {slope\_p\_o};
+\draw[flujo] (fla.east |- 0,-3.3) -- (\xout,-3.3) node[right, sen] {slope\_n\_o};
+
+% ================================================================= leyenda ===
+\leyenda{-1.6,-7.9}{amarillo!40/lógica del filtro y del disparo, grisr/líneas de retardo}
+  {$s[n] = s[n-1] + (x[n]-x[n-L]) - (x[n-L-G]-x[n-2L-G])$. Cada línea tiene
+   una sola toma dinámica, que es el patrón que Vivado lleva a SRLC32E. Las
+   líneas, \texttt{fill} y el pipeline avanzan sólo con \texttt{adc\_dv\_i}:
+   el filtro anda igual sobre el tap decimado que a 125~MS/s. Latencia: 5
+   ciclos de pipeline más lo que tarde \texttt{s} en cruzar \texttt{thr}.\\
+   \texttt{NOMBRE=valor}: parámetros con que lo instancia
+   \texttt{rp\_scope\_mt\_com}.}
+
+\end{tikzpicture}
+\end{document}

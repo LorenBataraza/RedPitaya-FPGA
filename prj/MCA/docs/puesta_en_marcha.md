@@ -536,7 +536,7 @@ avanzar, `vetotime_s` sube y `livetime_s` no. Al bajar la línea vuelve solo.
 `shield_dur` agrega una cola de esa cantidad de ciclos después de que baje; con
 `SRC_EXT_P` en vez de `SRC_EXT_LVL` es una ventana de `shield_dur` ciclos tras el
 flanco. Detalle del mecanismo y de los tiempos en
-[`multitrigger/register_map_multitrigger.md`](multitrigger/register_map_multitrigger.md#el-veto-al-mca).
+[`mt/register_map_mt.md`](mt/register_map_mt.md#el-veto-al-mca).
 
 > El shield es uno solo: usado como veto deja de servir como holdoff ch0→ch1 del
 > scope.

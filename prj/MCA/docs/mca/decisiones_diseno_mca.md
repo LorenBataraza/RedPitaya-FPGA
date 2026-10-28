@@ -423,13 +423,20 @@ Los contadores **saturan**, no envuelven.
 
 ### Configuración instanciada
 
-| Motor | Parámetros | Bins | RAMB36 |
-|---|---|---|---|
-| Espectro 1D | `H_AW = 14` | 16384 | 16 |
-| Amplitud × forma | `H2_AW = 7`, `PSD_AW = 6` | 128 × 64 | 8 |
-| | | **Total MCA** | **24** |
+| Motor            | Parámetros                | Bins          | RAMB36 |
+| ---------------- | ------------------------- | ------------- | ------ |
+| Espectro 1D      | `H_AW = 13`               | 8192          | 8      |
+| Amplitud × forma | `H2_AW = 7`, `PSD_AW = 6` | 128 × 64      | 8      |
+|                  |                           | **Total MCA** | **16** |
 
-Utilización final del bitstream: **40/60 RAMB36 (67%)**, 33% LUT, 58% slices.
+El default del RTL sigue siendo `H_AW = 14` (16384 canales, 16 RAMB36), que es lo
+que se instanciaba al principio y lo que justifica el razonamiento de abajo. Los
+tops bajaron el eje a 8192 canales para liberar BRAM para más instancias del MCA
+(ver `rtl/mine/tops/mca_red_pitaya_top.sv`, junto a `i_integration`).
+
+Utilización del bitstream actual (`Z10_2CH`, octubre 2026): **24/60 RAMB36
+(40 %)**, 53 % de LUT. La primera versión, con el 1D de 16384 canales, usaba
+40/60.
 
 ### Justificación de los tamaños
 
@@ -517,9 +524,22 @@ es **muestra de pico** hasta tener pulsos reales que digan otra cosa.
 
 ## 6. Arquitectura RTL
 
-Cuatro módulos en [`prj/MCA/rtl/mine/mca/`](../../rtl/mine/mca/), todos en el
+Nueve módulos en [`modulos/mca/rtl/`](../../modulos/mca/rtl/), todos en el
 dominio `adc_clk`. El cruce a `clk_fpga_0` lo hace `sys_bus_cdc` por slot, así
-que no hay CDC propio.
+que no hay CDC propio. El recorrido etapa por etapa, con cada decisión
+configurable y su figura de opciones, está en
+[`vista_general_mca.md`](vista_general_mca.md); acá queda el porqué de cada
+módulo.
+
+![Panorama de mca_top](figuras/panorama_mca_top.svg)
+
+Por bandas: la entrada (canal y decimación), la ventana (`mca_pulse_feature` con
+sus tres submódulos), del evento al bin (discriminador, mux de eje y zoom) y los
+dos `mca_hist`; a la derecha, la contabilidad y el banco de registros. Los
+círculos **Dn** son las decisiones de la vista general. Los nombres en
+monoespaciada son submódulos con archivo propio; los que van en romana son
+lógica escrita dentro del módulo que los contiene. La fuente es
+[`figuras/panorama_mca_top.tex`](figuras/panorama_mca_top.tex) (TikZ).
 
 ### `mca_hist.sv` — motor de histograma genérico
 
@@ -550,6 +570,37 @@ Emite **un registro de evento coherente** `{amp, psd}` por pulso. Que salga de
 un único registro es lo que garantiza que el espectro 1D y el mapa 2D cuenten
 exactamente los mismos pulsos.
 
+Es cableado: el trabajo está en tres submódulos, `mca_baseline` (la línea de
+base), `mca_window` (la resta de la base, la apertura, el cierre, el re-armado,
+los acumuladores, la ventana de amplitud y la contabilidad de tiempo muerto) y
+`mca_publish` (la FIFO, el árbitro, los divisores y el bus de features).
+
+**Dónde van las fronteras lo decidió el timing.** El bitstream se sintetiza con
+`-flatten_hierarchy none`, así que cada puerto es una barrera de optimización, y
+el camino crítico de todo el diseño es `dat → x → umbrales → abrir/cerrar →
+acumuladores`. Las fronteras están donde lo que cruza sale de un registro (la
+base, la ocupación de la FIFO) o entra directo a un pin de primitiva (la WE de la
+FIFO). Medido en la síntesis OOC:
+
+- Separar la publicación movió dos decisiones del mapeo: Vivado plegó la apertura
+  dentro del sumador de $Q_\mathrm{tot}$ y armó el CE de $Q_\mathrm{cola}$
+  reusando la LUT del de `len`. `q_tot` pasó de +0.470 a −0.148 ns. Se corrigió
+  con un `keep` sobre las dos sumas y con $Q_\mathrm{cola}$ escrito como valor
+  siguiente, igual que $Q_\mathrm{tot}$: los dos quedan en +0.440. Ni
+  `extract_reset` ni reescribir el `if/else` cambian nada, porque Vivado normaliza
+  las dos formas a la misma red.
+- El re-armado **se probó como módulo propio y volvió**. Abrir consume el armado
+  en el mismo flanco, así que el módulo de afuera necesita el flanco de apertura
+  como puerto; Vivado le arma una LUT dedicada y las cargas internas de la
+  apertura pasan a colgar de ella. Todo el cono perdió 576 ps.
+
+El resultado en el bitstream: el dominio del ADC cierra con **+0.064 ns**, contra
++0.006 ns antes de partir el módulo. Y el comportamiento es bit-idéntico:
+`tb_mca_pulse_feature_eq` compara contra la copia congelada
+[`sim/mca_pulse_feature_ref.v`](../../modulos/mca/sim/mca_pulse_feature_ref.v)
+todas las salidas en todos los ciclos, con estímulo aleatorio que recorre todas
+las combinaciones de modos y `PUB_K` = 1, 2 y 3.
+
 - **Línea de base**: seguidor IIR `bl_acc += x − (bl_acc >> k)` con acumulador
   ancho. Con la forma ingenua `bl += (x−bl)>>k` el incremento se cuantiza a cero
   cuando `|x−bl| < 2^k` y el seguidor se congela. Se congela durante el pulso
@@ -570,34 +621,46 @@ exactamente los mismos pulsos.
 
 ### `mca_div_restore.sv` — el divisor del factor de forma
 
-Calcula `q = floor(Q_cola · 2^PSD_AW / Q_total)`.
+Calcula `q = floor(num · 2^Q_W / den)` con `num < den`. Hay **dos instancias en
+paralelo** dentro de `mca_publish`, con `Q_W = DIV_W = 16`, el mismo denominador
+`Q_total` y el mismo arranque:
 
-**El truco**: como `Q_cola < Q_total`, arrancando con `rem = Q_cola` y haciendo
-`rem = 2·rem; if (rem >= Q_total) { rem -= Q_total; q |= 1; }` se obtiene un bit
-de cociente por iteración. Hacen falta **exactamente `PSD_AW` iteraciones sin
+- `Q_cola / Q_total` (PSD): sus 6 bits altos son el eje de forma del mapa 2D.
+  Es bit-exacto respecto del divisor de 6 bits que había antes, porque
+  `floor(floor(a·2^16/b)/2^10) == floor(a·2^6/b)`.
+- `pico / Q_total` (el ancho inverso): va a la ranura `F_INVW`, y es la feature
+  que separa los apilados. Con 6 bits se cuantizaba a cero; con 16 tiene rango.
+
+**El truco**: como `num < den`, arrancando con `rem = num` y haciendo
+`rem = 2·rem; if (rem >= den) { rem -= den; q |= 1; }` se obtiene un bit de
+cociente por iteración. Hacen falta **exactamente `Q_W` iteraciones sin
 importar el ancho de los operandos**, y no hace falta normalizar previamente.
-Con `PSD_AW = 6` son 6 ciclos y **cero DSP**.
+Son 16 ciclos y **cero DSP**; el segundo divisor no agrega ni un ciclo.
 
-Latencia **fija** de `PSD_AW` ciclos incluso en los casos de error: es
-deliberado, hace predecible el tiempo muerto por evento (uno de los parámetros
-a caracterizar).
+Latencia **fija** de `Q_W` ciclos incluso en los casos de error: es deliberado,
+hace predecible el tiempo muerto por evento (uno de los parámetros a
+caracterizar). Con el registro de arranque, `S_DIV` dura 17 ciclos en el modo de
+publicación bloqueante.
 
 Tres casos borde que rompen si no se tratan, y que el testbench barre
-exhaustivamente (32640 combinaciones):
+exhaustivamente (32640 combinaciones, a un ancho reducido):
 
 | Caso | Sin la guarda | Con la guarda |
 |---|---|---|
-| `Q_total == 0` | `rem >= 0` siempre true → cociente todo unos → **todos esos eventos al bin superior** | `err_o`, evento rechazado y contado |
-| `Q_cola == Q_total` | cociente `2^PSD_AW`, no entra en `PSD_AW` bits y **envuelve a 0** → evento al extremo *opuesto* del eje | satura a `2^PSD_AW − 1` |
-| `Q_cola == 0` | — | `q = 0`, resultado válido |
+| `den == 0` | `rem >= 0` siempre true → cociente todo unos → **todos esos eventos al bin superior** | `err_o`, evento rechazado y contado |
+| `num == den` | cociente `2^Q_W`, no entra en `Q_W` bits y **envuelve a 0** → evento al extremo *opuesto* del eje | satura a `2^Q_W − 1` |
+| `num == 0` | — | `q = 0`, resultado válido |
 
 ### `mca_top.sv` — esclavo de bus
 
 Instanciación condicional por parámetro (`EN_HIST_H`, `EN_HIST_H_PSD`), con la
-rama `else` alimentando `32'h0` al mux de lectura. El RTL deja lugar para dos
-motores más que quedaron apagados por defecto: **amplitud × tiempo de subida** y
-**mapa de persistencia** (amplitud × tiempo dentro del pulso). Agregarlos es
-cambiar un parámetro, no reescribir.
+rama `else` alimentando `32'h0` al mux de lectura. Además de los dos motores,
+`mca_top` tiene el mux de eje (D9), el registro de pipeline entre el zoom y los
+motores, la contabilidad de tiempo muerto y el banco de registros. Los bits 2 y 3
+del registro de capacidades (0x004) quedaron reservados para dos motores que se
+habían previsto (amplitud × tiempo de subida y mapa de persistencia) y hoy valen
+cero. Agregar uno ya no es cambiar un parámetro: hoy el camino natural es un
+tercer `mca_hist` alimentado por el bus de features.
 
 ---
 
@@ -616,8 +679,8 @@ ninguna indicación de error. El mecanismo completo está en
 
 El scope **tenía** un bug exactamente de esa clase: ataba
 `bram_ack[2]/[3] = 0` para los canales no construidos
-(`rp_scope_multitrigger_com.sv:572-573`) y el viejo
-`multitrigger_rp_scope_cfg.sv:506-507` lo usaba como ack de las aperturas de los
+(`rp_scope_mt_com.sv:572-573`) y el viejo
+`mt_rp_scope_cfg.sv:506-507` lo usaba como ack de las aperturas de los
 canales 2 y 3, así que cualquier lectura en `0x4013_0000`–`0x4014_FFFF` colgaba
 el slot. **Está ARREGLADO**: `osc_cfg.sv` reemplazó a ese módulo y saca el ack
 de un shift register incondicional, igual que el MCA. Ver
@@ -674,7 +737,7 @@ La señal **no** "pasa de largo" el filtro cuando no está configurado. Son dos
 cosas distintas:
 
 1. `set_filt_byp` (registro 0x98) **resetea a `4'h0`**
-   (`multitrigger_rp_scope_cfg.sv:317`): por defecto `adc_dec_in = adc_filtered`,
+   (`mt_rp_scope_cfg.sv:317`): por defecto `adc_dec_in = adc_filtered`,
    o sea los datos **sí** atraviesan el filtro.
 2. La respuesta unitaria con los coeficientes por defecto es un **resultado
    matemático, no un bypass**: con `bb=0` la primera etapa queda como derivador
@@ -709,7 +772,7 @@ polo con coeficiente general necesita multiplicación + suma en un ciclo, y a
 ### La decisión
 
 **El MCA no instancia el filtro.** Parámetro `EN_FILT` en
-`rp_scope_multitrigger_com`, con **default 1** para que el bitstream del scope
+`rp_scope_mt_com`, con **default 1** para que el bitstream del scope
 no cambie de comportamiento; el top del MCA lo pone en 0.
 
 Motivos:
@@ -758,7 +821,7 @@ re-sincronizar ante un cambio de upstream sea mecánico.
 [`mca_red_pitaya_top.sv`](../../rtl/mine/tops/mca_red_pitaya_top.sv) es una copia de
 `red_pitaya_top.sv` con cinco diferencias: `mca_top` en el slot 7, `i_scope` con
 `EN_FILT(0)`, **sin ASG (slot 2) ni PID (slot 3)**, y —desde el refactor del
-mapa de registros— `multitrigger_cfg` en el slot 3 e `integration_cfg` en el 6.
+mapa de registros— `mt_cfg` en el slot 3 e `integration_cfg` en el 6.
 Que el ASG y el PID no estén es justamente lo que deja libre el slot 3 para el
 multitrigger; en `red_pitaya_top`, que sí los conserva, el multitrigger va al
 slot 7 (ver [`../TOP/register_map_top.md`](../TOP/register_map_top.md)).
@@ -816,6 +879,8 @@ estímulo inicial no armaba el Schmitt antes del primer pulso.
 | + ventana de amplitud evaluada un ciclo antes (§11.1) | `mca_top` OOC: −0.129 → **+0.436** | — |
 | build `Z10_2CH` con veto y `RSZ=13` (primer intento) | −0.274 | 28 |
 | + las dos sumas del mux de lectura registradas (§11.2) | **+0.050** | 0 |
+| fases 1 y 2 de tiempo muerto (build del 22/10) | +0.006 (`q_tot/R`) | 0 |
+| + `mca_pulse_feature` partido en submódulos (§6), Vivado 2020.1 | **+0.019** global (en el PS); `adc_clk` **+0.064** | 0 |
 
 De los 14 de la cuarta fila: **6 en `ps/system_i`** (el `axi_protocol_converter`
 del block design de Xilinx, preexistente, peor −0.114) y **8 en `i_mca/i_feat`**

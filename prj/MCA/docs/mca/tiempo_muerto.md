@@ -20,10 +20,12 @@ medidos a 2 kev/s son entonces una propiedad del estímulo, no del equipo.
 | [`test_poisson_wave.py`](../../software/API/tests/test_poisson_wave.py) | valida el generador Poisson (KS, conteo, costura, pile-up, escala) | PC |
 | [`test_poisson_sweep_sim.py`](../../software/campanas/tests/test_poisson_sweep_sim.py) | corre el barrido entero contra un servidor K=1 **simulado** | PC |
 | [`test_deadtime_estimadores.py`](../../software/API/tests/test_deadtime_estimadores.py) | valida los estimadores **en tiempo de corrida** (ver abajo) | PC |
-| [`figuras_tiempo_muerto.py`](figuras/tiempo_muerto/figuras_tiempo_muerto.py) | las cuatro figuras **teóricas** de "El modelo, en unidades de τ" | PC, sin datos |
+| [`figuras_tiempo_muerto.py`](figuras/tiempo_muerto/figuras_tiempo_muerto.py) | las figuras **teóricas** de "El modelo, en unidades de τ", incluido el largo del período muerto | PC, sin datos |
+| [`figuras_knoll.py`](figuras/tiempo_muerto/figuras_knoll.py) | las figuras de "Las dos fórmulas de Knoll": las dos curvas, su inversa y el apilamiento | PC, sin datos |
 
 ```bash
 python3 figuras/tiempo_muerto/figuras_tiempo_muerto.py   # -> figuras/tiempo_muerto/*.png
+python3 figuras/tiempo_muerto/figuras_knoll.py           # -> figuras/tiempo_muerto/knoll_*.png
 python3 campanas/plot_modelos_tasa.py          # -> ../../datos/modelos_tasa/*.png
 python3 test_poisson_wave.py          # RESULT: PASS
 python3 test_poisson_sweep_sim.py     # RESULT: PASS
@@ -41,9 +43,40 @@ se toma un espectro. Para el camino del lector hay dos formas de sacar τ de
 **una sola corrida**.
 
 El MCA no las necesita: ya trae contadores de 64 bits a 125 MHz
-(`mca_read_counters()` → `livetime_s` / `deadtime_s` / `realtime_s`, de
-`feat_busy` en [`mca_top.sv`](../../rtl/mine/mca/mca_top.sv)). Esto es para el
-lector de Python, que no tiene contador en hardware.
+(`counters()` → `livetime_s` / `deadtime_real_s` / `realtime_s`, en
+[`mca_top.sv`](../../modulos/mca/rtl/mca_top.sv)). Esto es para el lector de
+Python, que no tiene contador en hardware.
+
+> **Y hasta hace poco el contador del MCA mentía.** `deadtime_s` contaba
+> `feat_busy = (st != S_IDLE)`, que **no es la condición de bloqueo del
+> módulo**: el MCA tampoco puede abrir mientras el Schmitt no se re-arme, y el
+> re-armado es por NIVEL. Ese término —que la sección *"¿paralizable o no? Lo
+> decide el re-armado"* de
+> [`figuras/tiempo_muerto/README.md`](figuras/tiempo_muerto/README.md) ya había
+> cuantificado por simulación— no entraba en ningún contador. Ahora sí: el RTL
+> **tesela** `realtime` en cinco casilleros disjuntos,
+>
+> ```
+> realtime = vetotime + t_win + t_div + t_rearm + livetime
+> ```
+>
+> con `t_rearm` como el casillero que faltaba, y la identidad verificada como
+> assertion (`modulos/mca/sim/sva/mca_top_sva.sv::ap_suma_relojes`) en vez de
+> solamente medida. `deadtime_s` se conserva **bit-idéntico** —sólo
+> `t_win + t_div`— para que las campañas ya tomadas sigan siendo comparables; el
+> total honesto es `deadtime_real_s`. Los offsets están en
+> [`register_map_mca.md`](register_map_mca.md) §*Relojes*.
+>
+> Medido en `tb_mca_top` con compuerta de 10 muestras sobre una señal que no
+> baja: `t_win = 10`, `t_div = 18`, **`t_rearm = 32`** — el casillero que no
+> existía es más grande que los otros dos juntos.
+>
+> Además de los relojes hay dos teselados más, los dos con assertion:
+> la **atribución de arribos** (cada cruce del umbral va a exactamente un
+> destino, así que ya no hay pulsos que se pierdan sin dejar rastro) y la
+> **distribución del período muerto**, de la que sale
+> `P(L > τ) = cnt_dead_ext / cnt_dead_periods = 1 − e^{−ρ}`: una medición
+> directa de la fracción apilada, que es lo que `cnt_pileup` nunca pudo dar.
 
 ### A · Cronometrar el período ocupado — `DeadTimeAnnotator`
 
@@ -140,6 +173,167 @@ existan, el panel de pérdidas lo dice explícitamente.
 Las figuras van a `software/datos/`, que está en `.gitignore`: se regeneran con
 el script, que corre en la PC en segundos.
 
+## Las dos fórmulas de Knoll
+
+Antes del modelo largo conviene el corto, que es el que usa la comunidad y el
+que está en el capítulo 4 de Knoll. Tiene **un solo parámetro**, τ, arribos de
+Poisson de tasa `n`, tasa registrada `m`, y **una sola idea** para los dos
+modelos:
+
+```
+m = n · (fracción de tiempo VIVO)
+```
+
+Los eventos llegan a tasa `n`; se registran los que encuentran al sistema
+vivo. Lo único que cambia entre modelos es **cuánto vale esa fracción**, y eso
+depende de una sola decisión: si un evento que llega durante el tiempo muerto
+lo **extiende** o no.
+
+**No paralizable** (tipo I). Lo que llega durante el tiempo muerto se pierde y
+**no extiende nada**, así que cada cuenta *registrada* produce exactamente τ de
+tiempo muerto y esas ventanas **no se solapan**. El tiempo muerto por segundo
+es entonces el número de cuentas por segundo por lo que dura cada una, `m·τ`:
+
+```
+m/n = 1 − m·τ        →        m + n·m·τ = n        →        m = n/(1 + nτ)
+```
+
+La forma `n = m + n·m·τ` es la que Knoll escribe en palabras: **las cuentas
+reales son las registradas más las perdidas**, y las perdidas son los arribos
+—a tasa `n`— que caen en la fracción muerta `m·τ`.
+
+**Paralizable** (tipo II). Cada arribo reabre la ventana, lo hayan registrado o
+no. El sistema está muerto en `t` si hubo **algún** arribo en `(t−τ, t]`, así
+que la fracción viva es la probabilidad de que ese intervalo esté **vacío**, y
+para Poisson eso es `e^{−nτ}`:
+
+```
+m/n = P(0 arribos en τ) = e^{−nτ}        →        m = n·e^{−nτ}
+```
+
+Equivalente, y es la forma en que suele deducirse: sólo se registran los
+arribos cuyo intervalo con el anterior supera τ, y `P(Δt > τ) = e^{−nτ}`.
+
+![](figuras/tiempo_muerto/knoll_01_tasa_registrada.png)
+
+**(a)** las dos curvas con la diagonal ideal. El no paralizable es **monótono**
+y satura en `m = 1/τ`: por mucho que suba la tasa, entrega una cuenta por τ y
+nunca menos. El paralizable tiene un **máximo** en `nτ = 1`, con
+`m = 1/(eτ) ≈ 0.368/τ`, y después **se desploma**: el sistema deja de liberarse
+y a tasa muy alta no cuenta nada. **(b)** la fracción viva de la que salen las
+dos fórmulas, `1 − mτ` contra `e^{−nτ}`, con el `1 − nτ` que comparten a primer
+orden.
+
+| nτ | `mτ` no para | `mτ` para | pérdida no para | pérdida para |
+|---|---|---|---|---|
+| 0.01 | 0.0099 | 0.0099 | 1.0 % | 1.0 % |
+| 0.05 | 0.0476 | 0.0476 | 4.8 % | 4.9 % |
+| 0.1 | 0.0909 | 0.0905 | 9.1 % | 9.5 % |
+| 0.2 | 0.1667 | 0.1637 | 16.7 % | 18.1 % |
+| 0.5 | 0.3333 | 0.3033 | 33.3 % | 39.3 % |
+| 1 | 0.5000 | 0.3679 | 50.0 % | 63.2 % |
+| 2 | 0.6667 | 0.2707 | 66.7 % | 86.5 % |
+| 5 | 0.8333 | 0.0337 | 83.3 % | 99.3 % |
+
+### Para qué sirven: el problema inverso
+
+En la práctica se mide `m` y se quiere `n` — corregir el espectro por los
+eventos que no se contaron. Ahí las dos fórmulas no se portan igual.
+
+```
+no paralizable:   n = m/(1 − mτ)          exacta, una sola solución
+paralizable:      m = n·e^{−nτ}           no se despeja; n = −W(−mτ)/τ
+```
+
+![](figuras/tiempo_muerto/knoll_02_correccion.png)
+
+**(a)** la tasa real inferida contra la medida. El no paralizable se invierte
+exacto y diverge en `mτ = 1`. El paralizable **no es inyectivo**: como la curva
+sube y baja, cada `m` admite **dos** `n` —las dos ramas de Lambert, `nτ ≤ 1` y
+`nτ ≥ 1`— y el dato por sí solo no dice en cuál se está; hay que saber de
+antemano que se trabaja por debajo del máximo. Y arriba de `m = 1/(eτ)` **no
+hay solución**: una tasa registrada más alta que ésa es incompatible con el
+modelo.
+
+**(b)** por qué a tasa baja la discusión no importa. Las dos fórmulas coinciden
+a primer orden —`1/(1+ρ) ≈ e^{−ρ} ≈ 1 − ρ`— y su diferencia relativa es
+`≈ (nτ)²/2`:
+
+| separación entre modelos | nτ | MCA (τ = 5.9 µs) | lector (τ = 250 µs) |
+|---|---|---|---|
+| 1 % | 0.149 | 25 kcps | 594 ev/s |
+| 5 % | 0.355 | 60 kcps | 1421 ev/s |
+| 10 % | 0.532 | 90 kcps | 2127 ev/s |
+
+Esto es lo que hace **difícil medir cuál de los dos modelos describe a un
+equipo**: hay que llevarlo a `nτ` del orden de 1, donde las curvas se separan,
+y es justo donde la corrección es grande y el dato peor. Por eso
+[`figuras_trigger.py`](figuras/tiempo_muerto/figuras_trigger.py) decide la
+pregunta por el **mecanismo** —cómo se re-arma el discriminador— y no
+ajustando curvas.
+
+### El corolario: apilamiento
+
+Con τ reinterpretado como **tiempo de resolución de apilamiento**, las mismas
+dos líneas dan la tasa de eventos registrados que además salen **limpios**,
+`r_pf` (*pile-up free*). Registrarse garantiza que no hubo nada en los τ
+**anteriores**; falta que no haya nada en los τ **siguientes**, y por la falta
+de memoria de Poisson eso vale `e^{−nτ}` y es independiente:
+
+```
+r_pf = m · e^{−nτ}
+
+no paralizable:   r_pf = n·e^{−nτ}/(1 + nτ)
+paralizable:      r_pf = n·e^{−2nτ}
+```
+
+![](figuras/tiempo_muerto/knoll_03_pileup.png)
+
+Es la figura 17.34 de Knoll. Lo que vale la pena leer de ahí:
+
+- **La fracción limpia de lo registrado es `e^{−nτ}` en los dos modelos** —el
+  cociente `r_pf/m` es el mismo—, así que a `nτ = 0.1` ya hay **9.5 %** de lo
+  registrado contaminado, y a `nτ = 1`, **63 %**.
+- `r_pf` tiene máximo **en los dos modelos**, incluso en el no paralizable, que
+  en `m` era monótono: `nτ = (√5−1)/2 = 0.618` —la raíz de `x² + x − 1 = 0`—
+  con `r_pf = 0.206/τ`, y `nτ = 1/2` con `r_pf = 1/(2eτ) = 0.184/τ` para el
+  paralizable. **Subir la
+  actividad de la fuente más allá de ahí reduce la cantidad de eventos útiles
+  por segundo**, aunque el contador siga marcando más.
+
+| nτ | `r_pf τ` no para | `r_pf τ` para | contaminado / registrado |
+|---|---|---|---|
+| 0.01 | 0.0098 | 0.0098 | 1.0 % |
+| 0.05 | 0.0453 | 0.0452 | 4.9 % |
+| 0.1 | 0.0823 | 0.0819 | 9.5 % |
+| 0.2 | 0.1365 | 0.1341 | 18.1 % |
+| 0.5 | 0.2022 | 0.1839 | 39.3 % |
+| 1 | 0.1839 | 0.1353 | 63.2 % |
+| 2 | 0.0902 | 0.0366 | 86.5 % |
+| 5 | 0.0056 | 0.0002 | 99.3 % |
+
+El τ de apilamiento **no es** el de tiempo muerto: es el ancho en que dos
+pulsos se superponen lo suficiente como para deformarse, y en este equipo es la
+ventana de medición. Lo que el MCA hace con esos eventos —contarlos en
+`cnt_pileup` y no histogramearlos— está en
+[`apilamiento.md`](apilamiento.md).
+
+### Qué le falta a este modelo
+
+Todo lo que sigue, y es lo que hace falta acá:
+
+| | Knoll | el resto del documento |
+|---|---|---|
+| arribos | **sólo Poisson** | también **periódicos** (el Rigol en PULSE), que es con lo que se midió |
+| cola | sin cola | `K` lugares, para ver cuánto compra |
+| largo del período muerto | **un número** | una variable aleatoria, con su distribución |
+| τ | fijo | con dispersión, que es lo que redondea los dientes del periódico |
+
+La diferencia que más pesa es la primera: con estímulo periódico **no se pierde
+nada** hasta `nτ = 1`, y las dos fórmulas de arriba predicen 9 % de pérdida a
+`nτ = 0.1`. Aplicar Knoll a una medición hecha con el generador en PULSE es el
+error que este documento existe para evitar.
+
 ## Los tres modelos
 
 Todos con un servidor y sin cola. Lo único que cambia es **el proceso de
@@ -154,6 +348,26 @@ servicio y `ρ = nτ` la ocupación.
 
 La diferencia entre las dos primeras a tasa baja es todo el asunto: a ρ=0.1 una
 predice 0 % de pérdida y la otra 9.1 %.
+
+> **Desde la fase 2, cuál de los dos modelos aplica es un REGISTRO.** El MCA era
+> paralizable por una razón de implementación y no de diseño: el re-armado del
+> Schmitt es una condición de **nivel**, así que cada pulso que monta sobre la
+> cola del anterior re-extiende el bloqueo. Con `rearm_mode = 1` (`0x104` bit 8)
+> el re-armado pasa a ser un contador de `rearm_dly` muestras cargado al cerrar,
+> que **no mira la señal**: el módulo se vuelve no paralizable y τ pasa a ser
+> `ventana + rearm_dly`, determinista y conocido en vez de inferido.
+>
+> Medido en RTL con el mismo estímulo —120 muestras que nunca bajan de `thr`,
+> compuerta de 10 muestras—: por nivel se abre **1** ventana y quedan **119**
+> ciclos de bloqueo; por contador con `rearm_dly = 8` se abren **3** ventanas y
+> quedan **27** ciclos. Es la diferencia entre las filas dos y tres de la tabla,
+> ahora seleccionable sobre los mismos pulsos.
+>
+> El costo está en la fila "paralizable" al revés: el re-armado por contador
+> **sobre-cuenta**, porque trocea un apilamiento en pedazos del largo de la
+> compuerta y registra cada uno. Eso no se arregla volviendo al nivel, se filtra
+> por forma (`F_INVW`). Ver
+> [`register_map_mca.md`](register_map_mca.md) §*Políticas de ventana*.
 
 Lo que sigue es la deducción de esas fórmulas y de dónde sale cada una. Las
 figuras las genera
@@ -201,16 +415,21 @@ probabilidad de que el **próximo** arribo caiga adentro de esa ventana es el
 P(Δt < τ) = ∫₀^τ n·e^{−n·t} dt = 1 − e^{−n·τ} = 1 − e^{−ρ}
 ```
 
-![](figuras/tiempo_muerto/02_integral_exponencial.png)
+![](figuras/tiempo_muerto/02a_tren_poisson.png)
 
-**(a)** un tren Poisson con ρ=0.5 en unidades de τ: cada evento registrado
-abre una ventana gris de largo τ, y todo lo que cae adentro (rojo) se pierde.
-Los arribos vienen **agrupados** —tres en menos de un τ, después nada por 5 τ—
-y eso no es una rareza de la semilla, es lo que la exponencial pone: su máximo
-está en `Δt = 0`. **(b)** la densidad de `Δt` para tres valores de ρ, con el
-área entre 0 y τ sombreada. A ρ=0.2 el área es pequeña pero **no es cero**, y
-crece con ρ. **(c)** lo que da esa área, `1 − e^{−ρ}`, junto con las dos
-fórmulas de pérdida.
+![](figuras/tiempo_muerto/02b_integral_exponencial.png)
+
+La primera figura son los arribos en el tiempo, una fila por ρ: cada evento
+registrado abre una ventana gris de largo τ, y todo lo que cae adentro (rojo)
+se pierde. Los arribos vienen **agrupados** —varios en menos de un τ, después
+nada por varios τ— y eso no es una rareza de la semilla, es lo que la
+exponencial pone: su máximo está en `Δt = 0`. Ya a ρ=0.2, con el sistema
+ocupado apenas el 20 % del tiempo, se pierde una fracción visible.
+
+La segunda es la cuenta. **(a)** la densidad de `Δt` para tres valores de ρ,
+con el área entre 0 y τ sombreada. A ρ=0.2 el área es pequeña pero **no es
+cero**, y crece con ρ. **(b)** lo que da esa área, `1 − e^{−ρ}`, junto con las
+dos fórmulas de pérdida.
 
 De ese número salen los dos modelos, según qué se hace con los arribos que
 caen adentro:
@@ -252,6 +471,88 @@ en su estado promedio (PASTA), la fracción de arribos que lo encuentra ocupado
 tiempo muerto son el mismo número.** Es lo que justifica, más arriba, predecir
 la pérdida con fuente real a partir del `deadtime` que ya exporta el MCA.
 
+### El largo de la ventana muerta: un parámetro o una variable aleatoria
+
+Hasta acá τ apareció siempre como un número. Lo es **sólo en el modelo no
+paralizable**: si los arribos que caen adentro no tocan la ventana, todos los
+períodos muertos duran exactamente τ y el largo es una **delta**. En el
+paralizable deja de serlo, porque cada arribo que cae adentro la reabre y el
+período se **encadena**.
+
+![](figuras/tiempo_muerto/02c_tren_rho05.png)
+
+![](figuras/tiempo_muerto/02d_tren_rho15.png)
+
+El mismo tren de arribos, con las dos reglas, a dos tasas. Arriba de cada par
+todas las bandas grises miden τ; abajo se funden en períodos de 2, 3 y hasta
+5 τ, y las cotas rojas miden cada uno. No cambió el estímulo: cambió qué hace
+el sistema con lo que llega mientras está ocupado.
+
+El largo del período paralizable es `L = τ + Σ X_i`, con `K` extensiones
+geométricas de parámetro `p = 1 − e^{−ρ}` y cada `X_i` un hueco exponencial
+truncado a `(0, τ]`. De ahí sale, exacto:
+
+```
+P(L = τ) = e^{−ρ}                    el período que no se extiende ni una vez
+E[L]     = (e^ρ − 1)/n = τ·(e^ρ − 1)/ρ
+```
+
+![](figuras/tiempo_muerto/02e_largo_ventana_muerta.png)
+
+**(a)** la densidad. La delta negra es el no paralizable. El paralizable
+conserva un **átomo** en `L = τ` —el disco, de masa `e^{−ρ}`— y le crece una
+cola con un quiebre en cada múltiplo de τ, uno por extensión. **(b)** la cola
+`P(L > x)`, que a ρ = 2 todavía da 10⁻³ en 8 τ.
+
+![](figuras/tiempo_muerto/02f_largo_vs_tasa.png)
+
+Cómo crece con la tasa, con el eje de arriba ya convertido a kcps para el
+τ = 5.9 µs del MCA en modo 0. Lo que importa es la **asimetría**, y es la razón
+por la que esto no se ve mirando un contador:
+
+| ρ | `P(L = τ)` | mediana | media | p90 |
+|---|---|---|---|---|
+| 0.1 | 0.90 | 1.00 τ | 1.05 τ | 1.00 τ |
+| 0.5 | 0.61 | 1.00 τ | 1.30 τ | 1.97 τ |
+| **0.59** (MCA a 100 kcps) | **0.55** | **1.00 τ** | **1.36 τ** | **2.13 τ** |
+| 1.0 | 0.37 | 1.36 τ | 1.72 τ | 2.99 τ |
+| 2.0 | 0.14 | 2.43 τ | 3.19 τ | 6.39 τ |
+
+La **mediana vale exactamente τ hasta ρ = ln 2 = 0.69**: hasta ahí, más de la
+mitad de los períodos muertos no se extienden ni una vez, y si uno mira pulsos
+de a uno en el osciloscopio **ve siempre la misma ventana**. La media, mientras
+tanto, ya está 36 % arriba, y uno de cada diez períodos dura más del doble. El
+promedio no está en el medio de nada: lo levanta una cola que se ve poco y pesa
+mucho.
+
+Ese tramo plano del arranque es el **átomo**, y el panel (b) de la figura lo
+muestra directamente: un cuantil `q` cae adentro del átomo —y por lo tanto vale
+exactamente τ— mientras la masa del átomo lo supere, `e^{−ρ} > q`. De ahí los
+dos codos: el p90 despega en `ρ = ln(10/9) = 0.11` y la mediana en
+`ρ = ln 2 = 0.69`. La **media no tiene tramo plano**: vale `(e^ρ−1)/ρ ≈ 1 + ρ/2`
+desde el origen, con pendiente 1/2, y sólo *parece* constante cerca de cero.
+
+Para este equipo eso no es teórico. El MCA es **paralizable en los dos modos de
+`cfg_gate_mode`** —lo decide el re-armado por nivel del Schmitt, ver más abajo—
+así que a 100 kcps su período muerto medio no es la ventana de 5.9 µs sino
+**8.0 µs**, y el p90 son 12.6 µs. El lector de Python, que se re-arma por
+contador, sí tiene el largo fijo: su τ ≈ 250 µs es una delta.
+
+**Desde la fase 2 el MCA puede ser lo uno o lo otro.** `cfg_rearm_mode = 1` le
+da el mismo re-armado por contador que el lector de Python, y con eso su período
+muerto pasa a ser una delta en `ventana + rearm_dly` en vez de la distribución
+con átomo y cola. Esto convierte el panel (b) de la figura en una **prueba
+medible**: con re-armado por nivel la mediana de `L` tiene que despegar de τ en
+`ρ = ln 2`, y con re-armado por contador no debe despegar nunca. Los escalares
+de la fase 1 (`cnt_dead_periods`, `max_dead_len`) alcanzan para verificarlo sin
+barrido de tasa.
+
+> La ventana que se encadena acá es la **misma** ventana de medición de
+> [`ventana_de_medicion.md`](ventana_de_medicion.md): en modo histéresis el
+> cierre es un cruce de nivel, y un segundo pulso que llega antes de ese cruce
+> no reinicia la ventana, la **estira**. Ahí se ve qué le hace eso a la
+> amplitud medida; acá, qué le hace a la tasa.
+
 ### Por qué la cola de un solo lugar es el peor caso
 
 `K` es cuántos eventos caben en el sistema, contando el que se está
@@ -281,6 +582,25 @@ en el mismo servicio, `≈ ρ²/2`; con `K` lugares hace falta una ráfaga de `K
 `≈ ρ^K/K!`. Cada lugar de cola sube un orden la pérdida. Y con `K=∞`, para
 ρ<1, la pérdida es **exactamente cero**: la cola convierte el agrupamiento de
 Poisson en **demora** en vez de en pérdida.
+
+> **La FIFO de la fase 2 NO mueve el MCA de la columna `K=1` de esta tabla, y
+> conviene ser explícito porque es tentador creer que sí.** `pub_mode = 1`
+> agrega `PUB_K = 2` lugares a la **publicación**, no a la ventana: hay **un
+> solo juego de acumuladores** (`q_tot`, `q_tail`, `peak`, `len`), así que dos
+> pulsos no pueden medirse a la vez. Lo que la FIFO saca de τ son los 17 ciclos
+> en que la ventana esperaba a los divisores: **0.128 µs de 5.9**, o sea 0.7 pp
+> de pérdida a 100 kcps. Para bajar un orden la pérdida —moverse de verdad a la
+> columna `K=2`— habría que **duplicar los acumuladores**, y eso es otro costo
+> en lógica que esta fase no paga.
+>
+> La palanca de esta fase es la otra: `rearm_mode`, que mueve el equipo de la
+> fila *paralizable* a la fila *M/G/1/1* de la tabla de los tres modelos —45.9 %
+> → 24.2 % a 100 kcps—. **22 pp contra 0.7.**
+>
+> Y el desborde de la FIFO se cuenta como tiempo muerto en `t_div`
+> (`ap_contrapresion_es_muerta`), así que lo que el árbitro bloquea no se
+> esconde: medido en simulación, la FIFO toca el tope y aporta 54 ciclos de
+> contrapresión en el caso saturado.
 
 Por encima de ρ=1 ninguna cola salva: el servidor no puede atender más de
 `1/τ`, todas las curvas convergen a `1 − 1/ρ`, y el tamaño de la cola sólo
@@ -318,12 +638,18 @@ distinta de la de Poisson.
   m = n/⌈ρ⌉            m·τ = ρ/⌈ρ⌉          pérdida = 1 − 1/⌈ρ⌉
   ```
 
-![](figuras/tiempo_muerto/04_periodico.png)
+![](figuras/tiempo_muerto/04a_trenes_periodicos.png)
 
-**(a)** cuatro trenes con distinta relación `T_prod/T_cons`, en unidades de τ.
-Con `T/τ = 2` y `1.25` no se pierde nada: las ventanas grises nunca alcanzan al
-arribo siguiente. Con `0.8` se pierde uno de cada dos, con `0.4` dos de cada
-tres. **(b)** y **(c)** las curvas, con los cuatro trenes marcados como puntos:
+![](figuras/tiempo_muerto/04b_periodico.png)
+
+La primera figura son los cuatro trenes, en las mismas unidades que el tren
+Poisson de más arriba — y la comparación entre las dos es el punto de todo el
+documento: acá los arribos están en una grilla exacta y **no se agrupan
+nunca**. Con `T/τ = 2` y `1.25` no se pierde nada, porque las ventanas grises
+nunca alcanzan al arribo siguiente. Con `0.8` se pierde uno de cada dos, con
+`0.4` dos de cada tres.
+
+La segunda son las curvas, con los cuatro trenes marcados como puntos:
 
 | `T_prod/T_cons` | ρ | `k = ⌈ρ⌉` | `m/n` | pérdida |
 |---|---|---|---|---|
@@ -371,7 +697,7 @@ Poisson `m(n)` es continua en τ y ese problema no existe.
 ## Figura 1 — `modelos_tasa_lector.png` (lector de Python)
 
 Los 6 puntos medidos salen de
-[`arquitectura_adquisicion_software.md`](../multitrigger/arquitectura_adquisicion_software.md),
+[`arquitectura_adquisicion_software.md`](../API/arquitectura_adquisicion_software.md),
 "El techo real, medido end-to-end": barrido de 4 s por punto, pulsos 0→1 V,
 ventana de 8+24 muestras, 2 canales, **estímulo periódico**.
 
@@ -520,7 +846,12 @@ nombre que usa la comunidad (*paralizable* = tipo II, *no paralizable* = tipo I)
 - G. F. Knoll, *Radiation Detection and Measurement*, 4ª ed., Wiley, 2010,
   **cap. 4**. Deduce `m = n·e^{−nτ}` (paralizable) y `m = n/(1+nτ)` (no
   paralizable), y discute cómo distinguirlos midiendo. Es la referencia estándar
-  del área y la que ya usa el resto del proyecto.
+  del área y la que ya usa el resto del proyecto. Es la deducción de
+  "[Las dos fórmulas de Knoll](#las-dos-fórmulas-de-knoll)", más arriba.
+- Knoll, **cap. 17**, "Pulse pile-up": el mismo par de modelos con τ
+  reinterpretado como tiempo de resolución de apilamiento, y la tasa libre de
+  apilamiento `r_pf = m·e^{−nτ}`. Su **figura 17.34** es
+  [`knoll_03_pileup.png`](figuras/tiempo_muerto/knoll_03_pileup.png).
 - W. R. Leo, *Techniques for Nuclear and Particle Physics Experiments*, 2ª ed.,
   Springer, 1994 — el mismo par de modelos, más corto.
 - J. W. Müller, "Dead-time problems", *Nuclear Instruments and Methods* **112**

@@ -1,0 +1,190 @@
+% Panorama de rp_scope_mt_com: el scope con el multitrigger integrado.
+% Cadena por canal, ruteo por tres dsp_tap_mux (uno por consumidor, colgados de
+% un bus con los cuatro nodos de la cadena), captura del scope y mt_top
+% PLEGADO en un bloque: su interior está en panorama_mt.tex. Dos esclavos de
+% configuración: osc_cfg (slot 1) y mt_cfg (slot 3, dentro de mt_top).
+% Fuente: modulos/osc/rtl/rp_scope_mt_com.sv y modulos/mt/rtl/mt_top.sv.
+% Estilo: docs/figuras/estilo_tikz.tex.
+%
+% Compilar:   pdflatex panorama_rp_scope_mt_com.tex
+%             pdftocairo -svg panorama_rp_scope_mt_com.pdf panorama_rp_scope_mt_com.svg
+% Incluir:    \includegraphics[width=\textwidth]{panorama_rp_scope_mt_com.pdf}
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+% Un dsp_tap_mux apuntando hacia abajo: #1 = x del centro, #2 = y del borde
+% ancho, #3 = consumidor. Las cuatro entradas cuelgan del bus de taps (\yb).
+\newcommand{\muxabajo}[3]{%
+  \draw[line width=0.6pt, fill=grisr] (#1-0.8,#2) -- (#1+0.8,#2)
+    -- (#1+0.4,#2-0.8) -- (#1-0.4,#2-0.8) -- cycle;
+  \foreach \k in {0,...,3} {
+    \draw[line width=0.8pt] (#1-0.6+0.4*\k,\yb) -- (#1-0.6+0.4*\k,#2);
+    \node[font=\tiny, inner sep=0pt] at (#1-0.6+0.4*\k,#2-0.13) {\k};
+  }
+  \node[font=\scriptsize\bfseries, inner sep=0pt] at (#1,#2-0.5) {#3};}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\def\yb{-1.5}   % el bus de taps
+
+% ============================================================ cadena de datos
+\node[datos, param={azul!35}{azul!12}] (cal) at (0.4,0)
+  {\blk{rp\_scope\_calib}{\prm{DBITS=DW}}\nodepart{two}offset + ganancia};
+\node[datos] (flt) at (3.1,0)  {\blk{osc\_filter}{IIR \;(si \texttt{EN\_FILT})}};
+\node[datos] (dec) at (7.2,0)  {\blk{rp\_decim}{diezmado\\ con/sin promedio}};
+\node[datos] (dly) at (10.3,0) {\blk{rp\_delay}{alinea el dato\\ con su trigger}};
+
+\coordinate (mx) at (5.1,0);
+\draw[line width=0.6pt, fill=azul!35]
+  ($(mx)+(-0.2,0.55)$) -- ($(mx)+(0.2,0.3)$) -- ($(mx)+(0.2,-0.3)$)
+  -- ($(mx)+(-0.2,-0.55)$) -- cycle;
+
+% ================================================== ruteo y captura por canal
+% Tres dsp_tap_mux, cada uno apuntando a su consumidor: el del MCA y el del
+% multitrigger hacia abajo, el del OSC hacia la BRAM.
+\muxabajo{0.3}{-2.0}{mca}
+\muxabajo{7.6}{-2.0}{mtrg}
+\draw[line width=0.6pt, fill=grisr] (12.85,0.45) -- (13.6,0.05) -- (13.6,-0.65)
+  -- (12.85,-1.05) -- cycle;
+\foreach \k in {0,...,3} {
+  \draw[line width=0.8pt] (12.45,0.225-0.35*\k) -- (12.85,0.225-0.35*\k);
+  \node[font=\tiny, inner sep=0pt] at (12.98,0.225-0.35*\k) {\k};
+}
+\node[font=\scriptsize\bfseries, inner sep=0pt] at (13.3,-0.3) {osc};
+\foreach \p/\a in {{-0.25,-2.72}/east, {7.05,-2.72}/east, {13.22,0.5}/south}
+  \node[nodo, anchor=\a] at (\p) {dsp\_tap\_mux};
+
+\node[anchor=north west, font=\scriptsize, inner sep=1pt, black!80] at (0.8,-3.15)
+  {\begin{tabular}{@{}r@{\hspace{4pt}}l@{}}
+   \multicolumn{2}{@{}l}{entradas de cada mux:}\\
+   0 & nativo, lo cableado antes del refactor:\\
+     & osc {\ttfamily adc\_bram\_in}, mtrg {\ttfamily adc\_dly\_in},\\
+     & mca {\ttfamily adc\_dec\_in}\\
+   1 & {\ttfamily adc\_calib\_in}\\
+   2 & {\ttfamily adc\_dec\_in}\\
+   3 & {\ttfamily adc\_bram\_in}
+   \end{tabular}};
+
+\node[captura] (bram) at (15.5,0)    {\blk{rp\_acq\_bram}{$2^{\mathrm{RSZ}}\times14$\,b}};
+\node[captura] (fsm)  at (15.5,-2.6) {\blk{rp\_bram\_sm}{FSM de captura}};
+\node[ddr]     (axi)  at (15.5,2.3)  {\blk{rp\_axi\_sm}{camino a DDR}};
+
+
+\node[canal, fit={(-1.8,3.5) (16.95,-5.75)}] (box) {};
+\node[rotulo] at (box.north west) {por canal \;(\texttt{generate GV < N\_CH})};
+
+% ============================================================= mt_top plegado
+\node[trig, text width=8.6cm, minimum height=1.6cm, line width=0.8pt,
+      double copy shadow={shadow xshift=2.5pt, shadow yshift=-2.5pt}] (mt) at (7.6,-8.4)
+  {{\ttfamily\bfseries mt\_top} \;{\normalfont\prm{N\_CH=N\_CH & DW=DW}}\\[2pt]
+   \texttt{rp\_adc\_trig} y \texttt{mt\_slope\_trig} {\normalfont$\times$} N\_CH \;$\cdot$\;
+   \texttt{rp\_ext\_trig} \;$\cdot$\; \texttt{mt\_event\_logic} \;$\cdot$\; \texttt{mt\_cfg}\\[2pt]
+   {\itshape el interior, en el panorama de \texttt{mt\_top}}};
+
+% ============================================================ configuración
+\node[comp, param={grisr}{grisr!35}, text width=2.4cm] (osc) at (15.9,-11.0)
+  {\blk{osc\_cfg}{\prm{EN\_LEGACY\_MAP=1}}\nodepart{two}registros del scope};
+\node[bus, text width=1.8cm] (s3) at (7.6,-13.3) {\texttt{\bfseries sys\_bus}};
+\node[bus, text width=1.8cm] (s1) at (15.9,-13.3) {\texttt{\bfseries sys\_bus}};
+
+% ======================================================= caja rp_scope_mt_com
+\node[contenedor, fit={(-2.6,4.3) (18.3,-12.2)}] (top) {};
+\node[titulo] at (top.north west)
+  {\texttt{\bfseries rp\_scope\_mt\_com}\;\; {\scriptsize\itshape scope + multitrigger: dos esclavos, una instancia}\quad
+   \prm{CHN=0 & N\_CH=2 & DW=14\\ RSZ=14 & EN\_FILT=1}};
+
+% ============================================================== flechas ====
+% --- cadena ---
+\draw[flujo, ancho en=0.25, ancho=14] (-4.4,0) node[left, sen, align=right]
+  {ADC\\[-1pt]\normalfont\scriptsize por canal} -- (cal.west);
+\coordinate (nadc) at (-1.1,0);
+\draw[flujo] (cal.east) -- (flt.west);
+\draw[flujo] (flt.east) -- ($(mx)+(-0.2,-0.25)$);
+\coordinate (tp) at ($(cal.east)!0.5!(flt.west)$);
+\punto{tp}
+\draw[flujo] (tp) -- ++(0,0.95) -| ($(mx)+(-0.5,0.25)$) -- ($(mx)+(-0.2,0.25)$);
+\draw[flujo] ($(mx)+(0.2,0)$) -- (dec.west);
+\draw[flujo] (dec.east) -- (dly.west);
+\draw[line width=0.8pt] (dly.east) -- (12.0,0);
+
+% --- los cuatro nodos que ven los dsp_tap_mux: bajan al bus de taps ---
+\coordinate (ndec) at (5.75,0);
+\coordinate (ndly) at (8.85,0);
+\coordinate (nbrm) at (12.0,0);
+\foreach \n/\t/\a/\dx in {nadc/adc\_calib\_in/south west/0.05, ndec/adc\_dec\_in/south west/0.05,
+                          ndly/adc\_dly\_in/south west/0.05, nbrm/adc\_bram\_in/south east/-0.05} {
+  \punto{\n}
+  \draw[line width=0.8pt] (\n) -- (\n |- 0,\yb);
+  \node[nodo, anchor=\a] at ($(\n |- 0,\yb)+(\dx,0.1)$) {\t};
+}
+\draw[line width=2pt, ancho=4 taps, ancho en=0.2] (-1.1,\yb) -- (12.45,\yb) -- (12.45,0.225);
+
+% --- salidas del ruteo, y la selección de cada mux ---
+\draw[flujo] (13.6,-0.3) -- (bram.west |- 0,-0.3);
+\draw[flujo] (7.6,-2.8) -- node[sen, right, pos=0.5] {mtrg\_dat} (7.6,0 |- mt.north);
+\draw[flujo] (0.3,-2.8) -- (0.3,-6.35) -- (-4.4,-6.35)
+  node[left, sen, align=right] {mca\_dat\_o, mca\_val\_o\\[-1pt]\normalfont\scriptsize$\to$ \texttt{mca\_top}};
+\draw[ctrl] (2.0,-2.4) node[right, sen, black!80] {route\_mca} -- (0.9,-2.4);
+\draw[ctrl] (9.3,-2.4) node[right, sen, black!80] {route\_mtrg} -- (8.2,-2.4);
+\draw[ctrl] (13.2,-1.85) node[left, sen, black!80] {route\_osc} -- (13.2,-0.863);
+
+% --- captura ---
+\draw[flujo] (dly.north) |- node[sen, above, pos=0.75] {axi\_ram\_in} ([yshift=2.5mm]axi.west);
+\draw[flujo] (fsm.north) -- node[sen, right, align=left] {adc\_wp\\adc\_we} (bram.south);
+\draw[flujo] (axi.east) -- (axi.east -| 19.0,0) node[right, sen, align=left]
+  {S\_AXI\_HP\\[-1pt]\normalfont\scriptsize$\to$ DDR};
+
+% --- entradas externas de mt_top ---
+\draw[flujo] (-4.4,-8.05) node[left, sen, align=right] {trig\_ext\_i, trig\_asg\_i}
+  -- (mt.west |- 0,-8.05);
+\draw[<->, line width=0.8pt] (-4.4,-8.75) node[left, sen, align=right]
+  {trig\_ext\_asg\_o/\_i\\[-1pt]\normalfont\scriptsize el top los une} -- (mt.west |- 0,-8.75);
+\draw[flujo] ([xshift=-2.6cm]mt.south) |- (-4.4,-10.6)
+  node[left, sen, align=right] {mca\_veto\_o\\[-1pt]\normalfont\scriptsize$\to$ \texttt{mca\_top}};
+
+% --- trigger_event: el MISMO disparo para todos los canales y para afuera ---
+\draw[flujo] (mt.east) -- (13.9,0 |- mt.east);
+\punto{13.9,0 |- mt.east}
+\draw[flujo, cruce] (13.9,0 |- mt.east) -- (13.9,0) |- ([yshift=-2.5mm]axi.west);
+\draw[flujo] (13.9,0 |- fsm.west) -- (fsm.west);
+\punto{13.9,0 |- fsm.west}
+\node[sen, anchor=south, rotate=90] at (13.75,-5.4) {trigger\_event};
+\draw[flujo] (13.9,0 |- mt.east) -- (13.9,-14.2) node[below, sen, align=center]
+  {event\_trig\_o, daisy\_trig\_o\\[-1pt]\normalfont\scriptsize$\to$ \texttt{event\_ring}, \texttt{mca\_top}, DIO0};
+\draw[flujo] ([xshift=2.6cm]mt.south) -- ([xshift=2.6cm]mt.south |- 0,-14.2) node[below, sen, align=center]
+  {event\_snap\_o\\[-1pt]\normalfont\scriptsize$\to$ \texttt{event\_ring}};
+
+% --- configuración ---
+\draw[flujo, cruce] (osc.west) -- (11.8,0 |- osc.west) -- (11.8,0 |- mt.south);
+\node[font=\scriptsize, align=left, anchor=west, inner sep=1pt] at (11.9,-10.15)
+  {puente\\[-2pt]legacy,\\[-2pt]umbrales,\\[-2pt]debounce};
+\draw[ctrl] (15.2,0 |- osc.north) -- (15.2,0 |- box.south)
+  node[sen, pos=0.5, left, black!80, align=right] {set\_*,\\arm, rst};
+\draw[ctrl] (16.5,0 |- box.south) -- (16.5,0 |- osc.north)
+  node[sen, pos=0.5, right, black!80, align=left] {estado,\\punteros};
+\draw[flujo] (bram.east) -- (17.7,0) |- node[sen, right, pos=0.25] {bram\_rd\_dat} (osc.east);
+
+% --- buses ---
+\draw[<->, line width=0.8pt] (mt.south) -- node[sen, right, pos=0.3] {slot 3} (s3.north);
+\draw[<->, line width=0.8pt] (osc.south) -- node[sen, right, pos=0.5] {slot 1} (s1.north);
+
+% ================================================================= leyenda ===
+\leyenda{-2.4,-15.6}{azul!35/acondicionamiento, amarillo/trigger,
+  verde!55/captura en BRAM, naranja!70/camino a DDR,
+  grisr/ruteo y configuración, rojo!45/bus del sistema}
+  {Todo en \texttt{adc\_clk}. El bloque con sombra es \texttt{mt\_top} plegado: su
+   interior está en el panorama de \texttt{mt\_top}. \texttt{trigger\_event}
+   dispara a la vez la captura de todos los canales. Cada \texttt{dsp\_tap\_mux} es
+   combinacional y elige, con su \texttt{route\_*\_tap}, de cuál de los cuatro nodos
+   toma su consumidor; su \texttt{route\_*\_en} corta el valid, no el dato. Los
+   \texttt{route\_*} son puertos: vienen de \texttt{integration\_cfg} (región de TOP,
+   slot 6). \notaparam}
+
+\end{tikzpicture}
+\end{document}

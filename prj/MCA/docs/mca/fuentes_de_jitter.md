@@ -18,13 +18,22 @@ distribución de timestamps — pero tienen magnitudes que difieren en órdenes 
 magnitud y se atacan con herramientas distintas. Este documento las pone en la
 misma unidad y las ordena.
 
+> El presupuesto del eje de **amplitud** —todas las fuentes de ruido, no sólo
+> las que se parecen a jitter— está en
+> [`../ruido_del_sistema.md`](../ruido_del_sistema.md). Este documento es el del
+> eje de **tiempo**; las filas de amplitud de §6 y §7 de acá están ahí abiertas
+> y medidas. Lo que sí está acá es **§5**: la varianza de cada estimador de
+> amplitud sobre cada familia de forma, que es donde las tres clases de jitter
+> de arriba se vuelven cuentas de ADC.
+
 Números fijos del sistema:
 
 | | |
 |---|---|
 | `Ts` | 8 ns (125 MSPS) |
 | ADC | 14 bits, 1 LSB = 2 V / 16384 ≈ 122 µV |
-| Ruido total medido con pulser (§2.2 de [`decisiones_diseno_mca.md`](decisiones_diseno_mca.md)) | σ ≈ 2.8 cuentas, FWHM ≈ 6.6 canales sobre 1920 |
+| Ruido **por muestra**, medido ([`../ruido_del_sistema.md`](../ruido_del_sistema.md) §3) | σ_w = 4.47 cuentas (blanco) + σ_c = 0.87 (correlacionado, τ = 12 µs) |
+| Ancho del fotopico con muestra de pico (§2.2 de [`decisiones_diseno_mca.md`](decisiones_diseno_mca.md)) | σ ≈ 2.8 cuentas, FWHM ≈ 6.6 canales sobre 1920 — **ya pasado por el estimador**, ver §5.3 |
 | Fondo de escala del MCA | 8192 canales |
 
 ---
@@ -204,15 +213,19 @@ Los números para `A = 1920` cuentas (el nivel del pulser en la campaña):
 
 Lo medido al acortar el pulso de 4 µs a 0.5 µs fue FWHM 0.33 % → 0.44 %, o sea
 σ 2.7 → 3.6 cuentas: **2.4 cuentas extra en cuadratura**. La parábola lo
-subestima por 20×, la cúspide lo sobreestima por 10×. La explicación es que el
-pico del ARB está redondeado pero no es gaussiano: la curvatura en el máximo es
-mayor que la de una gaussiana del mismo FWHM. Es una predicción medible con el
-osciloscopio (§6) y de paso dice **cuál es el `τ_c` real del estímulo**, que es
-lo que decide si el pico o la integral gana.
+subestima por 20×, la cúspide lo sobreestima por 10×.
+
+> **Y ninguna de las dos es la explicación.** El Monte Carlo de §5 reproduce ese
+> ensanchamiento —predice 0.30 % → 0.42 % contra 0.33 % → 0.44 % medidos— con el
+> término de fase en **cero** en los dos extremos. Lo que cambia al angostar el
+> pulso no es la fase: es cuántas muestras quedan sobre el ápice compitiendo por
+> ser el máximo (§5.3). Las dos filas de la tabla de arriba siguen valiendo como
+> cotas analíticas, y la de cúspide es la que manda para pulsos de detector sin
+> conformar (§8); para el rango que da el ARB, el mecanismo correcto es el otro.
 
 Regla práctica que sale de la tabla: mientras `Ts² / τ_c²` sea menor que
-`σ_ADC / A` (acá `2.8/1920 ≈ 1.5e-3`), el estimador de pico no paga fase de
-muestreo. Eso se cumple hasta `τ_c ≈ 200 ns`, es decir pulsos de ~0.5 µs de
+`σ_w / A` (acá `4.47/1920 ≈ 2.3e-3`), el estimador de pico no paga fase de
+muestreo. Eso se cumple hasta `τ_c ≈ 170 ns`, es decir pulsos de ~0.4 µs de
 FWHM con pico gaussiano. **Para pulsos más cortos, o con pico en punta (RC-CR
 sin conformado), la integral tiene que ganar.**
 
@@ -247,15 +260,16 @@ fluctúa:
     σ_t = σ_v / |dV/dt|_{V = thr}
 
 Es la fórmula clásica de timing por *leading edge*: el jitter temporal es el
-ruido dividido por la pendiente **en el punto de cruce**. Con `σ_v = 2.8`
-cuentas y `t_r = 100 ns`:
+ruido dividido por la pendiente **en el punto de cruce**. Con el ruido blanco
+por muestra medido, `σ_w = 4.47` cuentas (**no** los 2.8, que son el ancho del
+fotopico ya pasado por el estimador: ver §5.3), y `t_r = 100 ns`:
 
 | Amplitud | Pendiente en el flanco | σ_t | vs σ_ts = 2.31 ns |
 |---|---|---|---|
-| 8192 (1 Vpp) | 65 cuentas/ns | 43 ps | despreciable |
-| 1920 | 15 cuentas/ns | 0.18 ns | despreciable |
-| 800 (0.1 Vpp) | 6.4 cuentas/ns | 0.44 ns | 4 % del total en cuadratura |
-| 200 (cerca del umbral) | 1.6 cuentas/ns | 1.8 ns | comparable |
+| 8192 (1 Vpp) | 65 cuentas/ns | 69 ps | despreciable |
+| 1920 | 15 cuentas/ns | 0.30 ns | despreciable |
+| 800 (0.1 Vpp) | 6.4 cuentas/ns | 0.70 ns | 9 % del total en cuadratura |
+| 200 (cerca del umbral) | 1.6 cuentas/ns | 2.8 ns | **domina** |
 
 Conclusión: **la resolución temporal del sistema está limitada por la
 cuantización a `Ts`, no por el ruido**, en todo el rango dinámico salvo la
@@ -285,14 +299,18 @@ un pulso es la parte más chata, así que ahí `dV/dt` es mínima y `σ_t` máxi
     σ_t,cierre = σ_v / |dV/dt|_{cola}
 
 Con cola exponencial de constante `τ_d` y cierre a nivel `V_c = thr − hyst`, la
-pendiente es `V_c / τ_d`. Para `τ_d = 1 µs`, `V_c = 100` cuentas:
-`0.1 cuentas/ns` → `σ_t,cierre = 28 ns = 3.5 muestras`. La integral suma o
-resta esas 3.5 muestras a nivel `~V_c`: `±350` cuentas de `Q_total`, que para
-`Q_total ≈ A·τ_d/Ts ≈ 2.4e5` son **0.15 %** de la amplitud. Del mismo orden que
-el ancho medido en modo histéresis (0.53 %) descontado el de compuerta fija
-(0.15 %): `√(0.53² − 0.15²) = 0.51 %`. Lo que falta lo pone el error de línea de
-base multiplicado por el largo variable de la ventana, que va en la misma
-dirección.
+pendiente es `V_c / τ_d`. Para la cola real (`τ_d = 186` muestras = 1.49 µs) y
+`V_c = 60` cuentas: `0.040 cuentas/ns` → `σ_t,cierre = 111 ns = 14 muestras`. La
+integral suma o resta esas 14 muestras a nivel `~V_c`: `±840` cuentas de
+`Q_total`, que para `Q_total = A·Σf ≈ 5.7e5` son **0.15 %** de la amplitud.
+
+El Monte Carlo de §5 lo confirma y lo pone en su lugar: el término blanco de la
+integral por histéresis es **0.085 %** contra 0.026 % de la compuerta fija, así
+que el cierre que tiembla vale `√(0.085² − 0.026²) = 0.081 %` — la mitad de la
+estimación de arriba, porque la fórmula ignora que el cierre tardío agrega
+muestras que *también* traen señal. Y sobre todo: **no es el término que manda**.
+El que manda es el error de línea de base multiplicado por un largo de ventana
+que es el doble (§5.3).
 
 Ese mecanismo es el "jitter del cierre de la ventana" de
 [`resultados_validacion_hw.md`](../resultados_validacion_hw.md) §0.3, y es por lo
@@ -304,41 +322,362 @@ que el desplazamiento no cambia la suma.
 
 ---
 
-## 5. Lo que no es jitter pero entra en la misma cuadratura
+## 5. Varianza de cada estimador, familia por familia
+
+Las secciones anteriores van fuente por fuente. Ésta cruza los dos ejes que
+importan para elegir configuración: las **seis familias de forma** del catálogo
+([`formas_de_pulso.md`](formas_de_pulso.md)) contra los **cuatro estimadores**
+de amplitud, todos con el mismo ruido medido y la misma fase de muestreo. Los
+números los calcula
+[`varianza_estimadores.py`](../../software/monte-carlo/varianza_estimadores.py)
+—48 000 eventos por familia, segmentados con las réplicas del RTL de
+`pileup.py`— y las figuras son
+[`12_varianza_estimadores.png`](figuras/12_varianza_estimadores.png) y
+[`13_estimadores_vs_ancho.png`](figuras/13_estimadores_vs_ancho.png).
+
+**Qué se inyecta.** El ruido no se postula: es el de
+[`../ruido_del_sistema.md`](../ruido_del_sistema.md) §3, medido sobre el canal
+que estaba en vacío, y entra en sus **dos** partes por separado —
+
+    blanco          sigma_w = 4.47 cuentas por muestra, descorrelacionado a 8 ns
+    correlacionado  sigma_c = 0.87 cuentas, tau = 12 us (proceso, no constante)
+
+— más la fase de muestreo, barrida en una grilla uniforme de 32 sub-muestras.
+En las tablas que siguen el término correlacionado aparece como columna
+**«base»**, porque dentro de una ventana se comporta exactamente como un error
+de línea de base por evento: es el mismo número sumado a todas las muestras.
+Que el término correlacionado se simule como **proceso** y no como un offset
+por evento no es cosmético: en 384 muestras promedia de 0.87 a 0.84 (−4 %) y en
+las 1030 de la ventana por histéresis de la CR, a 0.78 (−10 %). Con un offset
+constante ese término quedaría sobreestimado justo en las familias de cola
+larga, que son las que se quieren comparar. Lo que el modelo **no** tiene es el
+seguidor de línea de base del RTL, que baja el correlacionado a ~0.76 cuentas
+(`ruido_del_sistema.md` §5): el término de base de acá es el de *antes* del
+seguidor, pesimista por un 15 % conocido.
+
+### 5.1 La geometría que decide cada estimador
+
+Tres números por forma, todos con el mismo FWHM (250 muestras) y la misma
+altura de pico (1920 cuentas):
+
+| familia | Σf [muestras] | Σf/FWHM | Σf²/FWHM | `M_ef` | caída máx. [cuentas] | ventana histéresis |
+|---|---|---|---|---|---|---|
+| CR | 336 | 1.343 | 0.746 | 9 | 0.05 | 1029 ± 11 |
+| CR-RC | 278 | 1.111 | 0.755 | 14 | 0.02 | 634 ± 5 |
+| CR-RC⁴ | 269 | 1.076 | 0.753 | 14 | 0.02 | 569 ± 4 |
+| triangular | 250 | 1.000 | 0.667 | **1** | **3.84** | 479 ± 1 |
+| trapezoidal | 250 | 1.000 | 0.833 | **126** | 0.00 | 365 ± 1 |
+| bipolar | 245 | 0.979 | 0.747 | 15 | 0.02 | 404 ± 1 |
+| referencia (ARB real) | 298 | 1.192 | 0.759 | 13 | 0.02 | 771 ± 7 |
+
+- **`Σf` = área/pico** es lo que multiplica a la amplitud en cualquier integral.
+  Dividido por el FWHM da exactamente el **factor de forma** que midió la
+  campaña (1.343, 1.111, 1.076, 1.000, 1.000, 0.979): la geometría de acá y la
+  onda que vio la placa son la misma función.
+- **`Σf²` es la única geometría que entra en la cota de Cramér-Rao.** Y acá
+  aparece el primer resultado que no es obvio: `Σf²/FWHM` vale **0.75 ± 0.08
+  para las seis**. A igual FWHM y igual pico, **ninguna forma del catálogo es
+  intrínsecamente más medible que otra** — el mejor estimador posible da lo
+  mismo con todas, dentro de un 10 %. Todo lo que las separa en las tablas que
+  siguen lo pone el **estimador**, no la forma.
+- **`M_ef`** es cuántas muestras caen a menos de un ruido (4.47 cuentas) del
+  ápice. Va de **1** (triangular) a **126** (trapezoidal), y es lo que decide el
+  estimador de pico: ver §5.3.
+- **caída máxima** es cuánto se pierde el pico por la fase de muestreo en el
+  peor caso. Salvo la triangular, **no llega a 1/80 del ruido**: a 2 µs y
+  125 MSPS la fase de muestreo no existe para ninguna familia redondeada.
+
+### 5.2 El resultado: resolución por familia y estimador
+
+Resolución = FWHM/centroide en %, con `A = 1920` cuentas y pulso de 2 µs:
+
+| familia | pico | pico interp. | Q histéresis | Q fija 384 | cota C-R |
+|---|---|---|---|---|---|
+| CR | 0.353 | 0.358 | 0.460 | **0.186** | 0.040 |
+| CR-RC | 0.330 | 0.338 | 0.310 | **0.169** | 0.040 |
+| CR-RC⁴ | 0.331 | 0.335 | 0.267 | **0.203** | 0.040 |
+| triangular | 0.472 | 0.476 | **0.209** | 0.262 | 0.042 |
+| trapezoidal | 0.264 | 0.269 | **0.161** | 0.163 | 0.038 |
+| bipolar | 0.328 | 0.330 | 0.180 | **0.168** | 0.040 |
+| referencia (ARB real) | 0.339 | 0.342 | 0.379 | **0.175** | 0.040 |
+
+Tres lecturas inmediatas:
+
+1. **La compuerta fija gana en cinco de las siete**, y donde no gana (triangular
+   y trapezoidal) pierde por nada contra la histéresis. Es la misma conclusión
+   que el análisis offline sacó para una sola forma, ahora sobre todo el
+   catálogo.
+2. **El rango entre familias es un factor 1.8 con el mismo estimador** (pico:
+   0.264 % el trapecio, 0.472 % la triangular). Elegir la forma importa tanto
+   como elegir el estimador.
+3. **Todos están entre 4× y 11× de la cota.** El instrumento no está limitado
+   por la información que tiene el pulso: está limitado por lo que el estimador
+   tira a la basura.
+
+### 5.3 De qué está hecha cada varianza
+
+σ/A en %, separada en sus tres términos por ANOVA sobre la grilla de fases
+(dentro de cada bin de fase = ruido; entre bins = fase):
+
+**Muestra de pico** (`cfg_amp_src = 0`)
+
+| familia | blanco | base | fase | **σ total** | sesgo |
+|---|---|---|---|---|---|
+| CR | 0.141 | 0.046 | 0.001 | **0.148** | +0.28 % |
+| CR-RC | 0.132 | 0.044 | 0.000 | **0.139** | +0.34 % |
+| CR-RC⁴ | 0.131 | 0.044 | 0.002 | **0.138** | +0.34 % |
+| triangular | 0.194 | 0.043 | **0.029** | **0.200** | −0.03 % |
+| trapezoidal | 0.098 | 0.044 | 0.001 | **0.108** | +0.60 % |
+| bipolar | 0.129 | 0.047 | 0.000 | **0.137** | +0.35 % |
+| referencia | 0.132 | 0.048 | 0.002 | **0.141** | +0.33 % |
+
+**Integral, compuerta fija de 384** (`gate_mode = 1`)
+
+| familia | blanco | base | fase | **σ total** | sesgo |
+|---|---|---|---|---|---|
+| CR | 0.023 | 0.069 | **0.029** | **0.078** | −27.7 % |
+| CR-RC | 0.025 | 0.066 | 0.015 | **0.072** | −11.0 % |
+| CR-RC⁴ | 0.062 | 0.057 | 0.001 | **0.084** | −9.2 % |
+| triangular | 0.098 | 0.056 | 0.000 | **0.113** | −8.6 % |
+| trapezoidal | 0.020 | 0.067 | 0.000 | **0.070** | −0.1 % |
+| bipolar | 0.019 | 0.069 | 0.002 | **0.071** | −0.6 % |
+| referencia | 0.026 | 0.066 | 0.018 | **0.073** | −17.0 % |
+
+**Integral, ventana por histéresis** (`gate_mode = 0`)
+
+| familia | blanco | base | fase | **σ total** | ventana |
+|---|---|---|---|---|---|
+| CR | 0.110 | 0.163 | 0.004 | **0.197** | 1029 |
+| CR-RC | 0.065 | 0.117 | 0.004 | **0.133** | 634 |
+| CR-RC⁴ | 0.051 | 0.106 | 0.000 | **0.117** | 569 |
+| triangular | 0.026 | 0.086 | 0.001 | **0.089** | 479 |
+| trapezoidal | 0.021 | 0.066 | 0.001 | **0.069** | 365 |
+| bipolar | 0.022 | 0.074 | 0.004 | **0.078** | 404 |
+| referencia | 0.085 | 0.134 | 0.004 | **0.159** | 771 |
+
+#### El término blanco del pico es un máximo de `M_ef` gaussianas
+
+Es el punto donde el documento estaba equivocado antes de esta sección. La
+muestra de pico **no** paga `σ_w` de ruido: el RTL se queda con el **máximo**
+de las muestras de la ventana, y cerca del ápice hay `M_ef` muestras que
+compiten por serlo. El máximo de `M` gaussianas tiene desvío **menor** que una
+sola y media **mayor**:
+
+| `M` | sd(max)/σ | E[max]/σ |
+|---|---|---|
+| 1 | 1.00 | 0.00 |
+| 9 | 0.60 | +1.49 |
+| 13 | 0.56 | +1.67 |
+| 126 | 0.42 | +2.59 |
+
+Eso explica las dos columnas de la tabla del pico de una sola vez, sin ningún
+parámetro libre:
+
+| familia | `M_ef` | σ_blanco medida / σ_w | sd(max)/σ esperado | sesgo medido | E[max] esperado |
+|---|---|---|---|---|---|
+| triangular | 1 | 0.83 | 1.00 | −0.03 % | 0.00 % |
+| CR | 9 | 0.61 | 0.60 | +0.28 % | +0.35 % |
+| referencia | 13 | 0.57 | 0.56 | +0.33 % | +0.39 % |
+| trapezoidal | 126 | 0.42 | 0.42 | +0.60 % | +0.60 % |
+
+El acuerdo es del 5 % donde el ápice es realmente plano y se afloja en la
+triangular (0.83 medido contra 1.00): con `M_ef = 1` el modelo de "M muestras
+a la misma altura" deja de valer —las vecinas están por debajo del pico, pero
+no tanto como para no competir nunca—, así que da una cota de arriba. En las
+otras tres el ápice es chato en la escala del ruido y la fórmula es exacta.
+
+**El trapecio no gana por tener techo plano: gana porque el techo plano le da
+126 muestras para promediar implícitamente en el máximo.** Y paga ese promedio
+con un sesgo de +0.60 % de la amplitud, que es constante en cuentas (2.6 σ_w) y
+por lo tanto se va en el *offset* de la calibración, no en la ganancia — ver
+§5.4.
+
+> **Corrección a §3.** Lo medido al acortar el pulso de 4 µs a 0.5 µs
+> (resolución con pico 0.33 % → 0.44 %) **no es fase de muestreo**: el barrido
+> de [`13_estimadores_vs_ancho.png`](figuras/13_estimadores_vs_ancho.png) da
+> σ 0.128 % → 0.177 % con el término de fase en **0.000 %** en los dos
+> extremos. Lo que cambia es `M_ef`: al angostar el pulso quedan menos muestras
+> sobre el ápice y el máximo deja de promediar. La predicción en FWHM es
+> 0.30 % → 0.42 % contra 0.33 % → 0.44 % medidos. El mecanismo de §3 (parábola
+> contra cúspide) es el correcto para pulsos **mucho** más cortos; en el rango
+> que da el ARB, el que manda es éste.
+
+#### El término de base es el largo de la ventana, no el cierre
+
+En los dos estimadores de carga el término correlacionado domina, y su tamaño
+es casi exactamente `N·σ_c/(A·Σf)` — el offset de base multiplicado por cuántas
+muestras se suman. Para la forma real con compuerta fija: `384 × 0.84 /
+(1920 × 298) = 0.056 %` contra **0.066 %** simulado, y el resto lo pone el
+borde de la ventana.
+
+Eso reordena la explicación de por qué la ventana por histéresis pierde. Con el
+mismo ruido y la misma forma:
+
+| | histéresis | compuerta fija | cociente |
+|---|---|---|---|
+| largo de ventana | 771 muestras | 384 | 2.0× |
+| término blanco (cierre que tiembla) | 0.085 % | 0.026 % | 3.3× |
+| término de base (N × σ_c) | 0.134 % | 0.066 % | 2.0× |
+| **σ total** | **0.159 %** | **0.073 %** | **2.2×** |
+
+El jitter del cierre de la ventana —el mecanismo de §4— es real y vale 0.081 %
+en cuadratura, pero **el término más grande es el otro**: la ventana por
+histéresis es el doble de larga, y el ruido correlacionado se suma proporcional
+al largo. Las dos cosas van en la misma dirección y por eso la histéresis
+pierde el doble, que es el ×2.02 medido en placa.
+
+La familia lo confirma: la CR, con la cola más larga del catálogo, abre una
+ventana de **1029** muestras y es la peor de las seis con histéresis (0.197 %);
+el trapecio, que cierra en 365, es la mejor (0.069 %). **El largo de la ventana
+ordena la tabla.**
+
+#### El término de fase es cero salvo en la triangular
+
+A 2 µs y 125 MSPS, con la única excepción de la triangular (0.029 %, que es el
+ápice en punta de `M_ef = 1`), la fase de muestreo **no se mide**: queda por
+debajo de 0.005 % de la amplitud en las seis familias y en los dos estimadores
+de pico. La predicción analítica de §3 para pico redondeado (0.006 cuentas a
+2 µs) es consistente con eso.
+
+Aparece en cambio donde no se la espera: en la **compuerta fija**, 0.029 % para
+la CR y 0.018 % para la forma real. No es el ápice — es el **borde** de la
+compuerta, que cae en una cola que todavía tiene pendiente, así que medio
+sample de corrimiento cambia la carga sumada. Es chico, pero es el único lugar
+donde la fase sobrevive a 2 µs.
+
+#### El pico interpolado no sirve acá
+
+Interpolar el máximo con una parábola de tres puntos —la propuesta de §3— da
+**exactamente lo mismo** que la muestra cruda en las seis familias (0.138 vs
+0.139 %, diferencias dentro del error del Monte Carlo). Es consistente: corrige
+el error de fase, y a 2 µs el error de fase ya es cero. Peor todavía, en el
+barrido de ancho **empeora** cuando el ápice es asimétrico — CR a 0.1 µs:
+0.754 % contra 0.426 % de la muestra cruda — porque tres puntos de un flanco
+abrupto no definen ninguna parábola. **No vale la pena ponerlo en el RTL** salvo
+que aparezcan pulsos simétricos de menos de 0.2 µs.
+
+### 5.4 Sesgo, déficit balístico y linealidad
+
+Los sesgos de las tablas de §5.3 son grandes —hasta −27.7 %— y hay que leerlos
+con cuidado, porque **sesgo no es resolución**:
+
+- **La compuerta fija de 384 no cubre la cola de las familias largas.** La CR
+  tiene `Σf = 336` repartidas sobre 3380 muestras: la compuerta se queda con el
+  72 % de la carga. Es **déficit balístico**, y es una pérdida de *ganancia*, no
+  de resolución (la σ/A de la tabla ya está normalizada al centroide medido).
+- **El sesgo del pico es el `E[max]` de §5.3**, constante en cuentas.
+
+Que un sesgo sea constante en cuentas o proporcional a la amplitud es lo que
+decide si ensucia la **linealidad**. Corriendo el mismo barrido de 12
+amplitudes que la campaña de formas (0.1 → 1.0 Vpp) y midiendo la INL con la
+misma definición (residuo máximo del ajuste lineal, en % del rango):
+
+| familia | pico | Q histéresis | Q fija 384 | **INL medida en placa** |
+|---|---|---|---|---|
+| CR | 0.01 | 0.01 | 0.01 | **1.08** |
+| CR-RC | 0.01 | 0.04 | 0.02 | **1.09** |
+| CR-RC⁴ | 0.01 | 0.07 | 0.27 | **1.09** |
+| triangular | 0.03 | 0.17 | 0.28 | **1.04** |
+| trapezoidal | 0.00 | 0.09 | 0.06 | **1.09** |
+| bipolar | 0.01 | 0.09 | 0.03 | — |
+
+**El estimador aporta entre 0.00 y 0.28 % FS de INL; lo medido es 1.04–1.09 %.**
+Queda confirmado lo que la campaña de formas sospechaba y no podía demostrar:
+**la INL que se mide es del generador**, no del MCA. El residuo que deja el
+estimador está entre 4 y 100 veces por debajo, y —esto es lo que la vuelve una
+predicción falsable— **no depende de la familia**, mientras que la medida sí
+tendría que depender si fuera del instrumento.
+
+### 5.5 Validación contra los pulsos reales
+
+La fila `referencia` no es una forma de Knoll: es la forma real del estímulo,
+con el FWHM y la cola medidos. Corrida a la amplitud del conjunto real
+(2415 cuentas), sus predicciones contra lo medido **sobre esas mismas trazas**:
+
+| estimador | predicho | offline, mismas trazas | cociente | en placa |
+|---|---|---|---|---|
+| pico | 0.272 % | 0.272 % | **1.00×** | 0.344 % |
+| Q histéresis | 0.310 % | — | — | 0.325 % |
+| Q fija 384 | 0.148 % | 0.149 % | **0.99×** | 0.161 % |
+
+Los dos que tienen con qué compararse cierran dentro del 1 %, y el tercero
+dentro del 5 % contra la placa. No hay parámetros ajustados: el ruido sale de
+§3 de [`../ruido_del_sistema.md`](../ruido_del_sistema.md), la forma de la
+campaña y los estimadores del RTL. El hueco que queda contra el hardware
+(+26 % en el pico, +9 % en la compuerta) es el mismo que el presupuesto de
+amplitud ya tiene identificado y acotado.
+
+### 5.6 Qué elegir, con los números en la mano
+
+- **Con el estímulo de hoy (2 µs), compuerta fija.** Es 1.9× mejor que el pico
+  en la forma real y gana en cinco de las siete familias. El largo hay que
+  ponerlo en función de la **cola**, no del FWHM: 384 muestras alcanzan para el
+  trapecio y la bipolar, y se comen el 28 % de la carga de la CR.
+- **Si hay que quedarse con el pico, conformar a techo plano.** El trapecio da
+  0.264 % contra 0.472 % de la triangular con el mismo FWHM y la misma altura,
+  y la diferencia es entera de `M_ef`.
+- **No gastar RTL en interpolar el pico.** No mejora nada a 2 µs y empeora en
+  ápices asimétricos.
+- **La palanca grande no es el estimador: es la base.** Los cuatro estimadores
+  están entre 4× y 11× de la cota, y en el mejor de ellos el 80 % de la
+  varianza es el término correlacionado de 0.87 cuentas. Seguir la línea de
+  base es lo único que lo baja, y eso está en
+  [`../ruido_del_sistema.md`](../ruido_del_sistema.md) §5.
+
+Para rehacer cualquiera de estos números:
+
+```bash
+cd prj/MCA/software
+python3 monte-carlo/varianza_estimadores.py            # tablas + figuras 12 y 13
+python3 monte-carlo/varianza_estimadores.py --amp 480  # otra amplitud
+python3 monte-carlo/varianza_estimadores.py --fwhm 5e-7
+```
+
+---
+
+## 6. Lo que no es jitter pero entra en la misma cuadratura
 
 | Fuente | Distribución | σ | Comentario |
 |---|---|---|---|
 | Cuantización del ADC | uniforme, 1 LSB | 0.29 cuentas | Un 1 % del ruido total en cuadratura. No es el piso |
-| Ruido del ADC + front-end | gaussiano | ≈ 2.8 cuentas (medido, incluye el pulser) | **El piso.** Separarlo del generador requiere §6 |
+| Ruido del ADC + front-end | gaussiano, **blanco** | 4.47 cuentas **por muestra** (los 2.8 son el ancho del fotopico, ya pasado por el estimador) | **El piso del estimador de pico.** El generador no aporta: [`../ruido_del_sistema.md`](../ruido_del_sistema.md) §3 |
+| Ruido correlacionado del front-end | τ ≈ 12 µs | 0.87 cuentas | **No promedia en la ventana**, así que es el piso del estimador de *integral*: [`../ruido_del_sistema.md`](../ruido_del_sistema.md) §5 |
 | Error de línea de base | lento, correlacionado | depende de `cfg_bl_*` | Sistemático por evento; en la integral se multiplica por N |
 | Deriva del centroide | determinista, horas | — | No ensancha una adquisición corta; domina las largas: [`limites_resolucion_y_deriva.md`](limites_resolucion_y_deriva.md) |
 | Binning del histograma | uniforme, 1 canal | 0.29 canales | Corrección de Sheppard, ya tratada en el mismo documento |
 
 ---
 
-## 6. Presupuesto y cómo medir cada término
+## 7. Presupuesto y cómo medir cada término
 
 Resumen para `A = 1920` cuentas, `t_r = 100 ns`, pulso de 2 µs, `σ_t,clk = 1 ps`:
 
 | Fuente | Afecta a | σ (amplitud) | σ (tiempo) | Se mide con |
 |---|---|---|---|---|
-| Ruido ADC + front-end | todo | 2.8 cuentas | 0.18 ns | RMS de la línea de base con la entrada terminada en 50 Ω, sin pulser |
-| Fase de muestreo, pico | `cfg_amp_src = 0` | 0.006 (parábola) … 11 (cúspide) | — | `compare_estimators()` vs ancho de pulso; forma del pico con el osciloscopio |
+| Ruido blanco del front-end | todo | **4.47 cuentas por muestra**; 2.5 en el pico (máximo de `M_ef`), 0.5 en la compuerta fija (÷√384) | 0.30 ns | Autocovarianza de la base, canal en vacío ([`../ruido_del_sistema.md`](../ruido_del_sistema.md) §3) — el RMS solo no alcanza |
+| Ruido correlacionado (τ = 12 µs) | sobre todo la integral | 0.87 cuentas; **no promedia**: 1.3 cuentas en la compuerta fija (§5.3) | — | La misma autocovarianza: es la meseta que no baja |
+| Fase de muestreo, pico | `cfg_amp_src = 0` | < 0.02 cuentas en 5 de 6 familias; **0.56 cuentas en la triangular** (§5.3) | — | Barrido de ancho de pulso (§5, figura 13); forma del ápice con el osciloscopio |
+| Fase de muestreo, compuerta | `gate_mode = 1` | 0.35 cuentas (borde de la ventana, CR) | — | Lo mismo, columna «fase» de §5.3 |
 | Fase de muestreo, timestamp | timestamp | — | 2.31 ns | Histograma de `φ` interpolado del cruce de umbral: tiene que ser plano entre 0 y 8 ns (`ts` solo no la ve, está cuantizado) |
 | Apertura + clock | flanco, integral | 0.07 cuentas | 1 ps | No vale la pena; sólo si aparecen `t_r < 20 ns` |
-| Cierre de ventana (histéresis) | `cfg_amp_src = 1`, `gate_mode = 0` | ≈ 0.15 % de A | 28 ns | Barrido `gate_mode` 0 vs 1 sobre el mismo estímulo (ya hecho: 0.53 → 0.15 %) |
+| Cierre de ventana (histéresis) | `cfg_amp_src = 1`, `gate_mode = 0` | 0.081 % de A (1.6 cuentas) | 111 ns | Barrido `gate_mode` 0 vs 1 sobre el mismo estímulo (hecho: ×2.02 en placa) |
+| Largo de la ventana × base | `cfg_amp_src = 1`, `gate_mode = 0` | **0.134 % de A** — el término más grande de la histéresis (§5.3) | — | Mismo barrido; se separa simulando con `σ_c = 0` |
 | Walk de amplitud | timestamp | — | sistemático, hasta `t_r·thr/A` | `ts` vs amplitud con el pulser barrido |
 
-Suma en cuadratura de las columnas de amplitud con pico gaussiano: **2.8
-cuentas** — el ruido del ADC solo. Todo lo demás está uno o dos órdenes de
-magnitud abajo. Eso quiere decir dos cosas:
+Suma en cuadratura, para la forma real: **2.7 cuentas con la muestra de pico**
+(0.339 % FWHM) y **1.5 con la compuerta fija** (0.175 %), contra 0.344 % y
+0.161 % medidos. El presupuesto cierra dentro del 10 % y el desglose completo,
+familia por familia, está en §5. Eso quiere decir dos cosas:
 
 1. **No hay nada que ganar mejorando el clock.** Ni oscilador externo, ni PLL de
    bajo jitter, ni CDC más prolijo cambian el fotopico.
-2. **Sí hay algo que ganar separando el ruido del ADC del ruido del pulser**,
-   porque hoy los 2.8 son la suma de los dos y no sabemos cuál domina. Es la
-   medida más barata del documento: entrada terminada, sin señal, RMS de la
-   base.
+2. ~~**Sí hay algo que ganar separando el ruido del ADC del ruido del pulser**,
+   porque hoy los 2.8 son la suma de los dos y no sabemos cuál domina.~~
+   **Hecho, y con datos que ya estaban tomados**: el canal 2 de la campaña
+   estaba en vacío, y da el mismo ruido que el canal con el Rigol colgado. **El
+   generador no aporta nada medible.** De paso, el RMS solo no alcanzaba: lo que
+   decide el presupuesto es la **autocovarianza**, porque el ruido no es blanco.
+   Ver [`../ruido_del_sistema.md`](../ruido_del_sistema.md) §3.
 
 ### Medir el jitter temporal sin que el generador contamine
 
@@ -354,7 +693,7 @@ la sección 4 con hardware que ya está.
 
 ---
 
-## 7. Qué cambia si aparecen pulsos de detector reales
+## 8. Qué cambia si aparecen pulsos de detector reales
 
 Todo lo anterior está calibrado con `t_r = 100 ns` y picos redondeados de 2 µs,
 que es lo que da el ARB. Un preamplificador de carga sin conformar entrega

@@ -1,0 +1,104 @@
+% Las dos máquinas de estados del bus de sistema, una por dominio de reloj, con
+% las señales internas que la vista de protocolo de las ondas no dibuja.
+% Izquierda: el lado maestro en clk_fpga_0 (axi4_slave y la mitad controladora
+% de sys_bus_cdc). Derecha: el lado esclavo en adc_clk (la mitad de registros
+% del CDC y el esclavo, con su en_sr). Las dos flechas que cruzan son los dos
+% toggles del handshake de dos fases: ctrl_do a la ida y reg_done a la vuelta.
+% El tiempo corre hacia abajo. x/y = lectura/escritura.
+% Fuentes: rtl/axi4_slave.sv (rd_do/wr_do, ren/wen registrados, ack_cnt,
+% RRESP/BRESP = SLVERR con ack_cnt[5]), rtl/sys_bus_cdc.sv, el en_sr de
+% mca_top.sv. Documentado en docs/TOP/bus_sistema_redpitaya.md §6.
+% Estilo: docs/figuras/estilo_tikz.tex.
+%
+% Compilar:   pdflatex fsm_sys_bus.tex
+%             pdftocairo -svg fsm_sys_bus.pdf fsm_sys_bus.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{
+  estado/.style  = {draw=black, line width=0.8pt, rounded corners=8pt, fill=white,
+                    align=center, text width=3.9cm, inner sep=3pt,
+                    minimum height=1.1cm, font=\scriptsize},
+  breve/.style   = {estado, fill=amarillo!45},   % dura un ciclo
+  falla/.style   = {estado, fill=rojo!20, draw=rojo!70!black, dashed},
+  trans/.style   = {->, line width=0.8pt},
+  cond/.style    = {font=\scriptsize\ttfamily, inner sep=1.5pt, align=center},
+  toggle/.style  = {->, line width=1.3pt, azul!80!black, dashed},
+  roto/.style    = {->, line width=0.8pt, rojo!75!black, dashed},
+  dom/.style     = {font=\small\bfseries, align=center, inner sep=1pt},
+}
+% nombre del estado y lo que vale en él
+\newcommand{\est}[2]{{\small\bfseries #1}\\[2pt]{\ttfamily #2}}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\def\xm{0}      % columna del maestro
+\def\xs{10.4}   % columna del esclavo
+\def\xd{5.2}    % el cruce de reloj
+
+\draw[black!55, dashed, line width=0.7pt] (\xd,1.45) -- (\xd,-11.0);
+\node[dom, anchor=south east] at (\xd-0.25,1.0) {lado maestro\\[-1pt]
+  {\normalfont\scriptsize\texttt{clk\_fpga\_0}: \texttt{axi4\_slave} + mitad del CDC}};
+\node[dom, anchor=south west] at (\xd+0.25,1.0) {lado esclavo\\[-1pt]
+  {\normalfont\scriptsize\texttt{adc\_clk}: mitad del CDC + esclavo}};
+
+% ======================================================= lado maestro ===
+\node[estado] (ml) at (\xm,0)    {\est{LIBRE}{rd\_do = wr\_do = 0\\ ctrl\_do = done\_csff[2]}};
+\node[breve]  (mp) at (\xm,-2.0) {\est{PEDIDO}{ren/wen = 1 (pulso)\\ ctrl\_do $\leftarrow$ !ctrl\_do\\ ctrl\_re/ctrl\_we $\leftarrow$ 1}};
+\node[estado] (me) at (\xm,-5.2) {\est{ESPERA}{ctrl\_do $\neq$ done\_csff[2]\\ ack\_cnt cuenta}};
+\node[breve]  (ma) at (\xm,-9.6) {\est{ACK}{ctrl\_ack = done\_csff[1] $\neq$ [2]\\ RVALID/BVALID $\leftarrow$ 1\\ rd\_do/wr\_do $\leftarrow$ 0}};
+\node[falla]  (mt) at (\xm-7.4,-5.2) {\est{TRABADO}{rd\_do = wr\_do = 0, pero\\ ctrl\_do $\neq$ done\_csff[2]:\\ el CDC no arranca otro}};
+
+\draw[trans] (ml) -- node[cond, right] {handshake de AR\\ (o de AW y W)} (mp);
+\draw[trans] (mp) -- node[cond, right, font=\scriptsize] {ciclo siguiente} (me);
+\draw[trans] (me) -- node[cond, right] {done\_csff[1] $\neq$ [2]} (ma);
+\path (me) edge[trans, loop right, looseness=4, min distance=7mm]
+  node[cond, right] {done\_csff[1]\\ = [2]} (me);
+\draw[trans] (ma.west) -- (\xm-2.55,0 |- ma.west) |-
+  node[cond, left, pos=0.3, align=right] {done\_csff[2]\\ alcanza\\ a ctrl\_do} (ml.west);
+
+% la red de seguridad de axi4_slave: libera al ARM, no al CDC
+\draw[roto, cruce] (me.west) -- node[cond, above, rojo!75!black] {ack\_cnt[5]}
+  node[cond, below, rojo!75!black, font=\scriptsize] {32 ciclos: ack\\ propio + SLVERR} (mt.east);
+\path (mt) edge[roto, loop above, looseness=4, min distance=7mm]
+  node[cond, above, rojo!75!black, font=\scriptsize] {otro pedido: vuelve a vencer} (mt);
+\draw[roto] (mt.south) |- node[cond, below, pos=0.75, rojo!75!black, font=\scriptsize]
+  {reg\_done llega tarde: el ack se lo lleva el pedido en curso} (\xm,-11.0) -- (ma.south);
+
+% ======================================================= lado esclavo ===
+\node[estado] (sr) at (\xs,0)     {\est{REPOSO}{reg\_do = reg\_done\\ sys\_ren/sys\_wen = 0}};
+\node[breve]  (sc) at (\xs,-3.0)  {\est{CAPTURA}{reg\_read/write\_synced = 1\\ sys\_addr, sys\_wdata $\leftarrow$ bus\\ reg\_read/reg\_write $\leftarrow$ 1}};
+\node[breve]  (sb) at (\xs,-4.95) {\est{ESTROBO}{sys\_ren/sys\_wen = 1\\ en\_sr[0] = 0\\ rd\_stb/wr\_stb = 1}};
+\node[estado] (se) at (\xs,-6.75) {\est{ESPERA}{en\_sr se llena\\ sys\_rdata $\leftarrow$ mux (registro)}};
+\node[breve]  (sa) at (\xs,-8.4)  {\est{ACK}{sys\_ack = 1\\ reg\_done $\leftarrow$ reg\_do\\ reg\_read/reg\_write $\leftarrow$ 0}};
+
+\path (sr) edge[trans, loop left, looseness=4, min distance=7mm]
+  node[cond, left] {reg\_do\\ = reg\_done} (sr);
+\draw[trans] (sr) -- node[cond, right] {reg\_do $\neq$ reg\_done} (sc);
+\draw[trans] (sc) -- node[cond, right, font=\scriptsize] {ciclo siguiente} (sb);
+\draw[trans] (sb) -- node[cond, right, font=\scriptsize] {ciclo siguiente} (se);
+\path (se) edge[trans, loop left, looseness=4, min distance=7mm]
+  node[cond, left] {en\_sr[3] = 0} (se);
+\draw[trans] (se) -- node[cond, right] {en\_sr[3] = 1} (sa);
+\draw[trans] (sa.east) -- (\xs+2.6,0 |- sa.east) |-
+  node[cond, right, pos=0.3, align=left] {sys\_ren/sys\_wen\\ = 0} (sr.east);
+
+% ======================================================= los dos toggles ===
+\draw[toggle] (mp.east) -- node[cond, above, sloped, azul!80!black] {ctrl\_do $\to$ 3 FF $\to$ reg\_do}
+  (sc.north west);
+\draw[toggle] (sa.west) -- node[cond, below, sloped, azul!80!black] {reg\_done $\to$ 2 FF $\to$ done\_csff[1]}
+  (ma.east);
+
+% ============================================================== leyenda ===
+\leyenda{-9.6,-12.0}{amarillo!45/dura un ciclo, white/dura lo que haga falta, rojo!20/no debería pasar}
+  {Flechas azules: los dos toggles que cruzan de reloj (el handshake de dos fases). \texttt{x/y}:
+   lectura/escritura. El tiempo corre hacia abajo.}
+
+\end{tikzpicture}
+\end{document}

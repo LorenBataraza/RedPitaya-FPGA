@@ -1,0 +1,162 @@
+% Panorama de mca_top: el analizador multicanal del slot 7, por etapas.
+% De la muestra acondicionada al histograma, con cada DECISIÓN marcada con su
+% Dn: el mismo número de la vista general (docs/mca/vista_general_mca.md) y de
+% su figura de opciones (figuras/decisiones/dNN_*.tex).
+% Fuente: modulos/mca/rtl/mca_top.sv y los submódulos de mca_pulse_feature.
+% Misma paleta y estilo que docs/osc/figuras/panorama_rp_scope_com.tex.
+%
+% Compilar:   pdflatex panorama_mca_top.tex
+%             pdftocairo -svg panorama_mca_top.pdf panorama_mca_top.svg
+% Incluir:    \includegraphics[width=\textwidth]{panorama_mca_top.pdf}
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+\tikzset{
+  bloque/.append style = {text width=2.3cm},
+  modulo/.style  = {bloque=verde!55},
+  dm/.style      = {decision, minimum size=4.8mm, font=\tiny\bfseries},
+  banda/.style   = {anchor=west, font=\scriptsize\bfseries, black!60},
+}
+% marca de decisión pegada a la esquina de arriba a la izquierda de un nodo
+\newcommand{\dmark}[2]{\node[dm] at ($(#1.north west)+(0.05,-0.02)$) {#2};}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+% ================================================================ 1 · entrada
+\node[banda] at (-0.55,1.25) {1 · entrada};
+\node[datos, fill=azul!15, line width=0.5pt, text width=2.6cm] (sel) at (1.6,0)
+  {\etq{canal y decimación}{\texttt{cfg\_chan}, \texttt{cfg\_dec}\\ + registro de entrada}};
+\dmark{sel}{D1}
+\node[dm] at ($(sel.north east)+(-0.05,-0.02)$) {D2};
+
+% ========================================================= 2 · la ventana
+\node[banda] at (-0.55,-1.15) {2 · la ventana};
+
+% --- mca_baseline
+\node[modulo, param={verde!55}{verde!20}] (bas) at (1.6,-2.75)
+  {\blk{mca\_baseline}{}\nodepart{two}IIR o base fija,\\ congelada en el pulso};
+\dmark{bas}{D3}
+
+% --- mca_window: el núcleo
+\node[etapa] (ape) at (4.6,-2.6) {\etq{apertura}{Schmitt interno\\ o \texttt{trig\_i}}};
+\dmark{ape}{D4}
+\node[etapa] (cie) at (7.7,-2.6) {\etq{cierre}{histéresis o\\ compuertas fijas}};
+\dmark{cie}{D5}
+\node[etapa] (rea) at (4.6,-4.35) {\etq{re-armado}{por nivel o\\ por contador}};
+\dmark{rea}{D6}
+\node[etapa] (acu) at (7.7,-4.35) {\etq{acumuladores}{pico, $Q_\mathrm{tot}$, $Q_\mathrm{cola}$, largo,\\ $t_\mathrm{sub}$ + ventana de amplitud}};
+\dmark{acu}{D7}
+\node[grupo, fit={(3.2,-1.75) (9.2,-5.15)}] (gw) {};
+\node[rotulo, anchor=north east] at (gw.north east) {\texttt{mca\_window}};
+
+% --- mca_publish
+\node[etapa] (fifo) at (7.7,-6.35) {\etq{FIFO + árbitro}{\texttt{PUB\_K} lugares,\\ id de ventana}};
+\dmark{fifo}{D8}
+\node[modulo, param={verde!55}{verde!20}] (div) at (4.6,-6.35)
+  {\blk{mca\_div\_restore {\normalfont$\times$} 2}{}
+   \nodepart{two}$Q_\mathrm{cola}/Q_\mathrm{tot}$, pico$/Q_\mathrm{tot}$};
+\node[grupo, fit={(3.2,-5.5) (9.2,-7.2)}] (gp) {};
+\node[rotulo, anchor=south east] at (gp.south east) {\texttt{mca\_publish}};
+
+\node[contenedor, draw=black!55, line width=0.7pt, fit={(0.05,-1.4) (9.55,-7.55)}] (pf) {};
+\node[rotulo, anchor=south west] at (pf.south west)
+  {\texttt{mca\_pulse\_feature}\; (solo cableado)};
+
+% ================================================== 3 · del evento al bin
+\node[banda] at (-0.55,-8.25) {3 · del evento al bin};
+\node[modulo, param={verde!55}{verde!20}] (dis) at (1.6,-10.3)
+  {\blk{mca\_discriminator}{}\nodepart{two}acepta o rechaza\\ por una feature};
+\dmark{dis}{D10}
+\node[etapa] (mux) at (4.6,-10.3) {\etq{mux de eje}{16:1 $\times$ 3\\ (\texttt{cfg\_sel\_*})}};
+\dmark{mux}{D9}
+\node[modulo, param={verde!55}{verde!20}, double copy shadow={shadow xshift=2pt, shadow yshift=-2pt}] (zoo) at (7.7,-10.3)
+  {\blk{mca\_zoom {\normalfont$\times$} 3}{}\nodepart{two}feature $\to$ bin,\\ ventana $2^{-z}$};
+\dmark{zoo}{D11}
+
+% ======================================================= 4 · histogramas
+\node[banda] at (-0.55,-11.75) {4 · histogramas};
+\node[etapa, text width=1.6cm, minimum height=0.8cm] (pip) at (4.6,-12.6) {\etq{registro}{de pipeline}};
+\node[modulo, param={verde!55}{verde!20}] (h1) at (7.7,-12.6)
+  {\blk{mca\_hist}{\prm{AW=H\_AW}}\nodepart{two}espectro 1D\\ (8192 canales)};
+\dmark{h1}{D12}
+\node[modulo, param={verde!55}{verde!20}] (h2) at (7.7,-14.5)
+  {\blk{mca\_hist}{\prm{AW=H2\_AW+PSD\_AW}}\nodepart{two}mapa 2D\\ amplitud $\times$ forma};
+
+% ========================================= contabilidad, registros y bus
+\node[etapa, text width=2.6cm] (rel) at (12.5,-2.75)
+  {\etq{contabilidad}{relojes: real, vivo, veto,\\ $t_\mathrm{win}$, $t_\mathrm{div}$, $t_\mathrm{rearm}$ (64 b)\\
+   período muerto: cuenta,\\ máximo, extendidos}};
+\node[comp, text width=2.6cm, minimum height=5.2cm] (reg) at (12.5,-10.6)
+  {\etq{banco de registros}{\texttt{cfg\_*}\\[2pt] contadores 64 b\\ con sombra\\[2pt] mux de lectura\\[2pt] ack de latencia fija}};
+\node[bus, text width=1.8cm] (s7) at (12.5,-15.0) {\texttt{\bfseries sys\_bus}};
+
+% ============================================================ caja mca_top
+\node[contenedor, fit={(-0.65,1.65) (14.25,-15.6)}] (top) {};
+\node[titulo] at (top.north west -| 5.45,0)
+  {\texttt{\bfseries mca\_top}\;\; {\scriptsize\itshape todo en \texttt{adc\_clk}}\\[1pt]
+   \prm{DW=14 & H\_AW=13 & H2\_AW=7 & PSD\_AW=6\\
+        AMP\_W=16 & QW=32 & DIV\_W=16 & PUB\_K=2}};
+
+% ============================================================== flechas ====
+% --- entradas (desde rp_scope_mt_com y el multitrigger) ---
+\draw[flujo] (sel.north |- 0,2.6) node[above, sen, align=center]
+  {mca\_dat\_i, mca\_val\_i\\[-1pt]\normalfont\scriptsize 2 canales, 125\,MSPS} -- (sel.north);
+\draw[flujo] (4.2,2.6) node[above, sen] {veto\_i} -- (4.2,0 |- ape.north);
+\draw[flujo] (5.0,2.6) node[above, sen, xshift=4mm] {trig\_i} -- (5.0,0 |- ape.north);
+\draw[flujo] (rel.north |- 0,2.6) node[above, sen] {veto\_i} -- (rel.north);
+
+% --- la ventana ---
+\draw[flujo] (sel.south) -- node[sen, right] {dat\_q} (bas.north);
+\draw[flujo] (bas.east |- ape.west) -- node[sen, above] {base} (ape.west);
+\draw[flujo] (ape.east) -- (cie.west);
+\draw[ctrl]  (rea.north) -- node[sen, right, black] {armed} (ape.south);
+\draw[flujo] (cie.south) -- node[sen, right] {cierre} (acu.north);
+\draw[flujo] (acu.south) -- node[sen, right] {acepta} (fifo.north);
+\draw[flujo] (fifo.west) -- (div.east);
+
+% --- bus de features ---
+\coordinate (bj) at (4.6,-8.55);
+\draw[line width=0.8pt] (div.south) -- (bj);
+\draw[line width=2.2pt] (1.6,-8.55) -- (4.6,-8.55);
+\punto{bj}
+\draw[flujo] (1.6,-8.55) -- (dis.north);
+\draw[flujo] (4.6,-8.55) -- (mux.north);
+\node[sen, anchor=south west, align=left] at (4.7,-8.55)
+  {ev\_valid, ev\_feat\\[-1pt]\normalfont\scriptsize 16 features $\times$ 16 b};
+
+% --- del evento al bin, y a los motores ---
+\draw[flujo] (mux.east) -- node[sen, above] {f\_eje} (zoo.west);
+\draw[flujo] (zoo.south) -- ++(0,-0.45) -| node[sen, left, pos=0.75] {bin, x, y} (pip.north);
+\draw[flujo] (dis.south) |- node[sen, below, pos=0.75] {acepta} (pip.west);
+\draw[flujo] (pip.east) -- (h1.west);
+\draw[flujo] ($(pip.east)+(0.35,0)$) |- (h2.west);
+
+% --- contabilidad, contadores y configuración ---
+\draw[flujo] (pf.east |- rel.west) -- node[sen, above] {dt\_*} (rel.west);
+\draw[flujo] (rel.south) -- node[sen, right] {tiempos} (reg.north);
+\draw[flujo] (pf.east |- 0,-4.35) -- (10.7,-4.35) |- node[sen, right, pos=0.25] {contadores}
+  ([yshift=2.1cm]reg.west);
+\draw[ctrl] ([yshift=1.5cm]reg.west) -| (10.1,-6.4) -- (pf.east |- 0,-6.4);
+\node[sen, black!80, anchor=west] at (10.15,-7.0) {cfg\_*};
+\draw[flujo] (h1.east) -- node[sen, above] {rd\_data} (h1.east -| reg.west);
+\draw[flujo] (h2.east) -- ++(0.6,0) |- node[sen, above, pos=0.75] {rd\_data} ([yshift=-2.25cm]reg.west);
+
+% --- bus del sistema ---
+\draw[<->, line width=0.8pt] (reg.south) -- (s7.north);
+\draw[<->, line width=0.8pt] (s7.east) -- ++(1.4,0) node[right, sen, align=left]
+  {M\_AXI\_GP0\\[-1pt]\normalfont\scriptsize$\leftrightarrow$ ARM};
+
+% ================================================================= leyenda ===
+\leyenda{-0.6,-16.4}{azul!35/acondicionamiento, verde!55/submódulo del MCA,
+  verde!20/lógica dentro del módulo, grisr/registros, rojo!45/bus del sistema}
+  {Nombre en monoespaciada: submódulo con archivo propio; en romana: lógica escrita
+   en el módulo que lo contiene. \textbf{Dn}: decisión configurable por registro;
+   cada una tiene su figura de opciones en \texttt{figuras/decisiones/}. \notaparam}
+
+\end{tikzpicture}
+\end{document}

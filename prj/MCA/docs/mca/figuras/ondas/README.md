@@ -4,13 +4,13 @@ Cinco diagramas de tiempo. Cuatro salen de los VCD de
 `tb_mca_pulse_feature`, `tb_mca_hist` y `tb_mca_top`; el quinto es un esquema
 de la secuencia de uso.
 
-| Figura | Qué muestra | Datos | Origen |
-|---|---|---|---|
-| [`mca_pulso_vida.svg`](mca_pulso_vida.svg) | cruce de umbral, ventana, carga acumulada y evento | simulación | `tb_mca_pulse_feature`, escena 1 (pulso rectangular) |
-| [`mca_apilamiento.svg`](mca_apilamiento.svg) | la ventana llega a maxlen: el pulso se cuenta pero NO se acepta | simulación | `tb_mca_pulse_feature`, escena 5 (apilamiento) |
-| [`mca_hist_rmw.svg`](mca_hist_rmw.svg) | la cuenta no se pierde aunque los eventos lleguen pegados | simulación | `tb_mca_hist`, escena 3 (forwarding) |
-| [`mca_ack_borrado.svg`](mca_ack_borrado.svg) | el barrido de borrado dura miles de ciclos y el bus no se entera | simulación | `tb_mca_top`, escena 5 (lectura durante el borrado) |
-| [`mca_flujo.svg`](mca_flujo.svg) | mca_top | esquema | esquema (sin VCD) |
+| Figura | Archivo | Qué muestra | Datos | Origen |
+|---|---|---|---|---|
+| Vida de un pulso en el MCA | [`mca_pulso_vida.svg`](mca_pulso_vida.svg) | cruce de umbral, ventana, carga acumulada y evento | simulación | `tb_mca_pulse_feature`, escena 1 (pulso rectangular) |
+| Apilamiento de pulsos | [`mca_apilamiento.svg`](mca_apilamiento.svg) | la ventana llega a maxlen: el pulso se cuenta pero NO se acepta | simulación | `tb_mca_pulse_feature`, escena 5 (apilamiento) |
+| Lectura-modificación-escritura del histograma | [`mca_hist_rmw.svg`](mca_hist_rmw.svg) | la cuenta no se pierde aunque los eventos lleguen pegados | simulación | `tb_mca_hist`, escena 3 (forwarding) |
+| Borrado del histograma sin bloquear el bus | [`mca_ack_borrado.svg`](mca_ack_borrado.svg) | el barrido de borrado dura miles de ciclos y el bus no se entera | simulación | `tb_mca_top`, escena 5 (lectura durante el borrado) |
+| Flujo de uso del MCA | [`mca_flujo.svg`](mca_flujo.svg) | mca_top | esquema | esquema (sin VCD) |
 
 Los epígrafes —con los números medidos— están en
 [`epigrafes.txt`](epigrafes.txt), que escribe el mismo script para que no

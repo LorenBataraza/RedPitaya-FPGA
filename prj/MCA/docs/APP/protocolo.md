@@ -278,10 +278,10 @@ la red**. Del lado del servidor rompe el lazo de atención sin contestar.
 
 Política del cliente, que son dos y conviene no confundirlas:
 
-| qué pasó | qué hace el cliente |
-|---|---|
-| `OSError` (el transporte se murió) | **tira la conexión**: para los temporizadores y cierra el socket |
-| cualquier otra, incluidas `RemoteError` y `ProtocolError` | la reporta en la pestaña de mensajes y **sigue poleando** |
+| qué pasó                                                  | qué hace el cliente                                              |
+| --------------------------------------------------------- | ---------------------------------------------------------------- |
+| `OSError` (el transporte se murió)                        | **tira la conexión**: para los temporizadores y cierra el socket |
+| cualquier otra, incluidas `RemoteError` y `ProtocolError` | la reporta en la pestaña de mensajes y **sigue poleando**        |
 
 La distinción importa: un `RemoteError` por un `tail_dly` inválido no debe
 cortar una medición de media hora.

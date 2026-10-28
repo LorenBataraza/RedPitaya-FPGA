@@ -1,0 +1,83 @@
+% Lo que la API lee del filesystem para llegar al hardware, en el orden en que
+% lo lee: la recarga de la PL. Cada paso lleva a la derecha la ruta que toca.
+% El recuadro punteado es load_bitstream(); el primer y el último paso los hace
+% quien llama (Osciloscope.reload_bitstream(), el servidor). Las tres
+% preguntas cortan con RuntimeError y los mapeos no se reabren.
+% Fuentes: software/API/fpga.py (load_bitstream, pl_bus_ready, pl_probe),
+% software/API/osciloscope.py (reload_bitstream). El texto que acompaña está en
+% docs/API/arquitectura_software.md §3. Estilo: docs/figuras/estilo_tikz.tex.
+%
+% Compilar:   pdflatex secuencia_bitstream.tex
+%             pdftocairo -svg secuencia_bitstream.pdf secuencia_bitstream.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{
+  paso/.style     = {bloque=white, text width=3.9cm, minimum height=0.75cm},
+  pregunta/.style = {paso, fill=amarillo!60},
+  borde/.style    = {paso, fill=azul!30},
+  error/.style    = {bloque=rojo!25, text width=2.2cm, minimum height=0.9cm},
+  ruta/.style     = {anchor=west, font=\scriptsize\ttfamily, inner sep=1pt, align=left},
+  enlace/.style   = {densely dotted, black!45, line width=0.5pt},
+  no/.style       = {font=\scriptsize\itshape, inner sep=1pt},
+}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\def\xr{3.0}   % columna de las rutas
+
+\node[borde]    (s0) at (0,0)     {cerrar los mmap};
+\node[pregunta] (s1) at (0,-1.45) {¿el bitstream es para este Zynq?};
+\node[paso]     (s2) at (0,-2.5)  {bajar los puentes AXI};
+\node[paso]     (s3) at (0,-3.55) {programar la PL};
+\node[paso]     (s4) at (0,-4.6)  {subir los puentes AXI};
+\node[pregunta] (s5) at (0,-5.65) {¿la PL quedó \texttt{operating}?};
+\node[pregunta] (s6) at (0,-6.7)  {¿contesta el bus?\\[-1pt]{\scriptsize sondea hasta 8 s}};
+\node[borde]    (s7) at (0,-8.15) {reabrir los mmap};
+
+\foreach \a/\b in {s0/s1, s1/s2, s2/s3, s3/s4, s4/s5, s5/s6, s6/s7}
+  \draw[flujo] (\a) -- (\b);
+
+% lo que hace load_bitstream(); el resto, quien llama
+\node[grupo, fit={(-2.35,-0.95) (2.35,-7.35)}] (lb) {};
+\node[rotulo, anchor=south east] at (lb.north east) {\texttt{load\_bitstream()}};
+
+% ---------------------------------------------- la ruta que toca cada paso
+\foreach \s/\t in {
+    s0/{/dev/mem},
+    s1/{monitor -f \textrm{→} /sys/bus/i2c/devices/0-0050/eeprom},
+    s2/{/sys/class/fpga\_bridge/*/enable \textrm{←} 0},
+    s3/{fpgautil -b /root/*.bit.bin},
+    s4/{/sys/class/fpga\_bridge/*/enable \textrm{←} 1},
+    s5/{/sys/class/fpga\_manager/fpga0/state},
+    s7/{/dev/mem + mmap}} {
+  \draw[enlace] (\s.east) -- (\xr,0 |- \s.east);
+  \node[ruta] at (\xr,0 |- \s.east) {\t};
+}
+
+% el sondeo corre en otro proceso: si el bus no contesta, muere el hijo
+\node[bloque=grisr, text width=2.5cm, minimum height=0.9cm] (hijo) at (5.4,-6.7)
+  {\etq{proceso hijo}{lee \texttt{0x4010\_0014}\\ por \texttt{/dev/mem}}};
+\draw[flujo] ([yshift=5pt]s6.east) -- node[sen, above] {subprocess} ([yshift=5pt]hijo.west);
+\draw[flujo] ([yshift=-5pt]hijo.west) -- node[sen, below] {returncode} ([yshift=-5pt]s6.east);
+
+% ----------------------------------------------------- las tres salidas
+\node[error] (err) at (-4.8,-4.07) {\etq{no se reabren los mmap}{\texttt{RuntimeError}}};
+\foreach \s in {s1, s5, s6}
+  \draw[line width=0.8pt, rojo!80!black] (\s.west) -- node[no, above, pos=0.72] {no} (-3.2,0 |- \s.west);
+\draw[line width=0.8pt, rojo!80!black] (-3.2,-1.45) -- (-3.2,-6.7);
+\draw[flujo, rojo!80!black] (-3.2,-4.07) -- (err.east);
+\punto{-3.2,-4.07}
+
+% ============================================================== leyenda ===
+\leyenda{-5.4,-9.05}{azul!30/lo hace quien llama, amarillo!60/pregunta, rojo!25/aborta}
+  {A la derecha de cada paso, la ruta del filesystem que toca.}
+
+\end{tikzpicture}
+\end{document}

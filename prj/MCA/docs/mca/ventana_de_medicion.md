@@ -78,6 +78,13 @@ en el eje `Pico/Q_total`. Es lo que hace que el corte de forma funcione —conti
 sobre el fotopico de 32.4 % a 0.8 %— y es la razón por la que, a tasa alta, el
 modo 0 **gana** ([`apilamiento.md`](apilamiento.md) §3).
 
+> Que la ventana se estire en vez de reiniciarse es, en el lenguaje de tiempo
+> muerto, **paralizable**: el largo del período muerto deja de ser un número y
+> pasa a ser una distribución que se ensancha con la tasa. A 100 kcps el
+> período muerto medio del MCA es 1.36 veces la ventana de un pulso solo. Las
+> curvas están en [`tiempo_muerto.md`](tiempo_muerto.md) §"El largo de la
+> ventana muerta".
+
 En contra: el cruce de bajada cae en la parte más chata del pulso, así que el
 largo lo termina decidiendo el ruido. Es la sección 4.
 
@@ -297,7 +304,9 @@ Cambiar de modo de ventana no es una corrección de walk.
 3. **CFD, discriminador de fracción constante.** Dispara cuando la señal llega a
    una fracción fija de su propia amplitud, así que el instante es independiente
    de `A` por construcción. Es la solución correcta y la que no existe hoy en el
-   RTL; cuesta una línea de retardo y un comparador de cruce por cero.
+   RTL; cuesta una línea de retardo y un comparador de cruce por cero. Cuánto
+   gana, y por qué en el event ring se puede hacer en software sobre las
+   muestras ya capturadas: [`timestamp_cfd.md`](timestamp_cfd.md).
 
 ### Cómo se mide
 

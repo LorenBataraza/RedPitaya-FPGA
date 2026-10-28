@@ -1,0 +1,53 @@
+Epigrafes de las figuras de transacciones de multitrigger. Los genera
+transacciones_mt.py; no editar a mano.
+
+-------------------------------------------------------------------------------
+mt_a_disparos.png
+-------------------------------------------------------------------------------
+Que entra al modulo. El generador entrega un pulso cada 500 us y todos cruzan
+el umbral: como candidatos son todos validos. Lo que decide cuales se capturan
+no es el escudo sino el lazo: una captura congela la ventana y el hardware no
+acepta otra hasta que el PS la leyo y re-armo. La banda naranja es ese tiempo
+muerto, y las cruces rojas son los pulsos que cayeron adentro. A esta tasa
+entra uno de cada 2.
+
+-------------------------------------------------------------------------------
+mt_b_camino.png
+-------------------------------------------------------------------------------
+Que viaja. Un candidato pasa por el enmascarado --32 fuentes OR-eadas en
+`trig_src`--, por el escudo --que lo veta si otro canal esta en su ventana de
+holdoff-- y recien ahi congela la ventana. Lo que NO se ve en un cronograma y
+si en esta figura es el lazo del final: la ventana no se libera sola, la
+libera el PS al leerla. Es un esquema de la estructura; los cronogramas ciclo
+a ciclo del veto y del holdoff estan en `docs/mt/figuras/ondas/`.
+
+-------------------------------------------------------------------------------
+mt_c_eficiencia.png
+-------------------------------------------------------------------------------
+Que sale, y por que. Para cada par de capturas consecutivas se calcula k = dt
+/ T, cuantos periodos del generador pasaron. El histograma de abajo muestra
+que k es un ENTERO --la mediana de |dt/T - k| es 0.0310, o sea que las
+capturas caen sobre el tren del generador y no en cualquier lado--: el lazo no
+pierde una fraccion de los pulsos, pierde periodos completos, porque cuando
+termina de leer espera al proximo pulso. A 2000 Hz el 98 % de las capturas
+tienen k = 2; a 8000 Hz la distribucion se parte entre k = 5 y k = 6, que es
+lo que da el <k> = 5.46 no entero. De ahi sale la curva de arriba: la
+eficiencia es 1/<k>, y coincide con la que el barrido habia guardado por su
+cuenta con un error maximo de 0.0002. No es una curva ajustada, es el
+reciproco de un contador. Medido: 500 Hz: 99.4 % 1000 Hz: 97.8 % 2000 Hz: 49.1
+% 4000 Hz: 32.5 % 8000 Hz: 18.3 %. OJO: este tiempo muerto es del lazo de
+lectura K=1 por GP0, no del escudo; es exactamente el cuello que el
+`event_ring` viene a sacar.
+
+-------------------------------------------------------------------------------
+mt_transaccion.png
+-------------------------------------------------------------------------------
+Las tres preguntas en una imagen: que entra, que viaja y que sale.
+
+-------------------------------------------------------------------------------
+PROCEDENCIA Y AUTOVALIDACION. Los tiempos de llegada salen del barrido de tasa
+de la campana e2e (`software/datos/e2e_20260528_013404`), recortados a los
+`t_ns` en `datos_barrido.npz`. La figura no usa la columna `efficiency` que el
+barrido guardo: la RECALCULA como 1/<k> desde los tiempos de llegada y despues
+compara. Las dos coinciden con un error maximo de 0.0002, asi que si alguna de
+las dos estuviera mal la figura lo mostraria en vez de taparlo.

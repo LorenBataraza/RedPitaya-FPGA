@@ -1,0 +1,148 @@
+Epígrafes de las figuras del disparo por pendiente (mt_slope_trig). Los
+escribe figuras_pendiente.py; no editar a mano. Documento:
+docs/mt/procesamiento_pendiente.md.
+
+-------------------------------------------------------------------------------
+01_respuesta_impulsiva.png
+-------------------------------------------------------------------------------
+(a) Respuesta impulsiva del trapezoidal rápido con L=4, G=3: L coeficientes
++1, G ceros y L coeficientes −1. Es todo el filtro: s[n] es la suma de x
+pesada con esta ventana. Los coeficientes suman cero, y eso es lo que hace que
+una continua dé s = 0.
+
+(b) Módulo de la respuesta en frecuencia, normalizado por L (la ganancia para
+un escalón). Todas las configuraciones tienen un cero en f = 0: el filtro es
+un PASABANDA, no un pasabajos. L corre el pico hacia frecuencias más bajas y
+lo hace más angosto (menos ruido), G desplaza el lóbulo. L=1, G=3 es la
+diferencia de 4 muestras, x[n]−x[n−4]: deja pasar casi todo el ruido de alta
+frecuencia, y por eso el trapezoidal promedia L muestras de cada lado.
+
+-------------------------------------------------------------------------------
+02_superposicion_escalon.png
+-------------------------------------------------------------------------------
+El trapecio como superposición de copias del mismo pulso, el equivalente
+digital de los esquemas de Knoll. L=4, G=3, escalón de alto 1.
+
+(a) El escalón x[n] y una copia invertida y retardada L+G muestras.
+
+(b) Su suma d[n] = x[n] − x[n−(L+G)]: un pulso rectangular de L+G muestras. Ya
+rechaza la continua: lejos del escalón, x y su copia se cancelan.
+
+(c) L copias de ese rectángulo, cada una retardada una muestra más.
+
+(d) Apiladas, las L copias forman el trapecio: sube durante L muestras (va
+entrando una copia por muestra), se queda en L·A durante G+1 muestras (están
+todas) y baja durante L (van saliendo). La línea punteada es L·A. Los puntos
+negros son s[n] calculado por la recursión del RTL, y coinciden con la pila
+muestra a muestra (el script lo verifica). Es la misma cuenta que s[n] = Σ
+x[n−i] − Σ x[n−L−G−i], reordenada.
+
+-------------------------------------------------------------------------------
+03_recursion_rtl.png
+-------------------------------------------------------------------------------
+La misma síntesis vista como la hace el hardware, que no suma L copias sino
+que usa la forma recursiva s[n] = s[n−1] + (x[n] − x[n−L]) − (x[n−L−G] −
+x[n−2L−G]). L=4, G=3, escalón de alto 1.
+
+(a) Las cuatro copias del escalón que entran al sumador, con su signo: la
+entrada y las tres tomas de las líneas de retardo (x[n−L], x[n−L−G],
+x[n−2L−G]).
+
+(b) Su suma, el incremento d[n]: un rectángulo de +1 de L muestras, G muestras
+en cero y un rectángulo de −1 de L muestras. Es la derivada del trapecio.
+
+(c) El acumulador integra d[n] y devuelve el trapecio de la figura 02. La
+cantidad de operaciones no depende de L: son tres restas y un acumulador (más
+tres líneas de retardo, que sí crecen con L), contra 2L sumas de la forma
+directa. Y como todo es entero y la suma de d es exactamente cero, el
+acumulador vuelve a 0 sin deriva.
+
+-------------------------------------------------------------------------------
+04_bloques_rtl.png
+-------------------------------------------------------------------------------
+El datapath de mt_slope_trig. Arriba, las tres líneas de retardo en cascada
+(L, G y L muestras), que en el FPGA son SRL con una toma dinámica cada una:
+x_a = x[n−L], x_b = x[n−L−G], x_c = x[n−2L−G]. Cuando G = 0 la línea del medio
+se puentea (x_b = x_a).
+
+El primer Σ arma el incremento d[n] con los signos +, −, −, +; el segundo es
+el acumulador (Σ con z⁻¹ en el lazo), cuya salida es s[n]. A la derecha, el
+Schmitt simétrico: p dispara con s ≥ thr y n con s ≤ −thr, cada uno re-arma al
+volver más allá de thr−hyst.
+
+Lo que el esquema no muestra: el contador de llenado, que hace que una toma
+más vieja que el último re-arranque lea 0, y el registro entre cada etapa (5
+ciclos de pipeline en total).
+
+-------------------------------------------------------------------------------
+05_linea_base.png
+-------------------------------------------------------------------------------
+El mismo tren de tres pulsos (80, 130 y 400 cuentas, subida 20 ns, cola 1.14
+µs, ruido σ = 3) sobre dos líneas de base que difieren en 50 cuentas, una
+deriva exagerada para que se vea. Los círculos son los disparos que da cada
+esquema, calculados con el Schmitt del RTL (llenos para la base 0, huecos para
+la base −50).
+
+(a) Disparo de nivel, umbral 100 cuentas (punteada). Con la base en 0 dispara
+en 130 y 400; con la base en −50, el de 130 queda en 80 y se pierde. El umbral
+es absoluto, así que el umbral EFECTIVO sobre la amplitud del pulso se corrió
+50 cuentas.
+
+(b) Trapezoidal rápido, L=8, G=4, umbral ±783 (elegido para que un pulso de
+100 cuentas llegue justo). Las dos curvas son la MISMA: la continua se cancela
+exactamente en enteros, y los disparos caen en las mismas muestras. El de 80
+no dispara en ninguna de las dos, el de 130 en las dos: el umbral efectivo
+queda en 100 cuentas sobre la base, esté donde esté. La única diferencia es el
+transitorio de t ≈ 0: el filtro arranca con historia en cero y ve la base de
+−50 como un escalón. Es el arranque silencioso del RTL: dura 2L+G muestras y
+no dispara.
+
+-------------------------------------------------------------------------------
+06_apilamiento.png
+-------------------------------------------------------------------------------
+Tres pulsos de 1000, 700 y 900 cuentas a 0.6 µs y 0.8 µs uno del otro (líneas
+verticales), con cola de 1.14 µs.
+
+(a) Disparo de nivel (umbral 100, re-arma bajo 60, rayada): dispara UNA vez.
+El segundo y el tercer pulso llegan con la señal todavía arriba del re-armado,
+y para el discriminador de nivel no existen.
+
+(b) Trapezoidal rápido: s responde a la SUBIDA de cada pulso, vuelve a bajar
+del re-armado (rayada) mientras la cola decae, y dispara tres veces. En la
+cola s es negativo y proporcional a la pendiente de la caída (L·(L+G)·A/τ):
+por eso el umbral del canal n tiene que estar por encima de lo que da la cola
+del pulso más grande.
+
+(c) Fracción de pares de pulsos iguales (1000 cuentas, fase y ruido al azar,
+40 pares por punto) en los que se ven los dos disparos, contra la separación.
+La pendiente separa pares a partir de unas 2L+G muestras (160 ns, punteada),
+que es lo que tarda s en volver a bajar del re-armado después del primer
+pulso; el nivel recién cuando la cola del primero bajó del re-armado,
+τ·ln(A/(thr−hyst)) ≈ 3.2 µs (rayada). Esta es la base de la inspección de
+apilamiento de los DPP.
+
+-------------------------------------------------------------------------------
+07_eleccion_L.png
+-------------------------------------------------------------------------------
+Cómo elegir L (con G = 4).
+
+(a) Ruido a la salida del filtro, relativo al de la entrada, para ruido blanco
+simulado (σ = 3 cuentas, 200 000 muestras). Los puntos caen sobre √(2L): s
+suma 2L muestras de ruido independientes.
+
+(b) Relación entre el pico de s para un pulso de 100 cuentas y el ruido de s,
+para dos tiempos de subida. Con una cola de 1.14 µs (unas 142 muestras) el
+pulso es un escalón para cualquier L de este rango: la señal crece como L y el
+ruido como √L, así que la relación crece como √L sin aplanarse. Una subida más
+lenta cuesta pico cuando L+G es comparable con la subida, y la diferencia se
+achica al crecer L.
+
+(c) El costo: muestras desde el arranque de un pulso de 200 cuentas hasta el
+disparo, con el umbral puesto en el pico de un pulso de 100 (o sea, el pulso
+es el doble del umbral). Crece con L, porque s tarda unas L muestras en llegar
+a su pico. No incluye los 5 ciclos (40 ns) de pipeline del RTL.
+
+-------------------------------------------------------------------------------
+Todas las curvas salen de modulos/mt/modelos/python_model/mt_slope_model.py,
+que hace la misma recursión que el RTL; el script verifica que coincide con la
+convolución directa antes de dibujar.

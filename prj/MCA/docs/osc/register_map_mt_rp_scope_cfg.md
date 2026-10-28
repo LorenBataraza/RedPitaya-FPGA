@@ -1,13 +1,13 @@
-# Mapa de registros — `multitrigger_rp_scope_cfg` (HISTÓRICO)
+# Mapa de registros — `mt_rp_scope_cfg` (HISTÓRICO)
 
 > **Este mapa quedó obsoleto con la separación en regiones.** El módulo
-> `multitrigger_rp_scope_cfg` se partió en dos esclavos con slot propio:
+> `mt_rp_scope_cfg` se partió en dos esclavos con slot propio:
 >
-> - **OSC** → slot 1 (`0x4010_0000`), [`osc_cfg.sv`](../../rtl/mine/osc/osc_cfg.sv)
-> - **MULTITRIGGER** → slot 3 (`0x4030_0000`), [`multitrigger_cfg.sv`](../../rtl/mine/multitrigger/multitrigger_cfg.sv)
+> - **OSC** → slot 1 (`0x4010_0000`), [`osc_cfg.sv`](../../modulos/osc/rtl/osc_cfg.sv)
+> - **MULTITRIGGER** → slot 3 (`0x4030_0000`), [`mt_cfg.sv`](../../modulos/mt/rtl/mt_cfg.sv)
 >
-> Los mapas vigentes son [`register_map_multitrigger.md`](register_map_multitrigger.md)
-> y [`../osc/register_map_osc.md`](../osc/register_map_osc.md); el mapa de slots
+> Los mapas vigentes son [`register_map_mt.md`](../mt/register_map_mt.md)
+> y [`../osc/register_map_osc.md`](register_map_osc.md); el mapa de slots
 > completo está en [`../TOP/register_map_top.md`](../TOP/register_map_top.md).
 >
 > Los offsets del OSC que se listan acá **siguen siendo válidos**: viven en la
@@ -20,7 +20,7 @@
 
 ---
 
-Módulo: [`prj/MCA/rtl/mine/multitrigger_rp_scope_cfg.sv`](../../rtl/mine/multitrigger/multitrigger_rp_scope_cfg.sv)
+Módulo: [`prj/MCA/rtl/mine/mt_rp_scope_cfg.sv`](../../modulos/osc/rtl/mt_rp_scope_cfg.sv)
 
 Da acceso a los registros y buffers internos del scope a través del *system
 bus* de la Pitaya. Las direcciones son `sys_addr[19:0]` (offset dentro del
@@ -28,7 +28,7 @@ bloque del scope), siempre *word-aligned* (múltiplos de 4).
 
 Base física del bloque: `0x4010_0000`, tamaño `0x30000` (ver
 [`API/osciloscope.py`](../../software/API/osciloscope.py) y
-[`API/multitrigger.py`](../../software/API/multitrigger.py) — referencia de la
+[`../../software/API/multitrigger.py`](../../software/API/multitrigger.py) — referencia de la
 API en [`docs/API/referencia_api.md`](../API/referencia_api.md). `SCOPE_PHYS` /
 `SCOPE_SIZE`).
 
@@ -157,7 +157,7 @@ decodifica por canal (`sys_dats`) depende de `indep_mode`.
   ch0..ch3 aunque `N_CH < 4`.
 - La máscara activa (8 b bajos) también se lee en `trg_state` @ `0x04`.
 
-Bits de la máscara (definidos en `multitrigger_trig_src.sv`, replicados en el
+Bits de la máscara (definidos en `mt_trig_src.sv`, replicados en el
 driver):
 
 | Bit | Símbolo | Bit | Símbolo |
@@ -171,6 +171,11 @@ driver):
 | 6 | `BIT_ADC_N2` | 15 | `BIT_TRIG_CH2` |
 | 7 | `BIT_ADC_P3` | 16 | `BIT_TRIG_CH3` |
 | 8 | `BIT_ADC_N3` |    |                |
+
+Los bits 17–24 (`BIT_SLOPE_*`, disparo por pendiente) existen en
+`mt_trig_src.sv`, pero se configuran solamente en la región propia del
+multitrigger: ver [`../mt/trigger_pendiente.md`](../mt/trigger_pendiente.md).
+Este mapa legacy sigue reportando un snapshot de 17 bits.
 
 ---
 
@@ -191,7 +196,7 @@ driver):
    `p0,n0,p1,n1,…`) y el decoder `_SNAP_NAMES` del snapshot @`0x218`
    (orden `p0,p1,p2,p3,n0,n1,…`) usan **órdenes de bit distintos**. Eso es
    correcto siempre que el empaquetado de `trig_snapshot_i` en
-   `multitrigger_trig_src.sv` use ese segundo orden — conviene verificarlo
+   `mt_trig_src.sv` use ese segundo orden — conviene verificarlo
    ahí, queda fuera de este módulo (`*_cfg` solo pasa los 17 b directos).
 2. El driver llega a `set_tresh` (`0x08`/`0x0C`) vía la API `rp`
    (`rp_AcqSetTriggerLevel`), no por escritura directa; el readback directo en
@@ -199,5 +204,5 @@ driver):
 
 ---
 
-*Generado a partir de la inspección de `multitrigger_rp_scope_cfg.sv`. Si se
+*Generado a partir de la inspección de `mt_rp_scope_cfg.sv`. Si se
 modifica el `casez` de readback o el bloque de writes, regenerar este mapa.*

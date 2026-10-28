@@ -1,0 +1,180 @@
+% La sesión de adquisición y lo que arma. Arriba, AcquisitionSession: recibe la
+% fuente y los annotators, deriva el esquema y el pool, y compone los dos hilos.
+% Al medio, el lector y el escritor pasándose EventBatch por las dos colas.
+% Abajo, los annotators (lo que se adjunta a cada evento sin definirlo) y lo
+% que queda en disco.
+% Fuentes: software/API/osciloscope_store/session.py, reader.py, storage.py,
+% events.py, annotators.py. El texto que acompaña está en
+% docs/API/arquitectura_software.md §2 y §4. Estilo: docs/figuras/estilo_tikz.tex
+% y clases_estilo.tex.
+%
+% Compilar:   pdflatex clases_sesion.tex
+%             pdftocairo -svg clases_sesion.pdf clases_sesion.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+\input{clases_estilo.tex}
+
+\begin{document}
+\catcode`\_=12
+\begin{tikzpicture}[fondo]
+
+% ================================================================ sesión ===
+\node[clase=6.0cm, anchor=north] (as) at (6.3,0) {
+  \clase{AcquisitionSession}{osciloscope_store/session.py · hilo principal}
+  \nodepart{two}
+  source · annotators · run_dir\\
+  capacity · n_batches · b_ev\\
+  free_q · full_q · stats\\
+  reader · writer\\
+  _prev_switch · _set_switch · _started · verbose
+  \nodepart{three}
+  __init__(source, run_dir, capacity, ram_budget_mb,\\
+  \hspace*{4.2em}annotators, compress, wave_dtype, meta, …)\\
+  start() · wait(duration_s, n_events) · stop()\\
+  __enter__() · __exit__()\\
+  describe(rate_hz) · summary() · _write_summary()
+};
+
+\node[modulo=3.6cm, anchor=north] (es) at (-0.5,0) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont EventSource \es{interfaz}}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont sources.py · osciloscope_ring.py}\\[3pt]
+  BramSource · RingSource\\
+  FakeSource
+};
+\draw[usa] (as.west |- es.east) -- (es.east) node[rol, midway, above] {source};
+
+\node[modulo=4.6cm, anchor=north] (fun) at (13.0,0) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont funciones del paquete}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont osciloscope_store/}\\[3pt]
+  merge_fields(source, annotators)\\
+  batches_for_budget(budget_mb, …)\\
+  bytes_per_event(n_ch, samples, …)\\
+  make_pool(n_batches, capacity, …)\\
+  scope_regs(sc) · load_chunk(path)
+};
+\draw[usa] (as.east |- fun.east) -- (fun.east -| fun.west);
+
+% ===================================================== hilos y el batch ===
+\node[hilo=4.4cm, anchor=north] (rt) at (-0.5,-4.7) {
+  \clase{ReaderThread(Thread)}{reader.py · hilo mca-reader}
+  \nodepart{two}
+  source · annotators\\
+  free_q · full_q · stats\\
+  poll_timeout_ns · stop_event · error
+  \nodepart{three}
+  run() · _loop() · stop()
+};
+
+\node[clase=5.0cm, anchor=north] (eb) at (6.3,-4.7) {
+  \clase{EventBatch}{osciloscope_store/events.py · preasignado}
+  \nodepart{two}
+  capacity · n_ch · samples · n · dropped\\
+  wave : [capacity, n_ch, samples]\\
+  scalars : \{nombre: [capacity]\}\\
+  field_names\\
+  t_ns · wp · snap · gap · …
+  \nodepart{three}
+  reset() · nbytes \es{prop}\\
+  payload(wave_dtype, wave_scale) -> dict
+};
+
+\node[hilo=4.6cm, anchor=north] (cw) at (13.0,-4.7) {
+  \clase{ChunkWriter(Thread)}{storage.py · hilo mca-writer}
+  \nodepart{two}
+  run_dir · free_q · full_q · stats\\
+  meta_base · compress\\
+  wave_dtype · wave_scale\\
+  min_free_mb · disk_check_every\\
+  index · error · disk_full
+  \nodepart{three}
+  run() · _loop() · _write(batch)
+};
+
+% la sesión compone los dos hilos y el pool
+\draw[compone] ([xshift=-2.2cm]as.south) -- ++(0,-0.45) -| ([xshift=0.9cm]rt.north)
+  node[rol, pos=0.25, above] {reader};
+\draw[compone] (as.south) -- (eb.north) node[rol, midway, right] {pool × n_batches};
+\draw[compone] ([xshift=2.2cm]as.south) -- ++(0,-0.45) -| (cw.north)
+  node[rol, pos=0.25, above] {writer};
+% el lector también llama a la fuente
+\draw[usa] ([xshift=-0.9cm]rt.north) -- ([xshift=-0.9cm]rt.north |- es.south);
+
+% las dos colas: el batch va y vuelve
+\draw[usa] ([yshift=0.25cm]rt.east |- eb.west) -- ([yshift=0.25cm]eb.west)
+  node[rol, midway, above] {free_q.get()};
+\draw[usa] ([yshift=-0.25cm]rt.east |- eb.west) -- ([yshift=-0.25cm]eb.west)
+  node[rol, midway, below] {full_q.put()};
+\draw[usa] ([yshift=0.25cm]cw.west |- eb.east) -- ([yshift=0.25cm]eb.east)
+  node[rol, midway, above] {full_q.get()};
+\draw[usa] ([yshift=-0.25cm]cw.west |- eb.east) -- ([yshift=-0.25cm]eb.east)
+  node[rol, midway, below] {free_q.put()};
+
+% ============================================================ annotators ===
+\node[clase=4.8cm, anchor=north] (an) at (6.3,-9.0) {
+  \clase{Annotator}{osciloscope_store/annotators.py}
+  \nodepart{two}
+  scalar_fields = ()
+  \nodepart{three}
+  start() · sample_into(batch, i)\\
+  stop() · meta()
+};
+\draw[usa] (rt.south) |- (an.west) node[rol, pos=0.75, above] {sample_into(batch, i)};
+
+\node[clase=4.0cm, anchor=north] (can) at (0.2,-11.6) {
+  \clase{ConstantAnnotator}{valores fijos por corrida}
+  \nodepart{two}
+  values\\
+  scalar_fields = (k, float64) …
+  \nodepart{three}
+  sample_into(batch, i) · meta()
+};
+\node[clase=5.0cm, anchor=north] (cac) at (6.3,-11.6) {
+  \clase{CachedAnnotator}{base de lo lento: GPS, posición}
+  \nodepart{two}
+  value_fields · interval_s · prefix\\
+  scalar_fields = value_fields\\
+  \hspace*{6.3em}+ <prefix>_age_ns\\
+  _names · _cache · _t_ns · _age_key\\
+  _lock · _stop · _thread
+  \nodepart{three}
+  poll() \es{la redefine la subclase} · _loop()\\
+  start() · stop() · meta()\\
+  sample_into(batch, i)
+};
+\node[clase=4.4cm, anchor=north] (dta) at (12.6,-11.6) {
+  \clase{DeadTimeAnnotator}{tiempo ocupado del lector}
+  \nodepart{two}
+  scalar_fields = (dead_ns,)\\
+  total_ns · n · _t0_ns
+  \nodepart{three}
+  start() · sample_into(batch, i)\\
+  busy_fraction() · meta()
+};
+\coordinate (ja) at ($(an.south)+(0,-0.5)$);
+\draw[rama] (can.north) |- (ja);
+\draw[rama] (dta.north) |- (ja);
+\draw[rama] (cac.north) -- (ja);
+\draw[hereda] (ja) -- (an.south);
+
+% ============================================================== en disco ===
+\node[modulo=4.6cm, anchor=north] (disco) at (13.0,-8.75) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont run_dir/}\\[3pt]
+  chunk_000000.npz · chunk_000001.npz · …\\
+  \hspace*{1em}<- ChunkWriter._write()\\
+  run_summary.json\\
+  \hspace*{1em}<- AcquisitionSession._write_summary()
+};
+\draw[usa] (cw.south) -- (disco.north);
+
+% ============================================================== leyenda ===
+\leyendac{-1.8,-15.0}{17.5cm}{azul!30/clase, naranja!70/{hilo (threading.Thread)}}
+  {Rombo: compone. Triángulo hueco: hereda. Flecha punteada: usa. Las dos colas
+   se pasan siempre los mismos \texttt{n\_batches} objetos.}
+
+\end{tikzpicture}
+\end{document}

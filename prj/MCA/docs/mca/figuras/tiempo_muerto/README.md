@@ -145,6 +145,87 @@ descongestiona.
 | [`07a_cronograma.png`](07a_cronograma.png) | **Cronograma de los dos relojes** sobre un caso concreto: lo que cuenta `feat_busy` contra lo que el sistema estuvo realmente bloqueado | FSM del RTL |
 | [`07b_deadtime_oculto.png`](07b_deadtime_oculto.png) | Cuánto difieren esos dos relojes contra la tasa, para `gate_long` = 384 y 1024 | FSM del RTL |
 
+---
+
+# Figura: por qué corregir la medición no alcanza
+
+La genera [`figuras_tiempo_muerto.py`](figuras_tiempo_muerto.py) junto con las
+demás teóricas. Responde a la objeción natural —"si conozco τ, invierto el
+modelo y listo"— mostrando los dos motivos por los que la inversión falla.
+
+| Figura | Qué muestra | Datos |
+|---|---|---|
+| [`08_amplificacion_correccion.png`](08_amplificacion_correccion.png) | Cuánto amplifica la corrección un error en la tasa medida **(a)** y un error en τ **(b)** | teórico |
+
+## El término de amplificación de error
+
+Conviene trabajar en las cantidades adimensionales `mτ` y `nτ`, donde la
+calibración es una única función sin parámetros libres. Toda la propagación
+queda gobernada por **un** número, el **término de amplificación de error**
+
+```
+E = dln(nτ)/dln(mτ)
+```
+
+que a τ fijo es `dln(n)/dln(m)`, o sea la pendiente de la curva de calibración
+en escala log-log. Los dos coeficientes salen de ahí, corridos en una unidad:
+
+```
+δn/n = E·δm/m + (E−1)·δτ/τ
+```
+
+| | no paralizable | paralizable |
+|---|---|---|
+| calibración | `nτ = mτ/(1−mτ)` | `nτ = −W(−mτ)` |
+| `E` (pesa `δm/m`) | `1/(1−mτ) = 1+ρ` | `1/(1−ρ)` |
+| `E−1` (pesa `δτ/τ`) | `ρ` | `ρ/(1−ρ)` |
+
+La diferencia entre columnas es el argumento entero: en el no paralizable `E`
+crece **linealmente** con ρ, y en el paralizable **diverge en ρ = 1**, porque
+ahí `dm/dn = 0` y la calibración se vuelve horizontal. A ρ = 0.9 un error del
+1 % en τ ya son 9 % en la tasa corregida — y ése es **sistemático**, así que no
+se achica midiendo más tiempo.
+
+**Cuidado con el signo** en la columna paralizable: para ρ > 1 el término es
+**negativo**, porque se está en la rama descendente y subir `mτ` *baja* `nτ`.
+La figura grafica `|E|`, así que el cruce por debajo de 1 cerca de ρ = 2 no es
+que la corrección mejore: es el signo dado vuelta.
+
+## A dónde va con ρ grande
+
+| | no paralizable | paralizable (ρ > 1) |
+|---|---|---|
+| `E` | `≈ ρ`, lineal | `1/(ρ−1)`, decrece **y cambia de signo** |
+| estadística para 1 % | `T ≈ 10⁴·ρ²·τ`, cuadrático | `T ≈ 10⁴·τ·e^ρ/[(ρ−1)²ρ]`, mínimo en `ρ = 2+√3 ≈ 3.73` y después exponencial |
+| piso sistemático | `ρ·δτ/τ`, **irreducible** | ídem, más la ambigüedad de rama |
+
+En el no paralizable siempre se compra precisión midiendo más tiempo; lo que no
+se compra es el término en τ, y ése fija la tasa máxima utilizable (con τ al
+1 %, mantener la corrección dentro del 10 % pide ρ ≲ 10). En el paralizable la
+caída de `|E|` pasado ρ = 1 es un espejismo: la tasa medida se desploma como
+`ρ·e^{−ρ}` y aun con estadística suficiente la medición no dice en qué rama se
+está. Los números los imprime `tabla()`.
+
+## Y la inversión no es única
+
+Dos lecturas que fallan por motivos distintos, con τ = 5.94 µs (el del MCA en
+modo 1). Los intervalos los imprime `tabla()`:
+
+| lectura | tasas incidentes compatibles | banda con ±2 % en `m` |
+|---|---|---|
+| `m` = 50.5 kcps (`mτ` = 0.30) | **82 kcps o 300 kcps** | ±3.9 % y ±2.6 % |
+| `m` = 60.9 kcps (`mτ` = 0.362) | 140 kcps o 200 kcps | **±15 % y ±13 %, y se tocan** |
+
+La primera es ambigüedad pura: las bandas son angostas pero hay **dos**
+soluciones separadas por un factor 3.7, y la medición no dice cuál. La segunda
+está cerca del máximo (`1/e` = 0.368): ahí `E` infla las bandas hasta que se
+**superponen**, y el resultado es "entre 127 y 218 kcps", sin poder siquiera
+decir de qué lado del pico se está. El no paralizable, en cambio, es monótono y
+se invierte sin ambigüedad.
+
+Esto salía como un tercer panel de la figura 08 y se sacó: el mensaje es
+numérico y la tabla lo dice mejor que el gráfico.
+
 ## Epígrafes
 
 **Figura 1.** Tasa registrada contra tasa incidente, ambas multiplicadas por el
@@ -301,3 +382,21 @@ contado **no es monótono**: pasa por un máximo —18 % cerca de 126 kcps con l
 compuerta de 384— y después baja hasta el 1 % a 800 kcps, cuando el bloqueo
 real es del 99,6 %. Un tiempo muerto informado que baja al subir la tasa es la
 firma de este efecto.
+
+**Figura 8.** El término de amplificación de error de la corrección por tiempo
+muerto, `E = dln(nτ)/dln(mτ)`, contra `ρ = nτ`. Es la pendiente de la curva de
+calibración en escala log-log, y los dos paneles son el mismo número corrido en
+una unidad. (a) `E`, el factor que pesa un error relativo en la tasa medida:
+`1+ρ` para el modelo no paralizable (naranja) y `1/|1−ρ|` para el paralizable
+(verde, punto-raya). La línea punteada horizontal marca la amplificación
+unitaria y la vertical, `ρ = 1`. La curva paralizable está cortada en el techo
+del eje: diverge en `ρ = 1`, donde `dm/dn = 0` y la calibración se vuelve
+horizontal. (b) `E−1`, el factor que pesa un error en el tiempo muerto: `ρ`
+contra `ρ/|1−ρ|`. Este término es **sistemático**, así que no se reduce
+prolongando la medición. Se grafica el **valor absoluto**: para `ρ > 1` el
+término paralizable es negativo, porque ahí se está en la rama descendente
+—más actividad da menos cuentas— y subir `mτ` baja `nτ`. Por eso que la curva
+verde caiga por debajo de 1 cerca de `ρ = 2` no es un alivio sino el signo dado
+vuelta. Pasado `ρ = 1` el problema deja de ser la precisión: la tasa medida se
+desploma como `ρ·e^{−ρ}` y la inversión admite **dos** soluciones, de modo que
+una estimación formalmente precisa no dice en qué rama está el sistema.

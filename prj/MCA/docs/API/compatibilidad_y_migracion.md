@@ -13,7 +13,7 @@ que editar sus imports.
 | Shim | Reexporta de | Líneas |
 |---|---|---|
 | [`mca_utils.py`](../../software/mca_utils.py) | `API.mca` + `API.analisis` | 42 |
-| [`multitrigger_utils.py`](../../software/multitrigger_utils.py) | `API.osciloscope` + `API.multitrigger` + `API.fpga` | 93 |
+| [`../../software/multitrigger_utils.py`](../../software/multitrigger_utils.py) | `API.osciloscope` + `API.multitrigger` + `API.fpga` | 93 |
 | [`rigol_dg4162.py`](../../software/rigol_dg4162.py) | `API.rigol_dg4162` | 29 |
 | [`mca/`](../../software/mca/) | `API.osciloscope_store` (paquete + 7 submódulos) | 127 |
 

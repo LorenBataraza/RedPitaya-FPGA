@@ -514,7 +514,7 @@ Con ancho y período de burst **fijos** y normalizando contra la medición a gap
 máximo, la fracción detectada da **1.00 en todos los gaps de 0.5 a 100 µs**: los
 dos pulsos del par se cuentan como dos incluso separados 500 ns. Es coherente con
 el tiempo muerto de §13.1 y con la resolución par-pulso del scope (~25 ns, ver
-[`testbenches_software_multitrigger.md`](multitrigger/testbenches_software_multitrigger.md)).
+[`testbenches_software_mt.md`](mt/testbenches_software_mt.md)).
 
 Por debajo de 9 µs aparecen eventos perdidos por extractor ocupado (~46 % de los
 que llegan) **sin que baje la fracción detectada**: son cruces de umbral extra
@@ -1496,6 +1496,13 @@ de 132 kHz (−159, −160, −162, −163) es consistente con una cola de unos 
 deriva.** §17.4 la había dejado «en suspenso» porque el corrimiento no parecía
 estar en la cadena digital. Sí lo está, es el undershoot, y la PZ existe
 exactamente para eliminarlo.
+
+> **Actualización (2026-10-23): solo en parte.** El undershoot se midió en
+> capturas crudas (η = 0.040, τ = 5.1 µs) y se propagó por la cadena con el
+> estímulo de esta campaña: explica el **47 % de la caída de base y el 29 % del
+> corrimiento de centroide** (+0.34 de +1.17 %). El resto no es lineal con la
+> tasa, así que una PZ no lo cancela. Ver [`mca/polo_cero.md`](mca/polo_cero.md),
+> que propone el experimento que lo decide con `bl_holdoff`, sin tocar el RTL.
 
 ## 19.4 La histéresis NO es el seguidor de base — mi hipótesis, refutada
 

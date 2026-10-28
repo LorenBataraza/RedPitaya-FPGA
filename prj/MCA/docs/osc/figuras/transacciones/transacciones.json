@@ -1,0 +1,26 @@
+[
+  {
+    "archivo": "osc_a_impulso.png",
+    "titulo": "LO QUE ENTRA: UN IMPULSO",
+    "origen": "`tb_osc_filter`, VCD completo",
+    "nota": "Que entra. Una muestra de 4000 cuentas y el resto cero. Para un filtro lineal invariante eso no es un caso mas: la respuesta al impulso LO DESCRIBE ENTERO, asi que las dos curvas del panel (c) son la caracterizacion completa del bloque con cada juego de coeficientes. El flujo es de una muestra por ciclo de adc_clk (8 ns) y no hay handshake que lo pueda frenar: el `tready` existe en los puertos pero el dato llega igual, asi que lo que el bloque hace tiene que hacerlo en un ciclo."
+  },
+  {
+    "archivo": "osc_b_cadena.png",
+    "titulo": "EL BLOQUE, Y EL MODELO QUE CORRE AL LADO",
+    "origen": "`osc_filter.v` y `sim/osc_filter_ref.v`",
+    "nota": "Que viaja. El bloque es una compensacion polo-cero, dos IIR de primer orden y una etapa de escalado, con cuatro coeficientes configurables. Lo que esta figura agrega a un diagrama de bloques es el segundo camino: el testbench instancia AL LADO del DUT una copia congelada del filtro anterior al rediseno (`osc_filter_ref.v`) y le da el mismo flujo. No se comparan resumenes ni metricas: se comparan las dos salidas muestra por muestra."
+  },
+  {
+    "archivo": "osc_c_respuesta.png",
+    "titulo": "LO QUE SALE: EL MISMO IMPULSO, DOS FILTROS",
+    "origen": "`tb_osc_filter`, escenas de coeficientes de reset y polo-cero",
+    "nota": "Que sale, y es donde esta todo. Con los coeficientes de RESET la cadena queda transparente: el impulso de 4000 sale como una sola muestra de 3999 --o sea ganancia 0.99975, el error de redondeo de kk = 2^24-1 en vez de 2^24-- 8 ciclos despues. Con la compensacion POLO-CERO el mismo impulso sale como una exponencial que arranca en 3943 y tarda 99 ciclos en caer al 1 %: el filtro no recorta la cola, la FABRICA, porque esta pensado para cancelar la del detector --un cero donde el preamplificador pone su polo--. La latencia es la misma en los dos casos, 8 ciclos, porque el pipeline no depende de los coeficientes: lo MEDIDO es 8 y 8. Lo que si cambia es que con polo-cero el pico viene precedido por un precursor de hasta 118 cuentas que arranca 4 ciclos antes --el camino directo, que llega antes que las dos IIR--; es chico pero existe, y medir la latencia por la primera muestra no nula en vez de por el pico lo contaria como si la respuesta empezara ahi. Los circulos son `ref_out`: la salida del modelo congelado coincide con la del DUT en 460 de los 460 ciclos dibujados, o sea TODOS. Esa coincidencia es el contenido de la figura."
+  },
+  {
+    "archivo": "osc_transaccion.png",
+    "titulo": "LA TRANSACCION COMPLETA",
+    "origen": "las tres anteriores, en una figura",
+    "nota": "Las tres preguntas en una imagen: que entra, que viaja y que sale."
+  }
+]

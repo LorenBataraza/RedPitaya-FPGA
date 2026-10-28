@@ -175,3 +175,5 @@ modulación de amplitud.
 - El **método** de cada test: [`testbenches_software_mca.md`](../testbenches_software_mca.md)
 - Los **registros**: [`register_map_mca.md`](../register_map_mca.md)
 - Los **límites** de resolución y la deriva: [`limites_resolucion_y_deriva.md`](../limites_resolucion_y_deriva.md) — su figura la genera [`figuras_limites.py`](figuras_limites.py)
+- El **panorama de `mca_top`** (de la muestra al histograma, por etapas y con cada decisión marcada **Dn**): [`panorama_mca_top.tex`](panorama_mca_top.tex), en TikZ con la paleta de los demás panoramas — `pdflatex` da el `.pdf` de la tesis y `pdftocairo -svg` el `.svg` de los documentos
+- Las **figuras de opciones** de cada decisión D1–D12 (las alternativas, el mux y el registro que elige): [`decisiones/`](decisiones/), una `.tex` por decisión con el mismo estilo y el macro `\muxdec` de [`estilo_tikz.tex`](../../figuras/estilo_tikz.tex). Las usa [`vista_general_mca.md`](../vista_general_mca.md). Para regenerarlas: `for f in decisiones/d*.tex; do (cd decisiones && pdflatex $(basename $f) && pdftocairo -svg $(basename ${f%.tex}).pdf); done`

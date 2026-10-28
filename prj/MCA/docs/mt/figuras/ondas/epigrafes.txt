@@ -1,0 +1,102 @@
+EPÍGRAFES DE LAS FIGURAS DE ONDAS DEL MODULO MULTITRIGGER
+=========================================================
+
+Las tres primeras las escribe `ondas_mt.py` leyendo los VCD de
+`tb_trigger_shield` y `tb_mt_trig_src`. Los números de abajo --cuántos
+ciclos dura cada veto, cuánto cuenta el holdoff-- los mide el script sobre el
+VCD, así que no pueden desincronizarse de los dibujos.
+
+La cuarta es un esquema de secuencia y no tiene VCD detrás.
+
+Reloj de la simulación: clk = 100 MHz.
+
+Escenas de tb_trigger_shield:
+
+  1) dur=0: re-arm inmediato en dst, sin holdoff
+  2) dur=K: active durante el holdoff y clear en dst al expirar
+  3) canal no escudado: transparente al clear de SW
+  4) VETO de nivel: src=ext_lvl, dst=mca, dur=0 -> el veto ES el nivel
+  5) VETO de nivel con cola: dur=8 -> sigue 8 ciclos despues de bajar
+  6) VETO de ventana: src=ext_p (flanco), dur=12 -> 12 ciclos y listo
+  7) sin dst=mca no hay veto, aunque el escudo corra
+  8) los canales del scope como fuente tambien vetan (dst=mca, src=ch0)
+
+Escenas de tb_mt_trig_src:
+
+  1) flanco habilitado dispara adc_trig, engancha dis, single-shot limpia mascara
+  2) trig_dis_clr limpia el disable
+  3) fuente NO habilitada no dispara (mascara solo P1, pulso en P0)
+  4) modo continuo: la mascara persiste tras el disparo
+  5) SW trigger gateado por dly_valp
+  6) pendiente: slope_p[0] -> bit 17, slope_n[1] -> bit 22
+
+FIGURA — mt_veto_tres_formas.svg
+--------------------------------
+LAS TRES FORMAS DEL VETO AL MCA  -  nivel / nivel con cola / ventana por flanco
+
+El mismo bloque da tres vetos distintos segun como se lo configure, y la
+diferencia no esta en el RTL sino en que fuente se elige y que duracion se
+escribe. Con una fuente de NIVEL y dur=0 el veto es la linea con un ciclo de
+latencia: dura lo que dure la linea. Con la misma fuente y dur=8 el veto se
+extiende ocho ciclos despues de que la linea baje, que es lo que hace falta
+cuando el estimulo deja cola. Con una fuente de FLANCO y dur=12 el veto es una
+ventana fija de doce ciclos, sin importar cuanto dure el pulso. Los tres
+tramos vienen de escenas distintas del testbench y el hueco entre ellos dice
+que se salteo tiempo: no es una secuencia.
+
+  · dur=0: el veto ES la linea: 21 ciclos de veto  (ventana 350-660 ns)
+  · dur=8: sigue 8 ciclos tras bajar: 13 ciclos de veto  (ventana 640-840 ns)
+  · flanco + dur=12: ventana fija: 13 ciclos de veto  (ventana 1050-1250 ns)
+  · 7 señales, 76 columnas en tres tramos.
+
+FIGURA — mt_holdoff_rearm.svg
+-----------------------------
+HOLDOFF Y RE-ARM  -  el escudo cuenta y al expirar limpia el canal de destino
+
+Lo que el escudo hace de verdad: cuando el canal fuente dispara, arranca un
+contador y mantiene `active` mientras cuenta; al expirar emite UN pulso de
+clear en el canal de destino, que es lo que lo vuelve a armar. Importa que el
+clear salga al EXPIRAR y no al disparar: si saliera al disparar, el canal de
+destino se re-armaria en medio del evento que el escudo esta tratando de
+protegerlo.
+
+  · shield_dur=5 -> `active` se mantiene 5 ciclos.
+  · 6 señales, 18 columnas, ventana 110 a 280 ns.
+
+FIGURA — mt_trig_src_enganche.svg
+---------------------------------
+DISPARO SINGLE-SHOT  -  el flanco dispara, engancha el disable y la mascara se auto-limpia
+
+El flanco de la fuente habilitada dispara `adc_trig` y en el mismo movimiento
+engancha `adc_trg_dis`, que es lo que impide que el siguiente flanco vuelva a
+disparar. En modo single-shot la mascara se auto-limpia, asi que para volver a
+disparar hace falta reescribirla; en modo continuo la mascara persiste y basta
+con limpiar el disable. Esa es la unica diferencia entre los dos modos.
+
+  · El disable se engancha 1 ciclo(s) después del disparo; la máscara se limpia a los 1.
+  · 4 señales, 16 columnas, ventana 35 a 185 ns.
+
+FIGURA — mt_flujo.svg
+---------------------
+FLUJO DE UTILIZACION  -  mt_cfg
+
+Es un esquema de la SECUENCIA, no una medicion. La configuracion es una
+escalera: el bus del PS escribe un registro por vez, en el orden de
+MtRegion.set_slope() --los umbrales antes que `en`, porque con en=1 y
+thr=hyst=0 el Schmitt no re-arma-- y despues el escudo. OR_MASK NO es parte de
+esa etapa: va DESPUES de CMD_ARM, porque la mascara vive apenas se escribe y
+un flanco previo al arm la gasta (single-shot) y deja la captura esperando un
+disparo imposible (ver docs/osc/orden_arm_trigger_captura.md). CMD_ARM no es
+un registro del multitrigger: arma la captura del scope (slot 1); aparece aca
+porque fija cuando se puede escribir la mascara. La otra dependencia que no se
+ve en el mapa de registros: el disable queda ENGANCHADO despues del disparo,
+asi que sin escribir TRIG_DIS_CLR no hay segundo disparo. Un programa que
+configure, dispare y se quede esperando el proximo evento sin limpiar el
+disable espera para siempre.
+
+  · ESQUEMA: una columna es un paso del software, no un ciclo de reloj.
+
+Las ventanas se ubican por la CONFIGURACION que define cada escena --qué
+combinación de shield_src / shield_dst / shield_dur está escrita-- y no por un
+tiempo fijo: si el testbench agrega una escena antes, las figuras siguen
+saliendo donde corresponde.

@@ -57,9 +57,13 @@ cadena:
    directamente el cociente de ruidos rms para la misma señal.
 
 En nuestra cadena el pulso **ya llega conformado** (el Rigol en las campañas, el
-conformador analógico con un detector real) y el ruido dominante es el del ADC:
-blanco a 125 MSPS, σ ≈ 2.8 cuentas
-([`fuentes_de_jitter.md`](fuentes_de_jitter.md)). Ese ruido el conformador no lo
+conformador analógico con un detector real) y el ruido dominante entra **después**
+del conformador. Es casi todo blanco a 125 MSPS, con σ = 4.47 cuentas por muestra
+—de las que el ADC pone 1.28 y el front-end de la placa el resto— más un término
+correlacionado de 0.87 cuentas que el conformado no toca de la misma manera
+([`../ruido_del_sistema.md`](../ruido_del_sistema.md) §3; los 2.8 cuentas que
+este documento citaba son el ancho del fotopico, o sea el blanco ya angostado
+por el `max` del experimento B). Ese ruido el conformador no lo
 puede filtrar, porque entra después. La forma actúa entonces por dos caminos
 que en Nicholson no existen: cuántas muestras caen sobre el ápice (el estimador
 `max` del RTL sobre N muestras ruidosas) y la fase de muestreo por la pendiente

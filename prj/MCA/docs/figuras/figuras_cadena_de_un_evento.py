@@ -6,7 +6,9 @@ detector hasta la PC del banco, con una tarjeta por salto que dice el mecanismo,
 **quién lo inicia y cuándo**, y en qué unidad se mueve el dato.
 
 El color de cada flecha es el iniciador, no el dominio: es la pregunta que la
-figura existe para responder.
+figura existe para responder. La paleta es la de las figuras TikZ
+(`estilo_svg.py`); como son tonos pastel, las flechas van rellenas y con borde
+negro en vez de ser una linea de color, que en amarillo no se veria.
 
 Dibuja el camino que corre HOY (ruta B + archivo en microSD) y marca aparte las
 tres bifurcaciones que lo cambian.
@@ -16,14 +18,17 @@ tres bifurcaciones que lo cambian.
 
 from pathlib import Path
 
+from estilo_svg import (FONT_MONO, FONT_SERIF, MUDO, NOTA, TINTA, TINTA2,
+                        ancho_serif, tinte)
+
 SALIDA = Path(__file__).with_name("cadena_de_un_evento.svg")
 
-W, H = 1240, 1250
+W, H = 690, 886
 
-SPINE_X, SPINE_W = 56, 290
+SPINE_X, SPINE_W = 56, 330
 ARROW_X = SPINE_X + SPINE_W / 2
-CARD_X, CARD_W = 380, 560
-BIF_X, BIF_W = 970, 250
+MARCA_X = SPINE_X + SPINE_W + 46        # la columna de marcas numeradas
+BIF_X = SPINE_X + SPINE_W + 108         # los indicadores de bifurcacion
 
 partes = []
 
@@ -34,7 +39,7 @@ def esc(s):
 
 def txt(x, y, s, cls="nm", size=11, anchor="start", weight=None, mono=False):
     w = f' font-weight="{weight}"' if weight else ""
-    f = ' font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace"' if mono else ""
+    f = f' font-family="{FONT_MONO}"' if mono else ""
     partes.append(
         f'<text class="{cls}" x="{x}" y="{y}" font-size="{size}" '
         f'text-anchor="{anchor}"{w}{f}>{esc(s)}</text>'
@@ -122,122 +127,96 @@ INICIADORES = [
     ("man", "una persona o un script, offline"),
 ]
 
-ESTILO = """
-  .bg{fill:#ffffff}
-  .stage{fill:#ffffff;stroke:#1b1f24;stroke-width:1.5}
-  .card{fill:#f6f8fa;stroke:#8c959f;stroke-width:1}
-  .bif{fill:#ffffff;stroke:#8c959f;stroke-width:1.2;stroke-dasharray:5 3}
-  .ti{fill:#1b1f24} .nm{fill:#1b1f24} .sb{fill:#57606a} .wd{fill:#6e7781}
-  .ttl{fill:#1b1f24} .sub{fill:#57606a} .note{fill:#57606a}
-  .dom{fill:#6e7781;letter-spacing:0.06em}
-  .leader{stroke:#b1b8c0;stroke-width:1;stroke-dasharray:3 3;fill:none}
+# Color de relleno por iniciador (flechas y leyenda) y por bifurcacion. B1 vive
+# en la BRAM del MCA y B2 en DDR, asi que toman el color que esos caminos tienen
+# en los panoramas; B3 comparte el de B2 como antes.
+COLOR = {"cont": "azul", "pl": "verde", "ps": "naranja", "os": "amarillo",
+         "man": "grisr", "ra": "verde", "rc": "naranja"}
 
-  .a-cont{stroke:#1b4f8c;stroke-width:4;fill:none}
-  .a-pl{stroke:#5a2ea6;stroke-width:4;fill:none}
-  .a-ps{stroke:#9a3b00;stroke-width:4;fill:none}
-  .a-os{stroke:#0f6e4f;stroke-width:4;fill:none}
-  .a-man{stroke:#5b6670;stroke-width:4;fill:none}
-  .f-cont{fill:#1b4f8c} .f-pl{fill:#5a2ea6} .f-ps{fill:#9a3b00}
-  .f-os{fill:#0f6e4f} .f-man{fill:#5b6670}
-  .f-ra{fill:#0f6e4f}  .f-rc{fill:#5a2ea6}
-
-  @media (prefers-color-scheme: dark){
-    .bg{fill:#0d1117}
-    .stage{fill:#0d1117;stroke:#c9d1d9}
-    .card{fill:#161b22;stroke:#6e7681}
-    .bif{fill:#0d1117;stroke:#6e7681}
-    .ti{fill:#e6edf3} .nm{fill:#e6edf3} .sb{fill:#8b949e} .wd{fill:#8b949e}
-    .ttl{fill:#e6edf3} .sub{fill:#8b949e} .note{fill:#8b949e}
-    .dom{fill:#8b949e}
-    .leader{stroke:#484f58}
-
-    .a-cont{stroke:#58a6ff} .a-pl{stroke:#a371f7} .a-ps{stroke:#e3a008}
-    .a-os{stroke:#3fb950}   .a-man{stroke:#8b949e}
-    .f-cont{fill:#58a6ff} .f-pl{fill:#a371f7} .f-ps{fill:#e3a008}
-    .f-os{fill:#3fb950}   .f-man{fill:#8b949e}
-    .f-ra{fill:#3fb950}   .f-rc{fill:#a371f7}
-  }
-"""
+ESTILO = f"""
+  .bg{{fill:#ffffff}}
+  .stage{{fill:{tinte("grisr", 0.45)};stroke:{TINTA};stroke-width:1.3}}
+  .ti{{fill:{TINTA}}} .nm{{fill:{TINTA}}} .sb{{fill:{TINTA2}}} .wd{{fill:{TINTA2}}}
+  .ttl{{fill:{TINTA}}} .sub{{fill:{TINTA2}}} .note{{fill:{NOTA}}}
+  .dom{{fill:{TINTA2};letter-spacing:0.06em}}
+  .leader{{stroke:{MUDO};stroke-width:1;stroke-dasharray:3 3;fill:none}}
+  .marca{{fill:{TINTA};stroke:#ffffff;stroke-width:1.6}}
+  .marcatxt{{fill:#ffffff}}
+  .bifm{{stroke:{TINTA};stroke-width:1.1}}
+  .biftxt{{fill:{TINTA}}}
+  .flecha{{stroke:{TINTA};stroke-width:1.1;stroke-linejoin:round}}
+""" + "".join("  .f-%s{fill:%s}\n" % (k, tinte(c)) for k, c in COLOR.items())
 
 # ---------------------------------------------------------------------------
 # dibujo
 # ---------------------------------------------------------------------------
 partes.append(f'<rect class="bg" x="0" y="0" width="{W}" height="{H}"/>')
-txt(56, 36, "La cadena de un evento, y quién inicia cada tramo", cls="ttl", size=19,
+txt(56, 36, "La cadena de un evento, y quién inicia cada tramo", cls="ttl", size=18,
     weight="700")
-txt(56, 57,
-    "El color de cada flecha es el iniciador de la transferencia, no el dominio. "
-    "A la derecha, las tres bifurcaciones que cambian el camino.",
-    cls="sub", size=10.5)
-
-lx = 56
-for acc, lbl in INICIADORES:
-    partes.append(f'<rect class="f-{acc}" x="{lx}" y="74" width="22" height="5" rx="2.5"/>')
-    txt(lx + 29, 80, lbl, cls="wd", size=9.5)
-    lx += 33 + len(lbl) * 5.35 + 22
-
-Y0, SH, GAP = 110, 60, 64
+Y0, SH, GAP = 112, 46, 34
 PITCH = SH + GAP
 
-# etapas
-for i, (titulo, dom, lineas) in enumerate(ETAPAS):
+# etapas: nombre y dominio, NADA MAS. Las lineas de detalle que cada caja
+# llevaba son la columna "Qué es" de la tabla de movimiento_de_datos.md §2.
+for i, (titulo, dom, _lineas) in enumerate(ETAPAS):
     y = Y0 + i * PITCH
     partes.append(
-        f'<rect class="stage" x="{SPINE_X}" y="{y}" width="{SPINE_W}" height="{SH}" rx="4"/>'
+        f'<rect class="stage" x="{SPINE_X}" y="{y}" width="{SPINE_W}" '
+        f'height="{SH}" rx="4"/>'
     )
-    txt(SPINE_X + 14, y + 21, titulo, cls="ti", size=11.5, weight="700")
-    txt(SPINE_X + SPINE_W - 12, y + 14, dom, cls="dom", size=7.8, anchor="end", weight="700")
-    for j, ln in enumerate(lineas):
-        txt(SPINE_X + 14, y + 37 + j * 12, ln, cls="sb", size=8.5)
+    txt(SPINE_X + 14, y + SH / 2 + 4.5, titulo, cls="ti", size=11.5,
+        weight="700")
+    txt(SPINE_X + SPINE_W - 12, y + SH / 2 + 3.5, dom, cls="dom", size=7.8,
+        anchor="end", weight="700")
 
-# saltos: flecha, guía y tarjeta
-for i, (acc, mec, quien, unidad) in enumerate(SALTOS):
+# saltos: la flecha, coloreada por QUIEN INICIA, y su marca numerada.
+# La tarjeta de tres lineas que cada salto llevaba es una fila de la tabla.
+for i, (acc, _mec, _quien, _unidad) in enumerate(SALTOS):
     y_top = Y0 + i * PITCH + SH
     y_bot = Y0 + (i + 1) * PITCH
-    partes.append(f'<path class="a-{acc}" d="M{ARROW_X},{y_top} V{y_bot - 10}"/>')
+    # Flecha de bloque: cuerpo de 10 px y punta de 20 x 12, rellena y con borde.
+    ys, yp = y_top + 1, y_bot - 12
     partes.append(
-        f'<path class="f-{acc}" d="M{ARROW_X - 6.5},{y_bot - 11} '
-        f'L{ARROW_X},{y_bot} L{ARROW_X + 6.5},{y_bot - 11} Z"/>'
+        f'<path class="flecha f-{acc}" d="M{ARROW_X - 5},{ys} V{yp} '
+        f'H{ARROW_X - 10} L{ARROW_X},{y_bot - 1} L{ARROW_X + 10},{yp} '
+        f'H{ARROW_X + 5} V{ys} Z"/>'
     )
     cy = (y_top + y_bot) / 2
-    ch = 52
-    partes.append(f'<path class="leader" d="M{ARROW_X + 8},{cy} H{CARD_X}"/>')
+    partes.append(f'<path class="leader" d="M{ARROW_X + 8},{cy} H{MARCA_X - 11}"/>')
     partes.append(
-        f'<rect class="card" x="{CARD_X}" y="{cy - ch / 2}" width="{CARD_W}" '
-        f'height="{ch}" rx="4"/>'
-    )
-    partes.append(
-        f'<rect class="f-{acc}" x="{CARD_X}" y="{cy - ch / 2}" width="4.5" '
-        f'height="{ch}" rx="2"/>'
-    )
-    txt(CARD_X + 15, cy - ch / 2 + 16, mec, cls=f"f-{acc}", size=10.5, weight="700",
-        mono=True)
-    txt(CARD_X + 15, cy - ch / 2 + 31, quien, cls="nm", size=9.5, mono=True)
-    txt(CARD_X + 15, cy - ch / 2 + 45, unidad, cls="sb", size=9.5, mono=True)
+        f'<circle class="marca" cx="{MARCA_X}" cy="{cy}" r="10.5"/>')
+    txt(MARCA_X, cy + 3.8, str(i + 1), cls="marcatxt", size=11,
+        anchor="middle", weight="700")
 
-# bifurcaciones
-for y, h, acc, titulo, lineas in BIFURCACIONES:
-    partes.append(f'<path class="leader" d="M{CARD_X + CARD_W},{y + h / 2} H{BIF_X}"/>')
-    partes.append(f'<rect class="bif" x="{BIF_X}" y="{y}" width="{BIF_W}" height="{h}" rx="4"/>')
-    partes.append(f'<rect class="f-{acc}" x="{BIF_X}" y="{y}" width="4.5" height="{h}" rx="2"/>')
-    txt(BIF_X + 14, y + 20, titulo, cls=f"f-{acc}", size=10.5, weight="700")
-    for j, ln in enumerate(lineas):
-        txt(BIF_X + 14, y + 36 + j * 12.5, ln, cls="sb", size=8.5)
+# bifurcaciones: donde se abre cada una, y nada mas. Que hace cada una ya
+# estaba en la tabla "Las tres bifurcaciones" del documento.
+BIF_EN = [(2, "1", "ra"), (4, "2", "rc"), (6, "3", "rc")]
+for idx, n, acc in BIF_EN:
+    cy = Y0 + idx * PITCH + SH / 2
+    partes.append(f'<path class="leader" d="M{SPINE_X + SPINE_W},{cy} H{BIF_X - 13}"/>')
+    partes.append(f'<circle class="bifm f-{acc}" cx="{BIF_X}" cy="{cy}" r="12.5"/>')
+    txt(BIF_X, cy + 4, f"B{n}", cls="biftxt", size=10, anchor="middle",
+        weight="700")
 
-# notas al pie
-txt(56, H - 36,
-    "Las dos etapas de RAM que es fácil pasar por alto: el batch del proceso y el page "
-    "cache del kernel. El write() de la aplicación vuelve antes de que el dato esté en la "
-    "tarjeta.",
-    cls="note", size=10)
-txt(56, H - 18,
-    "No hay SSD en la placa: el único almacenamiento local es la microSD por SD0. "
-    "El throughput y el ajuste de cada tramo están en movimiento_de_datos.md §1.",
+# leyenda: el color de la flecha es QUIEN inicia la transferencia
+txt(SPINE_X, 64, "El color de cada flecha es quién inicia la transferencia:",
+    cls="sub", size=10.5)
+_lx = SPINE_X
+for acc, etq in INICIADORES:
+    partes.append(f'<rect class="flecha f-{acc}" x="{_lx}" y="76" width="16" '
+                  f'height="9" rx="2"/>')
+    corto = etq.split(":")[0].split("—")[0].strip()
+    txt(_lx + 22, 85, corto, cls="sb", size=9.5)
+    _lx += 22 + ancho_serif(corto, 9.5) + 16
+
+txt(SPINE_X, H - 20,
+    "Qué pasa en cada tramo y en cada bifurcación: la tabla de "
+    "movimiento_de_datos.md §2.",
     cls="note", size=10)
 
 svg = (
     f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
-    f'viewBox="0 0 {W} {H}" font-family="DejaVu Sans,Helvetica,Arial,sans-serif">\n'
+    f'viewBox="0 0 {W} {H}" font-family="{FONT_SERIF}">\n'
     f"<style>{ESTILO}</style>\n" + "\n".join(partes) + "\n</svg>\n"
 )
 

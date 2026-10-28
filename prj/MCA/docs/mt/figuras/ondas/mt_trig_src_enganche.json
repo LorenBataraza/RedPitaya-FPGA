@@ -1,0 +1,47 @@
+{
+  "signal": [
+    {
+      "name": "clk  100 MHz",
+      "wave": "pppppppppppppppp"
+    },
+    {
+      "name": "trg_state  (mascara de fuentes)",
+      "wave": "5..5..5.........",
+      "data": [
+        "0x0000",
+        "0x0002",
+        "0x0000"
+      ],
+      "node": "......c........."
+    },
+    {},
+    {
+      "name": "adc_trig  (disparo)",
+      "wave": "0....10.........",
+      "node": ".....a.........."
+    },
+    {
+      "name": "adc_trg_dis  (enganchado)",
+      "wave": "3.....3.3.......",
+      "data": [
+        "0x0",
+        "0x1",
+        "0x0"
+      ],
+      "node": "......b........."
+    }
+  ],
+  "edge": [
+    "a~>b engancha el disable",
+    "a~>c single-shot: limpia la mascara"
+  ],
+  "head": {
+    "text": "DISPARO SINGLE-SHOT  -  el flanco dispara, engancha el disable y la mascara se auto-limpia"
+  },
+  "foot": {
+    "text": "tb_mt_trig_src, escena 1 (single-shot) - 1 columna = 1 ciclo de clk (10 ns)"
+  },
+  "config": {
+    "hscale": 1
+  }
+}

@@ -23,7 +23,11 @@ Que hay aca:
 
     open_waves / Vcd          VCD o FST -> {nombre: [(t_ps, valor)]}
     build_grid / column_of    el puente entre el tiempo del VCD y las columnas
+    cortar                    saca los tramos muertos -> el hueco de WaveDrom
+    row_multi / cols_multi    una fila partida en tramos, y sus columnas
+    column_multi              instante -> columna, en una figura partida
     sample / row / nodes      filas de WaveJSON de una senal
+    ch_vivo                   color de bus por VALOR (la carga util vs el resto)
     filtrar_edges            saca las flechas cuyos nodos no existen
     render                    WaveJSON -> SVG (wavedrom-cli o el modulo python)
     write_html                visor que dibuja desde el CDN, sin instalar nada
@@ -53,6 +57,37 @@ from pathlib import Path
 # Chars de bus de WaveDrom: '=' es el relleno neutro, los numeros son colores
 # del skin. Se usan para que salten las filas donde el dato se mueve de verdad.
 BUS, BUS_DATA, BUS_ADDR = "=", "3", "5"
+
+# Los rellenos del skin `default`. OJO que el brick que elige WaveDrom no es el
+# digito: '=' y '2' comparten el brick 2, y de ahi en adelante el digito N usa
+# el brick N. O sea que el char que se escribe en el wave mapea asi:
+#
+#   '=' y '2' #ffffff   '3' #ffffb4   '4' #ffe0b9   '5' #b9e0ff
+#   '6' #ccfdfe         '7' #cdfdc5   '8' #f0c1fb   '9' #f5c2c0
+#
+# El skin NO tiene gris: el neutro es '=', blanco con contorno negro. Alcanza,
+# porque lo que tiene que hacer es contrastar.
+#
+# Para las figuras de protocolo se usan solo dos, y el criterio es SEMANTICO:
+# el color dice si lo que hay en el bus es la carga util de ESTA transaccion o
+# no, asi que el azul se puede seguir con la vista bajando por la figura
+# (m_addr -> s_addr, m_wdata -> s_wdata -> el registro del esclavo).
+BUS_VIVO   = "5"   # azul: el valor que esta transaccion empuja por el sistema
+BUS_PARADO = "="   # neutro: el bus en reposo, o con la sobra de la anterior
+
+
+def ch_vivo(*valores, vivo=BUS_VIVO, parado=BUS_PARADO):
+    """Char de bus elegido POR VALOR, para pasar como `ch=` a row/row_multi.
+
+    `valores` son los enteros que esta transaccion empuja por el sistema (la
+    direccion que se decodifica, el dato que se escribe, el que vuelve por
+    rdata): esos segmentos salen en `vivo`. Todo el resto --el bus parado en
+    cero, o todavia con la direccion de la transaccion anterior, que es lo que
+    pasa del lado del esclavo porque sys_bus_cdc solo recarga bus_m.addr cuando
+    arranca una transaccion-- sale en `parado`.
+    """
+    objetivo = set(valores)
+    return lambda v: vivo if v in objetivo else parado
 
 
 # ----------------------------------------------------------------------
@@ -454,12 +489,15 @@ def column_of(grid, t):
     return max(0, min(len(grid) - 1, bisect_left(grid, t)))
 
 
-def sample(vcd, name, grid, fmt=None, bit=None):
+def sample(vcd, name, grid, fmt=None, bit=None, ch=BUS):
     """(wave, data) de WaveJSON para una señal.
 
     fmt=None   -> señal de un bit
     fmt=f      -> bus, con f(valor_entero) como etiqueta
     bit=k      -> el bit k de un bus, dibujado como señal de un bit
+    ch         -> char de bus: un string para todos los segmentos, o una
+                  funcion valor_entero -> char para colorear SEGUN EL VALOR
+                  (ver `ch_vivo`). Solo se usa cuando fmt no es None.
     """
     chars, data, prev = [], [], None
     for t in grid:
@@ -479,7 +517,7 @@ def sample(vcd, name, grid, fmt=None, bit=None):
             elif cur == "x":
                 chars.append("x")
             else:
-                chars.append(BUS)
+                chars.append(ch(iv) if callable(ch) else ch)
                 data.append(cur)
         prev = cur
     return "".join(chars), data
@@ -495,9 +533,7 @@ def nodes(n, marks):
 
 
 def row(vcd, name, label, grid, fmt=None, bit=None, ch=BUS, node=None):
-    wave, data = sample(vcd, name, grid, fmt, bit)
-    if fmt is not None and ch != BUS:
-        wave = wave.replace(BUS, ch)
+    wave, data = sample(vcd, name, grid, fmt, bit, ch)
     r = {"name": label, "wave": wave}
     if data:
         r["data"] = data
@@ -521,28 +557,67 @@ def row_clk(label, n, ch="p", node=None):
     return r
 
 
-def row_multi(vcd, name, label, grids, fmt=None, bit=None, ch=BUS, node=None):
+def row_multi(vcd, name, label, grids, fmt=None, bit=None, ch=BUS, node=None,
+              seguido=False):
     """Una fila que recorre VARIAS ventanas separadas por el hueco de WaveDrom.
 
-    Sirve para poner tres escenas del mismo testbench en un solo dibujo --las
-    tres formas del veto de trigger_shield, por ejemplo-- sin mentir sobre el
-    eje de tiempo: el `|` entre tramos dice explicitamente "aca se salteo
-    tiempo", que es justo para lo que WaveDrom lo tiene. Pegar las ventanas sin
-    el hueco daria a entender que una escena sigue a la otra.
+    Dos usos, el mismo mecanismo:
+
+      - tres escenas del mismo testbench en un solo dibujo --las tres formas
+        del veto de trigger_shield, por ejemplo-- sin mentir sobre el eje de
+        tiempo: pegar las ventanas sin el hueco daria a entender que una escena
+        sigue a la otra;
+      - una sola transaccion a la que se le saco el tiempo en el que no pasa
+        nada, con los tramos que da `cortar()`.
+
+    En los dos casos el `|` dice explicitamente "aca se salteo tiempo", que es
+    justo para lo que WaveDrom lo tiene.
+
+    `seguido` es para el segundo uso: con los tramos de una MISMA transaccion,
+    una senal que no cambio al otro lado del hueco se continua con `.` en vez
+    de volver a dibujar el flanco y repetir la etiqueta del bus. Sin eso, una
+    direccion que esta quieta toda la transaccion aparece escrita una vez por
+    tramo. Para escenas distintas va en False: ahi cada tramo es otro momento
+    del testbench y arrancar de cero es lo correcto.
     """
     waves, data = [], []
+    anterior = None
     for g in grids:
-        w, d = sample(vcd, name, g, fmt, bit)
-        if fmt is not None and ch != BUS:
-            w = w.replace(BUS, ch)
+        w, d = sample(vcd, name, g, fmt, bit, ch)
+        if seguido and anterior is not None and w and \
+                _mismo_valor(vcd, name, anterior, g[0], fmt, bit):
+            # El primer caracter del tramo repite un valor que ya venia: se
+            # cambia por el "sigue igual" de WaveDrom y se tira su etiqueta.
+            if fmt is not None and w[0] not in ".x":
+                d = d[1:]
+            w = "." + w[1:]
         waves.append(w)
         data += d
+        anterior = g[-1]
     r = {"name": label, "wave": "|".join(waves)}
     if data:
         r["data"] = data
     if node:
         r["node"] = node
     return r
+
+
+def _mismo_valor(vcd, name, t_antes, t_despues, fmt, bit):
+    """Si lo que se DIBUJA de `name` es igual en los dos instantes.
+
+    Compara lo dibujado y no el valor crudo: de un bus del que se muestra un
+    bit solo importa ese bit, y de uno con formato importa la etiqueta.
+    """
+    a, b = vcd.value_at(name, t_antes), vcd.value_at(name, t_despues)
+    if bit is not None:
+        ia, ib = _to_int(a), _to_int(b)
+        if ia is None or ib is None:
+            return False
+        return ((ia >> bit) & 1) == ((ib >> bit) & 1)
+    if fmt is None:
+        return a == b and a in ("0", "1")
+    ia, ib = _to_int(a), _to_int(b)
+    return ia is not None and ib is not None and fmt(ia) == fmt(ib)
 
 
 def cols_multi(grids):
@@ -556,6 +631,84 @@ def cols_multi(grids):
         offs.append(acc + i)              # +i: un caracter de hueco por junta
         acc += len(g)
     return acc + len(grids) - 1, offs
+
+
+def column_multi(grids, offs, t):
+    """Columna del dibujo combinado donde cae el instante `t`.
+
+    Es `column_of` para una figura partida en tramos: ubica el tramo y le suma
+    su offset. Si `t` cayo dentro de un hueco --algo que por construccion no
+    pasa, porque `cortar` solo saca tramos en los que nadie cambia-- devuelve
+    el arranque del tramo siguiente.
+    """
+    for g, o in zip(grids, offs):
+        if t <= g[-1]:
+            return o + column_of(g, t)
+    return offs[-1] + len(grids[-1]) - 1
+
+
+def cortar(vcd, grid, senales, min_run=6, contexto=1):
+    """Parte `grid` en tramos, sacando los tramos MUERTOS largos.
+
+    Un tramo muerto es una corrida de columnas en las que no cambia NINGUNA de
+    `senales`: el handshake esta esperando (un sincronizador corriendo, o el
+    shift register del esclavo contando sus cuatro ciclos) y la figura no
+    muestra nada nuevo. `row_multi` dibuja el hueco de WaveDrom entre tramos,
+    que es la forma convencional de decir "aca se salteo tiempo" --el par de
+    eses encontradas-- asi que la figura se acorta sin mentir sobre el eje: lo
+    que se saca esta marcado, y las latencias de las etiquetas se siguen
+    midiendo sobre el VCD y no sobre la grilla.
+
+    `senales` NO lleva los relojes: cambian en cada columna y entonces nunca
+    habria tramo muerto. Son las de datos y control, o sea las que el lector
+    mira.
+
+    `min_run` es el minimo de columnas quietas para que valga la pena cortar
+    (<= 0 desactiva el corte); `contexto` cuantas de esas se dejan a cada lado,
+    para que el hueco no quede pegado a un flanco. Si no hay ninguna corrida lo
+    bastante larga, devuelve `[grid]` y la figura sale entera.
+    """
+    if min_run <= 0:
+        return [grid]
+    vcd.require(*senales)
+    n = len(grid)
+    # quieta[i]: entre la columna i-1 y la i no cambio nada de lo que se dibuja.
+    quieta = [False] * n
+    for i in range(1, n):
+        quieta[i] = all(vcd.value_at(s, grid[i]) == vcd.value_at(s, grid[i - 1])
+                        for s in senales)
+
+    saco = set()
+    i = 1
+    while i < n:
+        if not quieta[i]:
+            i += 1
+            continue
+        j = i
+        while j < n and quieta[j]:
+            j += 1
+        # [i, j) es la corrida quieta. Se saca el centro y se deja `contexto`
+        # columnas de cada lado; si no sobra nada, no se corta. Una corrida que
+        # llega al final de la ventana es relleno de cola, y un hueco en el
+        # borde del dibujo no dice nada: eso se arregla acortando la ventana.
+        if j < n and (j - i) >= max(min_run, 2 * contexto + 1):
+            saco.update(range(i + contexto, j - contexto))
+        i = j
+
+    if not saco:
+        return [grid]
+
+    tramos, actual = [], []
+    for i, t in enumerate(grid):
+        if i in saco:
+            if actual:
+                tramos.append(actual)
+                actual = []
+        else:
+            actual.append(t)
+    if actual:
+        tramos.append(actual)
+    return tramos
 
 
 def _edge_ok(spec, *node_strings):
@@ -627,6 +780,38 @@ def esquema(filas, head=None, foot=None, hscale=2):
     if foot:
         wj["foot"] = foot if isinstance(foot, dict) else {"text": foot}
     return wj
+
+
+def escalera(regs, inicio, n_col, por_col=1, color="3"):
+    """Las filas de una etapa de configuracion: UNA fila por registro y cada
+    escritura en su propio paso, en el orden en que la hace el software.
+
+    Es una escalera a proposito. Dibujar todos los registros en la misma
+    columna diria que se escriben a la vez, y el bus del PS escribe de a uno.
+
+    regs     [(nombre, texto)] en orden de escritura; texto None = caja vacia.
+    inicio   columna del grid principal donde arranca la etapa.
+    n_col    columnas totales de la figura.
+    por_col  escrituras por columna (`period` = 1/por_col): con muchos
+             registros, la escalera entra en pocas columnas a costa de que
+             las cajas no lleven texto.
+
+    Fuera de su paso cada fila es `z`, una linea fina: el registro no se toca
+    y conserva lo que tenia. Devuelve (filas, columna donde termina la etapa).
+    """
+    largo = n_col * por_col
+    filas = []
+    for k, (nombre, texto) in enumerate(regs):
+        i = inicio * por_col + k
+        wave = "z" + "." * (i - 1) + color + "z" + "." * (largo - i - 2)
+        fila = {"name": nombre, "wave": wave}
+        if por_col != 1:
+            fila["period"] = 1 / por_col
+        if texto is not None:
+            fila["data"] = [texto]
+        filas.append(fila)
+    fin = inicio + -(-len(regs) // por_col)
+    return filas, fin
 
 
 # ----------------------------------------------------------------------

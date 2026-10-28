@@ -1,0 +1,121 @@
+% La estructura del bus de sistema como diagrama de rieles. No es un bus
+% compartido de tres estados: es una estrella con tres mecanismos. addr y wdata
+% se DIFUNDEN a los ocho slots por un mismo riel; wen y ren se SELECCIONAN, y
+% llegan sólo al slot que el decodificador elige con addr[22:20]; rdata, ack y
+% err vuelven por un riel que un MULTIPLEXOR reduce a uno. Cada slot cruza de
+% reloj en su propio sys_bus_cdc, y la línea punteada es ese cruce.
+% Fuentes: rtl/sys_bus_interconnect.sv (bus_s_cs, bus_int_i[i].wen/ren,
+% bus_m.rdata/ack/err = bus_s_*[bus_s_a]), el cableado de mca_red_pitaya_top.sv.
+% Documentado en docs/TOP/bus_sistema_redpitaya.md §3. Estilo:
+% docs/figuras/estilo_tikz.tex.
+%
+% Compilar:   pdflatex estructura_sys_bus.tex
+%             pdftocairo -svg estructura_sys_bus.pdf estructura_sys_bus.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{
+  riel/.style   = {line width=2.0pt},
+  toma/.style   = {->, line width=0.8pt},
+  compuerta/.style = {draw, line width=0.6pt, fill=rojo!18, minimum width=0.42cm,
+                      minimum height=0.36cm, inner sep=0pt, font=\scriptsize},
+  cdc/.style    = {bus, text width=1.25cm, minimum height=0.5cm, font=\tiny\ttfamily\bfseries},
+  esclavo/.style = {bloque=#1, text width=1.6cm, minimum height=0.85cm, font=\tiny},
+  nombre/.style = {font=\scriptsize\ttfamily, anchor=south west, inner sep=1pt},
+  verbo/.style  = {font=\scriptsize\itshape, black!70, inner sep=1pt},
+}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+% filas
+\def\ycs{1.25}    % cs[7:0], del decodificador
+\def\yen{0.8}     % wen, ren
+\def\yg{0.22}     % las compuertas
+\def\yad{-0.45}   % addr, wdata
+\def\yrt{-0.95}   % rdata, ack, err (vuelta)
+\def\ycd{-1.9}    % los CDC y el cruce de reloj
+\def\yes{-3.15}   % los esclavos
+\def\xfin{20.5}  % donde terminan los rieles
+
+% el cruce de reloj, primero: los CDC lo tapan
+\draw[black!55, dashed, line width=0.7pt] (-0.4,\ycd) -- (22.35,\ycd);
+\node[font=\scriptsize, anchor=south west] at (-0.35,\ycd+0.05) {\texttt{clk\_fpga\_0}};
+\node[font=\scriptsize, anchor=north west] at (-0.35,\ycd-0.05) {\texttt{adc\_clk}};
+
+% ================================================================ maestro
+\node[bus, text width=1.5cm, minimum height=2.75cm] (m) at (0.6,0.15)
+  {\etq{axi4\_slave}{único maestro}};
+
+% decodificador y multiplexor, del lado del maestro
+\node[etapa=rojo!18, text width=0.75cm, minimum height=0.5cm, font=\tiny] (dec) at (3.2,\ycs) {\bfseries dec};
+\draw[toma] (m.east |- 0,\ycs) -- node[sen, above, font=\tiny\ttfamily] {addr[22:20]} (dec.west);
+\coordinate (mxa) at (3.6,-0.68);  \coordinate (mxb) at (3.6,-1.22);
+\coordinate (mxc) at (2.9,-1.08);   \coordinate (mxd) at (2.9,-0.82);
+\draw[line width=0.6pt, fill=rojo!18] (mxa) -- (mxb) -- (mxc) -- (mxd) -- cycle;
+\draw[toma] (2.9,\yrt) -- (m.east |- 0,\yrt);
+\draw[line width=0.6pt] (3.25,-1.15) -- (3.25,-1.45) node[below, font=\tiny\ttfamily, inner sep=1pt] {sel = addr[22:20]};
+
+% ================================================================ rieles
+\draw[riel] (dec.east) -- (\xfin,\ycs);
+\draw[riel] (m.east |- 0,\yen) -- (\xfin,\yen);
+\draw[riel] (m.east |- 0,\yad) -- (\xfin,\yad);
+\draw[riel, <-] (3.6,\yrt) -- (\xfin,\yrt);
+\node[nombre] at (3.7,\ycs)  {cs[7:0]};
+\node[nombre] at (1.85,\yen)  {wen, ren};
+\node[nombre] at (1.85,\yad)  {addr, wdata};
+\node[nombre] at (3.7,\yrt)  {rdata, ack, err};
+
+% ================================================================ slots
+\foreach \i/\n/\c in {0/{red\_pitaya\_hk}/grisr,
+                      1/{osc\_cfg}/azul!35,
+                      2/{stub o\\ event\_ring\_top}/naranja!35,
+                      3/{mt\_cfg}/amarillo,
+                      4/{red\_pitaya\_ams}/grisr,
+                      5/{red\_pitaya\_\\ daisy}/grisr,
+                      6/{integration\_\\ cfg}/grisr,
+                      7/{mca\_top}/verde!55} {
+  \pgfmathsetmacro\x{6.25+1.95*\i}
+  % selección: cs[i] & wen/ren
+  \node[compuerta] (g\i) at (\x-0.1,\yg) {\&};
+  \draw[toma, cruce] (\x-0.22,\ycs) -- (\x-0.22,0 |- g\i.north);
+  \fill (\x-0.22,\ycs) circle (1.6pt);
+  \draw[toma] (\x+0.02,\yen) -- (\x+0.02,0 |- g\i.north);
+  \fill (\x+0.02,\yen) circle (1.6pt);
+  % el CDC del slot
+  \node[cdc] (c\i) at (\x-0.05,\ycd) {sys\_bus\_cdc};
+  \draw[toma, cruce] (g\i.south) -- (\x-0.1,0 |- c\i.north);
+  % difusión: addr y wdata a todos
+  \draw[toma, cruce] (\x-0.52,\yad) -- (\x-0.52,0 |- c\i.north);
+  \fill (\x-0.52,\yad) circle (1.6pt);
+  % vuelta
+  \draw[toma] (\x+0.42,0 |- c\i.north) -- (\x+0.42,\yrt);
+  \fill (\x+0.42,\yrt) circle (1.6pt);
+  % el esclavo
+  \node[esclavo=\c] (s\i) at (\x-0.05,\yes) {{\scriptsize\bfseries slot \i}\\[1pt] {\ttfamily \n}};
+  \draw[<->, line width=0.7pt] (c\i.south) -- (s\i.north);
+}
+
+% qué hace cada mecanismo
+\node[verbo, anchor=west] at (\xfin+0.3,\yad) {difusión};
+\node[verbo, anchor=west] at (\xfin+0.3,\yg)  {selección};
+\node[verbo, anchor=west] at (\xfin+0.3,\yrt) {multiplexado};
+
+% el interconnect envuelve decodificador, rieles, compuertas, mux y CDC
+\node[grupo, fit={(1.75,1.75) (\xfin+0.15,-2.3)}] (ic) {};
+\node[rotulo, anchor=south west] at (ic.north west) {\texttt{sys\_bus\_interconnect}};
+
+% ============================================================== leyenda ===
+\leyenda{-0.2,-4.25}{rojo!45/bus del sistema, rojo!18/lógica del interconnect,
+  azul!35/OSC, amarillo/MULTITRIGGER, naranja!35/event ring, verde!55/MCA, grisr/Red Pitaya y TOP}
+  {Rieles gruesos: señales que llegan a los ocho slots. Un punto es una toma del riel.
+   \texttt{wen}/\texttt{ren} sólo pasan por la compuerta del slot elegido; a la vuelta,
+   el multiplexor se queda con el \texttt{rdata}, \texttt{ack} y \texttt{err} de ese mismo slot.}
+
+\end{tikzpicture}
+\end{document}

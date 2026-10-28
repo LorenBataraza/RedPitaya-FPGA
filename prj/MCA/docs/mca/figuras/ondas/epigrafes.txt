@@ -26,6 +26,10 @@ Escenas de tb_mca_pulse_feature:
   11) Dos pulsos SEPARADOS (hueco > latencia del divisor): se cuentan los dos
   12) cfg_run=0 inhibe la detección
   13) COMPUERTAS DE LARGO FIJO (cfg_gate_mode = 1)
+  14) TIEMPO MUERTO: los casilleros y la atribucion de arribos
+  15) FASE 2 — RE-ARMADO POR CONTADOR
+  16) FASE 2 — APERTURA POR TRIGGER EXTERNO
+  17) FASE 2 — FIFO DE PUBLICACION
 
 Escenas de tb_mca_hist:
 
@@ -47,6 +51,8 @@ Escenas de tb_mca_top:
   5) Lectura DURANTE el barrido de borrado
   6) CAMINO DE DATOS COMPLETO: inyectar pulsos y ver el bin correcto
   7) El borrado deja el espectro y los contadores en cero
+  8) EL TESELADO DEL TIEMPO MUERTO, visto por el BUS
+  9) FASE 2 POR EL BUS: las politicas de ventana y el arbitro
 
 FIGURA — mca_pulso_vida.svg
 ---------------------------
@@ -118,12 +124,17 @@ FIGURA — mca_flujo.svg
 ----------------------
 FLUJO DE UNA MEDICION  -  mca_top
 
-Es un esquema de la SECUENCIA, no una medicion. Las dos cosas que fija: el
-borrado hay que ESPERARLO --`clear_busy` avisa, y los eventos que llegan
-mientras barre se descartan y se cuentan en `dropped`--, y los contadores se
-pueden leer con la medicion corriendo, que es lo que permite supervisar sin
-frenar. La misma secuencia en software esta en docs/API/guia_de_uso.md; si las
-dos se contradicen, una de las dos esta mal.
+Es un esquema de la SECUENCIA, no una medicion. La configuracion es una
+escalera: el bus del PS escribe un registro por vez, y la figura los pone en
+el orden en que los escribe Mca.configure(). Ese orden importa en un solo
+punto: cfg_hist_sel va DESPUES de cfg_amp_src, porque escribir cfg_amp_src
+tambien lo mueve. Un registro que no se escribe conserva lo que tenia (el
+valor de reset solo despues de cargar el bitstream; ver register_map_mca.md).
+Despues, las dos cosas que fija: el borrado hay que ESPERARLO --`clear_busy`
+avisa, y los eventos que llegan mientras barre se descartan y se cuentan en
+`dropped`--, y los contadores se pueden leer con la medicion corriendo, que es
+lo que permite supervisar sin frenar. La misma secuencia en software esta en
+docs/API/guia_de_uso.md; si las dos se contradicen, una de las dos esta mal.
 
   · ESQUEMA: una columna es un paso del software, no un ciclo de reloj.
 

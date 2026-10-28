@@ -1,0 +1,47 @@
+% D9 — qué feature alimenta cada eje (cfg_sel_1d / 2dx / 2dy). Vive en mca_top,
+% después del registro ev_feat_o del extractor.
+% Compilar:   pdflatex d09_feature_eje.tex && pdftocairo -svg d09_feature_eje.pdf d09_feature_eje.svg
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../../figuras/estilo_tikz.tex}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\node[decision] (d) at (-0.9,1.3) {D9};
+\node[anchor=west, font=\small] at (d.east)
+  {\textbf{Qué feature va a cada eje} \quad {\scriptsize\ttfamily mca\_top}};
+
+% el bus de features, ranura por ranura
+% la ranura 0 es la que el reset pone en el eje 1D: va con borde doble
+\node[etapa, defecto, text width=3.3cm, minimum height=0.62cm, anchor=west] (f0) at (-0.6,0)
+  {\texttt{0\;F\_PEAK}\; \normalfont\scriptsize pico};
+\foreach \i/\n/\t in {
+    1/F\_INT/{integral $Q_\mathrm{tot}\gg s$},
+    2/F\_PSD/{$Q_\mathrm{cola}/Q_\mathrm{tot}$},
+    3/F\_INVW/{pico$/Q_\mathrm{tot}$},
+    4/F\_LEN/{largo de ventana},
+    5/F\_TRISE/{disparo $\to$ pico}} {
+  \node[etapa, text width=3.3cm, minimum height=0.62cm, anchor=west] (f\i) at (-0.6,-0.72*\i)
+    {\texttt{\i\;\n}\; \normalfont\scriptsize\t};
+}
+\node[mudo, text width=3.3cm, minimum height=0.62cm, anchor=west] (f6) at (-0.6,-0.72*6)
+  {\texttt{6..15} reservadas (en cero)};
+\node[grupo, fit=(f0) (f6), inner sep=4pt] (bus) {};
+\node[rotulo, anchor=south west] at (bus.north west) {\texttt{ev\_feat}: 16 ranuras $\times$ 16 b, todas del mismo evento};
+
+% los tres muxes 16:1
+\foreach \e/\y/\r/\dft [count=\c] in {1d/0.0/0x090[3:0]/0, 2dx/-2.05/0x090[7:4]/0, 2dy/-4.1/0x090[11:8]/2} {
+  \muxdec{m\c}{(5.2,\y)}{1.35}
+  \node[font=\tiny\bfseries] at (m\c) {16:1};
+  \draw[line width=2.0pt] (bus.east |- m\c-in) -- (m\c-in);
+  \draw[ctrl] ($(m\c-sel)+(0,-0.55)$) node[right, sen, black, font=\tiny\ttfamily]
+    {cfg\_sel\_\e\;\normalfont\r\ \ (reset \dft)} -- (m\c-sel);
+  \draw[flujo] (m\c-out) -- ++(1.2,0) node[right, sen] {f\_\e};
+}
+
+\end{tikzpicture}
+\end{document}

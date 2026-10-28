@@ -21,40 +21,69 @@ para 250 MSPS, idéntica en esta parte, está en `rtl_250/classic/`).
 Instancia, **por canal** (`generate` sobre `GV < N_CH`), la cadena completa, y
 una sola vez los bloques compartidos.
 
-```
-                 rp_scope_calib   osc_filter    rp_decim      rp_delay
-ADC ch0 (14b) ──► offset+gain ──► IIR 4 coef ──► dec/avg ──┬─► +1/+2 muestras ──┬─► adc_bram_in
-   125 MSPS                                                │                     └─► axi_ram_in
-                                                           │
-                                                           ├─► rp_adc_trig ──► adc_trig_p/n
-                                                           │   (Schmitt+hyst)
-                                                           ▼
-                                          rp_trig_src ──► adc_trig  (1 ciclo)
-                                        (mux 4b + protect)     │
-                                                               ├──► rp_bram_sm ──► adc_we, adc_wp,
-                                                               │                   adc_wp_trig, adc_dly_do
-                                                               │                        │
-                                                               │                        ▼
-                                                               │                   rp_acq_bram (16384×14b)
-                                                               │                        │
-                                                               │                   lectura por el bus
-                                                               │
-                                                               └──► rp_axi_sm ──► axi_wr_fifo ──► HP ──► DDR
-```
+![Panorama de rp_scope_com](figuras/panorama_rp_scope_com.svg)
 
-| bloque | archivo | rol |
-|---|---|---|
-| `rp_scope_calib` | [`rp_scope_com.v:199`](../../../../rtl/classic/rp_scope_com.v#L199) | offset + ganancia de calibración |
-| `osc_filter` | [`:219`](../../../../rtl/classic/rp_scope_com.v#L219) | ecualizador IIR (coef. `aa/bb/kk/pp`), *bypass* por `set_filt_byp` |
-| `rp_decim` | [`:250`](../../../../rtl/classic/rp_scope_com.v#L250) | diezmado 1…65536, con o sin promedio |
-| `rp_delay` | [`:269`](../../../../rtl/classic/rp_scope_com.v#L269) | alinea el dato con el trigger que ese dato produjo |
-| `rp_adc_trig` | [`:292`](../../../../rtl/classic/rp_scope_com.v#L292) | comparador Schmitt → pulsos `trig_p` / `trig_n` |
-| `rp_trig_src` | [`:309`](../../../../rtl/classic/rp_scope_com.v#L309) | selector de fuente + *trigger protect* |
-| **`rp_bram_sm`** | [`:340`](../../../../rtl/classic/rp_scope_com.v#L340) | **la FSM de captura** |
-| `rp_acq_bram` | [`:366`](../../../../rtl/classic/rp_scope_com.v#L366) | la BRAM de 16384 muestras y su puerto de lectura |
-| `rp_axi_sm` | [`:386`](../../../../rtl/classic/rp_scope_com.v#L386) | camino paralelo a DDR (*deep memory*) |
-| `rp_ext_trig` | [`:458`](../../../../rtl/classic/rp_scope_com.v#L458) | *debounce* del trigger externo y del ASG |
-| `rp_scope_cfg` | [`:477`](../../../../rtl/classic/rp_scope_com.v#L477) | registros, pulsos de comando, mux de lectura |
+- **Cadena de acondicionamiento** (una por canal): lleva la muestra cruda del ADC
+  hasta el dato que se guarda y, en paralelo, fabrica el pulso de trigger.
+  - `rp_scope_calib`: corrige offset y ganancia con las constantes de
+    calibración de la placa, para que un mismo código del ADC corresponda a la
+    misma tensión en todos los canales.
+  - `osc_filter`: ecualizador IIR que compensa la respuesta en frecuencia del
+    *front-end* analógico (coeficientes `aa/bb/kk/pp` por canal). El mux
+    `set_filt_byp` que lo sigue permite saltearlo.
+  - `rp_decim`: reduce la tasa de muestreo por un factor de 1 a 65536, con
+    promedio opcional, y marca cada muestra útil con `dec_val`, el pulso que
+    habilita todos los contadores aguas abajo (§2.1).
+  - `rp_delay`: retrasa el dato 1 o 2 muestras según la fuente de trigger, para
+    compensar lo que tarda en fabricarse el trigger y que `wp_trig` apunte a la
+    muestra que lo provocó (§2.2). Entrega una copia a la BRAM y otra al camino
+    a DDR.
+  - `rp_adc_trig`: comparador Schmitt (umbral ± histéresis) sobre la salida
+    *sin retrasar* del diezmador. Emite un pulso de un ciclo en cada flanco de
+    subida (`trig_p`) y de bajada (`trig_n`) (§2.3).
+  - `rp_trig_src`: elige **una** fuente entre los flancos de los canales, el
+    trigger externo, el ASG y el de software (código de 4 bits). Se borra solo
+    al disparar y, con el *trigger protect*, ignora triggers nuevos hasta que el
+    PS escribe `0x94` (§2.4).
+- **Manejo de captura**:
+  - `rp_bram_sm`: decide cuándo se escribe la BRAM. Se arma por comando, avanza
+    el puntero de escritura con cada muestra, latchea `wp_trig` en el trigger,
+    cuenta `set_dly` muestras de post-trigger y congela el buffer para que el PS
+    lo lea completo y sin cambios (§3).
+- **Manejo de transacciones**: cómo salen hacia el PS las muestras capturadas.
+  - `rp_acq_bram`: buffer circular de 2<sup>RSZ</sup> muestras de 14 bits. El
+    ADC escribe por un puerto y el PS lee por `sys_bus` por el otro, una muestra
+    por transacción y con 3 ciclos de latencia (§4).
+  - `rp_axi_sm`: camino paralelo de *deep memory*. Con su propio contador de
+    post-trigger, empaqueta 4 muestras por palabra de 64 bits, marca dónde cayó
+    el trigger y escribe en DDR por el puerto HP a través de `axi_wr_fifo` (§5).
+- **Bloques compartidos** (una sola instancia para todos los canales):
+  - `rp_ext_trig`: *debounce* del trigger externo y del ASG, con la longitud
+    configurable en `0x90`.
+  - `rp_scope_cfg`: banco de registros del slot 1. Guarda la configuración,
+    genera los *strobes* de un ciclo (`arm`, `rst`, `trig_sw`, `trig_dis_clr`)
+    y multiplexa hacia `sys_bus` la lectura del estado y de la BRAM.
+
+Dos lecturas de la figura que el texto da por sentadas. La BRAM se lee por
+**`sys_bus`**, el mismo bus que usa el MCA (acá en el slot 1): sale por el mux de
+`rp_scope_cfg`. El camino a DDR, en cambio, no pasa por el bus: la FPGA escribe
+por HP y el ARM lee la RAM directamente. Y `rp_trig_src` recibe los `trig_p/n`
+de **todos** los canales más ext/ASG, que es lo que permite disparar el canal 1
+con un flanco del canal 0.
+
+| bloque           | archivo                                                             | rol                                                                |
+| ---------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `rp_scope_calib` | [`rp_scope_com.v:199`](../../../../rtl/classic/rp_scope_com.v#L199) | offset + ganancia de calibración                                   |
+| `osc_filter`     | [`:219`](../../../../rtl/classic/rp_scope_com.v#L219)               | ecualizador IIR (coef. `aa/bb/kk/pp`), *bypass* por `set_filt_byp` |
+| `rp_decim`       | [`:250`](../../../../rtl/classic/rp_scope_com.v#L250)               | diezmado 1…65536, con o sin promedio                               |
+| `rp_delay`       | [`:269`](../../../../rtl/classic/rp_scope_com.v#L269)               | alinea el dato con el trigger que ese dato produjo                 |
+| `rp_adc_trig`    | [`:292`](../../../../rtl/classic/rp_scope_com.v#L292)               | comparador Schmitt → pulsos `trig_p` / `trig_n`                    |
+| `rp_trig_src`    | [`:309`](../../../../rtl/classic/rp_scope_com.v#L309)               | selector de fuente + *trigger protect*                             |
+| **`rp_bram_sm`** | [`:340`](../../../../rtl/classic/rp_scope_com.v#L340)               | **la FSM de captura**                                              |
+| `rp_acq_bram`    | [`:366`](../../../../rtl/classic/rp_scope_com.v#L366)               | la BRAM de 16384 muestras y su puerto de lectura                   |
+| `rp_axi_sm`      | [`:386`](../../../../rtl/classic/rp_scope_com.v#L386)               | camino paralelo a DDR (*deep memory*)                              |
+| `rp_ext_trig`    | [`:458`](../../../../rtl/classic/rp_scope_com.v#L458)               | *debounce* del trigger externo y del ASG                           |
+| `rp_scope_cfg`   | [`:477`](../../../../rtl/classic/rp_scope_com.v#L477)               | registros, pulsos de comando, mux de lectura                       |
 
 **Un solo dominio de reloj.** `axi_clk = adc_clk_i` y `axi_rstn = adc_rstn_i`
 ([`:545`](../../../../rtl/classic/rp_scope_com.v#L545)): a pesar del nombre, el
@@ -177,17 +206,17 @@ cuatro bloques `always` independientes con banderas que se enganchan entre sí. 
 
 ### 3.1 Las señales
 
-| señal | ancho | qué es |
-|---|---|---|
-| `adc_we` | 1 | **escritura habilitada**. Mientras vale 1 el buffer se llena; cuando cae, el buffer queda *congelado* |
-| `adc_dly_do` | 1 | estamos **dentro del retardo post-trigger** |
-| `adc_dly_cnt` | 32 | cuenta regresiva de muestras post-trigger |
-| `adc_dly_end` | 1 | *sticky*: el retardo terminó (se borra sólo con arm/reset) |
-| `adc_trg_rd` | 1 | *sticky*: **hubo trigger** (se borra sólo con arm/reset) |
-| `adc_wp` | 14 | puntero de escritura, envuelve solo en 16384 |
-| `adc_wp_cur` | 14 | copia registrada de `adc_wp`, es lo que lee el SW en `0x18` |
-| `adc_wp_trig` | 14 | `adc_wp` **latcheado en el trigger** → `0x1C` |
-| `adc_we_cnt` | 32 | muestras escritas **antes** del trigger → `0x2C` |
+| Señal         | Ancho | Significado                                                                                           | Rol             | Visible al SW |
+| ------------- | ----- | ----------------------------------------------------------------------------------------------------- | --------------- | ------------- |
+| `adc_we`      | 1     | **escritura habilitada**. Mientras vale 1 el buffer se llena; cuando cae, el buffer queda *congelado* | Estado          | Sí            |
+| `adc_dly_do`  | 1     | estamos **dentro del retardo post-trigger**                                                           | Estado          | No            |
+| `adc_dly_cnt` | 32    | cuenta regresiva de muestras post-trigger                                                             | Datapath        | No            |
+| `adc_dly_end` | 1     | *sticky*: el retardo terminó (se borra sólo con arm/reset)                                            | Flag observador | Sí            |
+| `adc_trg_rd`  | 1     | *sticky*: **hubo trigger** (se borra sólo con arm/reset)                                              | Flag observador | Sí            |
+| `adc_wp`      | RSZ   | puntero de escritura, envuelve solo al llegar a 2^RSZ                                                 | Datapath        | No            |
+| `adc_wp_cur`  | RSZ   | copia registrada de `adc_wp`                                                                          | Datapath        | Sí            |
+| `adc_wp_trig` | RSZ   | `adc_wp` **capturado en el trigger**                                                                  | Datapath        | Sí            |
+| `adc_we_cnt`  | 32    | muestras escritas **antes** del trigger (satura)                                                      | Datapath        | Sí            |
 
 Los tres punteros son de `RSZ` bits (14 en el diseño original, 13 en los tops de
 hoy): el envolvimiento del buffer circular es la aritmética natural del
@@ -264,27 +293,20 @@ fallar un intento previo de detectar triggers contando muestras.
 
 ### 3.3 El estado, dibujado
 
-```mermaid
-stateDiagram-v2
-    [*] --> DESARMADA
-    DESARMADA: adc_we = 0
-    DESARMADA: buffer congelado, se puede leer
+![Máquina de estados implícita de rp_bram_sm](figuras/fsm_rp_bram_sm.svg)
 
-    ARMADA: adc_we = 1, adc_dly_do = 0
-    ARMADA: llena el pre-trigger, adc_wp++ por cada dv
-    ARMADA: adc_we_cnt++
-
-    POST: adc_we = 1, adc_dly_do = 1
-    POST: adc_dly_cnt-- por cada dv
-    POST: wp_trig ya latcheado, trg_rd = 1
-
-    DESARMADA --> ARMADA: adc_arm_do (esc. 0x00 bit0)
-    ARMADA --> POST: adc_trig<br/>latch wp_trig, trg_rd=1
-    POST --> DESARMADA: adc_dly_cnt == 1<br/>y we_keep = 0
-    POST --> ARMADA: adc_dly_cnt == 1<br/>y we_keep = 1 (continuo)
-    POST --> DESARMADA: adc_rst_do
-    ARMADA --> DESARMADA: adc_rst_do
-```
+El par `(adc_we, adc_dly_do)` tiene cuatro combinaciones, y las cuatro se
+alcanzan. La cuarta, **S3 = (0,1)**, no aparece en ninguna descripción del
+osciloscopio porque no es un estado de trabajo: `adc_dly_do` se prende con
+**cualquier** `adc_trig_i`
+([`:121-122`](../../../../rtl/classic/rp_bram_sm.v#L121)), esté o no armada la
+FSM. Un trigger con la máquina desarmada la lleva a S3, sobreescribe `wp_trig`
+con un puntero sin sentido y deja `trg_rd = 1` con `dly_end = 0`, combinación por
+la que el software puede reconocerla. Como el contador sólo baja con `adc_we`,
+S3 se queda ahí hasta un `arm` o un `rst` (salvo con diezmado 1, donde cada
+trigger adicional resta uno y puede devolverla sola a S0). Es el estado del race
+de [`orden_arm_trigger_captura.md`](orden_arm_trigger_captura.md): el `arm` la
+saca, pero el disparo ya se gastó.
 
 En modo continuo (`we_keep=1`) la transición de vuelta a ARMADA no pasa por
 ningún comando del PS: el buffer nunca se congela y el software tiene que
@@ -297,14 +319,14 @@ garantía de coherencia**: se está leyendo memoria que el ADC sigue escribiendo
 assign adc_state_o = {2'h0, indep_mode_i, adc_dly_end, adc_we_keep_i, adc_trg_rd, 1'b0, adc_we};
 ```
 
-| bit | señal |
-|---|---|
-| 0 | `adc_we` — armada |
-| 1 | (cero fijo) |
-| 2 | `adc_trg_rd` — **disparó** |
-| 3 | `adc_we_keep` — modo continuo |
-| 4 | `adc_dly_end` — el post-trigger terminó |
-| 5 | `indep_mode` |
+| bit | señal                                   |
+| --- | --------------------------------------- |
+| 0   | `adc_we` — armada                       |
+| 1   | (cero fijo)                             |
+| 2   | `adc_trg_rd` — **disparó**              |
+| 3   | `adc_we_keep` — modo continuo           |
+| 4   | `adc_dly_end` — el post-trigger terminó |
+| 5   | `indep_mode`                            |
 
 Son 8 bits por canal; `rp_scope_com` concatena los cuatro canales y expone los 16
 bits bajos (canales 0 y 1) en el registro `0x00`. Por eso una lectura de `0x0101`
@@ -341,7 +363,7 @@ assign bram_ack_o = adc_rval[3];
 **Una muestra por transacción de bus, 32 bits por cada 14 útiles.** No hay
 ráfagas: leer una ventana de 32 muestras son 32 transacciones GP0 completas.
 Medido en placa, eso es 45.6 µs por canal
-([`arquitectura_adquisicion_software.md`](arquitectura_adquisicion_software.md)),
+([`arquitectura_adquisicion_software.md`](../API/arquitectura_adquisicion_software.md)),
 que es de dónde sale la mayor parte del τ.
 
 > **Peligro heredado.** El mux de lectura del `cfg` mapea `0x3xxxx`/`0x4xxxx` a
@@ -398,6 +420,13 @@ Aguas abajo va un `axi_wr_fifo` con `ctrl_wrap_i = 1` y `ctrl_trig_size_i = 4'hF
 mismos valores, que reusa el `event_ring`; cómo forma las ráfagas está explicado
 en [el documento del ring](../event_ring/logica_de_captura_y_axi.md#6-el-camino-axi).
 
+La FSM es la misma idea que la de `rp_bram_sm` —estado implícito en el par
+`(axi_we, axi_dly_do)`—, con tres diferencias que están en la leyenda: no hay
+disparo en vacío, el modo continuo no evita el congelamiento, y `wp_trig` es una
+dirección de DDR que llega tarde.
+
+![Máquina de estados implícita de rp_axi_sm](figuras/fsm_rp_axi_sm.svg)
+
 **Este camino resuelve el ancho de banda, no el tiempo muerto.** Sigue siendo la
 misma FSM de arm/trigger/congelar: un solo evento por ciclo de software, con una
 ventana más larga. Sirve para capturar 2 MB de una vez, no para capturar mil
@@ -421,7 +450,7 @@ eventos seguidos.
 ```
 
 Las fases medidas en placa y su suma están en
-[`arquitectura_adquisicion_software.md`](arquitectura_adquisicion_software.md#L360).
+[`arquitectura_adquisicion_software.md`](../API/arquitectura_adquisicion_software.md#L360).
 El resultado es una cola **K=1 sin espera**: mientras el PS lee, el hardware no
 puede capturar, y todo evento que llegue en esa ventana **no queda registrado en
 ningún contador**. Es invisible, no sólo perdido.
@@ -429,7 +458,7 @@ ningún contador**. Es invisible, no sólo perdido.
 Con arribos periódicos eso da el modelo D/D/1/1 —`m = n/⌈nτ⌉`, escalones— y con
 arribos Poisson da `P_loss = ρ/(1+ρ)`. La discusión de los modelos y las
 mediciones están en
-[`software/../docs/mca/tiempo_muerto.md`](../../software/../docs/mca/tiempo_muerto.md).
+[`software/../docs/mca/tiempo_muerto.md`](../mca/tiempo_muerto.md).
 
 ### Qué se hereda y qué no
 
@@ -491,11 +520,24 @@ Los pulsos de comando (`arm`, `reset`, `trig_sw`, `trig_dis_clr`) se generan com
 
 - [`orden_arm_trigger_captura.md`](orden_arm_trigger_captura.md) — el race
   máscara-vs-arm, con la guía de orden de comandos.
-- [`register_map_multitrigger_rp_scope_cfg.md`](register_map_multitrigger_rp_scope_cfg.md)
+- [`register_map_mt_rp_scope_cfg.md`](register_map_mt_rp_scope_cfg.md)
   — qué agrega el multitrigger sobre este mapa.
-- [`arquitectura_adquisicion_software.md`](arquitectura_adquisicion_software.md) —
+- [`arquitectura_adquisicion_software.md`](../API/arquitectura_adquisicion_software.md) —
   la atribución por fases del τ = 252.7 µs, medida en placa.
 - [`../bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) — el bus, el CDC y
   el contrato del `ack`.
 - [`../event_ring/logica_de_captura_y_axi.md`](../event_ring/logica_de_captura_y_axi.md)
   — el reemplazo del camino de eventos.
+
+### Regenerar las figuras
+
+Las fuentes son TikZ (para la tesis se incluye el `.pdf`; el `.svg` es para este
+documento):
+
+```bash
+cd docs/osc/figuras
+for f in panorama_rp_scope_com fsm_rp_bram_sm fsm_rp_axi_sm; do
+  pdflatex $f.tex && pdftocairo -svg $f.pdf $f.svg
+done
+rm -f *.aux *.log
+```

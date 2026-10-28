@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Ondas del modulo Multitrigger</title>
+<script src="https://cdn.jsdelivr.net/npm/wavedrom@3.5.0/wavedrom.unpkg.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/wavedrom@3.5.0/skins/default.js"></script>
+<style>
+  :root { color-scheme: light; --ink: #1F2933; --muted: #6B7280; }
+  body { margin: 0 auto; padding: 24px 16px 64px; max-width: 1400px;
+         background: #fff; color: var(--ink);
+         font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, sans-serif; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 36px 0 2px; }
+  p.sub { color: var(--muted); margin: 0 0 20px; }
+  p.nota { color: var(--muted); margin: 2px 0 10px; max-width: 80ch; }
+  .wave { overflow-x: auto; }
+</style>
+</head>
+<body onload="WaveDrom.ProcessAll()">
+<h1>Ondas del m&oacute;dulo Multitrigger</h1>
+<p class="sub">Generado por docs/mt/figuras/ondas/ondas_mt.py desde los VCD de tb_trigger_shield y tb_mt_trig_src.</p>
+<h2>LAS TRES FORMAS DEL VETO AL MCA  -  nivel / nivel con cola / ventana por flanco</h2>
+<p class="nota">El mismo bloque da tres vetos distintos segun como se lo configure, y la diferencia no esta en el RTL sino en que fuente se elige y que duracion se escribe. Con una fuente de NIVEL y dur=0 el veto es la linea con un ciclo de latencia: dura lo que dure la linea. Con la misma fuente y dur=8 el veto se extiende ocho ciclos despues de que la linea baje, que es lo que hace falta cuando el estimulo deja cola. Con una fuente de FLANCO y dur=12 el veto es una ventana fija de doce ciclos, sin importar cuanto dure el pulso. Los tres tramos vienen de escenas distintas del testbench y el hueco entre ellos dice que se salteo tiempo: no es una secuencia.</p>
+<div class="wave"><script type="WaveDrom">
+{
+  "signal": [
+    {
+      "name": "clk  100 MHz",
+      "wave": "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp"
+    },
+    {
+      "name": "trig_event_i",
+      "wave": "5..5....................5.......|5..5....5............|5..55................",
+      "data": [
+        "0x00",
+        "0x40",
+        "0x00",
+        "0x00",
+        "0x40",
+        "0x00",
+        "0x00",
+        "0x10",
+        "0x00"
+      ],
+      "node": "...a................................c.....................e................."
+    },
+    {
+      "name": "shield_dur_i",
+      "wave": "=..............................=|=.=..................|=.=..................",
+      "data": [
+        "0",
+        "8",
+        "0",
+        "8",
+        "0",
+        "12"
+      ]
+    },
+    {},
+    {
+      "name": "active_o  (holdoff corriendo)",
+      "wave": "0...............................|0...1...........0....|0...1...........0...."
+    },
+    {
+      "name": "cnt_o",
+      "wave": "=...............................|=...=....========....|=...=============....",
+      "data": [
+        "0",
+        "0",
+        "8",
+        "7",
+        "6",
+        "5",
+        "4",
+        "3",
+        "2",
+        "1",
+        "0",
+        "0",
+        "12",
+        "11",
+        "10",
+        "9",
+        "8",
+        "7",
+        "6",
+        "5",
+        "4",
+        "3",
+        "2",
+        "1",
+        "0"
+      ]
+    },
+    {
+      "name": "mca_veto_o",
+      "wave": "0...1....................0......|0...1............0...|0...1............0...",
+      "node": ".........................b........................d.....................f..."
+    },
+    {
+      "name": "trig_dis_clr_o",
+      "wave": "=...............................|=....................|=....................",
+      "data": [
+        "0x0",
+        "0x0",
+        "0x0"
+      ]
+    }
+  ],
+  "edge": [
+    "a<->b 21 ciclos",
+    "c<->d 13 ciclos",
+    "e<->f 13 ciclos"
+  ],
+  "head": {
+    "text": "LAS TRES FORMAS DEL VETO AL MCA  -  nivel / nivel con cola / ventana por flanco"
+  },
+  "foot": {
+    "text": "tb_trigger_shield - tres escenas, separadas por el hueco: 1 columna = 1 ciclo de clk (10 ns); entre tramos se saltea tiempo"
+  },
+  "config": {
+    "hscale": 1
+  }
+}
+</script></div>
+<h2>HOLDOFF Y RE-ARM  -  el escudo cuenta y al expirar limpia el canal de destino</h2>
+<p class="nota">Lo que el escudo hace de verdad: cuando el canal fuente dispara, arranca un contador y mantiene `active` mientras cuenta; al expirar emite UN pulso de clear en el canal de destino, que es lo que lo vuelve a armar. Importa que el clear salga al EXPIRAR y no al disparar: si saliera al disparar, el canal de destino se re-armaria en medio del evento que el escudo esta tratando de protegerlo.</p>
+<div class="wave"><script type="WaveDrom">
+{
+  "signal": [
+    {
+      "name": "clk  100 MHz",
+      "wave": "pppppppppppppppppp"
+    },
+    {
+      "name": "trig_event_i  (src = ch0)",
+      "wave": "5..55.............",
+      "data": [
+        "0x00",
+        "0x01",
+        "0x00"
+      ],
+      "node": "...a.............."
+    },
+    {
+      "name": "shield_dur_i",
+      "wave": "=.=............=..",
+      "data": [
+        "0",
+        "5",
+        "0"
+      ]
+    },
+    {},
+    {
+      "name": "active_o",
+      "wave": "0...1....0........",
+      "node": ".........b........"
+    },
+    {
+      "name": "cnt_o  (cuenta el holdoff)",
+      "wave": "3...333333........",
+      "data": [
+        "0",
+        "5",
+        "4",
+        "3",
+        "2",
+        "1",
+        "0"
+      ]
+    },
+    {
+      "name": "trig_dis_clr_o  (dst = ch1)",
+      "wave": "3........33.......",
+      "data": [
+        "0x0",
+        "0x2",
+        "0x0"
+      ],
+      "node": ".........c........"
+    }
+  ],
+  "edge": [
+    "a<->b 5 ciclos",
+    "b~>c re-arm"
+  ],
+  "head": {
+    "text": "HOLDOFF Y RE-ARM  -  el escudo cuenta y al expirar limpia el canal de destino"
+  },
+  "foot": {
+    "text": "tb_trigger_shield - shield_dur=5 - 1 columna = 1 ciclo de clk (10 ns)"
+  },
+  "config": {
+    "hscale": 1
+  }
+}
+</script></div>
+<h2>DISPARO SINGLE-SHOT  -  el flanco dispara, engancha el disable y la mascara se auto-limpia</h2>
+<p class="nota">El flanco de la fuente habilitada dispara `adc_trig` y en el mismo movimiento engancha `adc_trg_dis`, que es lo que impide que el siguiente flanco vuelva a disparar. En modo single-shot la mascara se auto-limpia, asi que para volver a disparar hace falta reescribirla; en modo continuo la mascara persiste y basta con limpiar el disable. Esa es la unica diferencia entre los dos modos.</p>
+<div class="wave"><script type="WaveDrom">
+{
+  "signal": [
+    {
+      "name": "clk  100 MHz",
+      "wave": "pppppppppppppppp"
+    },
+    {
+      "name": "trg_state  (mascara de fuentes)",
+      "wave": "5..5..5.........",
+      "data": [
+        "0x0000",
+        "0x0002",
+        "0x0000"
+      ],
+      "node": "......c........."
+    },
+    {},
+    {
+      "name": "adc_trig  (disparo)",
+      "wave": "0....10.........",
+      "node": ".....a.........."
+    },
+    {
+      "name": "adc_trg_dis  (enganchado)",
+      "wave": "3.....3.3.......",
+      "data": [
+        "0x0",
+        "0x1",
+        "0x0"
+      ],
+      "node": "......b........."
+    }
+  ],
+  "edge": [
+    "a~>b engancha el disable",
+    "a~>c single-shot: limpia la mascara"
+  ],
+  "head": {
+    "text": "DISPARO SINGLE-SHOT  -  el flanco dispara, engancha el disable y la mascara se auto-limpia"
+  },
+  "foot": {
+    "text": "tb_mt_trig_src, escena 1 (single-shot) - 1 columna = 1 ciclo de clk (10 ns)"
+  },
+  "config": {
+    "hscale": 1
+  }
+}
+</script></div>
+<h2>FLUJO DE UTILIZACION  -  mt_cfg</h2>
+<p class="nota">Es un esquema de la SECUENCIA, no una medicion. La configuracion es una escalera: el bus del PS escribe un registro por vez, en el orden de MtRegion.set_slope() --los umbrales antes que `en`, porque con en=1 y thr=hyst=0 el Schmitt no re-arma-- y despues el escudo. OR_MASK NO es parte de esa etapa: va DESPUES de CMD_ARM, porque la mascara vive apenas se escribe y un flanco previo al arm la gasta (single-shot) y deja la captura esperando un disparo imposible (ver docs/osc/orden_arm_trigger_captura.md). CMD_ARM no es un registro del multitrigger: arma la captura del scope (slot 1); aparece aca porque fija cuando se puede escribir la mascara. La otra dependencia que no se ve en el mapa de registros: el disable queda ENGANCHADO despues del disparo, asi que sin escribir TRIG_DIS_CLR no hay segundo disparo. Un programa que configure, dispare y se quede esperando el proximo evento sin limpiar el disable espera para siempre.</p>
+<div class="wave"><script type="WaveDrom">
+{
+  "signal": [
+    [
+      "configuracion",
+      {
+        "name": "SLOPE_THR[ch]",
+        "wave": "z3z.................",
+        "data": [
+          "thr"
+        ]
+      },
+      {
+        "name": "SLOPE_HYST[ch]",
+        "wave": "z.3z................",
+        "data": [
+          "hyst"
+        ]
+      },
+      {
+        "name": "SLOPE_CFG[ch]",
+        "wave": "z..3z...............",
+        "data": [
+          "en, G, L"
+        ]
+      },
+      {
+        "name": "SHIELD_CFG",
+        "wave": "z...3z..............",
+        "data": [
+          "src,dst,dur"
+        ]
+      }
+    ],
+    {
+      "name": "escritura del PS",
+      "wave": "x3...x4.x5.x.....6.x",
+      "data": [
+        "configuracion",
+        "CMD_ARM (osc)",
+        "OR_MASK",
+        "TRIG_DIS_CLR"
+      ],
+      "node": "...........C.....G.."
+    },
+    {},
+    {
+      "name": "fuente (pulso o nivel)",
+      "wave": "0...........10......",
+      "node": "............D......."
+    },
+    {
+      "name": "adc_trig",
+      "wave": "0............10.....",
+      "node": ".............E......"
+    },
+    {
+      "name": "adc_trg_dis  (enganchado)",
+      "wave": "0............1....0.",
+      "node": "..................H."
+    },
+    {
+      "name": "mca_veto_o",
+      "wave": "0............1.0....",
+      "node": ".............F......"
+    },
+    {},
+    {
+      "name": "lectura del PS",
+      "wave": "x.............7..x..",
+      "data": [
+        "DIS_FLAGS + SNAPSHOT"
+      ]
+    },
+    {}
+  ],
+  "config": {
+    "hscale": 2
+  },
+  "head": {
+    "text": "FLUJO DE UTILIZACION  -  mt_cfg"
+  },
+  "foot": {
+    "text": "ESQUEMA: una columna es un paso, no un ciclo; cada registro se escribe en su propio paso. CMD_ARM es del scope (slot 1) y va antes de OR_MASK; sin TRIG_DIS_CLR no hay re-arm."
+  },
+  "edge": [
+    "C~>D mascara viva",
+    "D~>E",
+    "E~>F",
+    "G~>H re-arm"
+  ]
+}
+</script></div>
+
+</body>
+</html>

@@ -1,0 +1,102 @@
+% Panorama de event_ring_top: el ring de slots de evento en DDR (slot 2).
+% De la muestra al slot: captura de ventana, stage elástico, writer de slots,
+% axi_wr_fifo hacia el puerto HP; créditos contra el PS, contrapresión del
+% FIFO, la FSM global y el banco de registros.
+% Fuente: modulos/event_ring/rtl/*.sv. Estilo: docs/figuras/estilo_tikz.tex.
+%
+% Compilar:   pdflatex panorama_event_ring_top.tex
+%             pdftocairo -svg panorama_event_ring_top.pdf panorama_event_ring_top.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+% ============================================================ camino del dato
+\node[ddr, text width=2.6cm] (cap) at (2.6,0)
+  {\blk{event\_window\_capture}{pre-buffer circular\\ ventana pre + post\\ acepta en el SOF}};
+\node[ddr, text width=2.6cm] (stg) at (6.6,0)
+  {\blk{event\_stage\_fifo}{muestras ($2^{\mathtt{DATA\_AW}}$)\\ + metadatos ($E$ eventos)}};
+\node[ddr, text width=2.6cm] (wrt) at (10.6,0)
+  {\blk{event\_slot\_writer}{cabecera, muestras,\\ relleno y footer\\ $\{\sim$seq, seq$\}$}};
+\node[ddr, param={naranja!70}{naranja!30}, text width=2.6cm] (fifo) at (14.6,0)
+  {\blk{axi\_wr\_fifo}{\prm{DW=64 & AW=32\\ FW=FIFO\_FW & BYTE\_SEL=0}}
+   \nodepart{two}ring: de \texttt{SLOT\_BASE}\\ a $+$\texttt{RING\_SZ}, envuelve};
+
+% ================================================ lógica propia de event_ring_top
+\node[etapa=naranja!25, text width=2.6cm] (ts) at (2.6,2.6)
+  {\etq{timestamp}{64 b, cuenta \texttt{dv}\\ y vuelve a 0 al arrancar}};
+\node[etapa=naranja!25, text width=2.6cm] (cre) at (10.6,2.6)
+  {\etq{créditos}{$\mathtt{wr\_slot} - \mathtt{rd\_slot}$\\ $< N_\mathrm{slots}$}};
+\node[etapa=naranja!25, text width=2.4cm] (bkp) at (13.9,-2.7)
+  {\etq{contrapresión}{ocupación sombra\\ del FIFO, margen 8}};
+\node[etapa=grisr!60, text width=2.6cm] (fsm) at (1.95,-2.75)
+  {\etq{FSM global}{\textsc{stopped} $\to$ \textsc{running}\\ $\to$ \textsc{draining} $\to$ \textsc{stopped}\\[1pt]
+   {\tiny al parar: \texttt{flush} de\\ stage, writer y FIFO}}};
+\node[comp, text width=15.2cm, minimum height=0.9cm] (reg) at (8.6,-5.6)
+  {\etq{banco de registros}{\texttt{CTRL} (run, clr) \;$\cdot$\; geometría, sólo en \textsc{stopped}
+   \;$\cdot$\; \texttt{RD\_SLOT} \;$\cdot$\; contadores de pérdida \;$\cdot$\; ack de latencia fija}};
+
+% ======================================================= caja event_ring_top
+\node[contenedor, fit={(0.4,4.15) (16.6,-6.45)}] (top) {};
+\node[titulo] at (top.north west)
+  {\texttt{\bfseries event\_ring\_top}\;\; {\scriptsize\itshape todo en \texttt{adc\_clk}}\quad
+   \prm{DW=14 & N\_CH=2 & SW=16 & PRE\_AW=9\\ S\_AW=11 & DATA\_AW=12 & E=4 & FIFO\_FW=8}};
+
+\node[bus, text width=1.8cm] (sb) at (8.6,-7.6) {\texttt{\bfseries sys\_bus}};
+
+% ============================================================== flechas ====
+% --- entradas, desde rp_scope_mt_com ---
+\draw[flujo, ancho en=0.35, ancho=28] (-1.6,0.3) node[left, sen, align=right]
+  {dat\_i, dv\_i\\[-1pt]\normalfont\scriptsize 2 canales} -- ([yshift=3mm]cap.west);
+\draw[flujo] (-1.6,-0.3) node[left, sen, align=right]
+  {trig\_i, snapshot\_i\\[-1pt]\normalfont\scriptsize \texttt{trigger\_event}} -- ([yshift=-3mm]cap.west);
+\draw[flujo] (-1.6,0 |- ts.west) node[left, sen] {dv\_i} -- (ts.west);
+\draw[flujo] (ts.south) -- node[sen, right] {ts} (cap.north);
+
+% --- el evento baja por la cadena ---
+\draw[flujo, ancho=16] ([yshift=3mm]cap.east) -- ([yshift=3mm]stg.west);
+\draw[flujo] ([yshift=-3mm]stg.west) -- node[sen, below] {accept} ([yshift=-3mm]cap.east);
+\draw[flujo] ([yshift=3mm]stg.east) -- node[sen, above] {evento} ([yshift=3mm]wrt.west);
+\draw[flujo] ([yshift=-3mm]wrt.west) -- node[sen, below] {rd} ([yshift=-3mm]stg.east);
+\draw[flujo, ancho=64] (wrt.east) -- (wrt.east -| fifo.west);
+\draw[flujo] (fifo.east) -- (18.4,0 |- fifo.east) node[right, sen, align=left]
+  {axi\_*\\[-1pt]\normalfont\scriptsize$\to$ \texttt{axi\_master} (HP2) $\to$ DDR};
+
+% --- créditos y contrapresión: el writer se frena, nunca descarta ---
+\draw[flujo] ([xshift=-4mm]wrt.north) -- node[sen, left] {wr\_slot} ([xshift=-4mm]cre.south);
+\draw[flujo] ([xshift=4mm]cre.south) -- node[sen, right] {credit\_ok} ([xshift=4mm]wrt.north);
+\draw[flujo] (bkp.north |- fifo.south) -- node[sen, right] {push, pop} (bkp.north);
+\draw[flujo] (bkp.west) -| node[sen, above, pos=0.3] {wr\_rdy} ([xshift=4mm]wrt.south);
+
+% --- FSM global ---
+\draw[flujo] (fsm.north) -- node[sen, left, align=right] {run,\\ accept\_trig} (fsm.north |- cap.south);
+
+% --- registros ---
+\draw[ctrl] (fsm.south |- reg.north) -- node[sen, right, black!80] {cfg\_run} (fsm.south);
+\draw[ctrl] (3.6,0 |- reg.north) -- (3.6,0 |- cap.south)
+  node[sen, pos=0.3, right, black!80] {pre, post};
+\draw[ctrl] (10.0,0 |- reg.north) -- (10.0,0 |- wrt.south)
+  node[sen, pos=0.3, left, black!80] {slot\_shift};
+\draw[ctrl] (6.6,0 |- stg.south) -- (6.6,0 |- reg.north)
+  node[sen, pos=0.45, right, black!80, align=left] {wr\_slot, seq,\\ pérdidas, nivel};
+\draw[ctrl] (15.6,0 |- reg.north) -- (15.6,0 |- fifo.south)
+  node[sen, pos=0.3, left, black!80, align=right] {slot\_base,\\ ring\_sz};
+\draw[ctrl, cruce] (16.2,0 |- reg.north) -- (16.2,0 |- cre.east) -- (cre.east)
+  node[sen, pos=0.0, above left, black!80, align=right] {rd\_slot, n\_slots};
+\draw[<->, line width=0.8pt] (reg.south) -- (sb.north);
+
+% ================================================================= leyenda ===
+\leyenda{0.5,-8.9}{naranja!70/submódulo del camino a DDR, naranja!25/lógica dentro del módulo,
+  grisr/registros, rojo!45/bus del sistema}
+  {El PS no lee ningún registro por evento: polea el footer del próximo slot en
+   DDR y publica \texttt{RD\_SLOT} una vez por lote. Sin créditos el writer se
+   frena y el descarte ocurre arriba, en la captura, por evento entero. \notaparam}
+
+\end{tikzpicture}
+\end{document}

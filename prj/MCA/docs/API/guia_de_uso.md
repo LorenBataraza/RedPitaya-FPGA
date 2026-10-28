@@ -9,9 +9,7 @@ guardado corre igual en la PC. Cada receta dice cuál es cuál.
 ---
 
 ## 1. Arrancar la placa
-
-**En la Pitaya.** Cargar el bitstream **antes** de mapear nada — típicamente la
-primera celda del notebook.
+**En la Pitaya.** Cargar el bitstream **antes** de mapear nada — típicamente la primera celda del notebook.
 
 ```python
 from API.fpga import load_bitstream, fpga_state, pl_bus_ready

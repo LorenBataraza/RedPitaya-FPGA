@@ -3,9 +3,9 @@
 Este documento describe el software del lado del servidor (la Pitaya): el ciclo de
 adquisición, la arquitectura del pipeline de lectura y guardado, y **el análisis de
 rendimiento medido en la placa**. Complementa a
-[`orden_arm_trigger_captura.md`](orden_arm_trigger_captura.md), que explica el orden
+[`orden_arm_trigger_captura.md`](../osc/orden_arm_trigger_captura.md), que explica el orden
 arm→máscara y la FSM de captura, y a
-[`register_map_multitrigger.md`](register_map_multitrigger.md) y
+[`register_map_mt.md`](../mt/register_map_mt.md) y
 [`../osc/register_map_osc.md`](../osc/register_map_osc.md).
 
 > **Estado:** la Parte 3 (rendimiento) está medida y cerrada. Las Partes 2 y 5
@@ -16,7 +16,7 @@ arm→máscara y la FSM de captura, y a
 ## Parte 1 — El ciclo de adquisición
 
 Seis fases, y el orden de las tres primeras **no es negociable** (ver
-[`orden_arm_trigger_captura.md`](orden_arm_trigger_captura.md) para el race que
+[`orden_arm_trigger_captura.md`](../osc/orden_arm_trigger_captura.md) para el race que
 motivó la regla):
 
 ```
@@ -51,7 +51,7 @@ motivó la regla):
 
 **`adc_rst_do` no limpia `adc_trg_dis`.** Son registros de módulos distintos: el reset
 de la FSM vive en `rp_bram_sm`, y el bit de trigger-protect en
-[`multitrigger_trig_src.sv:71`](../../rtl/mine/multitrigger/multitrigger_trig_src.sv#L71), que sólo baja
+[`mt_trig_src.sv:71`](../../modulos/mt/rtl/mt_trig_src.sv#L71), que sólo baja
 con `trig_dis_clr` (0x94) o con el `trigger_shield`. Sin el pulso a 0x94,
 `src_mask = set_trig_src & {!adc_trg_dis} = 0` y **no dispara nunca**, con la máscara
 aparentemente bien escrita.
@@ -60,9 +60,9 @@ aparentemente bien escrita.
 
 | Copia | Dónde | Rol |
 |---|---|---|
-| `trg_src` | [multitrigger_cfg](../../rtl/mine/multitrigger/multitrigger_cfg.sv#L108) | combinacional, vale sólo el ciclo del write |
-| `set_trig_src` | [trig_src:48](../../rtl/mine/multitrigger/multitrigger_trig_src.sv#L48) | **la que dispara**; se carga sólo con `new_trg_src` |
-| `trg_src_stored` | [multitrigger_cfg](../../rtl/mine/multitrigger/multitrigger_cfg.sv#L135) | **sólo readback**, no drivea nada |
+| `trg_src` | [mt_cfg](../../modulos/mt/rtl/mt_cfg.sv#L108) | combinacional, vale sólo el ciclo del write |
+| `set_trig_src` | [trig_src:48](../../modulos/mt/rtl/mt_trig_src.sv#L48) | **la que dispara**; se carga sólo con `new_trg_src` |
+| `trg_src_stored` | [mt_cfg](../../modulos/mt/rtl/mt_cfg.sv#L135) | **sólo readback**, no drivea nada |
 
 O sea que `0x4030_0040` puede leer `0xFFFFFFFF` mientras la máscara viva está en 0 (auto-limpiada
 por un trigger single-shot). Para el estado real hay que mirar `TRG_STATE` @`0x4030_0028` (o el `0x04`
@@ -381,7 +381,6 @@ efecto que hizo fracasar el intento 1 de saltear la API (~318 µs fijos por unas
 ufuncs). O sea que **el cuello de botella no es el bus AXI: es el intérprete**.
 
 ### Cuánto daría reescribir el lector en C
-
 Medido, no estimado: [`API/bench/bench_reader_c.c`](../../software/API/bench/bench_reader_c.c)
 hace exactamente las mismas transacciones AXI que el lector de Python, sin intérprete
 en el medio (20000 repeticiones):
@@ -511,16 +510,16 @@ es el dead-time real del método**.
 
 Sólo dos de los tres quedan registrados, y conviene tenerlo claro al reportar resultados:
 
-| Nivel | Causa | ¿Se registra? |
-|---|---|---|
-| **Descarte de SW** | La cola se llenó (disco lento, stall del GIL) | **Sí, exacto** — `gap` por evento + `n_dropped` |
-| **Timeout de lectura** | No llegó ningún trigger en la ventana de espera | **Sí** — `n_timeouts` |
-| **Pérdida de HW** | Llegó un segundo trigger mientras el lector leía el anterior: `wp_trig` cambió una sola vez por dos eventos | **No** — invisible desde el SW |
+| Nivel                  | Causa                                                                                                       | ¿Se registra?                                   |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| **Descarte de SW**     | La cola se llenó (disco lento, stall del GIL)                                                               | **Sí, exacto** — `gap` por evento + `n_dropped` |
+| **Timeout de lectura** | No llegó ningún trigger en la ventana de espera                                                             | **Sí** — `n_timeouts`                           |
+| **Pérdida de HW**      | Llegó un segundo trigger mientras el lector leía el anterior: `wp_trig` cambió una sola vez por dos eventos | **No** — invisible desde el SW                  |
 
 La tercera es la limitación de fondo del modo BRAM: el lector simplemente no ve el
 evento. Sólo se puede **estimar** contra una fuente de tasa conocida, que es lo que hacen
 [`efficiency`](../../software/API/osciloscope.py#L731) y los barridos de `sweep_periods`
-en [`testbench_multitrigger.py`](../../software/campanas/testbench_multitrigger.py). Con 91 µs de
+en [`../../software/campanas/testbench_multitrigger.py`](../../software/campanas/testbench_multitrigger.py). Con 91 µs de
 lectura por evento, cualquier par de pulsos separado por menos que eso cuenta como uno
 solo.
 
@@ -548,7 +547,7 @@ streaming por el puerto HP no baja la latencia evento→RAM (de hecho la sube un
 
 | Etapa | Dónde |
 |---|---|
-| `rp_axi_sm` por canal | [scope_com:459](../../rtl/mine/multitrigger/rp_scope_multitrigger_com.sv#L459) |
+| `rp_axi_sm` por canal | [scope_com:459](../../modulos/osc/rtl/rp_scope_mt_com.sv#L459) |
 | Sale al top | [red_pitaya_top.sv:590](../../rtl/mine/tops/red_pitaya_top.sv#L590) → `axi0_sys`/`axi1_sys` |
 | `axi_master` → AXI4 full | [red_pitaya_ps.sv:84](../../rtl/red_pitaya_ps.sv#L84) → `hp0_saxi` |
 | Puertos HP habilitados | [ip/systemZ20.tcl:827](../../ip/systemZ20.tcl#L827) — `PCW_USE_S_AXI_HP0..3`, 64 b |

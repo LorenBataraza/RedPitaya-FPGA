@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Bus de sistema de la Red Pitaya - protocolo</title>
+<script src="https://cdn.jsdelivr.net/npm/wavedrom@3.5.0/wavedrom.unpkg.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/wavedrom@3.5.0/skins/default.js"></script>
+<style>
+  :root { color-scheme: light; --ink: #1F2933; --muted: #6B7280; }
+  body { margin: 0 auto; padding: 24px 16px 64px; max-width: 1400px;
+         background: #fff; color: var(--ink);
+         font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, sans-serif; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 36px 0 2px; }
+  p.sub { color: var(--muted); margin: 0 0 20px; }
+  p.nota { color: var(--muted); margin: 2px 0 10px; max-width: 80ch; }
+  .wave { overflow-x: auto; }
+</style>
+</head>
+<body onload="WaveDrom.ProcessAll()">
+<h1>El bus de sistema de la Red Pitaya &ndash; handshake por toggle entre
+clk_fpga_0 (PS) y adc_clk (PL)</h1>
+<p class="sub">Generado por docs/TOP/figuras/bus_sistema/figuras_bus_sistema.py
+desde tb_sys_bus_proto.fst, que son las ondas de prj/MCA/sim/tb_sys_bus_proto.sv:
+sys_bus_interconnect + sys_bus_cdc + mca_top, el RTL de verdad.
+Una columna es un semiciclo de clk_fpga_0 (4.0 ns); adc_clk es asincronico y queda cuantizado a esa grilla.
+Codigo de color del bus: AZUL = la carga util de esta transaccion (la direccion que se decodifica, el dato que se escribe o el que vuelve), para poder seguirla con la vista mientras baja por el sistema; BLANCO = el bus parado, o todavia con la sobra de la transaccion anterior, que es lo que se ve del lado del esclavo porque sys_bus_cdc solo recarga bus_m.addr cuando arranca una transaccion nueva. El par de eses encontradas es un salto temporal: ahi no cambia ninguna de las senales dibujadas --un sincronizador corriendo, o el shift register del esclavo contando-- y se saco para acortar la figura.</p>
+<h2>ESCRITURA  -  AMP_MAX (0x4070_0034) &lt;- 0x00001234</h2>
+<p class="nota">El CDC como caja negra: arriba el puerto del master, en clk_fpga_0; abajo el del esclavo, en adc_clk. El master pone addr y wdata, levanta wen y sostiene los tres hasta ver el ack. La flecha de ida es lo que tarda ese pedido en aparecer del lado del esclavo, y la de vuelta lo que tarda el ack del esclavo en llegarle al master; por dentro, cada una es un toggle cruzando tres flops. Del lado del esclavo sys_wen queda alto hasta el ack, seis ciclos de adc_clk, asi que el esclavo escribe con un estrobo de un ciclo (wr_stb) para no ejecutar la escritura seis veces. El ack sale de en_sr[3]: latencia fija, sin mirar la direccion. Como cruza el toggle esta en bus_escritura_cdc.</p>
+<div class="wave"><script type="WaveDrom">
+{
+  "signal": [
+    [
+      "PS - clk_fpga_0 125 MHz",
+      {
+        "name": "clk_fpga_0",
+        "wave": "1010|10101|10101010101"
+      },
+      {
+        "name": "addr",
+        "wave": "=.5.|5....|5..........",
+        "data": [
+          "0x00000000",
+          "0x40700034",
+          "0x40700034",
+          "0x40700034"
+        ]
+      },
+      {
+        "name": "wdata",
+        "wave": "=.5.|5....|5..........",
+        "data": [
+          "0x00000000",
+          "0x00001234",
+          "0x00001234",
+          "0x00001234"
+        ]
+      },
+      {
+        "name": "wen",
+        "wave": "0.1.|.....|........0..",
+        "node": "..a................c.."
+      },
+      {
+        "name": "ack",
+        "wave": "0...|.....|......1.0..",
+        "node": ".................b.d.."
+      }
+    ],
+    {},
+    [
+      "PL - adc_clk 125 MHz",
+      {
+        "name": "adc_clk",
+        "wave": "0101|01010|01010101010"
+      },
+      {
+        "name": "sys_addr",
+        "wave": "=...|=5...|5..........",
+        "data": [
+          "0x40700000",
+          "",
+          "0x40700034",
+          "0x40700034"
+        ]
+      },
+      {
+        "name": "sys_wdata",
+        "wave": "=...|=5...|5..........",
+        "data": [
+          "0x00000000",
+          "",
+          "0x00001234",
+          "0x00001234"
+        ]
+      },
+      {
+        "name": "sys_wen",
+        "wave": "0...|.1...|...0.......",
+        "node": "......f..............."
+      },
+      {
+        "name": "wr_stb (1 ciclo)",
+        "wave": "0...|.1.0.|...........",
+        "node": "......g..............."
+      },
+      {
+        "name": "sys_ack (en_sr[3])",
+        "wave": "0...|.....|.1.........",
+        "node": "............h........."
+      },
+      {
+        "name": "cfg_amp_max",
+        "wave": "=...|=..5.|5..........",
+        "data": [
+          "0xFFFF",
+          "0xFFFF",
+          "0x1234",
+          "0x1234"
+        ],
+        "node": "........j............."
+      }
+    ]
+  ],
+  "edge": [
+    "a<->b 96 ns",
+    "f~>g estrobo",
+    "g~>j",
+    "a~>f ida 35 ns",
+    "h~>b vuelta 21 ns"
+  ],
+  "head": {
+    "text": "ESCRITURA  -  AMP_MAX (0x4070_0034) <- 0x00001234",
+    "tick": 0
+  },
+  "foot": {
+    "text": "tb_sys_bus_proto - vuelta completa 96 ns = 12 ciclos de clk_fpga_0, de un presupuesto de 32"
+  },
+  "config": {
+    "hscale": 2
+  }
+}
+</script></div>
+<h2>LECTURA  -  AMP_MAX (0x4070_0034) -&gt; 0x00001234</h2>
+<p class="nota">La ida es identica a la escritura --mismo toggle, mismos tres flops, mismo estrobo-- y lo propio de la lectura esta en la vuelta. El dato aparece en sys_rdata en el dominio adc_clk, registrado y congelado, unos 53 ns ANTES de que el ack termine de cruzar a clk_fpga_0, y en el camino no hay ningun sincronizador: rdata es un assign que atraviesa el CDC crudo. No hace falta sincronizarlo, y de hecho no se podria sin romper el ancho de banda: el ack ES la garantia de que el dato ya se asento, asi que cuando el master lo muestrea --en el ciclo de clk_fpga_0 en que ve el ack-- esta leyendo un valor que no se movio en varios ciclos de adc_clk. Lo que si se timea de verdad es ese cruce de 32 bits, con ~0.94 ns de margen (§8, regla 4): por eso sys_rdata tiene que ser un registro plano.</p>
+<div class="wave"><script type="WaveDrom">
+{
+  "signal": [
+    [
+      "PS - clk_fpga_0 125 MHz",
+      {
+        "name": "clk_fpga_0",
+        "wave": "1010|10101|10101010101"
+      },
+      {
+        "name": "addr",
+        "wave": "=.5.|5....|5..........",
+        "data": [
+          "0x00000000",
+          "0x40700034",
+          "0x40700034",
+          "0x40700034"
+        ]
+      },
+      {
+        "name": "ren",
+        "wave": "0.1.|.....|........0..",
+        "node": "..a................c.."
+      },
+      {
+        "name": "ack",
+        "wave": "0...|.....|......1.0..",
+        "node": ".................b.d.."
+      },
+      {
+        "name": "rdata",
+        "wave": "x.=.|=..5.|5..........",
+        "data": [
+          "0x4D434131",
+          "0x4D434131",
+          "0x00001234",
+          "0x00001234"
+        ],
+        "node": "........j............."
+      }
+    ],
+    {},
+    [
+      "PL - adc_clk 125 MHz",
+      {
+        "name": "adc_clk",
+        "wave": "0101|01010|01010101010"
+      },
+      {
+        "name": "sys_addr",
+        "wave": "=...|=5...|5..........",
+        "data": [
+          "0x40700000",
+          "",
+          "0x40700034",
+          "0x40700034"
+        ]
+      },
+      {
+        "name": "sys_ren",
+        "wave": "0...|.1...|...0.......",
+        "node": "......f..............."
+      },
+      {
+        "name": "rd_stb (1 ciclo)",
+        "wave": "0...|.1.0.|...........",
+        "node": "......g..............."
+      },
+      {
+        "name": "sys_ack (en_sr[3])",
+        "wave": "0...|.....|.1.........",
+        "node": "............h........."
+      },
+      {
+        "name": "sys_rdata",
+        "wave": "=...|=..5.|5..........",
+        "data": [
+          "0x4D434131",
+          "0x4D434131",
+          "0x00001234",
+          "0x00001234"
+        ]
+      }
+    ]
+  ],
+  "edge": [
+    "a<->b 96 ns",
+    "f~>g estrobo",
+    "g~>j",
+    "a~>f ida 35 ns",
+    "h~>b vuelta 21 ns"
+  ],
+  "head": {
+    "text": "LECTURA  -  AMP_MAX (0x4070_0034) -> 0x00001234",
+    "tick": 0
+  },
+  "foot": {
+    "text": "tb_sys_bus_proto - vuelta completa 96 ns = 12 ciclos de clk_fpga_0, de un presupuesto de 32"
+  },
+  "config": {
+    "hscale": 2
+  }
+}
+</script></div>
+<h2>LECTURA DE UNA DIRECCION NO MAPEADA  -  0x4070_0F00 -&gt; 0x00000000</h2>
+<p class="nota">0x0F00 no esta en el mapa de mca_top: cae en el default del casez y devuelve 0. El handshake, en cambio, es el mismo hasta el ciclo: el ack sale de en_sr[3], un shift register de adc_clk alimentado por sys_wen|sys_ren que no mira la direccion, asi que la latencia de la vuelta es identica a la de las otras dos figuras. Eso es justo lo que hay que mirar. Si el ack dependiera de la direccion, esta transaccion no lo levantaria nunca: reg_done no alcanzaria a reg_do, el strobe de lectura quedaria pegado en alto del lado adc_clk y ctrl_do no podria volver a togglear del lado clk_fpga_0 -- el CDC del slot queda desincronizado para siempre (§7.1). No es una lectura mala, es un slot muerto.</p>
+<div class="wave"><script type="WaveDrom">
+{
+  "signal": [
+    [
+      "PS - clk_fpga_0 125 MHz",
+      {
+        "name": "clk_fpga_0",
+        "wave": "1010|10101|10101010101"
+      },
+      {
+        "name": "addr",
+        "wave": "=.5.|5....|5..........",
+        "data": [
+          "0x00000000",
+          "0x40700F00",
+          "0x40700F00",
+          "0x40700F00"
+        ]
+      },
+      {
+        "name": "ren",
+        "wave": "0.1.|.....|........0..",
+        "node": "..a................c.."
+      },
+      {
+        "name": "ack",
+        "wave": "0...|.....|......1.0..",
+        "node": ".................b.d.."
+      },
+      {
+        "name": "rdata",
+        "wave": "x.=.|=..5.|5..........",
+        "data": [
+          "0x00001234",
+          "0x00001234",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "node": "........j............."
+      }
+    ],
+    {},
+    [
+      "PL - adc_clk 125 MHz",
+      {
+        "name": "adc_clk",
+        "wave": "0101|01010|01010101010"
+      },
+      {
+        "name": "sys_addr",
+        "wave": "=...|=5...|5..........",
+        "data": [
+          "0x40700034",
+          "",
+          "0x40700F00",
+          "0x40700F00"
+        ]
+      },
+      {
+        "name": "sys_ren",
+        "wave": "0...|.1...|...0.......",
+        "node": "......f..............."
+      },
+      {
+        "name": "rd_stb (1 ciclo)",
+        "wave": "0...|.1.0.|...........",
+        "node": "......g..............."
+      },
+      {
+        "name": "sys_ack (en_sr[3])",
+        "wave": "0...|.....|.1.........",
+        "node": "............h........."
+      },
+      {
+        "name": "sys_rdata",
+        "wave": "=...|=..5.|5..........",
+        "data": [
+          "0x00001234",
+          "0x00001234",
+          "0x00000000",
+          "0x00000000"
+        ]
+      }
+    ]
+  ],
+  "edge": [
+    "a<->b 96 ns",
+    "f~>g estrobo",
+    "g~>j",
+    "a~>f ida 35 ns",
+    "h~>b vuelta 21 ns"
+  ],
+  "head": {
+    "text": "LECTURA DE UNA DIRECCION NO MAPEADA  -  0x4070_0F00 -> 0x00000000",
+    "tick": 0
+  },
+  "foot": {
+    "text": "tb_sys_bus_proto - vuelta completa 96 ns = 12 ciclos de clk_fpga_0, de un presupuesto de 32"
+  },
+  "config": {
+    "hscale": 2
+  }
+}
+</script></div>
+<h2>ESCRITURA  -  AMP_MAX (0x4070_0034) &lt;- 0x00001234  -  CON EL CDC POR DENTRO</h2>
+<p class="nota">IDA (origen clk_fpga_0, destino adc_clk). El master pone addr y wdata y levanta wen; en ese mismo flanco de clk_fpga_0 el CDC invierte ctrl_do y latchea ctrl_we. El toggle entra al dominio adc_clk por tres flops (reg_do_csff[1:0] y reg_do), asi que reg_do != reg_done recien se hace cierto tres ciclos de adc_clk despues: ese es el precio del cruce, y es lo que mide la flecha a~&gt;e. Con reg_we_csff[1] ya sincronizado, reg_write_synced sube y el MISMO flanco de adc_clk carga bus_m.addr y bus_m.wdata desde bus_s: la direccion y el dato no pasan por ningun sincronizador, pero tampoco hace falta, porque el master los dejo quietos desde antes de wen y los sostiene hasta el ack -- el registro de destino los captura en un instante que el handshake ya hizo seguro. VUELTA (origen adc_clk, destino clk_fpga_0). sys_wen queda alto seis ciclos de adc_clk, hasta que el ack lo baja, asi que el esclavo necesita el estrobo de un ciclo (wr_stb) para no ejecutar el case seis veces: con registros de config es inocuo, con un bit autolimpiante como clr_pulse no. El ack del esclavo copia reg_do en reg_done, y reg_done vuelve por otros tres flops hasta ctrl_done_csff; el master ve un pulso de un ciclo (ctrl_done_csff[1] != [2]) y suelta wen.</p>
+<div class="wave"><script type="WaveDrom">
+{
+  "signal": [
+    [
+      "PS - clk_fpga_0 125 MHz",
+      {
+        "name": "clk_fpga_0",
+        "wave": "101010101010101|10101010101"
+      },
+      {
+        "name": "addr",
+        "wave": "=.5............|5..........",
+        "data": [
+          "0x00000000",
+          "0x40700034",
+          "0x40700034"
+        ]
+      },
+      {
+        "name": "wdata",
+        "wave": "=.5............|5..........",
+        "data": [
+          "0x00000000",
+          "0x00001234",
+          "0x00001234"
+        ]
+      },
+      {
+        "name": "wen",
+        "wave": "0.1............|........0..",
+        "node": "..a.....................c.."
+      },
+      {
+        "name": "ctrl_do (toggle)",
+        "wave": "1...0..........|..........."
+      },
+      {
+        "name": "done_csff[2]",
+        "wave": "1..............|........0.."
+      },
+      {
+        "name": "ack",
+        "wave": "0..............|......1.0..",
+        "node": "......................b.d.."
+      }
+    ],
+    {},
+    [
+      "PL - adc_clk 125 MHz",
+      {
+        "name": "adc_clk",
+        "wave": "010101010101010|01010101010"
+      },
+      {
+        "name": "reg_do (3 FF)",
+        "wave": "1........0.....|..........."
+      },
+      {
+        "name": "reg_do != reg_done",
+        "wave": "0........1.....|...0.......",
+        "node": ".........e................."
+      },
+      {
+        "name": "sys_addr",
+        "wave": "=..........5...|5..........",
+        "data": [
+          "0x40700000",
+          "0x40700034",
+          "0x40700034"
+        ]
+      },
+      {
+        "name": "sys_wdata",
+        "wave": "=..........5...|5..........",
+        "data": [
+          "0x00000000",
+          "0x00001234",
+          "0x00001234"
+        ]
+      },
+      {
+        "name": "sys_wen",
+        "wave": "0..........1...|...0.......",
+        "node": "...........f..............."
+      },
+      {
+        "name": "wr_stb (1 ciclo)",
+        "wave": "0..........1.0.|...........",
+        "node": "...........g..............."
+      },
+      {
+        "name": "sys_ack (en_sr[3])",
+        "wave": "0..............|.1.........",
+        "node": ".................h........."
+      },
+      {
+        "name": "reg_done",
+        "wave": "1..............|...0.......",
+        "node": "...................i......."
+      },
+      {
+        "name": "cfg_amp_max",
+        "wave": "=............5.|5..........",
+        "data": [
+          "0xFFFF",
+          "0x1234",
+          "0x1234"
+        ],
+        "node": ".............j............."
+      }
+    ]
+  ],
+  "edge": [
+    "a<->b 96 ns",
+    "a~>e toggle: 3 FF",
+    "f~>g estrobo",
+    "h~>i",
+    "i~>b 3 FF",
+    "g~>j"
+  ],
+  "head": {
+    "text": "ESCRITURA  -  AMP_MAX (0x4070_0034) <- 0x00001234  -  CON EL CDC POR DENTRO",
+    "tick": 0
+  },
+  "foot": {
+    "text": "tb_sys_bus_proto - vuelta completa 96 ns = 12 ciclos de clk_fpga_0, de un presupuesto de 32"
+  },
+  "config": {
+    "hscale": 2
+  }
+}
+</script></div>
+
+</body>
+</html>

@@ -17,12 +17,13 @@ nombre de la función dice las dos cosas.
 
 ## Documentos
 
-| Documento | Qué contiene |
-|---|---|
-| [`referencia_api.md`](referencia_api.md) | Todas las funciones por módulo, con el registro al que pega cada una |
-| [`guia_de_uso.md`](guia_de_uso.md) | Recetas completas: espectro, captura de eventos, guardado, armado |
-| [`decisiones_del_refactor.md`](decisiones_del_refactor.md) | Por qué dos clases sobre el mismo bloque, por qué el import perezoso, por qué el análisis no lleva prefijo |
-| [`compatibilidad_y_migracion.md`](compatibilidad_y_migracion.md) | Los shims, cómo se verifica que nada se rompió y cómo retirarlos |
+| Documento                                                        | Qué contiene                                                                                               |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| [`referencia_api.md`](referencia_api.md)                         | Todas las funciones por módulo, con el registro al que pega cada una                                       |
+| [`guia_de_uso.md`](guia_de_uso.md)                               | Recetas completas: espectro, captura de eventos, guardado, armado                                          |
+| [`arquitectura_software.md`](arquitectura_software.md)           | Cómo está construida: los siete niveles, los hilos, el filesystem, los tipos, los tests y las responsabilidades en ejecución |
+| [`decisiones_del_refactor.md`](decisiones_del_refactor.md)       | Por qué dos clases sobre el mismo bloque, por qué el import perezoso, por qué el análisis no lleva prefijo |
+| [`compatibilidad_y_migracion.md`](compatibilidad_y_migracion.md) | Los shims, cómo se verifica que nada se rompió y cómo retirarlos                                           |
 
 ---
 
@@ -30,11 +31,11 @@ nombre de la función dice las dos cosas.
 
 `<módulo>_<capa>_<campo>`
 
-| Capa | Qué dice | Valores |
-|---|---|---|
-| 1 · módulo | a qué bloque del bus pega | `mca_` · `osciloscope_` · `osciloscope_ring_` · `multitrigger_` |
-| 2 · tipo de API | qué clase de operación es | cfg/status *sin infijo* · `read_` · `write_file_` / `save_file_` |
-| 3 · campo | el registro o la operación concreta | `thr`, `gate_long`, `histogram`, … |
+| Capa            | Qué dice                            | Valores                                                          |
+| --------------- | ----------------------------------- | ---------------------------------------------------------------- |
+| 1 · módulo      | a qué bloque del bus pega           | `mca_` · `osciloscope_` · `osciloscope_ring_` · `multitrigger_`  |
+| 2 · tipo de API | qué clase de operación es           | cfg/status *sin infijo* · `read_` · `write_file_` / `save_file_` |
+| 3 · campo       | el registro o la operación concreta | `thr`, `gate_long`, `histogram`, …                               |
 
 ```python
 from API.mca import mca_open, mca_set_thr, mca_read_histogram
@@ -44,15 +45,17 @@ mca_set_thr(h, 200)     # capa 1 + capa 2 (cfg, sin infijo) + capa 3
 hist = mca_read_histogram(h)
 ```
 
-**Configuración y estatus** no llevan infijo de capa 2: son `mca_get_thr(h)` y
-`mca_set_thr(h, 200)`, un par por campo de registro.
+**Configuración y estatus** no llevan infijo de capa 2: son `mca_get_thr(h)` y `mca_set_thr(h, 200)`, un par por campo de registro.
 
-**Lectura** devuelve siempre `numpy`, que es la estructura natural del dato.
-Convertir a otra representación es trabajo de la capa de guardado, no de la de
-lectura.
+**Lectura** devuelve siempre `numpy`, que es la estructura natural del dato. Convertir a otra representación es trabajo de la capa de guardado, no de la de lectura.
 
 **Guardado** distingue el formato de texto por defecto (`write_file_`) de los
 formatos estructurados (`save_file_`).
+
+> Ojo con la palabra: **estas tres capas son los tres segmentos del nombre**, no
+> niveles de abstracción. Los niveles —de los registros de la PL a los
+> notebooks— están en
+> [`arquitectura_software.md`](arquitectura_software.md#1-los-niveles).
 
 ---
 
@@ -62,9 +65,9 @@ formatos estructurados (`save_file_`).
 |---|---|---|---|
 | [`API.mca`](../../software/API/mca.py) | analizador multicanal | `0x4070_0000` (slot 7) | [mapa](../mca/register_map_mca.md) |
 | [`API.osciloscope`](../../software/API/osciloscope.py) | osciloscopio clásico | `0x4010_0000` (slot 1) | [mapa](../osc/register_map_osc.md) |
-| [`API.multitrigger`](../../software/API/multitrigger.py) | máscaras OR, shield, snapshot | `0x4010_0000` (slot 1, `0x210`–`0x24C`) — **desactualizado**, ver aviso | [mapa](../multitrigger/register_map_multitrigger.md) |
+| [`API.multitrigger`](../../software/API/multitrigger.py) | máscaras OR, shield, snapshot | `0x4010_0000` (slot 1, `0x210`–`0x24C`) — **desactualizado**, ver aviso | [mapa](../mt/register_map_mt.md) |
 | [`API.osciloscope_ring`](../../software/API/osciloscope_ring.py) | event_ring en DDR | `0x4020_0000` (slot 2) | [mapa](../event_ring/diseno_y_register_map.md) |
-| [`API.osciloscope_store`](../../software/API/osciloscope_store/) | guardado continuo del flujo de eventos | — | [arquitectura](../multitrigger/arquitectura_adquisicion_software.md) |
+| [`API.osciloscope_store`](../../software/API/osciloscope_store/) | guardado continuo del flujo de eventos | — | [arquitectura](arquitectura_adquisicion_software.md) |
 | [`API.mca_net`](../../software/API/mca_net.py) | protocolo de red del MCA (JSON + binario) | — | — |
 | [`API.mca_remote`](../../software/API/mca_remote.py) | el MCA por socket, y un MCA simulado | `0x4070_0000` remoto | [mapa](../mca/register_map_mca.md) |
 | [`API.analisis`](../../software/API/analisis.py) | helpers puros, sin hardware | — | — |
@@ -84,7 +87,7 @@ formatos estructurados (`save_file_`).
 > slot, así que las escrituras se aceptan y no hacen nada. El osciloscopio sí
 > sigue funcionando, por la ventana de compatibilidad legacy del slot 1.
 > Mapas nuevos: [OSC](../osc/register_map_osc.md) ·
-> [multitrigger](../multitrigger/register_map_multitrigger.md) ·
+> [multitrigger](../mt/register_map_mt.md) ·
 > [TOP](../TOP/register_map_top.md).
 
 ---
@@ -119,12 +122,7 @@ software/
 └── tests/
 ```
 
-`API/` vive **dentro** de `software/` a propósito: los ~40 ficheros del árbol ya
-hacen `sys.path.insert(0, <dir de software>)`, así que `import API.mca` funciona
-sin tocar ninguno, y el rsync de deploy a la Pitaya
-([`flujo_sync_notebooks_pitaya.md`](../flujo_sync_notebooks_pitaya.md)) sigue
+`API/` vive **dentro** de `software/` a propósito: los ~40 ficheros del árbol ya hacen `sys.path.insert(0, <dir de software>)`, así que `import API.mca` funciona sin tocar ninguno, y el rsync de deploy a la Pitaya ([`flujo_sync_notebooks_pitaya.md`](../flujo_sync_notebooks_pitaya.md)) sigue
 siendo el mismo comando.
 
-La separación **driver / caracterización** se mantiene igual que antes: en `API/`
-va el acceso al hardware y los helpers puros; las campañas de medida siguen en
-`testbench_mca.py` y `testbench_multitrigger.py`.
+La separación **driver / caracterización** se mantiene igual que antes: en `API/` va el acceso al hardware y los helpers puros; las campañas de medida siguen en `testbench_mca.py` y `testbench_multitrigger.py`.

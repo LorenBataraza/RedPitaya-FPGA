@@ -1,0 +1,75 @@
+Epígrafes del Monte-Carlo de cancelación polo-cero. Los escribe
+software/monte-carlo/polo_cero.py; no editar a mano. Documento:
+docs/mca/polo_cero.md.
+
+-------------------------------------------------------------------------------
+01_undershoot_medido.png
+-------------------------------------------------------------------------------
+El undershoot, medido en capturas crudas del scope (2026-05-27: tren periódico
+de 100 kHz del ARB, pulsos de ~8000 cuentas y ~2 µs).
+
+(a) Un período promediado sobre los pulsos de la captura. Después de cada
+pulso la señal queda POR DEBAJO de su nivel de reposo y se recupera en varios
+µs: el undershoot existe.
+
+(b) La parte posterior al pulso, ampliada, con el ajuste del modelo polo-cero
+y = c + p − η·LP_τ{p} (un acople de continua parcial: ganancia DC 1 − η) hecho
+sobre las muestras fuera de los pulsos. La punteada es c, el nivel de reposo
+sin undershoot.
+
+Ajuste sobre tres capturas independientes:
+
+| captura | η | τ (µs) | c (cuentas) | rms (cuentas) |
+| 20260527_191742__sanity_in1.npz | 0.0391 | 5.05 | -31.4 | 6.8 |
+| 20260527_191742__sanity_in2.npz | 0.0378 | 4.86 | -34.0 | 6.6 |
+| 20260527_215917__sanity_in1.npz | 0.0425 | 5.38 | -25.0 | 6.3 |
+
+El rms queda cerca del ruido blanco (4.5 cuentas): un solo polo describe bien
+el undershoot. η ≈ 0.04 quiere decir que el 4 % del área de cada pulso vuelve
+como cola negativa de unos 5 µs.
+
+-------------------------------------------------------------------------------
+02_campana_vs_modelo.png
+-------------------------------------------------------------------------------
+La campaña de deriva (2026-09-08, rectángulos de 2 µs en modo PULSE, 16 tasas,
+ida y vuelta) contra la cadena simulada con el MISMO estímulo, la MISMA
+configuración (thr 100, hyst 40, bl_k 12, holdoff 64, estimador de pico) y el
+seguidor de base del RTL.
+
+(a) Caída de la base en vuelo respecto del nivel a baja tasa (-59.8 cuentas).
+La franja es el tramo de ancho nominal (1995–72444 Hz), el único donde se
+compara el centroide. Con el undershoot medido (η = 0.040, τ = 5.1 µs) la base
+cae -19.0 cuentas a 72 kHz; se midieron -40.8.
+
+(b) Corrimiento de centroide desde 1995 Hz. Medido: +1.17 % (ida) y +1.59 %
+(vuelta) a 72 kHz. El undershoot medido explica +0.34 %.
+
+En naranja, el MEJOR modelo lineal posible (η y τ libres, ajustados a las dos
+curvas a la vez). Necesita η = 0.12, 3.0 veces el medido, y aun así no
+reproduce la FORMA: un mecanismo lineal da, con ciclo de trabajo chico, una
+caída proporcional a la tasa (recta en escala log), y la medida es cóncava — a
+12 kHz la base y el centroide ya se movieron la mitad de lo que se mueven a 72
+kHz. χ²/gl = 6.2.
+
+-------------------------------------------------------------------------------
+03_correcciones.png
+-------------------------------------------------------------------------------
+Qué hace cada corrección sobre la parte LINEAL del problema (el undershoot
+medido, η = 0.040, τ = 5.1 µs), con el estímulo de la campaña.
+
+(a) Corrimiento de centroide contra la tasa. Sin corrección, +0.34 % a 72 kHz.
+La PZ exacta lo lleva a -0.000 %: es la inversa del polo-cero y la cancelación
+es exacta por construcción. Desajustada un 20 % deja +0.024 % (error en τ) y
+-0.079 % (error en η). El holdoff de 1024 muestras —esconder el seguidor
+durante 8.2 µs después de cada pulso, sin hardware nuevo— deja +0.041 %, a
+costa de que el seguidor actualice sólo el 26 % del tiempo a 72 kHz.
+
+(b) Sensibilidad de la PZ: corrimiento residual a 72 kHz contra el error de
+cada parámetro. Manda η: el residuo es lineal en su error, y un 10 % de error
+deja -0.039 % (12 % de la parte lineal); sobreestimarlo sobrecorrige y el
+centroide BAJA con la tasa. τ casi no importa: con ±30 % de error el residuo
+no pasa de 0.036 %.
+
+Lo que esta figura NO dice: cuánto del corrimiento MEDIDO desaparecería. Eso
+es sólo la fracción lineal de la figura 02 (+0.34 de +1.17 % en la ida); el
+resto no responde a una PZ.

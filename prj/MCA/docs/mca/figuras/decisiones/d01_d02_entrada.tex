@@ -1,0 +1,44 @@
+% D1 — qué canal se analiza (cfg_chan) y D2 — la decimación propia (cfg_dec).
+% Viven en mca_top, antes del registro de entrada.
+% Compilar:   pdflatex d01_d02_entrada.tex && pdftocairo -svg d01_d02_entrada.pdf d01_d02_entrada.svg
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../../figuras/estilo_tikz.tex}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\node[decision] (d1) at (-0.9,1.3) {D1};
+\node[anchor=west, font=\small] at (d1.east)
+  {\textbf{Canal y decimación} \quad {\scriptsize\ttfamily mca\_top}};
+
+\node[datos, defecto, text width=2.6cm] (o0) at (0.6,0)
+  {\etq{IN1}{\texttt{mca\_dat\_i[13:0]}}};
+\node[datos, text width=2.6cm] (o1) at (0.6,-1.5)
+  {\etq{IN2}{\texttt{mca\_dat\_i[27:14]}}};
+
+\muxdec{m}{(3.3,-0.75)}{2.8}
+\foreach \k in {0,1} {
+  \draw[flujo] (o\k.east) -- (m-in |- o\k.east);
+  \node[font=\scriptsize, anchor=west] at ($(m-in |- o\k.east)+(0.05,0)$) {\k};
+}
+\draw[ctrl] ($(m-sel)+(0,-0.9)$) node[below, sen, black] {cfg\_chan\;\normalfont(0x00C[8])}
+  -- (m-sel);
+
+% D2: no es un mux sino un número, pero es una decisión igual
+\node[decision, minimum size=6mm, font=\scriptsize\bfseries] (d2) at (5.6,0.55) {D2};
+\node[etapa, text width=2.7cm] (dec) at (5.9,-0.75)
+  {\etq{decimación}{pasa 1 de cada \texttt{cfg\_dec}\\ ($\le$1: todas)}};
+\draw[flujo] (m-out) -- (dec.west);
+\draw[ctrl] ($(dec.south)+(0,-0.9)$) node[below, sen, black] {cfg\_dec\;\normalfont(0x044)}
+  -- (dec.south);
+
+\node[comp, text width=1.6cm] (reg) at (8.6,-0.75) {\etq{registro}{de entrada}};
+\draw[flujo] (dec.east) -- (reg.west);
+\draw[flujo] (reg.east) -- ++(1.1,0) node[right, sen, align=left] {dat\_q, val\_q\\[-1pt]\normalfont\scriptsize a mca\_pulse\_feature};
+
+\end{tikzpicture}
+\end{document}

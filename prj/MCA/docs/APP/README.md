@@ -299,6 +299,6 @@ lento.
 
 [`referencia_api.md`](../API/referencia_api.md), la API que el servidor expone ·
 [`register_map_mca.md`](../mca/register_map_mca.md), los registros del otro lado ·
-[`arquitectura_adquisicion_software.md`](../multitrigger/arquitectura_adquisicion_software.md),
+[`arquitectura_adquisicion_software.md`](../API/arquitectura_adquisicion_software.md),
 el pipeline de adquisición de formas de onda, que es el otro camino de datos del
 proyecto y no pasa por acá

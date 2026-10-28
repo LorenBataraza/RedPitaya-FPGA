@@ -1,0 +1,131 @@
+% Las clases del handle del MCA. Al centro, MCA: el handle sobre /dev/mem. Abajo,
+% sus dos subclases: MCARemote, que redefine r32/w32 para que salgan por el
+% socket, y FakeMCA, que los redefine contra un dict. A la izquierda, quién usa
+% cada una: las funciones mca_* (nivel 5), que entran casi todas por r32/w32, y
+% el servidor, que del otro lado del socket vuelve a abrir un MCA (o un FakeMCA).
+% Fuentes: software/API/mca.py (class MCA, _leer_campo, _escribir_campo,
+% mca_start/stop/clear, mca_read_*), software/API/mca_remote.py (MCARemote,
+% FakeMCA), software/app/mca_server.py:94,113. El texto que acompaña está en
+% docs/API/arquitectura_software.md §1. Estilo: docs/figuras/estilo_tikz.tex y
+% clases_estilo.tex.
+%
+% Compilar:   pdflatex clases_mca.tex
+%             pdftocairo -svg clases_mca.pdf clases_mca.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+\input{clases_estilo.tex}
+
+\begin{document}
+\catcode`\_=12
+\begin{tikzpicture}[fondo]
+
+% =================================================================== MCA ===
+\node[clase=6.2cm, anchor=north] (mca) at (0.5,0) {
+  \clase{MCA}{API/mca.py · 0x4070_0000 · slot 7 · "MCA1"}
+  \nodepart{two}
+  _mmap · _fd\\
+  caps · h_aw · h2_aw · psd_aw · _has_2d
+  \nodepart{three}
+  \gr{ciclo de vida}
+  open(phys, size, check_magic) \es{classmethod}\\
+  close() · __enter__() · __exit__()\\
+  \gr{acceso de 32 b}
+  w32(off, v) · r32(off)\\
+  _read_words(off, n) · _r64(off_lo, off_hi)\\
+  \gr{identificación}
+  identify() · tiene_features() · exigir_features()\\
+  \gr{configuración y control}
+  configure(**cfg) · clear(timeout_s)\\
+  start() · stop() · running \es{prop} · channel \es{prop}\\
+  \gr{lectura}
+  counters() · spectrum() · map2d() · last_event()\\
+  acquire(seconds) · acquire_chunks(seconds, chunk_s)\\
+  \gr{ajuste de escala}
+  autoscale_q_shift() · autoscale_h2_shift()
+};
+
+% ============================================================ subclases ===
+\node[clase=5.6cm, anchor=north] (rem) at (-0.3,-6.9) {
+  \clase{MCARemote(MCA)}{API/mca_remote.py · por socket}
+  \nodepart{two}
+  _canal · _lock · info\\
+  _has_integracion · _has_osc · _has_mtrg
+  \nodepart{three}
+  connect(host, port) \es{classmethod}\\
+  \gr{redefinidos}
+  w32(off, v) · r32(off) · close()\\
+  spectrum() · map2d() · counters()\\
+  configure(**cfg) · clear() · start() · stop()\\
+  \gr{propios}
+  status() · config() · metadata()\\
+  pedir(op, **args) · _pedir(op, **args)\\
+  capturar_osc(pre, post)\\
+  fpga_state() · load_bitstream(path)
+};
+
+\node[falsa=5.0cm, anchor=north] (fake) at (5.7,-6.9) {
+  \clase{FakeMCA(MCA)}{API/mca_remote.py · simulado, sin placa}
+  \nodepart{two}
+  _reg · _sombra · _rng\\
+  _rate · _centro · _sigma\\
+  _hist · _m2d · _cnt · _ultimo\\
+  _realtime · _t_ref
+  \nodepart{three}
+  \gr{redefinidos}
+  w32(off, v) · r32(off) · close()\\
+  spectrum() · map2d()\\
+  \gr{propios}
+  _avanzar() · _livetime()
+};
+
+\coordinate (j) at ($(mca.south)+(0,-0.75)$);
+\draw[rama] (rem.north) |- (j);
+\draw[rama] (fake.north) |- (j);
+\draw[hereda] (j) -- (mca.south);
+
+% =========================================================== quién los usa ===
+% las funciones de nivel 5: casi todas entran por r32/w32, no por los métodos
+\node[modulo=4.6cm, anchor=north east] (fun) at (-4.8,0) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont mca_*(h, …)}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont API/mca.py · nivel 5}\\[3pt]
+  mca_open() -> MCA.open()\\
+  mca_close(h) · mca_identify(h)\\[2pt]
+  mca_get_<campo>(h)\\
+  mca_set_<campo>(h, v)\\
+  \hspace*{1em}-> h.r32 / h.w32 sobre _CAMPOS\\[2pt]
+  mca_start(h) · mca_stop(h) · mca_clear(h)\\
+  \hspace*{1em}-> h.r32 / h.w32\\[2pt]
+  mca_read_histogram(h) -> h.spectrum()\\
+  mca_read_map2d(h) -> h.map2d()\\
+  mca_read_counters(h) -> h.counters()\\
+  mca_read_acquire(h, s) -> h.acquire(s)
+};
+\draw[usa] (fun.east |- mca.north west) ++(0,-1.2) coordinate (f0)
+  -- (f0 -| mca.west) node[rol, midway, above] {h};
+
+% el servidor: del otro lado del socket vuelve a entrar por el nivel 4
+\node[modulo=4.6cm, anchor=north east] (srv) at (-4.8,-6.9) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont ServidorMCA}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont app/mca_server.py · en la placa}\\[3pt]
+  h   : MCA | FakeMCA\\
+  osc : Osciloscope | FakeOsc\\
+  mt  : MultiTrigger | FakeMultiTrigger
+};
+\draw[usa] ([yshift=4pt]rem.west |- srv.east) -- ([yshift=4pt]srv.east)
+  node[rol, midway, above] {_canal};
+\node[rol, anchor=north] at ($([yshift=4pt]rem.west |- srv.east)!0.5!([yshift=4pt]srv.east)+(0,-0.08)$)
+  {TCP · mca_net};
+\draw[usa] (srv.north) |- ([yshift=-4.3cm]mca.north -| mca.west) node[rol, pos=0.75, above] {h};
+
+% ============================================================== leyenda ===
+\leyendac{-9.4,-11.9}{16.5cm}{azul!30/{handle sobre /dev/mem}, grisr/sustituto sin placa}
+  {Triángulo hueco: hereda. Flecha punteada: usa. Las subclases redefinen sólo lo que
+   listan; el resto lo heredan intacto de \texttt{MCA}.}
+
+\end{tikzpicture}
+\end{document}

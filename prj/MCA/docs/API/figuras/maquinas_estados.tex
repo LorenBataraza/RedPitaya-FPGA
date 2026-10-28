@@ -1,0 +1,84 @@
+% Las dos secuencias que ve el usuario, como dos subfiguras separadas para
+% citarlas como (a) y (b). (a), el lazo de EventSource: arm() una sola vez, y
+% después una vuelta por evento que termina siempre en rearm(), también cuando
+% el lector descarta. Entre que wait_event() devuelve y rearm() termina, el
+% scope no dispara: ese es el tiempo muerto. (b), el flujo del MCA, que es
+% lineal porque el hardware acumula solo.
+% Fuentes: software/API/osciloscope_store/reader.py (ReaderThread._loop),
+% sources.py (la interfaz), session.py (start/stop), software/API/mca.py. El
+% texto que acompaña está en docs/API/arquitectura_software.md §4. Estilo:
+% docs/figuras/estilo_tikz.tex.
+%
+% Compilar:   pdflatex maquinas_estados.tex
+%             pdftocairo -svg maquinas_estados.pdf maquinas_estados.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+\usetikzlibrary{decorations.pathreplacing}
+
+\tikzset{
+  op/.style     = {bloque=white, text width=3.4cm, minimum height=0.65cm,
+                   font=\scriptsize\ttfamily},
+  sesion/.style = {op, fill=azul!30},
+  parte/.style  = {anchor=south west, font=\small\bfseries, inner sep=0pt},
+  llave/.style  = {decorate, decoration={brace, amplitude=5pt}, line width=0.6pt},
+}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+% ============================================================ EventSource ===
+\node[parte] at (-2.8,0.75) {(a)\enspace EventSource\quad\normalfont un evento por vuelta};
+
+\node[sesion] (arm) at (0,0)    {arm()};
+\node[op]     (wt)  at (0,-1.4) {wait\_event(deadline\_ns)};
+\node[op]     (sn)  at (0,-2.5) {snapshot()};
+\node[op]     (ri)  at (0,-3.6) {read\_into(batch, i, wp)};
+\node[op]     (re)  at (0,-4.7) {rearm()};
+\node[sesion] (cl)  at (0,-6.45) {close()};
+
+\draw[flujo] (arm) -- (wt);
+\draw[flujo] (wt) -- node[sen, right] {wp} (sn);
+\draw[flujo] (sn) -- (ri);
+\draw[flujo] (ri) -- (re);
+% la vuelta: de rearm() a esperar el próximo, no a arm()
+\draw[flujo] (re.east) -- (2.25,0 |- re.east) |- (wt.east);
+% el descarte también re-arma
+\draw[flujo, rojo!80!black] (wt.west) -- (-2.3,0 |- wt.west) |- (re.west);
+\node[sen, rojo!80!black, rotate=90, fill=white] at (-2.3,-3.05) {sin batch libre};
+
+\node[grupo, fit={(-2.65,-0.95) (2.5,-5.2)}] (lz) {};
+\node[rotulo, anchor=south east] at (lz.north east) {\texttt{mca-reader}};
+\draw[ctrl, dashed] (lz.south -| cl.north) -- node[sen, right, black!80] {al cortar} (cl.north);
+
+% el tiempo muerto: el scope está ciego desde el disparo hasta el re-arme
+\draw[llave] (2.85,-1.75) -- (2.85,-5.05)
+  node[midway, right=6pt, font=\scriptsize, align=left] {tiempo muerto:\\ el scope\\ no dispara};
+
+% ==================================================================== MCA ===
+% corrido 2.5 cm a la derecha de lo que pedía el dibujo, para que (a) y (b) se
+% lean como dos subfiguras y no como un solo diagrama
+\node[parte] at (8.6,0.75) {(b)\enspace MCA\quad\normalfont un espectro por corrida};
+
+\foreach \n/\t/\y in {o/mca\_open()/0, cf/mca\_configure() · mca\_set\_*()/-1.1,
+                      cr/mca\_clear()/-2.2, st/mca\_start()/-3.3,
+                      rh/mca\_read\_histogram()/-4.4, sp/mca\_stop()/-5.5,
+                      wf/mca\_write\_file\_histogram()/-6.6}
+  \node[op, text width=3.8cm] (\n) at (10.7,\y) {\t};
+\foreach \a/\b in {o/cf, cf/cr, cr/st, st/rh, rh/sp, sp/wf}
+  \draw[flujo] (\a) -- (\b);
+
+% mientras corre, el hardware acumula: no hay un evento que leer
+\fill[verde] (13.0,-3.3) rectangle (13.25,-5.5);
+\node[font=\scriptsize, anchor=west, align=left] at (13.4,-4.4) {el hardware\\ acumula};
+
+% ============================================================== leyenda ===
+\leyenda{-2.8,-7.45}{azul!30/lo llama AcquisitionSession, verde/el MCA acumula en la PL}
+  {Recuadro punteado: lo que corre en el hilo lector. La vuelta vuelve a \texttt{wait\_event()}, no a \texttt{arm()}.}
+
+\end{tikzpicture}
+\end{document}

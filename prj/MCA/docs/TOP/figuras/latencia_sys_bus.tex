@@ -1,0 +1,89 @@
+% La latencia de un acceso a registro: el panorama del bus de sistema reducido
+% a un solo slot, con la ida arriba y la vuelta abajo. Cada marca es una fila
+% de la tabla de docs/TOP/bus_sistema_redpitaya.md §10, con sus ciclos de
+% clk_fpga_0 (8 ns). El decodificador no suma: es combinacional. Las etapas 2 y
+% 4 se complementan (la fase que pierde una la gana la otra): juntas son 7
+% ciclos, u 8 si un sincronizador entra en metaestabilidad. Por eso el total no
+% es la suma de los rangos.
+% Fuentes: rtl/axi4_slave.sv (ren/wen y RVALID/BVALID registrados),
+% rtl/sys_bus_interconnect.sv (sólo assigns), rtl/sys_bus_cdc.sv (toggle +
+% 3 FF de ida, reg_done + 2 FF de vuelta; medidos en tb_sys_bus_proto: 35 y 21 ns), el en_sr[3] de los esclavos. La
+% versión completa es panorama_sys_bus.tex. Estilo: docs/figuras/estilo_tikz.tex.
+%
+% Compilar:   pdflatex latencia_sys_bus.tex
+%             pdftocairo -svg latencia_sys_bus.pdf latencia_sys_bus.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{
+  ciclos/.style = {font=\scriptsize, anchor=west, inner sep=1pt},
+  dom/.style    = {font=\scriptsize, align=center, inner sep=1pt},
+}
+% una etapa de la tabla: marca numerada y sus ciclos
+\newcommand{\etapa}[3]{%
+  \node[marca] (m#1) at (#2) {#1};
+  \node[ciclos] at ([xshift=2pt]m#1.east) {#3};}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\def\yi{0.4}    % la ida
+\def\yv{-0.4}   % la vuelta
+\def\xc{11.0}   % el cruce de reloj
+
+% el cruce de reloj va primero: el CDC lo tapa, porque está a caballo
+\draw[black!55, dashed, line width=0.7pt] (\xc,2.45) -- (\xc,-1.75);
+\node[dom, anchor=south east] at (\xc-0.15,1.7) {\texttt{clk\_fpga\_0}\\[-1pt] {\itshape del PS, 125 MHz}};
+\node[dom, anchor=south west] at (\xc+0.15,1.7) {\texttt{adc\_clk}\\[-1pt] {\itshape del ADC, 125 MHz, asíncrono}};
+
+% ================================================================ bloques ===
+\node[comp, text width=1.8cm, minimum height=1.7cm] (ps) at (0,0)
+  {\etq{Zynq PS}{ARM\\ \texttt{M\_AXI\_GP0}}};
+\node[bus, text width=2.1cm, minimum height=1.7cm] (axi) at (3.9,0)
+  {\blk{axi4\_slave}{AXI a bus propio}};
+\node[etapa=rojo!18, text width=2.0cm, minimum height=1.7cm] (dec) at (8.1,0)
+  {\etq{decodificador}{\texttt{addr[22:20]}\\ combinacional}};
+\node[bus, text width=2.2cm, minimum height=1.7cm] (cdc) at (\xc,0)
+  {\blk{sys\_bus\_cdc}{toggle + 3 FF\\[-1pt] de cada lado}};
+\node[captura, text width=2.3cm, minimum height=1.7cm] (esc) at (15.0,0)
+  {\etq{esclavo}{p.\,ej. \texttt{mca\_top}\\ \texttt{ack} = \texttt{en\_sr[3]}}};
+
+\node[grupo, fit={(6.85,1.5) (12.85,-1.5)}] (ic) {};
+\node[rotulo, anchor=north west] at (ic.north west) {\texttt{sys\_bus\_interconnect}};
+
+% ======================================================= ida y vuelta ===
+\draw[flujo] (ps.east |- 0,\yi) -- node[sen, above] {AR · AW, W} (axi.west |- 0,\yi);
+\draw[flujo] (axi.east |- 0,\yi) -- node[sen, above] {ren · wen} (dec.west |- 0,\yi);
+\draw[flujo] (dec.east |- 0,\yi) -- (cdc.west |- 0,\yi);
+\draw[flujo] (cdc.east |- 0,\yi) -- (esc.west |- 0,\yi);
+
+\draw[flujo] (esc.west |- 0,\yv) -- (cdc.east |- 0,\yv);
+\draw[flujo] (cdc.west |- 0,\yv) -- (dec.east |- 0,\yv);
+\draw[flujo] (dec.west |- 0,\yv) -- node[sen, below] {ack, rdata} (axi.east |- 0,\yv);
+\draw[flujo] (axi.west |- 0,\yv) -- node[sen, below] {R · B} (ps.east |- 0,\yv);
+
+\node[font=\scriptsize\itshape, black!70, anchor=east] at (-1.15,\yi) {ida};
+\node[font=\scriptsize\itshape, black!70, anchor=east] at (-1.15,\yv) {vuelta};
+
+% ======================================================== las etapas ===
+\etapa{1}{3.35,-1.15}{2-4 ciclos}
+\etapa{2}{\xc+0.4,1.13}{4-5 ciclos}
+\etapa{3}{14.4,-1.15}{1-5 ciclos}
+\etapa{4}{\xc+0.4,-1.13}{2-3 ciclos}
+\node[ciclos, black!60, anchor=center] at (8.1,-1.15) {0 ciclos};
+
+\node[font=\small, anchor=north east] at (16.35,-1.85)
+  {total $\approx$ 10-17 ciclos $\approx$ 80-140\,ns};
+
+% ============================================================== leyenda ===
+\leyenda{-1.6,-2.85}{grisr/PS, rojo!45/bus del sistema, rojo!18/lógica dentro del módulo, verde!55/esclavo}
+  {Cada marca es una etapa de la tabla, con sus ciclos de \texttt{clk\_fpga\_0} (8\,ns).
+   La línea punteada es el cruce de reloj.}
+
+\end{tikzpicture}
+\end{document}

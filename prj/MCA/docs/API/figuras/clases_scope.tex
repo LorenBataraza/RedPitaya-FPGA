@@ -1,0 +1,166 @@
+% Los handles del resto del bus: osciloscopio, multitrigger y región de TOP.
+% Columna izquierda, el osciloscopio y el shim MultiTriggerScope, que hereda de
+% él y compone un MultiTrigger sobre el MISMO mapeo; es la clase que reciben
+% BramSource y RingSource. Columna del medio, el multitrigger del slot 1 (lo
+% que este proyecto agregó al scope). Derecha, las dos regiones con magic
+% propio: MtRegion (slot 3) e Integration (slot 6). Abajo, los dos sustitutos
+% que usa ServidorMCA sin placa.
+% Fuentes: software/API/osciloscope.py, software/API/multitrigger.py
+% (MultiTrigger, MtRegion), software/API/integration.py,
+% software/multitrigger_utils.py (MultiTriggerScope), software/API/mca_remote.py
+% (FakeOsc, FakeMultiTrigger), software/app/mca_server.py:186-197. El texto que
+% acompaña está en docs/API/arquitectura_software.md §1. Estilo:
+% docs/figuras/estilo_tikz.tex y clases_estilo.tex.
+%
+% Compilar:   pdflatex clases_scope.tex
+%             pdftocairo -svg clases_scope.pdf clases_scope.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+\input{clases_estilo.tex}
+
+\begin{document}
+\catcode`\_=12
+\begin{tikzpicture}[fondo]
+
+% ========================================================== osciloscopio ===
+\node[clase=5.6cm, anchor=north] (osc) at (0,0) {
+  \clase{Osciloscope}{API/osciloscope.py · 0x4010_0000 · slot 1 · "OSC1"}
+  \nodepart{two}
+  _mmap · _fd · _geo
+  \nodepart{three}
+  \gr{ciclo de vida}
+  open(phys, size, check_pl) \es{classmethod}\\
+  reload_bitstream(path, scope) \es{classmethod}\\
+  close()\\
+  \gr{acceso de 32 b}
+  w32(off, v) · r32(off)\\
+  \gr{geometría del bitstream cargado}
+  geometria() · n_buf \es{prop}\\
+  \gr{diagnóstico}
+  verify_bitstream() · debug_trigger()\\
+  debug_dump() · _probe_rw(off, patterns)\\
+  \gr{armado y captura}
+  acq_base(thr, delay, decim) · set_raw_delay(delay)\\
+  acq_capture_sw(thr, delay) · capture_n_events(n)\\
+  \gr{por librp, sin self}
+  wait_triggered() · wait_fill() \es{static}\\
+  read_buffers() · capture_window_np() \es{static}
+};
+
+\node[shim=5.6cm, anchor=north] (mts) at (0,-7.2) {
+  \clase{MultiTriggerScope(Osciloscope)}{multitrigger_utils.py · shim de compatibilidad}
+  \nodepart{two}
+  _mt : MultiTrigger
+  \nodepart{three}
+  \gr{delegados a _mt}
+  set_or_mask(mask_ch0, mask_ch1)\\
+  configure_shield_autorearm(channels, dur)\\
+  disable_shield()\\
+  \gr{cruzan los dos bloques}
+  arm_for_adc_trigger(mask_ch0, mask_ch1, thr, …)\\
+  disarm()
+};
+\draw[hereda] (mts.north) -- (osc.south);
+
+% ========================================================== multitrigger ===
+\node[clase=5.0cm, anchor=north] (mt) at (6.5,0) {
+  \clase{MultiTrigger}{API/multitrigger.py · slot 1, 0x210–0x24C}
+  \nodepart{two}
+  _mmap · _fd · _propio
+  \nodepart{three}
+  open(osc=None) \es{classmethod}\\
+  close() · w32(off, v) · r32(off)\\
+  \gr{máscaras OR}
+  set_or_mask(mask_ch0, mask_ch1)\\
+  get_or_mask(ch)\\
+  \gr{trigger_shield}
+  configure_shield_autorearm(channels, dur)\\
+  disable_shield() · get_shield()\\
+  \gr{estado}
+  read_snapshot() · read_snapshot_raw()\\
+  get_flags()
+};
+
+% el shim compone un MultiTrigger sobre su propio mapeo
+\draw[compone] (mts.east) -- ++(0.55,0) |- ([yshift=-1.3cm]mt.west)
+  node[rol, pos=0.75, below] {_mt};
+% open(osc=...) toma prestado el mapeo del osciloscopio
+\draw[usa] ([yshift=0.6cm]mt.west) -- ([yshift=0.6cm]mt.west -| osc.east)
+  node[rol, midway, above] {osc._mmap};
+
+% ======================================================= regiones con magic ===
+\node[clase=5.4cm, anchor=north] (mtr) at (12.3,0) {
+  \clase{MtRegion}{API/multitrigger.py · 0x4030_0000 · slot 3 · "MTRG"}
+  \nodepart{two}
+  _mmap · _fd
+  \nodepart{three}
+  open(phys, size, check_magic) \es{classmethod}\\
+  close() · w32(off, v) · r32(off)\\
+  \gr{disparo por pendiente}
+  has_slope()\\
+  set_slope(ch, L, G, thr, hyst)\\
+  get_slope(ch) · disable_slope(ch)\\
+  \gr{estado}
+  read_snapshot()
+};
+
+\node[clase=5.4cm, anchor=north] (itg) at (12.3,-4.0) {
+  \clase{Integration}{API/integration.py · 0x4060_0000 · slot 6 · "INTG"}
+  \nodepart{two}
+  _mmap · _fd
+  \nodepart{three}
+  open(phys, size, check_magic) \es{classmethod}\\
+  close() · w32(off, v) · r32(off)\\
+  \gr{identificación}
+  identify() · modules() · slots()\\
+  base(modulo) · caps() · geometria_coincide(mca)\\
+  \gr{ruteo del datapath}
+  get_route(consumidor)\\
+  set_route(consumidor, tap)\\
+  routes() · reset_routes()\\
+  \gr{control}
+  set_run(on) · get_run()\\
+  clear() · soft_reset()\\
+  status() · dump()
+};
+
+% ============================================================ sustitutos ===
+\node[falsa=4.2cm, anchor=north] (fosc) at (6.5,-6.6) {
+  \clase{FakeOsc}{API/mca_remote.py · simulado}
+  \nodepart{two}
+  _reg · _rng · n_buf · _rate\\
+  _altura · _ancho · _ruido · _we_cnt · _t0
+  \nodepart{three}
+  w32(off, v) · r32(off) · close()\\
+  capturar(pre, post, n_ch)
+};
+
+\node[falsa=4.2cm, anchor=north] (fmt) at (6.5,-9.3) {
+  \clase{FakeMultiTrigger}{API/mca_remote.py · simulado}
+  \nodepart{two}
+  _reg
+  \nodepart{three}
+  w32(off, v) · r32(off) · close()\\
+  read_snapshot_raw() · get_flags()
+};
+
+% sustituyen al real en ServidorMCA (h.osc, h.mt), sin heredar de él
+\draw[usa] (fosc.north) -- (fosc.north |- mt.south)
+  node[rol, pos=0.45, fill=white] {sustituye};
+\draw[usa] (fmt.east) -| ([xshift=-0.3cm]mt.south east)
+  node[rol, pos=0.75, sloped, fill=white] {sustituye};
+
+% ============================================================== leyenda ===
+\leyendac{-2.8,-11.35}{17.8cm}{azul!30/{handle sobre /dev/mem}, amarillo/{shim de compatibilidad},
+                              grisr/{sustituto sin placa}}
+  {Triángulo hueco: hereda. Rombo: compone. Flecha punteada: usa.
+   \texttt{MultiTriggerScope} es lo que reciben \texttt{BramSource} y \texttt{RingSource}
+   como \texttt{sc}.}
+
+\end{tikzpicture}
+\end{document}

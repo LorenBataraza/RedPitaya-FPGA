@@ -9,6 +9,13 @@ No es el paso a paso operativo —ese es
 responde otra pregunta: *¿cuánto le cuesta a una persona llegar a un dato
 confiable, y dónde se le va el costo?*
 
+**El mapa dibujado** está en
+[`figuras/recorrido_del_usuario.tex`](figuras/recorrido_del_usuario.tex)
+(`pdflatex recorrido_del_usuario.tex` → lámina apaisada de 34 × 17 cm). Tiene
+los mismos carriles que este documento —alto nivel, tareas, detalles,
+riesgos—, marca con ★ las actividades que el recorrido original no tenía, y
+tacha en gris los riesgos de entonces que hoy están resueltos.
+
 > **La tesis de todo el documento, en una línea.** El recorrido original tenía
 > seis pasos y el costo estaba repartido en los **primeros**: bajar, compilar,
 > flashear, configurar red. Hoy el paquete instalable, los objetivos del
@@ -90,17 +97,21 @@ detector real o el generador, y pone la placa en la red.
 | | |
 |---|---|
 | Placa | Red Pitaya STEMlab 125-14 (Zynq 7010), RP OS 2.00 |
-| Señal | detector → IN1, o CH1 del Rigol DG4162 → IN1 |
-| Generador | por **USB a la Pitaya**, no a la PC |
+| Señal | la fuente —detector o generador— al **IN1**, por coaxil |
+| Red | la placa y la PC en la misma red |
 | Veto externo (opcional) | DIO0_P del conector E1, 3.3 V |
 
-**La trampa de este paso es física y no tiene mensaje de error**: el generador
-va a la placa. Todos los objetivos `rigol-*` llevan el guard `exige-placa` por
-eso, y desde la PC se usan los `rigol-*-remoto`, que hacen lo mismo por ssh. Si
-alguien lo enchufa a la PC, el instrumento *funciona* y el sistema *no lo ve*.
+**Es un paso corto y sin herramienta de por medio**, y por eso es fácil
+dibujarlo más chico de lo que es: todo lo que viene después asume que hay señal
+en el IN1, y ningún mensaje de error lo dice. `make placa-estado` contesta si la
+placa responde y qué bitstream tiene, pero no si llegó la señal; eso lo contesta
+recién el paso 5.
 
-> El generador **no es obligatorio**. Existe para tener señal conocida sin
-> depender de un detector, que es lo que hace posible el paso 5.
+> **Si se usa el Rigol DG4162** —que es opcional, y sólo existe para tener señal
+> conocida sin depender de un detector— hay un detalle propio de ese
+> instrumento: va por **USB a la Pitaya**, no a la PC. Por eso los objetivos
+> `rigol-*` llevan el guard `exige-placa` y desde la PC se usan los
+> `rigol-*-remoto`. No aplica a quien mide con su propia fuente.
 
 ---
 

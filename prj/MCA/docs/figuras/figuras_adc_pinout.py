@@ -25,6 +25,9 @@ que corra en la máquina del laboratorio.
 
 from pathlib import Path
 
+from estilo_svg import (APAGADO, FONT_MONO, FONT_SERIF, MUDO, NOTA, TINTA,
+                        TINTA2, tinte)
+
 SALIDA = Path(__file__).with_name("adc_pinout.svg")
 
 # --------------------------------------------------------------------------- #
@@ -72,16 +75,23 @@ def esc(s):
 
 def txt(x, y, s, cls="nm", size=11, anchor="start", weight=None, mono=False):
     w = f' font-weight="{weight}"' if weight else ""
-    f = (' font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace"'
-         if mono else "")
+    f = f' font-family="{FONT_MONO}"' if mono else ""
     partes.append(
         f'<text class="{cls}" x="{x:.1f}" y="{y:.1f}" font-size="{size}" '
         f'text-anchor="{anchor}"{w}{f}>{esc(s)}</text>')
 
 
-def rect(x, y, w, h, cls="box", rx=4):
+def rect(x, y, w, h, cls="box", rx=4, fill=None):
+    f = f' fill="{fill}"' if fill else ""
     partes.append(f'<rect class="{cls}" x="{x:.1f}" y="{y:.1f}" '
-                  f'width="{w:.1f}" height="{h:.1f}" rx="{rx}"/>')
+                  f'width="{w:.1f}" height="{h:.1f}" rx="{rx}"{f}/>')
+
+
+def encabezado(x, y, ancho, color):
+    """Caja con encabezado de color pleno, como los bloques de las figuras
+    TikZ: el cuerpo queda blanco porque lleva una tabla."""
+    rect(x + 0.7, y + 0.7, ancho - 1.4, HDR_H - 0.7, "hdr", 3.5, tinte(color))
+    linea(x, y + HDR_H, x + ancho, y + HDR_H, "rule")
 
 
 def linea(x0, y0, x1, y1, cls="pin"):
@@ -102,7 +112,7 @@ def panel_canal(x, y, ch):
     nombre, entrada, pref = CANAL[ch]
     alto = HDR_H + NLIN * ROW_H + 14
     rect(x, y, PANEL_W, alto)
-    rect(x + 1, y + 1, PANEL_W - 2, HDR_H - 1, "hdr", 3)
+    encabezado(x, y, PANEL_W, "azul")
 
     txt(x + C_ADC, y + 21, f"{nombre} — {entrada}", "ti", 12.5, weight="700")
     txt(x + C_ADC, y + 39, f"adc_dat_i[{ch}][15 -: 14]  →  signed 14 bit", "sb",
@@ -165,7 +175,7 @@ def panel_canal(x, y, ch):
 def panel_control(x, y, ancho):
     alto = HDR_H + len(CONTROL) * ROW_H + 16
     rect(x, y, ancho, alto)
-    rect(x + 1, y + 1, ancho - 2, HDR_H - 1, "hdr", 3)
+    encabezado(x, y, ancho, "grisr")
     txt(x + C_ADC, y + 21, "Reloj y control", "ti", 12.5, weight="700")
     txt(x + C_ADC, y + 39,
         "el reloj no sale de la PL: va del XO al ADC y de ahí al FPGA — "
@@ -195,7 +205,7 @@ def panel_cadena(x, y, ancho):
     """Lo que el RTL hace con el bus, de pin a muestra con signo."""
     alto = 128
     rect(x, y, ancho, alto)
-    rect(x + 1, y + 1, ancho - 2, HDR_H - 1, "hdr", 3)
+    encabezado(x, y, ancho, "azul")
     txt(x + C_ADC, y + 21, "De las 16 líneas a la muestra con signo", "ti",
         12.5, weight="700")
     txt(x + C_ADC, y + 39,
@@ -226,37 +236,23 @@ def panel_cadena(x, y, ancho):
 # --------------------------------------------------------------------------- #
 partes.append(
     f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
-    f'viewBox="0 0 {W} {H}" font-family="DejaVu Sans,Helvetica,Arial,'
-    f'sans-serif">')
-partes.append("""<style>
-  .bg{fill:#ffffff}
-  .box{fill:#ffffff;stroke:#1b1f24;stroke-width:1.5}
-  .sub{fill:#ffffff;stroke:#1b1f24;stroke-width:1.1}
-  .hdr{fill:#f2f4f7;stroke:none}
-  .zebra{fill:#f6f8fa;stroke:none}
-  .sep{stroke:#c3cad1;stroke-width:0.9;stroke-dasharray:4 4}
-  .sepv{stroke:#c3cad1;stroke-width:0.9;stroke-dasharray:2 3}
-  .pin{stroke:#1b1f24;stroke-width:1.2;fill:none}
-  .arr{fill:#1b1f24;stroke:none}
-  .brace{fill:none;stroke:#0b6bcb;stroke-width:1.6}
-  .nm{fill:#1b1f24}  .wd{fill:#57606a}  .dim{fill:#9aa4ae}
-  .ti{fill:#1b1f24}  .sb{fill:#57606a}
-  .ttl{fill:#1b1f24} .st{fill:#57606a} .note{fill:#57606a}
-  .key{fill:#0b6bcb}
-  @media (prefers-color-scheme: dark){
-    .bg{fill:#0d1117}
-    .box{fill:#0d1117;stroke:#c9d1d9}
-    .sub{fill:#0d1117;stroke:#c9d1d9}
-    .hdr{fill:#161b22}
-    .zebra{fill:#161b22}
-    .sep{stroke:#30363d} .sepv{stroke:#30363d}
-    .pin{stroke:#c9d1d9} .arr{fill:#c9d1d9}
-    .brace{stroke:#58a6ff}
-    .nm{fill:#e6edf3} .wd{fill:#8b949e} .dim{fill:#6e7781}
-    .ti{fill:#e6edf3} .sb{fill:#8b949e}
-    .ttl{fill:#e6edf3} .st{fill:#8b949e} .note{fill:#8b949e}
-    .key{fill:#58a6ff}
-  }
+    f'viewBox="0 0 {W} {H}" font-family="{FONT_SERIF}">')
+# Paleta y tipografia de estilo_svg.py: las mismas de las figuras TikZ.
+partes.append(f"""<style>
+  .bg{{fill:#ffffff}}
+  .box{{fill:#ffffff;stroke:{TINTA};stroke-width:1.3}}
+  .sub{{fill:{tinte("azul", 0.35)};stroke:{TINTA};stroke-width:1.0}}
+  .hdr{{stroke:none}}
+  .rule{{stroke:{TINTA};stroke-width:1.0}}
+  .zebra{{fill:{tinte("azul", 0.12)};stroke:none}}
+  .sep{{stroke:{MUDO};stroke-width:0.9;stroke-dasharray:4 3}}
+  .sepv{{stroke:{APAGADO};stroke-width:0.9;stroke-dasharray:2 3}}
+  .pin{{stroke:{TINTA};stroke-width:1.2;fill:none}}
+  .arr{{fill:{TINTA};stroke:none}}
+  .brace{{fill:none;stroke:{TINTA};stroke-width:1.6}}
+  .nm{{fill:{TINTA}}}  .wd{{fill:{TINTA2}}}  .dim{{fill:{APAGADO}}}
+  .ti{{fill:{TINTA}}}  .sb{{fill:{TINTA2}}}
+  .ttl{{fill:{TINTA}}} .st{{fill:{TINTA2}}} .note{{fill:{NOTA}}}
 </style>""")
 partes.append(f'<rect class="bg" x="0" y="0" width="{W}" height="{H}"/>')
 
@@ -279,7 +275,7 @@ alto_cad = panel_cadena(MG, y2, ancho_total)
 
 y3 = y2 + alto_cad + 26
 txt(MG, y3,
-    "La llave azul marca lo que el RTL toma: los 14 bits altos. Los dos bajos "
+    "La llave marca lo que el RTL toma: los 14 bits altos. Los dos bajos "
     "están cableados pero no son datos del LTC2145-14 — son los LSB del ADC de "
     "16 bit de la SDRlab 122-16.", "note", 10.5)
 txt(MG, y3 + 17,

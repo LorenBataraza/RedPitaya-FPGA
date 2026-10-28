@@ -19,8 +19,8 @@ Documentos hermanos:
 | Documento | Qué contiene |
 |---|---|
 | [`mca/decisiones_diseno_mca.md`](mca/decisiones_diseno_mca.md) | el **por qué** del MCA |
-| [`multitrigger/arquitectura_adquisicion_software.md`](multitrigger/arquitectura_adquisicion_software.md) | el presupuesto de latencia y el techo medido |
-| [`multitrigger/orden_arm_trigger_captura.md`](multitrigger/orden_arm_trigger_captura.md) | la FSM de captura K=1 y su race |
+| [`API/arquitectura_adquisicion_software.md`](API/arquitectura_adquisicion_software.md) | el presupuesto de latencia y el techo medido |
+| [`osc/orden_arm_trigger_captura.md`](osc/orden_arm_trigger_captura.md) | la FSM de captura K=1 y su race |
 | [`event_ring/diseno_y_register_map.md`](event_ring/diseno_y_register_map.md) | el ring de slots que reemplaza al K=1 |
 | [`bus_sistema_redpitaya.md`](TOP/bus_sistema_redpitaya.md) | el bus y su CDC por slot |
 
@@ -52,7 +52,7 @@ Nunca se llena y nunca pierde. El tamaño sale de una resta de latencias.
 
 | Patrón | Para qué | Tamaño | Dónde en el repo |
 |---|---|---|---|
-| **Línea de retardo** (shift register) | alinear dos caminos de distinta latencia | = diferencia de latencia, exacta | `src_now_d` en [`multitrigger_event_logic.v:137`](../rtl/mine/multitrigger/multitrigger_event_logic.v#L137) |
+| **Línea de retardo** (shift register) | alinear dos caminos de distinta latencia | = diferencia de latencia, exacta | `src_now_d` en [`mt_event_logic.v:137`](../modulos/mt/rtl/mt_event_logic.v#L137) |
 | **Registros de pipeline** | cortar el camino crítico | 1 por etapa | `a1/a2/a3`, `v1/v2/v3` en [`mca_hist.sv`](../rtl/mine/mca/mca_hist.sv) |
 | **Registro de salida sostenido** | mantener el dato hasta que el consumidor lo tome | 1 | `rd_data_r` en [`mca_hist.sv`](../rtl/mine/mca/mca_hist.sv) |
 | **Buffer circular de pre-trigger** | mirar *hacia atrás* desde un evento | = ventana pre-trigger máxima | `pre_buf` en [`event_window_capture.sv:101`](../rtl/mine/event_ring/event_window_capture.sv#L101) |
@@ -171,7 +171,7 @@ El problema es la atomicidad, no la capacidad. Un buffer más grande no ayuda.
 | Patrón | Problema | Dónde en el repo |
 |---|---|---|
 | **Registro shadow** | leer un contador de 64 b por un bus de 32 b sin que se rasgue entre las dos mitades | `rt_hi_shadow`/`lt_hi_shadow`/`dt_hi_shadow` en [`mca_top.sv:304`](../rtl/mine/mca/mca_top.sv#L304) |
-| **Snapshot / captura de evento** | congelar el estado en el instante exacto del trigger | `trig_snapshot` en [`multitrigger_event_logic.v:138`](../rtl/mine/multitrigger/multitrigger_event_logic.v#L138), `adc_wp_trig` en [`rp_bram_sm.v:91`](../../../rtl_250/classic/rp_bram_sm.v#L91) |
+| **Snapshot / captura de evento** | congelar el estado en el instante exacto del trigger | `trig_snapshot` en [`mt_event_logic.v:138`](../modulos/mt/rtl/mt_event_logic.v#L138), `adc_wp_trig` en [`rp_bram_sm.v:91`](../../../rtl_250/classic/rp_bram_sm.v#L91) |
 | **Freeze para lectura coherente** | leer una memoria que se está escribiendo a 125 MS/s | `adc_we <= 0` en [`rp_bram_sm.v:67`](../../../rtl_250/classic/rp_bram_sm.v#L67) |
 | **Marca de commit al final** (*footer*) | saber que un bloque de DDR está completo sin observar el BRESP | footer `{~seq, seq}` en [`event_slot_writer.sv`](../rtl/mine/event_ring/event_slot_writer.sv) |
 | **Config congelada en STOPPED** | que no convivan dos geometrías en el mismo ring | latch de `SLOT_BASE`/`RING_SZ`/`PRE`/`POST` en [`event_ring_top.sv`](../rtl/mine/event_ring/event_ring_top.sv) |
@@ -231,7 +231,7 @@ si hay contrapresión o descarte.
 | **Ack de latencia fija** | esclavo de bus simple | *ver abajo* |
 | **Sincronizador de 2 flops** | 1 bit entre dominios de reloj | **nunca** para un bus multi-bit |
 | **FIFO asíncrona con punteros Gray** | bus multi-bit entre dominios | el `sys_bus_cdc` por slot |
-| **Holdoff / monoestable retriggerable** | inhibir durante un tiempo fijo | `cnt`/`active` en [`trigger_shield.sv:31`](../rtl/mine/multitrigger/trigger_shield.sv#L31) |
+| **Holdoff / monoestable retriggerable** | inhibir durante un tiempo fijo | `cnt`/`active` en [`trigger_shield.sv:31`](../modulos/mt/rtl/trigger_shield.sv#L31) |
 | **Histéresis (Schmitt)** | evitar re-disparo por ruido | `armed` en [`mca_pulse_feature.sv`](../rtl/mine/mca/mca_pulse_feature.sv) |
 
 ### El ack de latencia fija, y por qué importa acá
@@ -252,7 +252,7 @@ que pueda no ocurrir**.
 
 Vale registrarlo porque el instinto lleva a poner sincronizadores de más. En el
 `event_ring` hay un solo dominio de reloj: `assign axi_clk = adc_clk_i` en
-[`rp_scope_multitrigger_com.sv`](../rtl/mine/multitrigger/rp_scope_multitrigger_com.sv),
+[`rp_scope_mt_com.sv`](../modulos/osc/rtl/rp_scope_mt_com.sv),
 y el bus llega ya sincronizado a `adc_clk` por el `sys_bus_cdc` del slot. Captura,
 writer y registros comparten reloj: **no hace falta ningún CDC ni codificación
 Gray entre `WR_SLOT` y `RD_SLOT`**, a pesar de que son punteros de un ring que
@@ -282,7 +282,7 @@ El tiempo muerto es el round-trip del PS, medido por atribución de fases:
 Con `K=1` y tiempo muerto no paralizable, la eficiencia frente a una fuente
 **periódica** es una escalera, `η = 1/⌈n·τ⌉`, que reproduce el barrido medido
 punto por punto (ver
-[`multitrigger/arquitectura_adquisicion_software.md`](multitrigger/arquitectura_adquisicion_software.md)).
+[`API/arquitectura_adquisicion_software.md`](API/arquitectura_adquisicion_software.md)).
 Frente a una fuente **Poisson** — un detector real — la curva es
 `η = 1/(1 + n·τ)`, sensiblemente peor: a 10 kev/s, 28.3 % contra 33.3 %.
 
@@ -328,7 +328,7 @@ N_SLOTS ≥ n_max × T_stall_peor_caso
 
 `T_stall` está medido, no supuesto: **5.3 ms de stall del GIL** (la firma de
 `sys.getswitchinterval()`, ver
-[`multitrigger/arquitectura_adquisicion_software.md`](multitrigger/arquitectura_adquisicion_software.md)).
+[`API/arquitectura_adquisicion_software.md`](API/arquitectura_adquisicion_software.md)).
 A 11 kev/s son 58 eventos; con `sys.setswitchinterval(0.001)` bajan a ~11. Un
 ring de **128 slots** deja 10× de margen sobre el peor caso medido, y a 32
 muestras × 2 canales × 2 B son ~16 kB de DDR: nada.

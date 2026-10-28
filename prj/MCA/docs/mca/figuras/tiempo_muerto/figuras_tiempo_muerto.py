@@ -733,6 +733,100 @@ def fig_largo_vs_tasa(out, tau_mca_us=5.9, qs=(0.5, 0.9)):
 
 
 # =============================================================================
+# 08. Por qué corregir no alcanza: amplificación del error e inversión ambigua
+# =============================================================================
+
+def s_m_no_par(rho):
+    """AMPLIFICACION DE ERROR de la correccion, no paralizable.
+
+    E = dln(n*tau)/dln(m*tau), que a tau fijo es dln(n)/dln(m): la pendiente
+    log-log de la curva de calibracion. Es el coeficiente que acompana a
+    (dm/m) en la propagacion, y el que acompana a (dtau/tau) es E-1.
+    Para n*tau = (m*tau)/(1-m*tau) da E = 1/(1-m*tau) = 1 + rho.
+    """
+    return 1.0 + rho
+
+
+def s_m_par(rho):
+    """Idem paralizable. De m*tau = rho e^{-rho} sale dln(m*tau)/dln(rho) =
+    1-rho, asi que E = 1/(1-rho). DIVERGE en rho = 1, que es donde la curva
+    de calibracion se vuelve HORIZONTAL en log-log (su maximo)."""
+    return 1.0 / np.abs(1.0 - rho)
+
+
+def s_tau_no_par(rho):
+    """E-1 para el no paralizable: (1+rho) - 1 = rho. No es independiente de
+    s_m_no_par: las dos salen de la MISMA amplificacion, corrida en 1."""
+    return rho
+
+
+def s_tau_par(rho):
+    """E-1 para el paralizable: 1/(1-rho) - 1 = rho/(1-rho). Mismo polo que E,
+    porque es la misma amplificacion corrida en 1.
+
+    OJO con el signo: para rho > 1 el factor es NEGATIVO (subir m*tau BAJA
+    n*tau, que es la rama descendente). Se grafica el valor absoluto, asi que
+    el cruce por debajo de 1 cerca de rho = 2 no es que la correccion mejore
+    -- es el signo dado vuelta."""
+    return rho * s_m_par(rho)
+
+
+def _n_de_m_par(m_tau):
+    """Las DOS soluciones de m*tau = (n*tau) e^{-n*tau}, via Lambert W.
+
+    n*tau = -W(-m*tau): la rama principal W_0 da la solucion con n*tau < 1 y
+    la rama W_{-1} la de n*tau > 1. Que existan dos es el problema: la misma
+    lectura corresponde a dos tasas incidentes distintas.
+    """
+    from scipy.special import lambertw
+    z = -np.asarray(m_tau, float)
+    return (-lambertw(z, 0).real, -lambertw(z, -1).real)
+
+
+def _enmascarar(y, techo):
+    """Corta la curva en el techo del eje para que la singularidad no se
+    dibuje como un pico que vuelve a bajar."""
+    return np.where(y > techo, np.nan, y)
+
+
+def fig_amplificacion(out):
+    """Los dos coeficientes de la propagacion, que son el MISMO termino de
+    amplificacion de error corrido en 1: E pondera el error en la tasa medida,
+    E-1 el del tiempo muerto. La ambiguedad de la rama paralizable no se
+    grafica aca (salia como un tercer panel); los numeros estan en tabla()."""
+    rho = np.linspace(1e-3, 3.0, 4000)
+    techo = 300.0
+    fig, (ax_m, ax_t) = plt.subplots(1, 2, figsize=(7.6, 3.8),
+                                     layout='constrained')
+
+    # --- (a) y (b): los dos factores de amplificación ---------------------
+    for ax, f_np, f_par, ylab in (
+            (ax_m, s_m_no_par, s_m_par,
+             r'$E \;=\; (\delta n/n)\,/\,(\delta m/m)$'),
+            (ax_t, s_tau_no_par, s_tau_par,
+             r'$E-1 \;=\; (\delta n/n)\,/\,(\delta \tau/\tau)$')):
+        ax.plot(rho, f_np(rho), color=NARAN, lw=1.6,
+                label='no paralizable')
+        ax.plot(rho, _enmascarar(f_par(rho), techo), color=VERDE, lw=1.6,
+                ls='-.', label='paralizable')
+        ax.axhline(1.0, color=MUDO, lw=0.7, ls=':')
+        ax.axvline(1.0, color=MUDO, lw=0.8, ls='--')
+        ax.set_yscale('log')
+        ax.set_xlim(0, 3)
+        ax.set_ylim(0.03, techo)
+        ax.set_xlabel(r'$\rho = n\,\tau$')
+        ax.set_ylabel(ylab)
+        ax.legend(loc='upper left', fontsize=8.5)
+        _limpiar(ax)
+    _panel(ax_m, 'a')
+    _panel(ax_t, 'b')
+
+    fig.savefig(os.path.join(out, '08_amplificacion_correccion.png'))
+    plt.close(fig)
+    print('  08_amplificacion_correccion.png')
+
+
+# =============================================================================
 # Números que cita el documento
 # =============================================================================
 
@@ -766,6 +860,36 @@ def tabla():
                 for s in (0.0, 0.03, 0.10)]
         print(f'  {r:<5g}' + ''.join(f'{v:7.1f}' for v in fila))
 
+    print()
+    print('paralizable: las DOS tasas compatibles con una lectura, +-2 %')
+    print('  (era el panel (c) de la figura 08; el maximo es m*tau = 1/e)')
+    print('  m*tau      rama n*tau<1        rama n*tau>1')
+    for m_med in (0.10, 0.20, 0.30, 0.362, 0.3678):
+        lo, hi = m_med * 0.98, m_med * 1.02
+        if hi > 1 / math.e:                     # fuera del rango invertible
+            print(f'  {m_med:<7.4f}   la banda pasa por encima de 1/e: '
+                  'sin solucion real')
+            continue
+        a0, a1 = _n_de_m_par(lo)
+        b0, b1 = _n_de_m_par(hi)
+        print(f'  {m_med:<7.4f}   [{a0:.3f}, {b0:.3f}]      '
+              f'[{b1:.3f}, {a1:.3f}]')
+
+    print()
+    print('a donde va la incerteza con n*tau grande (T tal que dn/n = 1 %)')
+    print('  se usa dm/m = 1/sqrt(m T) y dn/n = |E| dm/m, tau = 5.9 us')
+    print('  n*tau    no paraliz.      paralizable')
+    tau = 5.9e-6
+    for r in (0.5, 1.0, 2.0, 5.0, 10.0, 20.0):
+        fila = []
+        for m_tau, ee in ((m_poisson(r), s_m_no_par(r)),
+                          (m_paralizable(r), s_m_par(r))):
+            # dn/n = E/sqrt(m T) = 0.01  ->  T = (100 E)^2 tau/(m tau)
+            fila.append((100 * ee) ** 2 * tau / m_tau)
+        print(f'  {r:<7g}' + ''.join(f'{v:12.3g} s' for v in fila))
+    print('  (el paralizable "mejora" en E para n*tau > 1 solo porque ahi la')
+    print('   amplificacion cambia de signo; el tiempo de medicion explota)')
+
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
@@ -784,6 +908,7 @@ def main():
     fig_cola(a.out)
     fig_trenes_periodicos(a.out)
     fig_periodico(a.out)
+    fig_amplificacion(a.out)
     tabla()
 
 

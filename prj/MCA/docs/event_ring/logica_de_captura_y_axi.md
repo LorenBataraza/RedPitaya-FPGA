@@ -10,7 +10,7 @@ validación— están en
 [`diseno_y_register_map.md`](diseno_y_register_map.md). Acá está el *cómo*.
 
 El punto de partida, la máquina que esto reemplaza, está descrito en
-[`sistema_adquisicion_original.md`](../multitrigger/sistema_adquisicion_original.md).
+[`sistema_adquisicion_original.md`](../osc/sistema_adquisicion_original.md).
 
 ---
 
@@ -77,7 +77,7 @@ parada no trunca la ventana en vuelo.
 
 ### 2.2 Por qué el trigger se toma por flanco
 
-`multitrigger_trig_src` registra `adc_trig <= trig_comb`, o sea un **nivel**, y el
+`mt_trig_src` registra `adc_trig <= trig_comb`, o sea un **nivel**, y el
 *strobe* que llega por el `sys_bus_cdc` puede durar más de un ciclo de `adc_clk`.
 En la placa esto producía **dos eventos por cada trigger por software** (uno
 capturado y uno contado como `drop_busy`). Se detecta flanco:
@@ -627,7 +627,7 @@ sys_ack <= ack_sr[2];
 Ninguna ruta de `ack` depende de un sub-bloque, así que ningún estado interno
 puede colgar el slot del bus. Es la lección directa del bug latente de
 `bram_ack[2]/[3]` en el scope
-([`sistema_adquisicion_original.md` §4](../multitrigger/sistema_adquisicion_original.md#4-rp_acq_bram--el-buffer-y-su-lectura),
+([`sistema_adquisicion_original.md` §4](../osc/sistema_adquisicion_original.md#4-rp_acq_bram--el-buffer-y-su-lectura),
 [`bus_sistema_redpitaya.md` §7.1](../TOP/bus_sistema_redpitaya.md)).
 
 ---
@@ -652,7 +652,7 @@ puede colgar el slot del bus. Es la lección directa del bug latente de
 - [`diseno_y_register_map.md`](diseno_y_register_map.md) — mapa de registros,
   layout del slot, resultados de la validación en placa y estado de *timing*.
 - [`salida_por_red.md`](salida_por_red.md) — qué hace el PS con los slots.
-- [`../multitrigger/sistema_adquisicion_original.md`](../multitrigger/sistema_adquisicion_original.md)
+- [`../osc/sistema_adquisicion_original.md`](../osc/sistema_adquisicion_original.md)
   — la máquina que esto reemplaza.
 - [`../bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) — el bus, el CDC y
   el contrato del `ack`.

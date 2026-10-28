@@ -1,0 +1,116 @@
+% Panorama del bus de sistema: el camino de CONTROL del ARM a los registros.
+% M_AXI_GP0 -> axi4_slave -> ps_sys -> sys_bus_interconnect (decodifica,
+% difunde y multiplexa) -> un sys_bus_cdc por slot -> los ocho esclavos.
+% Fuentes: rtl/axi4_slave.sv, rtl/sys_bus_interconnect.sv, rtl/sys_bus_cdc.sv,
+% prj/MCA/rtl/red_pitaya_ps.sv. Documentado en docs/TOP/bus_sistema_redpitaya.md.
+% Estilo: docs/figuras/estilo_tikz.tex.
+%
+% Compilar:   pdflatex panorama_sys_bus.tex
+%             pdftocairo -svg panorama_sys_bus.pdf panorama_sys_bus.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\def\fila#1{-0.4-0.95*#1}
+
+% ===================================================================== PS
+\node[comp, text width=1.9cm, minimum height=3.0cm] (ps) at (0.6,-3.725)
+  {\etq{Zynq PS}{ARM\\[2pt] \texttt{M\_AXI\_GP0}}};
+\node[bus, param={rojo!45}{rojo!18}, text width=2.9cm, minimum height=3.0cm] (a4s) at (4.75,-3.725)
+  {\blk{axi4\_slave}{\prm{DW=32 & AW=32 & IW=12}}
+   \nodepart{two}una transacción en vuelo;\\ la escritura tiene prioridad\\[3pt]
+   sin ráfagas: \texttt{AxLEN}${}\neq0$\\ $\to$ \texttt{SLVERR}\\[3pt]
+   \emph{timeout} de 32 ciclos:\\ ack propio + \texttt{SLVERR}};
+\node[grupo, fit={(-0.6,-1.85) (6.45,-5.85)}] (gps) {};
+\node[rotulo, anchor=south west] at (gps.north west) {\texttt{red\_pitaya\_ps}};
+
+% ============================================================ interconnect
+\node[etapa=rojo!18, text width=2.5cm, minimum height=7.6cm] (dec) at (9.95,-3.725)
+  {\etq{decodificador\\ y mux}{\texttt{addr[22:20]}\\ elige el slot\\[6pt]
+   \texttt{addr}, \texttt{wdata}\\ van a los 8\\[6pt]
+   \texttt{wen}, \texttt{ren}\\ sólo al elegido\\[6pt]
+   \texttt{rdata}, \texttt{err},\\ \texttt{ack}: del elegido}};
+\foreach \i in {0,...,7}
+  \node[bus, text width=1.55cm, minimum height=0.62cm, font=\tiny] (c\i) at (13.0,\fila{\i})
+    {\texttt{\bfseries sys\_bus\_cdc}};
+\node[grupo, fit={(8.55,0.35) (14.05,-7.75)}] (gic) {};
+\node[rotulo, anchor=south west] at (gic.north west)
+  {\texttt{sys\_bus\_interconnect}\quad \prm{SN=8 & SW=20}};
+
+% ================================================================ esclavos
+\foreach \i/\m/\c in {0/red\_pitaya\_hk/grisr,
+                      1/osc\_cfg \textnormal{(\texttt{i\_scope})}/azul!35,
+                      2/stub \textnormal{o} event\_ring\_top/naranja!35,
+                      3/mt\_cfg \textnormal{(\texttt{i\_scope})}/amarillo,
+                      4/red\_pitaya\_ams/grisr,
+                      5/red\_pitaya\_daisy/grisr,
+                      6/integration\_cfg/grisr,
+                      7/mca\_top/verde!55}
+  \node[bloque=\c, text width=4.3cm, minimum height=0.62cm, align=left] (s\i) at (17.55,\fila{\i})
+    {\scriptsize\texttt{\i}\;\; {\ttfamily\bfseries\m}};
+\foreach \i in {0,...,7}
+  \node[sen, anchor=east, font=\tiny\ttfamily, black!70] at ([xshift=-1pt]s\i.north east |- s\i.east)
+    {0x40\i0\_0000};
+
+% ===================================================== dominios de reloj
+\draw[black!55, dashed, line width=0.7pt] (13.0,1.9) -- (13.0,-8.0);
+\node[font=\scriptsize, anchor=south east, align=right] at (12.85,1.15)
+  {\texttt{clk\_fpga\_0} \,(\texttt{fclk[0]})\\[-1pt] {\itshape del PS}};
+\node[font=\scriptsize, anchor=south west, align=left] at (13.15,1.15)
+  {\texttt{adc\_clk}\\[-1pt] {\itshape del ADC, asíncrono}};
+
+% ============================================================== flechas ====
+% --- los cinco canales de AXI4 ---
+\foreach \y/\ch/\dir in {-2.45/AW/->, -3.1/W/->, -3.75/B/<-, -4.4/AR/->, -5.05/R/<-}
+  \draw[\dir, line width=0.8pt] (ps.east |- 0,\y) -- node[sen, above] {\ch} (a4s.west |- 0,\y);
+
+% --- ps_sys: el bus custom, todavía en fclk[0] ---
+\draw[flujo] ([yshift=4mm]a4s.east) -- node[sen, above, align=center]
+  {addr, wdata\\ wen, ren} ([yshift=4mm]a4s.east -| dec.west);
+\draw[flujo] ([yshift=-4mm]dec.west) -- node[sen, below, align=center]
+  {rdata, err\\ ack} ([yshift=-4mm]dec.west -| a4s.east);
+\node[sen, font=\scriptsize\itshape, black!70, anchor=south] at (7.5,-2.6) {\texttt{ps\_sys}};
+
+% --- un CDC por slot, y el esclavo ---
+\foreach \i in {0,...,7} {
+  \draw[<->, line width=0.7pt] (dec.east |- c\i.west) -- (c\i.west);
+  \draw[<->, line width=0.7pt] (c\i.east) -- (s\i.west);
+}
+
+% ================================================================== notas
+\node[etapa=white, text width=5.4cm, align=left, font=\scriptsize, anchor=north] (ncdc) at (11.3,-8.35)
+  {\textbf{Dentro de cada \texttt{sys\_bus\_cdc}} (handshake por \emph{toggle}):\\[2pt]
+   ida: \texttt{ctrl\_do} cruza por 3 FF a \texttt{reg\_do};\\
+   vuelta: \texttt{reg\_done} cruza por 3 FF y da \texttt{ack}.\\[2pt]
+   \texttt{addr}, \texttt{wdata} y \texttt{rdata} no se sincronizan:\\
+   el protocolo los mantiene quietos.\\[2pt]
+   PLL sin enganchar: \texttt{rdata = 0xDEADBEEF}.\\
+   El \texttt{err} del esclavo no vuelve.};
+\node[etapa=white, text width=4.6cm, align=left, font=\scriptsize, anchor=north] (nesc) at (17.4,-8.35)
+  {\textbf{Contrato del esclavo:}\\[2pt]
+   \texttt{wen}/\texttt{ren} quedan altos hasta el \texttt{ack}\\
+   (6 ciclos): escribir con estrobo.\\[2pt]
+   \texttt{ack} de latencia fija, que no mire\\ la dirección: sin \texttt{ack} el slot\\ queda muerto.\\[2pt]
+   \texttt{sys\_rdata} registrado.};
+\node[etapa=white, text width=5.6cm, align=left, font=\scriptsize, anchor=north] (nps) at (2.95,-8.35)
+  {\textbf{Ida y vuelta:} 96\,ns medidos = 12 ciclos de\\ \texttt{clk\_fpga\_0}, contra un presupuesto de 32\\
+   (el \emph{timeout} de \texttt{axi4\_slave}). El esclavo\\ aporta 5; el resto es el CDC.};
+
+% ================================================================= leyenda ===
+\leyenda{-0.5,-12.4}{rojo!45/bus del sistema, rojo!18/lógica dentro del módulo,
+  azul!35/OSC, amarillo/MULTITRIGGER, naranja!35/event ring, verde!55/MCA,
+  grisr/Red Pitaya y TOP}
+  {La línea punteada vertical es el cruce de reloj: cada \texttt{sys\_bus\_cdc}
+   tiene una mitad en cada dominio. El slot 2 es un \texttt{sys\_bus\_stub} en
+   \texttt{mca\_red\_pitaya\_top} y el \texttt{event\_ring\_top} en
+   \texttt{event\_ring\_red\_pitaya\_top}. \notaparam}
+
+\end{tikzpicture}
+\end{document}

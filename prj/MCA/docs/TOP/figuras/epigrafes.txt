@@ -1,0 +1,38 @@
+Epígrafes de las figuras del datapath del top en integración.
+Los genera figuras_datapath_top.py; no editar a mano.
+
+Son los epígrafes de la FIGURA: dicen qué se está mirando y cómo se lee. Lo que
+significa cada marca numerada NO está acá, está en la tabla del documento que
+embebe cada figura — una fila por marca. Tenerlo en los dos lados era el
+problema que este rediseño vino a sacar.
+
+-------------------------------------------------------------------------------
+datapath_top.svg
+-------------------------------------------------------------------------------
+Datapath del top en integración, dibujado como crossbar. Hay UNA sola cadena de
+acondicionado por canal --calibración, ecualizador opcional, diezmado, retardo--
+y cuatro nodos utilizables sobre ella; cada consumidor (osciloscopio,
+multitrigger y MCA) tiene su propio dsp_tap_mux 4:1 y elige en runtime de qué
+nodo toma sus muestras, escribiendo los registros ROUTE_* de la región de TOP
+(slot 6). Cómo se lee: donde hay un punto hay un camino posible y el número al
+lado es el valor de ROUTE_* que lo elige; el punto con ANILLO es el valor de
+reset, o sea el cableado que existía antes de que hubiera mux; donde no hay
+punto no hay camino. Las marcas numeradas son las filas de la tabla de
+register_map_top.md, sección Ruteo del datapath.
+
+Embebida en: docs/TOP/register_map_top.md
+
+-------------------------------------------------------------------------------
+conformado_mca_interno.svg
+-------------------------------------------------------------------------------
+Dentro del MCA. La muestra que llega del mux pasa por el selector de canal, el
+diezmado propio del MCA y un registro de entrada, y se le resta la línea de
+base: de ahí sale un único flujo x que alimenta las TRES funciones. Eso es lo
+que la figura está para mostrar, y es lo único que no se puede decir en una
+tabla: la forma. Ninguna de las tres tiene conformado propio --el conformado es
+común y lo que cambia es el procesamiento--, el seguidor de base es el único
+bloque que modifica el flujo que ven los otros dos y por eso es el único lazo
+del dibujo, y el veto entra por dos lados distintos: a la apertura de pulsos y a
+los relojes. Qué hace cada bloque está en la tabla del datasheet.
+
+Embebida en: docs/mca/datasheet_mca_top.md, sección 1.1

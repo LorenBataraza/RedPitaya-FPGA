@@ -1,0 +1,168 @@
+% Panorama de MT_TOP, el multitrigger aislado: el borde grueso es su límite y
+% lo que lo cruza son sus puertos, sólo con el nombre. De dónde viene y adónde va
+% cada uno está en el texto (docs/mt/register_map_mt.md §Panorama), no acá.
+% Adentro, las tres partes con que lo describe el texto: (1) cálculo y
+% concatenación de triggers, (2) selección y enmascarado, (3) configuración.
+% El recuadro punteado de mt_event_logic es la jerarquía del RTL.
+% Fuentes: modulos/mt/rtl/mt_top.sv y lo que instancia.
+% Estilo: docs/figuras/estilo_tikz.tex.
+%
+% Compilar:   pdflatex panorama_mt.tex
+%             pdftocairo -svg panorama_mt.pdf panorama_mt.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{
+  parte/.style  = {anchor=north west, font=\small\bfseries, inner sep=0pt, align=left},
+}
+% de qué proyecto viene un bloque
+\newcommand{\origen}[1]{{\tiny\itshape\color{black!60}#1}}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\def\xin{-6.6}   % donde arrancan las entradas
+\def\xout{17.2}  % donde terminan las salidas
+
+% ================================================================ franjas ===
+% Primero, para que todo lo demás quede encima.
+\fill[black!3]   (-4.7,3.1)   rectangle (10.05,-5.9);
+\fill[black!7]   (10.05,3.1)  rectangle (16.2,-5.9);
+\fill[grisr!55]  (-4.7,-5.9)  rectangle (16.2,-8.5);
+\node[marca] (m1) at (-4.35,2.75) {1};
+\node[parte] at ([xshift=4pt]m1.north east) {Cálculo y concatenación de triggers};
+\node[marca] (m2) at (10.4,2.75) {2};
+\node[parte] at ([xshift=4pt]m2.north east) {Selección y enmascarado};
+\node[marca] (m3) at (-4.35,-6.25) {3};
+\node[parte] at ([xshift=4pt]m3.north east) {Configuración};
+
+% ============================================== 1: cálculo de los triggers
+% por canal: los dos disparos que salen de la muestra del canal
+\node[trig] (atr) at (-1.7,0.75)
+  {\blk{rp\_adc\_trig}{Schmitt de nivel\\[-1pt] \origen{(Red Pitaya)}}};
+\node[trig, param={amarillo}{amarillo!35}, text width=2.6cm] (slp) at (-1.7,-1.25)
+  {\blk{mt\_slope\_trig}{\prm{LMAX=16 & GMAX=31\\ LW=SLOPE\_LW & GW=SLOPE\_GW}}
+   \nodepart{two}trapezoidal rápido\\ + Schmitt (pendiente)};
+\node[canal, fit={(-3.3,1.75) (-0.1,-2.25)}] (pc) {};
+\node[rotulo] at (pc.north west) {por canal};
+
+% la entrada externa, una sola para todos
+\node[comp] (ext) at (2.4,-3.6)
+  {\blk{rp\_ext\_trig}{debounce ext.\ y ASG\\[-1pt] \origen{(Red Pitaya)}}};
+\node[comp, text width=1.0cm, minimum height=0.6cm] (syn) at (3.6,-5.15)
+  {\texttt{sync}\\[-1pt]{\tiny 2 FF}};
+
+\node[trig, param={amarillo}{amarillo!35}, text width=2.4cm] (mts) at (8.3,-0.6)
+  {\blk{mt\_trig\_src {\normalfont$\times$} N\_CH}{\prm{CHN=GV}}
+   \nodepart{two}concatena las 25 fuentes,\\ máscara OR y \emph{protect}};
+
+% ============================================ 2: selección y enmascarado
+\node[draw, circle, line width=0.6pt, fill=amarillo, inner sep=1pt,
+      minimum size=0.55cm, font=\scriptsize] (or) at (10.85,-0.6) {$\geq\!1$};
+\node[etapa=amarillo!40, text width=2.0cm] (snp) at (13.25,0.5)
+  {\etq{snapshot}{qué fuentes dispararon\\ el último evento}};
+\node[trig, param={amarillo}{amarillo!35}, text width=2.7cm] (shd) at (13.25,-3.15)
+  {\blk{trigger\_shield}{\prm{N=SHIELD\_N\\ N\_SRC=SHIELD\_SRC\\ N\_DST=SHIELD\_DST}}
+   \nodepart{two}cuenta regresiva:\\ se recarga si\\ \texttt{|(fuentes \& SRC)};\\
+   al expirar re-arma \texttt{DST};\\ veto al MCA};
+
+% la jerarquía: mt_event_logic cruza de la parte 1 a la 2
+\node[grupo, fit={(6.8,2.05) (15.0,-4.85)}] (evl) {};
+\node[rotulo, align=left] at (evl.north west) {\texttt{mt\_event\_logic}};
+\node[rotulo, anchor=north east] at (evl.north east) {una vez \;\;\prm{SRC\_W=32 & SHIELD\_N=4 & DURATION\_W=16}};
+
+% ======================================================= 3: configuración
+\node[comp, param={grisr}{grisr!35}, text width=14.2cm] (cfg) at (5.3,-7.3)
+  {\blk{mt\_cfg}{\prm{SRC\_W=32 & SHIELD\_N=4}}
+   \nodepart{two}común a todos los canales \;$\cdot$\; mapa de registros (slot 3)\\
+   máscara, escudo y pendiente \;$\cdot$\; lee snapshot y estado};
+
+% ============================================================== el límite ===
+\node[contenedor, fit={(-4.9,3.3) (16.4,-8.7)}] (lim) {};
+\node[titulo, anchor=south west, inner sep=2pt] at (lim.north west)
+  {\texttt{\bfseries mt\_top}\;\; {\scriptsize\itshape el multitrigger: slot 3}\quad
+   \prm{N\_CH=N\_CH & DW=DW}};
+
+\node[bus, text width=2.0cm] (sb) at (5.3,-9.75) {\texttt{\bfseries sys\_bus}};
+
+% ============================================================== flechas ====
+% --- entradas por la izquierda ---
+\draw[ctrl] (\xin,1.05) node[left, sen, black!80] {set\_tresh, set\_hyst} -- (atr.west |- 0,1.05);
+\draw[flujo, ancho=14] (\xin,-0.25) node[left, sen] {mtrg\_dat} -- (-3.6,-0.25);
+\draw[line width=0.8pt] (-3.6,0.45) -- (-3.6,-1.0);
+\punto{-3.6,-0.25}
+\draw[flujo] (-3.6,0.45) -- (atr.west |- 0,0.45);
+\draw[flujo] (-3.6,-1.0) -- (slp.west |- 0,-1.0);
+\draw[flujo] (\xin,-2.75) node[left, sen] {trig\_ch\_i} -- (6.0,-2.75);
+\draw[ctrl] (\xin,-3.6) node[left, sen, black!80, align=right]
+  {trig\_ext\_i, trig\_asg\_i\\ set\_deb\_len} -- (ext.west);
+\punto{0.4,-3.6}
+\draw[ctrl] (0.4,-3.6) |- node[sen, black!80, pos=0.25, left] {trig\_ext\_i} (syn.west);
+
+% --- la concatenación: un bus de 25 fuentes ---
+\draw[line width=2.0pt] (6.0,1.4) -- (6.0,-3.6);
+\draw[flujo] (atr.east) -- node[sen, above, pos=0.62] {trig\_p/n} (6.0,0 |- atr.east);
+\draw[flujo] (slp.east) -- node[sen, above, pos=0.62] {slope\_p/n} (6.0,0 |- slp.east);
+\draw[flujo] (ext.east) -- node[sen, above, pos=0.5] {ext/ASG p/n} (6.0,0 |- ext.east);
+\draw[flujo, ancho=25] (6.0,0 |- mts.west) -- (mts.west);
+\node[sen, anchor=south west] at (6.05,1.4) {25 fuentes};
+
+% --- la entrada externa cruda va al escudo: flancos y nivel ---
+\draw[line width=0.8pt] (ext.south) -- (ext.south |- 0,-4.35);
+\draw[line width=0.8pt] (syn.north) -- (syn.north |- 0,-4.35);
+\punto{syn.north |- 0,-4.35}
+\draw[flujo] (ext.south |- 0,-4.35) -- node[sen, above, pos=0.55] {ext\_p/n, ext\_lvl} (shd.west |- 0,-4.35);
+
+% --- dentro de mt_event_logic ---
+\draw[flujo] (mts.east) -- (or.west);
+\punto{10.05,-0.6}
+\draw[flujo] (10.05,-0.6) -- (10.05,-2.55) -- node[sen, above, pos=0.5] {adc\_trig} (shd.west |- 0,-2.55);
+\draw[flujo] (shd.west |- 0,-3.25) -- (8.3,-3.25)
+  -- node[sen, right, pos=0.5] {trig\_dis\_clr} (8.3,0 |- mts.south);
+\draw[line width=0.8pt] (6.0,1.4) -- (13.25,1.4);
+\draw[flujo] (13.25,1.4) -- (snp.north);
+\coordinate (jt) at (11.6,-0.6);
+\punto{jt}
+\draw[flujo] (jt) |- (snp.west);
+
+% --- salidas: sólo el nombre ---
+\draw[flujo] (or.east) -- (\xout,-0.6) node[right, sen, align=left] {trigger\_event\\ daisy\_trig};
+\draw[flujo, ancho en=0.6, ancho=17] (snp.east) -- (\xout,0 |- snp.east) node[right, sen] {event\_snap};
+\draw[flujo] (shd.east) -- (\xout,0 |- shd.east) node[right, sen] {mca\_veto};
+\punto{4.5,0.75}
+\draw[flujo, ancho en=0.88, anchov=4] (4.5,0.75) -- (4.5,4.1) node[above, sen] {trig\_ch\_o};
+
+% --- control de la captura, por arriba ---
+\draw[ctrl, cruce] (9.0,4.1) node[above, sen, black!80, align=center]
+  {adc\_dly\_do, adc\_rst\_do,\\ we\_keep, dly\_valp}
+  -- (9.0,0 |- mts.north);
+
+% --- configuración ---
+\draw[ctrl] (7.3,0 |- cfg.north) -- (7.3,0 |- evl.south)
+  node[sen, pos=0.5, right, black!80, align=left] {máscara, new\_trg\_src,\\ trig\_sw, escudo};
+\draw[ctrl] (12.0,0 |- evl.south) -- (12.0,0 |- cfg.north)
+  node[sen, pos=0.5, right, black!80, align=left] {snapshot,\\ estado};
+\draw[ctrl, cruce] (slp.south |- cfg.north) -- node[sen, right, black!80, pos=0.12] {pendiente} (slp.south);
+\draw[ctrl] (\xout,-7.05) node[right, sen, black!80, align=left]
+  {legacy\_trig\_sw\\ legacy\_trig\_dis\_clr} -- (cfg.east |- 0,-7.05);
+\draw[flujo] (cfg.east |- 0,-7.6) -- (\xout,-7.6) node[right, sen, align=left]
+  {trig\_dis\_clr, trg\_src\\ new\_trg\_src};
+% el estado de las máscaras va a mt_cfg y también afuera, al readback de osc_cfg
+\punto{12.0,-5.15}
+\draw[flujo] (12.0,-5.15) -- (\xout,-5.15) node[right, sen] {trg\_state};
+\draw[<->, line width=0.8pt] (cfg.south) -- (sb.north);
+
+% ================================================================= leyenda ===
+\leyenda{-6.6,-11.0}{amarillo/trigger, grisr/registros y entradas, rojo!45/bus del sistema}
+  {El borde grueso es el límite de \texttt{mt\_top}; lo que lo cruza son sus puertos.
+   Las franjas numeradas son las tres partes del texto.\\ El recuadro punteado es la
+   jerarquía del RTL: \texttt{mt\_event\_logic} instancia \texttt{mt\_trig\_src} (uno
+   por canal) y \texttt{trigger\_shield}. \notaparam}
+
+\end{tikzpicture}
+\end{document}

@@ -1,0 +1,144 @@
+% Panorama del MÓDULO DE CONFIGURACIÓN: el patrón que repiten todos los
+% esclavos propios del bus de sistema. Del lado de la escritura, un
+% decodificador de dirección que habilita un registro por offset; del lado de
+% la lectura, un multiplexor que elige qué va a sys_rdata, seguido de un
+% registro. Más el estrobo de escritura y el ack de latencia fija.
+% Fuentes: modulos/osc/rtl/osc_cfg.sv, modulos/mt/rtl/mt_cfg.sv,
+% modulos/comun/rtl/integration_cfg.sv y los bancos en línea de
+% modulos/mca/rtl/mca_top.sv y modulos/event_ring/rtl/event_ring_top.sv.
+% El contrato está en docs/TOP/bus_sistema_redpitaya.md §8.
+% Estilo: docs/figuras/estilo_tikz.tex.
+%
+% Compilar:   pdflatex panorama_modulo_cfg.tex
+%             pdftocairo -svg panorama_modulo_cfg.pdf panorama_modulo_cfg.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{
+  % un banco: varios registros apilados
+  banco/.style = {comp, double copy shadow={shadow xshift=2.5pt, shadow yshift=-2.5pt}},
+  puerto/.style = {font=\tiny\ttfamily, inner sep=1pt, black!70},
+}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\def\xa{5.45}   % la dirección baja por acá
+\def\xw{10.35}  % el dato de escritura baja por acá
+
+% ================================================================ sys_bus
+\node[bus, text width=1.1cm, minimum height=10.4cm] (sb) at (-1.8,-4.1)
+  {\texttt{\bfseries sys\_bus}};
+
+% ====================================================== lado del bus (rojo)
+\node[etapa=rojo!18, text width=2.3cm, minimum height=1.3cm] (est) at (3.8,-3.1)
+  {\etq{estrobo}{\texttt{wr\_stb = sys\_wen}\\ \texttt{\&\& !en\_sr[0]}\\[1pt]
+   un ciclo por transacción}};
+\node[draw, circle, line width=0.6pt, fill=rojo!18, inner sep=1pt,
+      minimum size=0.55cm, font=\scriptsize] (or) at (1.95,-7.6) {$\geq\!1$};
+\node[etapa=rojo!18, text width=2.5cm, minimum height=1.4cm] (ack) at (3.8,-7.9)
+  {\etq{ack de latencia fija}{\texttt{en\_sr[7:0]} desplaza \texttt{sys\_en}\\
+   \texttt{sys\_ack <= en\_sr[3]}\\ para toda dirección,\\ mapeada o no}};
+\node[sen] (cero) at (2.0,-9.15) {1'b0};
+
+% escritura: un enable por registro
+\node[etapa=rojo!18, text width=2.0cm, minimum height=2.6cm] (dec) at (7.6,-2.2)
+  {\etq{decodificador\\ de dirección}{\texttt{sys\_addr}\\ $\to$ un enable\\ por offset}};
+
+% lectura: multiplexor y registro de salida
+\coordinate (mxa) at (10.85,-4.85);  % arriba a la derecha
+\coordinate (mxb) at (10.85,-8.15);  % abajo a la derecha
+\coordinate (mxc) at (9.55,-7.15);   % abajo a la izquierda
+\coordinate (mxd) at (9.55,-5.85);   % arriba a la izquierda
+\draw[line width=0.6pt, fill=rojo!18] (mxa) -- (mxb) -- (mxc) -- (mxd) -- cycle;
+\node[font=\scriptsize\bfseries, rotate=90] at (10.2,-6.5) {multiplexor};
+\node[etapa=rojo!18, text width=1.15cm, minimum height=1.0cm] (ff) at (8.1,-6.5)
+  {\etq{registro}{plano}};
+\draw[line width=0.5pt] ([xshift=-0.17cm]ff.south) -- ([yshift=0.17cm]ff.south) -- ([xshift=0.17cm]ff.south);
+
+% ========================================================== el estado (gris)
+\node[banco, text width=2.3cm, minimum height=1.3cm] (bank) at (12.1,-1.0)
+  {\etq{registros de\\ configuración}{retienen el último\\ valor escrito}};
+\node[banco, text width=2.3cm, minimum height=1.3cm] (cmd) at (12.1,-2.95)
+  {\etq{comandos}{autolimpiantes:\\ valen 1 sólo\\ en la escritura}};
+\node[comp, text width=2.3cm, minimum height=1.0cm] (id) at (12.6,-7.15)
+  {\etq{identificación}{\texttt{MAGIC} y los\\ parámetros de síntesis}};
+
+% ============================================================== contenedor
+\node[contenedor, fit={(1.0,1.25) (14.5,-9.7)}] (cfg) {};
+\node[titulo] at (cfg.north west)
+  {\texttt{\bfseries <región>\_cfg}\;\; {\scriptsize\itshape \texttt{osc\_cfg},
+   \texttt{mt\_cfg}, \texttt{integration\_cfg}; en línea en \texttt{mca\_top} y
+   \texttt{event\_ring\_top}}};
+\node[rotulo, anchor=north east] at ([xshift=-6pt, yshift=-3pt]cfg.north east) {todo en \texttt{adc\_clk}};
+
+% ===================================================== la región, afuera
+\node[bloque=white, text width=2.3cm, minimum height=7.2cm] (dp) at (17.3,-3.6)
+  {\etq{lógica de\\ la región}{cadena DSP,\\ trigger, MCA\\ o ring}};
+
+% ============================================================== flechas ====
+% --- del bus: dirección, dato y habilitaciones ---
+\draw[flujo, ancho en=0.25, ancho=32] (sb.east |- 0,0.25)
+  node[sen, above right] {sys\_wdata} -- (\xw,0.25) -- (\xw,0 |- cmd.west);
+\draw[line width=0.8pt] (sb.east |- 0,-0.6) node[sen, above right] {sys\_addr[19:0]}
+  -- (\xa,-0.6) -- (\xa,-4.35) -- (10.2,-4.35);
+\draw[flujo] (10.2,-4.35) -- (10.2,-5.35);
+\draw[flujo] (\xa,-1.55) -- (dec.west |- 0,-1.55);
+\punto{\xa,-1.55}
+\node[sen, anchor=south west, black!70] at (10.25,-4.35) {sel};
+\draw[flujo] (sb.east |- 0,-3.1) node[sen, above right] {sys\_wen} -- (est.west);
+\draw[flujo] (sb.east |- 0,-7.6) node[sen, above right] {sys\_ren} -- (or.west);
+\draw[flujo] (or.east) -- (ack.west |- or.east);
+\draw[flujo, cruce] (est.east) -- node[sen, above, pos=0.72] {wr\_stb} (dec.west |- est.east);
+
+% --- el dato y los enables, a cada registro ---
+\draw[flujo] (\xw,0 |- bank.west) -- (bank.west);
+\punto{\xw,0 |- bank.west}
+\draw[flujo] (\xw,0 |- cmd.west) -- (cmd.west);
+\draw[flujo, cruce] (dec.east |- 0,-1.45) -- node[sen, above, pos=0.4] {en} (bank.west |- 0,-1.45);
+\draw[flujo, cruce] (dec.east |- 0,-3.4) -- node[sen, above, pos=0.4] {en} (cmd.west |- 0,-3.4);
+
+% --- de vuelta al bus ---
+\draw[flujo] (9.55,-6.5) -- (ff.east);
+\draw[flujo, ancho en=0.2, ancho=32] (ff.west) -- (sb.east |- ff.west)
+  node[sen, above right] {sys\_rdata};
+\draw[flujo] (ack.west |- 0,-8.35) -- (sb.east |- 0,-8.35) node[sen, above right] {sys\_ack};
+\draw[flujo] (cero.west) -- (sb.east |- cero.west) node[sen, above right] {sys\_err};
+
+% --- verticales, por encima de lo que cruzan ---
+\draw[flujo, cruce] (1.95,-3.1) -- (or.north);
+\punto{1.95,-3.1}
+\draw[ctrl, cruce] (ack.north) -- node[sen, right, pos=0.45, black!70] {en\_sr[0]} (est.south);
+
+% --- estado -> región ---
+\draw[flujo] (bank.east) -- node[sen, above, pos=0.745] {cfg\_*\_o} (dp.west |- bank.east);
+\draw[flujo] (cmd.east) -- node[sen, above, pos=0.745] {pulsos} (dp.west |- cmd.east);
+
+% --- las entradas del multiplexor ---
+\draw[flujo, cruce] (13.9,-1.0) -- (13.9,-5.2) -- (10.85,-5.2);
+\node[sen, font=\scriptsize, anchor=south west] at (10.95,-5.2) {\normalfont valor escrito};
+\punto{13.9,-1.0}
+\draw[flujo] (dp.west |- 0,-5.85)
+  -- node[sen, above, pos=0.61] {\normalfont estado y contadores (\texttt{*\_i})} (10.85,-5.85);
+\draw[flujo, dashed] (dp.west |- 0,-6.5)
+  -- node[sen, above, pos=0.61] {\normalfont ventanas de memoria} (10.85,-6.5);
+\draw[flujo] (id.west) -- (10.85,0 |- id.west);
+\draw[flujo] (11.45,-7.8) node[right, sen] {0} -- (10.85,-7.8);
+\node[sen, font=\scriptsize, anchor=north west] at (11.1,-7.95) {\normalfont dirección no mapeada};
+
+% ================================================================= leyenda ===
+\leyenda{-2.3,-10.4}{rojo!45/bus del sistema, rojo!18/lógica del lado del bus,
+  grisr/registros y constantes, white/lo que el módulo configura}
+  {Escriben con \texttt{wr\_stb} \texttt{integration\_cfg} y \texttt{mca\_top};
+   \texttt{osc\_cfg}, \texttt{mt\_cfg} y \texttt{event\_ring\_top} usan
+   \texttt{sys\_wen} directo, y sus comandos duran la transacción (6
+   ciclos). La flecha punteada es sólo de los esclavos con memoria: las
+   aperturas BRAM de \texttt{osc\_cfg} y los histogramas de \texttt{mca\_top}.}
+
+\end{tikzpicture}
+\end{document}

@@ -1,0 +1,170 @@
+% Ejemplo de MAPA DE REGISTROS: el mapa canónico de osc_cfg, en cuatro niveles.
+% Mapa del sistema (8 slots) -> mapa local del slot 1 -> mapa canónico
+% (globales en la base + un bloque por canal con stride fijo) -> el bloque de
+% un canal.
+% Fuentes: modulos/osc/rtl/osc_cfg.sv (CANON_BASE, CANON_CH, CANON_AXI y los
+% case de escritura y lectura); docs/osc/register_map_osc.md §Mapa canónico.
+% Estilo: docs/figuras/estilo_tikz.tex.
+%
+% Compilar:   pdflatex mapa_registros_osc.tex
+%             pdftocairo -svg mapa_registros_osc.pdf mapa_registros_osc.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{
+  celda/.style  = {draw=black!70, line width=0.4pt, inner sep=0pt, anchor=north west},
+  vacia/.style  = {celda, draw=black!45, dashed, fill=white, text=black!55},
+  ejemplo/.style= {draw=black, line width=1.5pt},
+  p-RW/.style   = {fill=white},
+  p-R/.style    = {fill=grisr},
+  p-W/.style    = {fill=rojo!18},
+  embudo/.style = {fill=azul!10, draw=black!30, line width=0.4pt},
+  s-leg/.style  = {celda, fill=azul!12},
+  s-can/.style  = {celda, fill=azul!35},
+  s-bram/.style = {celda, fill=verde!35},
+  dir/.style    = {font=\tiny\ttfamily, inner sep=0pt, anchor=west, black!75},
+  perm/.style   = {font=\tiny\bfseries, inner sep=0pt},
+  campo/.style  = {font=\scriptsize\ttfamily, inner sep=0pt, anchor=west},
+  desc/.style   = {font=\scriptsize, inner sep=0pt, anchor=west, black!75},
+  cab/.style    = {font=\scriptsize, inner sep=0pt, anchor=west},
+  panel/.style  = {anchor=south west, font=\small, inner sep=0pt, align=left},
+}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+% geometría: cuatro columnas, todas de 0 a -6.84
+\def\xA{0}    \def\wA{2.7}
+\def\xB{4.1}  \def\wB{2.7}
+\def\xC{8.2}  \def\wC{3.7}
+\def\xD{13.3} \def\wD{5.8}
+\def\H{6.84}
+
+% ================================================================ embudos ===
+% Primero que todo: las celdas, que tienen relleno, quedan encima. (La capa de
+% fondo no sirve: ahí va el rectángulo blanco de `fondo`, que los taparía.)
+\draw[embudo] (\xA+\wA,-0.855) -- (\xB,0) -- (\xB,-\H) -- (\xA+\wA,-1.71) -- cycle;
+\draw[embudo] (\xB+\wB,-1.0)   -- (\xC,0) -- (\xC,-\H) -- (\xB+\wB,-2.8)  -- cycle;
+\draw[embudo] (\xC+\wC,-4.18)  -- (\xD,0) -- (\xD,-\H) -- (\xC+\wC,-4.52) -- cycle;
+
+% ===================================================== A: mapa del sistema ===
+\node[panel] at (\xA,0.15) {\textbf{mapa del sistema}\\[-1pt]
+  {\scriptsize 8 slots de 1\,MB}};
+\foreach \i/\m/\c in {0/red\_pitaya\_hk/grisr, 1/osc\_cfg/azul!35,
+                      2/event\_ring\_top/naranja!35, 3/mt\_cfg/amarillo,
+                      4/red\_pitaya\_ams/grisr, 5/red\_pitaya\_daisy/grisr,
+                      6/integration\_cfg/grisr, 7/mca\_top/verde!55} {
+  \node[celda, fill=\c, minimum width=\wA cm, minimum height=0.855cm,
+        align=center, font=\scriptsize] (s\i) at (\xA,-0.855*\i)
+    {{\tiny\ttfamily 0x40\i0\_0000}\\[1pt] {\ttfamily\bfseries \m}};
+}
+\draw[ejemplo] (s1.north west) rectangle (s1.south east);
+
+% ======================================================= B: mapa del slot ===
+\node[panel] at (\xB,0.15) {\textbf{mapa local de \texttt{osc\_cfg}}\\[-1pt]
+  {\scriptsize el slot 1, sin escala}};
+\foreach \y/\h/\st/\t in {
+    0/1.0/s-leg/{{\tiny\ttfamily 0x00000}\\ mapa legacy\\ {\tiny offsets de \texttt{librp}}},
+    1.0/1.8/s-can/{{\tiny\ttfamily 0x01000}\\[2pt] \textbf{mapa canónico}\\[1pt] {\tiny globales + un bloque\\ por canal}},
+    2.8/0.9/vacia/{{\tiny\ttfamily 0x02000}\\ sin registros},
+    3.7/0.6/s-bram/{{\tiny\ttfamily 0x10000}\;\; BRAM ch0},
+    4.3/0.6/s-bram/{{\tiny\ttfamily 0x20000}\;\; BRAM ch1},
+    4.9/0.6/vacia/{{\tiny\ttfamily 0x30000}\;\; BRAM ch2\\ {\tiny no construida}},
+    5.5/0.6/vacia/{{\tiny\ttfamily 0x40000}\;\; BRAM ch3\\ {\tiny no construida}},
+    6.1/0.74/vacia/{{\tiny\ttfamily 0x50000}\\ sin registros}} {
+  \node[\st, minimum width=\wB cm, minimum height=\h cm, text width=\wB cm - 0.2cm,
+        align=center, font=\scriptsize] at (\xB,-\y) {\t};
+}
+\draw[ejemplo] (\xB,-1.0) rectangle (\xB+\wB,-2.8);
+
+% ===================================================== C: mapa canónico ===
+\node[panel] at (\xC,0.15) {\textbf{mapa canónico}\\[-1pt]
+  {\scriptsize\ttfamily 0x01000--0x01FFF}};
+% encabezado de los globales
+\node[celda, fill=azul!35, minimum width=\wC cm, minimum height=0.34cm] at (\xC,0) {};
+\node[cab] at (\xC+0.08,-0.17) {\textbf{globales}: compartidos};
+% los diez registros globales
+\foreach \o/\p/\n [count=\i from 0] in {000/R/MAGIC, 004/R/CAPS, 008/W/CMD\_ARM,
+    00C/W/CMD\_RST, 010/RW/CFG\_WE\_KEEP, 014/RW/CFG\_INDEP, 018/R/ADC\_STATE,
+    01C/RW/DEB\_LEN, 020/RW/FILT\_BYP, 024/RW/AVG\_EN} {
+  \pgfmathsetmacro\yt{-0.34-0.29*\i}
+  \node[celda, p-\p, minimum width=\wC cm, minimum height=0.29cm] at (\xC,\yt) {};
+  \node[dir]   at (\xC+0.08,\yt-0.145) {0x1\o};
+  \node[perm]  at (\xC+1.0,\yt-0.145) {\p};
+  \node[campo] at (\xC+1.3,\yt-0.145) {\n};
+}
+\node[vacia, minimum width=\wC cm, minimum height=0.26cm] at (\xC,-3.24) {};
+\node[dir, black!55] at (\xC+0.08,-3.37) {0x1028--0x10FC\;\; \normalfont reservado};
+% encabezado y bloques por canal
+\node[celda, fill=azul!35, minimum width=\wC cm, minimum height=0.34cm] at (\xC,-3.50) {};
+\node[cab] at (\xC+0.08,-3.67) {\textbf{por canal}\;\; {\tiny\ttfamily 0x1100 + 0x40$\cdot$ch}};
+\foreach \c in {0,...,3} {
+  \pgfmathsetmacro\yt{-3.84-0.34*\c}
+  \node[celda, fill=azul!15, minimum width=\wC cm, minimum height=0.34cm] at (\xC,\yt) {};
+  \node[campo] at (\xC+1.3,\yt-0.17) {ch\c};
+  \node[desc, font=\tiny] at (\xC+1.95,\yt-0.17) {13 registros};
+}
+\node[dir] at (\xC+0.08,-4.01) {0x1100};
+\node[dir] at (\xC+0.08,-4.35) {0x1140};
+\node[dir] at (\xC+0.08,-4.69) {0x1180};
+\node[dir] at (\xC+0.08,-5.03) {0x11C0};
+\draw[ejemplo] (\xC,-4.18) rectangle (\xC+\wC,-4.52);
+% encabezado y bloques AXI
+\node[celda, fill=azul!35, minimum width=\wC cm, minimum height=0.34cm] at (\xC,-5.20) {};
+\node[cab] at (\xC+0.08,-5.37) {\textbf{AXI}: por canal\;\; {\tiny\ttfamily 0x1200 + 0x20$\cdot$ch}};
+\foreach \c/\a in {0/1200, 1/1220, 2/1240, 3/1260} {
+  \pgfmathsetmacro\yt{-5.54-0.26*\c}
+  \node[celda, fill=azul!15, minimum width=\wC cm, minimum height=0.26cm] at (\xC,\yt) {};
+  \node[dir]   at (\xC+0.08,\yt-0.13) {0x\a};
+  \node[campo] at (\xC+1.3,\yt-0.13) {axi\c};
+  \node[desc, font=\tiny] at (\xC+1.95,\yt-0.13) {7 registros};
+}
+\node[vacia, minimum width=\wC cm, minimum height=0.26cm] at (\xC,-6.58) {};
+\node[dir, black!55] at (\xC+0.08,-6.71) {0x1280--0x1FFC\;\; \normalfont reservado};
+
+% ================================================ D: el bloque de un canal ===
+\node[panel] at (\xD,0.15) {\textbf{el bloque de ch1}\\[-1pt]
+  {\scriptsize el mismo para los cuatro canales}};
+\node[celda, fill=azul!35, minimum width=\wD cm, minimum height=0.4cm] at (\xD,0) {};
+\node[cab] at (\xD+0.08,-0.2) {\textbf{ch1}\;\; {\tiny\ttfamily 0x1140--0x117F}};
+\node[cab, anchor=east, font=\tiny] at (\xD+\wD-0.08,-0.2) {offset \;$\cdot$\; acceso \;$\cdot$\; campo};
+\foreach \o/\p/\n/\d [count=\i from 0] in {
+    00/RW/THRESH/umbral del trigger,
+    04/RW/HYST/histéresis del trigger,
+    08/RW/DLY/muestras post-trigger,
+    0C/RW/DEC/factor de decimación,
+    10/R/WP\_CUR/puntero de escritura,
+    14/R/WP\_TRIG/puntero en el trigger,
+    18/R/WE\_CNT/escrituras contadas,
+    1C/RW/CALIB\_OFFSET/offset de calibración,
+    20/RW/CALIB\_GAIN/ganancia (\texttt{0x8000}: $\times$1),
+    24/RW/FILT\_AA/coeficientes,
+    28/RW/FILT\_BB/del ecualizador,
+    2C/RW/FILT\_KK/,
+    30/RW/FILT\_PP/} {
+  \pgfmathsetmacro\yt{-0.4-0.46*\i}
+  \node[celda, p-\p, minimum width=\wD cm, minimum height=0.46cm] at (\xD,\yt) {};
+  \node[dir]   at (\xD+0.08,\yt-0.23) {+0x\o};
+  \node[perm]  at (\xD+0.95,\yt-0.23) {\p};
+  \node[campo] at (\xD+1.25,\yt-0.23) {\n};
+  \node[desc]  at (\xD+2.95,\yt-0.23) {\d};
+}
+\node[vacia, minimum width=\wD cm, minimum height=0.46cm] at (\xD,-6.38) {};
+\node[dir, black!55] at (\xD+0.08,-6.61) {+0x34--0x3C\;\; \normalfont reservado};
+\draw[ejemplo] (\xD,-0.86) rectangle (\xD+\wD,-1.32);
+
+% ================================================================= leyenda ===
+\leyenda{0,-7.4}{white/RW: configuración, grisr/R: estado, rojo!18/W: comando,
+  azul!35/encabezado de bloque}
+  {Cada nivel amplía la fila de borde grueso del anterior; el ejemplo es \texttt{HYST}
+   del canal 1, en \texttt{0x4010\_1144}. El stride es el tamaño del bloque:\\
+   el canal $n$ empieza en \texttt{0x1100 + 0x40$\cdot n$}.\\
+   En \texttt{mca\_red\_pitaya\_top} el slot 2 es un \texttt{sys\_bus\_stub}.}
+
+\end{tikzpicture}
+\end{document}

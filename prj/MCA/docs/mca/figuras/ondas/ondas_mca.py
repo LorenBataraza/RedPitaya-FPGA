@@ -353,24 +353,42 @@ def fig_borrado(vcd, step, hscale):
 # ----------------------------------------------------------------------
 
 def fig_flujo(hscale):
+    # La configuracion es una escalera: cada registro en su paso, en el orden
+    # en que los escribe Mca.configure() (sin los dos deprecados). Son 23, asi
+    # que entran cuatro por columna y las cajas van sin texto: el nombre esta
+    # en la fila. El grupo va pegado a la fila de escritura para que las
+    # flechas de abajo no lo crucen, y los nodos van en mayuscula para que
+    # WaveDrom no dibuje la letra.
+    n_col = 23
+    cfg, _ = O.escalera([(r, None) for r in (
+        "cfg_thr", "cfg_hyst", "cfg_baseline", "cfg_bl_ctrl", "cfg_maxlen",
+        "cfg_tail_dly", "cfg_amp_min", "cfg_amp_max", "cfg_amp_src",
+        "cfg_dec", "cfg_gate_mode", "cfg_gate_len", "cfg_hist_sel",
+        "cfg_zoom_1d", "cfg_zoom_2dx", "cfg_zoom_2dy", "cfg_discr_min",
+        "cfg_discr_max", "cfg_discr_ctrl", "win_pol (0x104)", "rearm_dly",
+        "cfg_hist_ctrl", "CTRL (chan_sel)")], 1, n_col, por_col=4)
     filas = [
-        {"name": "escritura del PS", "wave": "x3x4x5x.....x6x",
-         "data": ["thr/hyst/base", "maxlen/amp", "clear + run", "stop"],
-         "node": ".a..b..c.......g"},
-        {"name": "clear_busy", "wave": "0..1.0.........", "node": "...h.i........."},
-        {"name": "pulsos en la entrada", "wave": "0.....1......0.",
-         "node": "......j........"},
-        {"name": "cnt_total / cnt_accepted", "wave": "x.....=.=.=.=..",
+        ["configuracion"] + cfg,
+        {"name": "escritura del PS", "wave": "x3.....x4.x........6x..",
+         "data": ["configuracion", "clear + run", "stop"],
+         "node": "..........C............"},
+        {},
+        {"name": "clear_busy", "wave": "0.........1.0..........",
+         "node": "..........H.I.........."},
+        {"name": "pulsos en la entrada", "wave": "0............1......0..",
+         "node": ".............J........."},
+        {"name": "cnt_total / cnt_accepted", "wave": "x............=.=.=.=...",
          "data": ["0", "N1", "N2", "N3"]},
         {},
-        {"name": "lectura del PS", "wave": "x.......7.7...8x",
-         "data": ["contadores", "contadores", "histograma"],
-         "node": "........k.....l"},
+        {"name": "lectura del PS", "wave": "x..............7.7.x.8.",
+         "data": ["contadores", "contadores", "histograma"]},
+        {},       # wavedrom-cli no cuenta el grupo en el alto: sin esto el pie
+                  # queda recortado
     ]
-    edge = ["a|->b", "b|->c", "c~>h barrido", "h~>i", "i~>j ya cuenta",
-            "k~>l", "g|->l"]
-    pie = ("ESQUEMA: una columna es un paso, no un ciclo. El clear hay que "
-           "esperarlo (clear_busy); los contadores se pueden leer corriendo.")
+    edge = ["C~>H barrido", "I~>J ya cuenta"]
+    pie = ("ESQUEMA: una columna es un paso, no un ciclo; cada registro se "
+           "escribe en su propio paso. El clear hay que esperarlo (clear_busy); "
+           "los contadores se pueden leer corriendo.")
     return O.esquema(filas,
                      head={"text": "FLUJO DE UNA MEDICION  -  mca_top"},
                      foot=pie, hscale=hscale) | {"edge": edge}
@@ -432,8 +450,14 @@ NOTAS = {
         "incondicional, asi que llega con la misma latencia este barriendo o "
         "no, que es lo que la figura mide.",
     "mca_flujo":
-        "Es un esquema de la SECUENCIA, no una medicion. Las dos cosas que "
-        "fija: el borrado hay que ESPERARLO --`clear_busy` avisa, y los "
+        "Es un esquema de la SECUENCIA, no una medicion. La configuracion es "
+        "una escalera: el bus del PS escribe un registro por vez, y la figura "
+        "los pone en el orden en que los escribe Mca.configure(). Ese orden "
+        "importa en un solo punto: cfg_hist_sel va DESPUES de cfg_amp_src, "
+        "porque escribir cfg_amp_src tambien lo mueve. Un registro que no se "
+        "escribe conserva lo que tenia (el valor de reset solo despues de "
+        "cargar el bitstream; ver register_map_mca.md). Despues, las dos cosas "
+        "que fija: el borrado hay que ESPERARLO --`clear_busy` avisa, y los "
         "eventos que llegan mientras barre se descartan y se cuentan en "
         "`dropped`--, y los contadores se pueden leer con la medicion "
         "corriendo, que es lo que permite supervisar sin frenar. La misma "

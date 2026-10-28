@@ -1,0 +1,35 @@
+% D6 — cómo se re-arma el detector (cfg_rearm_mode). Vive en mca_window.
+% Compilar:   pdflatex d06_rearmado.tex && pdftocairo -svg d06_rearmado.pdf d06_rearmado.svg
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../../figuras/estilo_tikz.tex}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\node[decision] (d) at (-0.9,1.3) {D6};
+\node[anchor=west, font=\small] at (d.east)
+  {\textbf{Cómo se re-arma} \quad {\scriptsize\ttfamily mca\_window}};
+
+\node[etapa, defecto, text width=3.6cm] (o0) at (1.0,0)
+  {\etq{por nivel}{la señal tiene que bajar de \texttt{thr} $-$ \texttt{hyst}\\
+   \emph{paralizable}: $\tau \approx 5.9\,\mu$s}};
+\node[etapa, text width=3.6cm] (o1) at (1.0,-1.6)
+  {\etq{por contador}{\texttt{rearm\_dly} muestras tras el cierre\\
+   \emph{no paralizable}: $\tau = 3.2\,\mu$s fijo}};
+
+\muxdec{m}{(4.3,-0.8)}{3.0}
+\foreach \k in {0,1} {
+  \draw[flujo] (o\k.east) -- (m-in |- o\k.east);
+  \node[font=\scriptsize, anchor=west] at ($(m-in |- o\k.east)+(0.05,0)$) {\k};
+}
+\draw[ctrl] ($(m-sel)+(0,-0.9)$) node[below, sen, black, align=center]
+  {cfg\_rearm\_mode\;\normalfont(0x104[8])\\[-1pt]\normalfont\scriptsize rearm\_dly en 0x108}
+  -- (m-sel);
+\draw[flujo] (m-out) -- ++(1.4,0) node[right, sen, align=left] {armed\\[-1pt]\normalfont\scriptsize(abrir lo consume)};
+
+\end{tikzpicture}
+\end{document}
