@@ -147,7 +147,8 @@ export PYTHONPATH := $(RAIZ):$(PYTHONPATH)
         montecarlo montecarlo-rapido montecarlo-apilamiento \
         montecarlo-linea-base montecarlo-pico-carga montecarlo-conformado montecarlo-figuras \
         campana-lista campana-mca campana-campana campana-resto campana-formas \
-        campana-e2e campana-poisson campana-deriva campana-adquirir \
+        campana-e2e campana-poisson campana-politicas campana-politicas-remoto \
+        campana-deriva campana-adquirir \
         campana-adquirir-remoto campana-deriva-remoto \
         graficar-mca graficar-formas graficar-tasa analizar-estimadores \
         rigol-pulsos rigol-psd rigol-poisson rigol-off \
@@ -340,6 +341,18 @@ campana-e2e: exige-placa       ## (P,R) espectro HW contra espectro SW, mismo es
 
 campana-poisson: exige-placa   ## (P,R) pérdidas del lector con arribos Poisson
 	$(PY) campanas/run_poisson_loss.py
+
+# La validación en silicio de las fases 1 y 2. `SOLO=invariantes` corre sólo
+# las identidades del teselado, que es lo primero a mirar con un bitstream
+# nuevo y tarda segundos; sin SOLO corre las cinco secciones (~5 min).
+campana-politicas: exige-placa  ## (P,R) teselado + políticas de ventana en placa. OUT= SOLO=
+	$(PY) campanas/run_politicas.py $(OUT) $(if $(SOLO),--solo $(SOLO),)
+
+campana-politicas-remoto: placa-sync  ## (R) la validación de políticas EN la Pitaya, y trae los datos
+	ssh $(PITAYA) 'make -C $(REMOTO) campana-politicas OUT=$(OUT) SOLO=$(SOLO)'
+	@mkdir -p $(OUT)
+	rsync -az $(PITAYA):$(REMOTO)/$(OUT)/ $(OUT)/
+	@echo "datos en $(OUT)/"
 
 # `--out $(OUT)` y no el default de run_acquire.py (/home/jupyter/RedPitaya/DATOS):
 # escribiendo bajo el árbol del repo, `campana-adquirir-remoto` puede traerse los

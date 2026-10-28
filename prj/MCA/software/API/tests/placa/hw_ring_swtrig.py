@@ -69,7 +69,7 @@ def scope_setup(sc):
     w32(sc, S_SHIELD, (0 << 16) | (0x3 << 8) | 0x3)   # auto-rearm inmediato
     w32(sc, S_CTRL, 0x0909)              # arm + we_keep, ch0+ch1
     # SOLO ch0 en la máscara. trigger_event es el OR de los adc_trig de TODOS
-    # los canales (multitrigger_event_logic.v:123-127), asi que con los dos
+    # los canales (mt_event_logic.v:123-127), asi que con los dos
     # canales enmascarados una sola escritura a 0x04 produce DOS pulsos de
     # trigger (llegan con un ciclo de diferencia). Eso rompe la cuenta exacta de
     # triggers inyectados, que es justamente lo que este test necesita.

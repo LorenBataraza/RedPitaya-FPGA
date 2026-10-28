@@ -30,7 +30,7 @@ rp-api `acq_handler.c`): `end_pos` es **inclusivo** y la API exige
 El código pasaba `end=ref+post` con `buffer_size=pre+post` (uno corto) → `RP_BTS`
 silencioso (el return code se ignoraba). El fix usa `end=ref+post-1` (inclusivo,
 `n` samples exactos) y **chequea el return code**. Ver
-[`../multitrigger_utils.py`](../../multitrigger_utils.py) `capture_window_np`.
+[`../../multitrigger_utils.py`](../../multitrigger_utils.py) `capture_window_np`.
 
 ## Correr
 

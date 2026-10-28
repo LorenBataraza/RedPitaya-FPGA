@@ -44,7 +44,7 @@ sys.path.insert(0, _SOFT)
 
 # ---------------------------------------------------------------------------
 # Datos medidos del LECTOR DE PYTHON (multitrigger + BRAM).
-# Fuente: docs/multitrigger/arquitectura_adquisicion_software.md, "El techo real,
+# Fuente: docs/API/arquitectura_adquisicion_software.md, "El techo real,
 # medido end-to-end". Barrido de 4 s por punto, pulsos 0->1 V, ventana 8+24
 # muestras, 2 canales. Estimulo PERIODICO (Rigol en modo PULSE).
 # ---------------------------------------------------------------------------

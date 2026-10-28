@@ -182,7 +182,7 @@ def bench_read_window(sc, res):
 
 # ------------------------------------- 2b. lectura directa del BRAM por el mmap
 
-# El casez de multitrigger_rp_scope_cfg mapea la BRAM de cada canal a un rango
+# El casez de mt_rp_scope_cfg mapea la BRAM de cada canal a un rango
 # propio del espacio del scope: 20'h1???? -> ch0, 20'h2???? -> ch1. La direccion
 # del bus ES el indice de muestra (bram_rp_i = sys_addr[RSZ+1:2]), o sea una
 # palabra de 32 b por muestra. Y SCOPE_SIZE (0x30000) ya cubre los dos rangos,

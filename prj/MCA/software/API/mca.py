@@ -139,6 +139,58 @@ R_DEADTIME_LO  = 0x078
 R_DEADTIME_HI  = 0x07C
 R_VETOTIME_LO  = 0x0C0          # tiempo bajo veto externo (trigger_shield, dst=mca)
 R_VETOTIME_HI  = 0x0C4
+# --- teselado del tiempo muerto ---
+# realtime == vetotime + t_win + t_div + t_rearm + livetime, exacto y en todo
+# ciclo (es una assertion del RTL: mca/sim/sva/mca_top_sva.sv::ap_suma_relojes).
+#
+# R_DEADTIME (0x078) es la definicion VIEJA: solo t_win + t_div, o sea `feat_busy`.
+# SUBESTIMA el bloqueo real, porque el modulo tampoco puede abrir mientras el
+# Schmitt no se re-arme, y eso es t_rearm. Se conserva bit-identico para que las
+# campanas ya medidas sigan siendo comparables; el total honesto es la suma de
+# los tres. Ver docs/mca/tiempo_muerto.md.
+R_T_WIN_LO     = 0x0C8          # ventana abierta (S_ACTIVE)
+R_T_WIN_HI     = 0x0CC
+R_T_DIV_LO     = 0x0D0          # publicando: divisores de forma corriendo
+R_T_DIV_HI     = 0x0D4
+R_T_REARM_LO   = 0x0D8          # libre pero sin re-armar: EL TIEMPO MUERTO OCULTO
+R_T_REARM_HI   = 0x0DC
+R_T_CLEAR_LO   = 0x0FC          # barrido de borrado del histograma
+R_T_CLEAR_HI   = 0x100
+# --- distribución del período muerto ---
+R_DEAD_PERIODS = 0x0E0          # cantidad de periodos muertos
+R_DEAD_LEN_MAX = 0x0E4          # el mas largo, en ciclos
+R_DEAD_EXT     = 0x0E8          # periodos EXTENDIDOS (uno por periodo, no por arribo)
+# --- atribución de arribos ---
+# cnt_cross == cnt_open + lost_rearm + lost_active + cnt_lost_busy + lost_veto
+R_CNT_CROSS    = 0x0EC          # todos los cruces de thr_hi hacia arriba
+R_CNT_OPEN     = 0x0B4          # ...que abrieron ventana
+R_LOST_REARM   = 0x0F0          # ...perdidos esperando el re-armado
+R_LOST_ACTIVE  = 0x0F4          # ...llegados dentro de la ventana
+R_LOST_VETO    = 0x0F8          # ...llegados bajo veto
+# --- FASE 2: politicas de ventana ---
+# Las tres conviven en el mismo bitstream y arrancan en 0 = comportamiento
+# historico, para poder comparar arquitecturas sobre los MISMOS pulsos.
+#
+#   R_WIN_POL bit[1:0] trig_src    0 = Schmitt interno, 1 = trigger externo,
+#                                  2 = cualquiera de los dos
+#             bit[8]   rearm_mode  0 = por NIVEL (thr - hyst), 1 = por CONTADOR
+#             bit[16]  pub_mode    0 = publicacion BLOQUEANTE, 1 = FIFO
+#
+# rearm_mode = 1 es LA palanca del tiempo muerto: pasa el modulo de paralizable
+# (tau = 5.9 us, depende de donde cruza la cola) a no paralizable (tau =
+# ventana + rearm_dly, determinista). Su costo es que SOBRE-CUENTA el
+# apilamiento, troceandolo; se filtra por forma (F_INVW/F_LEN), no volviendo al
+# nivel. Ver docs/mca/tiempo_muerto.md.
+R_WIN_POL      = 0x104
+R_REARM_DLY    = 0x108          # holdoff de re-armado, en muestras
+# Estado del arbitro de publicacion: {id[31:16], occ_max[15:8], occ[7:0]}.
+# occ_max == pub_k significa que hubo contrapresion, y lo perdido por eso esta
+# en cnt_lost_busy (dentro de R_CNT_DROPPED/0x064).
+R_PUB_STATE    = 0x10C
+R_CNT_WIN      = 0x110          # VENTANAS abiertas (vengan o no de un cruce)
+R_LOST_NOTRIG  = 0x114          # cruces libres que no abrieron por falta de trigger
+R_CNT_TRIG     = 0x118          # flancos de trigger externo recibidos
+R_PUB_K        = 0x11C          # lugares de la FIFO con que se sintetizo
 # --- último evento (depuración) ---
 R_LAST_AMP     = 0x080
 R_LAST_PSD     = 0x084
@@ -369,7 +421,9 @@ class MCA:
                   # equivocado. Lo verifica test_compat_api.
                   sel_1d=None, sel_2dx=None, sel_2dy=None,
                   zoom_1d=(0, 0), zoom_2dx=(0, 0), zoom_2dy=(0, 0),
-                  discr=None, keep_if_full=True):
+                  discr=None, keep_if_full=True,
+                  # --- fase 2: politicas de ventana ---
+                  trig_src=0, rearm_mode=0, rearm_dly=0, pub_mode=0):
         """Configurar el MCA.
 
         amp_src: 0 = muestra de pico, 1 = integral de carga (Q_total>>q_shift).
@@ -452,6 +506,23 @@ class MCA:
             self.w32(R_DISCR_CTRL,
                      (_feat_idx(feat, F_PEAK) << 4) | (2 if externo else 0) | 1)
 
+        # --- fase 2: politicas de ventana ----------------------------------
+        # Los defaults (todo 0) son el comportamiento historico, asi que una
+        # llamada existente a configure() no cambia de arquitectura por error.
+        if trig_src not in (0, 1, 2):
+            raise ValueError(f'trig_src={trig_src}: tiene que ser 0 (Schmitt '
+                             f'interno), 1 (trigger externo) o 2 (ambos).')
+        if rearm_mode and rearm_dly == 0:
+            raise ValueError(
+                'rearm_mode=1 (por contador) con rearm_dly=0: el modulo se '
+                'rearma en el ciclo siguiente al cierre y va a reabrir sobre '
+                'la cola del mismo pulso, troceandolo. Elegi un holdoff que '
+                'cubra la cola, o deja rearm_mode=0.')
+        self.w32(R_WIN_POL, ((1 if pub_mode else 0) << 16)
+                          | ((1 if rearm_mode else 0) << 8)
+                          | (trig_src & 0x3))
+        self.w32(R_REARM_DLY, rearm_dly & 0xFFFF)
+
         self.w32(R_HIST_CTRL, 1 if keep_if_full else 0)
         self.w32(R_CTRL,     (1 << 8) if channel else 0)   # run=0, canal
 
@@ -509,19 +580,52 @@ class MCA:
         """Contadores de eventos y relojes, en un dict.
 
         `livetime_s` es el tiempo en que el MCA pudo aceptar eventos;
-        `deadtime_s` el que estuvo ocupado; `vetotime_s` el que pasó con el
-        veto externo puesto (el shield del multitrigger con `DST_MCA`). La
-        suma de los tres da `realtime_s`: el veto tiene prioridad sobre busy,
-        así que la cola de un pulso que termina bajo veto cuenta como vetada.
+        `vetotime_s` el que pasó con el veto externo puesto (el shield del
+        multitrigger con `DST_MCA`). El veto tiene prioridad sobre el estado
+        interno, así que la cola de un pulso que termina bajo veto cuenta como
+        vetada.
 
-        Un bitstream sin veto devuelve 0 en `0x0C0` (registro no mapeado), así
-        que `vetotime_s` es 0 y `vetoed` es False: nada que distinguir.
+        EL TIEMPO MUERTO SE DESGLOSA EN TRES, y la distinción importa:
+
+          `t_win_s`    la ventana abierta. Es la medición: irreducible.
+          `t_div_s`    los divisores de forma publicando el evento (16 ciclos).
+          `t_rearm_s`  el módulo libre pero SIN PODER ABRIR, porque el Schmitt
+                       no se re-arma hasta que la señal baja de `thr - hyst`.
+
+        `deadtime_s` es el registro HISTÓRICO y vale sólo `t_win + t_div`.
+        **Subestima el bloqueo real**, y por eso se agrega
+        `deadtime_real_s = t_win + t_div + t_rearm`, que es el que hay que usar
+        para corregir pérdidas. Con compuerta fija el término que falta puede
+        ser más grande que los otros dos juntos, y `deadtime_s` llega a BAJAR
+        al subir la tasa (a tasa alta casi no se abren ventanas), con lo cual no
+        corrige nada. Ver docs/mca/tiempo_muerto.md.
+
+        Se devuelven los dos para que las campañas ya medidas sigan siendo
+        comparables.
+
+        OJO CON LEER EN CALIENTE. `realtime == veto+win+div+rearm+live` vale
+        ciclo a ciclo en el hardware, pero cada acceso al bus se lleva ~6 ciclos
+        y los contadores avanzan entre uno y otro, así que la suma leída con
+        `run=1` NO cierra. Para verificar la identidad hay que frenar primero
+        (`stop()`); para el uso normal la diferencia es despreciable frente al
+        tiempo de integración.
+
+        Un bitstream sin estos registros devuelve 0 (direcciones no mapeadas),
+        así que los campos nuevos salen en 0 y no hay excepción: usar
+        `exigir_features()` si hace falta distinguir.
         """
         rt = self._r64(R_REALTIME_LO, R_REALTIME_HI)
         lt = self._r64(R_LIVETIME_LO, R_LIVETIME_HI)
         dt = self._r64(R_DEADTIME_LO, R_DEADTIME_HI)
         vt = self._r64(R_VETOTIME_LO, R_VETOTIME_HI)
+        tw = self._r64(R_T_WIN_LO,   R_T_WIN_HI)
+        td = self._r64(R_T_DIV_LO,   R_T_DIV_HI)
+        tr = self._r64(R_T_REARM_LO, R_T_REARM_HI)
+        tc = self._r64(R_T_CLEAR_LO, R_T_CLEAR_HI)
         st = self.r32(R_STATUS)
+        periodos = self.r32(R_DEAD_PERIODS)
+        pub_st = self.r32(R_PUB_STATE)
+        pol = self.r32(R_WIN_POL)
         return {
             'total':     self.r32(R_CNT_TOTAL),
             'accepted':  self.r32(R_CNT_ACCEPTED),
@@ -531,12 +635,61 @@ class MCA:
             'dropped':   self.r32(R_CNT_DROPPED),
             'realtime_s': rt / FS_HZ,
             'livetime_s': lt / FS_HZ,
-            'deadtime_s': dt / FS_HZ,
+            'deadtime_s': dt / FS_HZ,          # histórico: sólo win + div
             'vetotime_s': vt / FS_HZ,
+            # --- teselado ---
+            't_win_s':   tw / FS_HZ,
+            't_div_s':   td / FS_HZ,
+            't_rearm_s': tr / FS_HZ,
+            't_clear_s': tc / FS_HZ,
+            'deadtime_real_s': (tw + td + tr) / FS_HZ,
+            # --- distribución del período muerto ---
+            # E[L] contra tau*(e^rho-1)/rho separa paralizable de no
+            # paralizable sin barrido de tasa, y `dead_ext_frac` estima
+            # P(L > tau) = 1 - e^-rho, o sea la FRACCIÓN APILADA -- que es lo
+            # que `pileup` no logra medir.
+            'dead_periods':   periodos,
+            'dead_len_max_s': self.r32(R_DEAD_LEN_MAX) / FS_HZ,
+            'dead_len_mean_s': ((tw + td + tr) / periodos / FS_HZ
+                                if periodos else 0.0),
+            'dead_ext':       self.r32(R_DEAD_EXT),
+            'dead_ext_frac':  (self.r32(R_DEAD_EXT) / periodos
+                               if periodos else 0.0),
+            # --- atribución de arribos ---
+            'cross':       self.r32(R_CNT_CROSS),
+            'open':        self.r32(R_CNT_OPEN),
+            'lost_rearm':  self.r32(R_LOST_REARM),
+            'lost_active': self.r32(R_LOST_ACTIVE),
+            'lost_veto':   self.r32(R_LOST_VETO),
+            # --- FASE 2 ---
+            # `windows` NO es `open`: cuenta VENTANAS ABIERTAS, vengan o no de un
+            # cruce de thr_hi. Con re-armado por contador sobre una señal que se
+            # queda arriba, o con apertura por trigger externo, hay ventanas sin
+            # cruce — y entonces `windows > open`. El que se compara con `total`
+            # (cierres) es `windows`.
+            'windows':     self.r32(R_CNT_WIN),
+            'lost_notrig': self.r32(R_LOST_NOTRIG),
+            'trig_edges':  self.r32(R_CNT_TRIG),
+            # Árbitro de publicación. `pub_occ_max == pub_k` significa que la
+            # FIFO se llenó: hubo contrapresión, y lo perdido por eso está en
+            # `lost` (cnt_lost_busy). Es el dato que dice si PUB_K alcanza.
+            'pub_occ':     pub_st & 0xFF,
+            'pub_occ_max': (pub_st >> 8) & 0xFF,
+            'last_win_id': pub_st >> 16,
+            'pub_k':       self.r32(R_PUB_K),
+            'pub_saturada': ((pub_st >> 8) & 0xFF) >= self.r32(R_PUB_K) > 0,
+            # Las políticas vigentes, para que un dict de contadores sea
+            # autosuficiente: sin esto no se puede interpretar `deadtime_s`.
+            'trig_src':    pol & 0x3,
+            'rearm_mode':  (pol >> 8) & 0x1,
+            'pub_mode':    (pol >> 16) & 0x1,
+            'rearm_dly_s': self.r32(R_REARM_DLY) / FS_HZ,
             'clear_busy':     bool(st & 1),
             'busy':           bool(st & 2),
             'baseline_stale': bool(st & 4),
             'vetoed':         bool(st & 8),
+            'rearm_pend':     bool(st & 16),   # bloqueado esperando el re-armado
+            'puede_abrir':    bool(st & 32),
         }
 
     def spectrum(self):
@@ -688,6 +841,15 @@ _CAMPOS = {
     # Contra el bitstream viejo estas direcciones no están mapeadas y leen 0,
     # que es exactamente "sin zoom, fondo de escala": el default es seguro y
     # quien lee no necesita saber contra cuál de los dos corre.
+    # --- fase 2: las politicas de ventana ---------------------------------
+    # Van en _CAMPOS y no sueltas porque son METADATO IMPRESCINDIBLE del
+    # espectro: `deadtime_s` significa cosas distintas segun `pub_mode`, y la
+    # tau del equipo depende de `rearm_mode`. Un espectro guardado sin estos
+    # tres campos no se puede corregir por tiempo muerto despues.
+    'trig_src':     (R_WIN_POL,    0, 0x3),
+    'rearm_mode':   (R_WIN_POL,    8, 0x1),
+    'pub_mode':     (R_WIN_POL,   16, 0x1),
+    'rearm_dly':    (R_REARM_DLY,  0, 0xFFFF),
     'sel_1d':       (R_HIST_SEL,   0, 0xF),
     'sel_2dx':      (R_HIST_SEL,   4, 0xF),
     'sel_2dy':      (R_HIST_SEL,   8, 0xF),

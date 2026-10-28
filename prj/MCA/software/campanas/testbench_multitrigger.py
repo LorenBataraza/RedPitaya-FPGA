@@ -54,11 +54,11 @@ BIT_ADC_N0 = 1 << 2
 # alterna posedge/negedge por canal (bit1=p0, bit2=n0, bit3=p1, ...), mientras
 # que el snapshot agrupa: {trig_ch[3:0], asg_n, asg_p, ext_n, ext_p,
 # adc_n[3:0], adc_p[3:0], sw_any} -> bits 1..4 = adc_p0..p3, bits 5..8 =
-# adc_n0..n3 (multitrigger_event_logic.v:139 y _SNAP_NAMES de multitrigger_utils).
+# adc_n0..n3 (mt_event_logic.v:139 y _SNAP_NAMES de multitrigger_utils).
 SNAP_ADC_P0 = 1 << 1
 SNAP_ADC_N0 = 1 << 5
 
-# offsets usados por las sondas (ver docs/register_map_multitrigger_rp_scope_cfg.md)
+# offsets usados por las sondas (ver docs/osc/register_map_mt_rp_scope_cfg.md)
 OFF_ADC_STATE = 0x000
 OFF_WP_TRIG   = (0x01C, 0x11C)
 OFF_WP_CUR    = (0x018, 0x118)
@@ -147,8 +147,8 @@ def we_time_since_arm_us(sc, ch=0, dec=1, fs=FS):
     `(adc_rst_do || adc_arm_do) || (trig_dis_clr && adc_we_keep)`
     (rp_bram_sm.v:71), y el `trig_dis_clr` que llega al bram_sm es el del
     **registro 0x94 (clear de SW)**, no el del trigger_shield: el clear del
-    shield se queda dentro de multitrigger_event_logic
-    (rp_scope_multitrigger_com.sv:597 lo cablea desde el cfg, no desde el
+    shield se queda dentro de mt_event_logic
+    (rp_scope_mt_com.sv:597 lo cablea desde el cfg, no desde el
     shield). Así que con auto_rearm este contador **NO** marca el tiempo desde
     el último disparo — crece libre desde el arm. Verificado en la placa.
 

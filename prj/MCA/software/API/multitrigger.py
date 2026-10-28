@@ -28,7 +28,7 @@ _U32 = struct.Struct('<I')
 SCOPE_PHYS = 0x4010_0000        # el multitrigger comparte slot con el scope
 SCOPE_SIZE = 0x30000
 
-# ---------- bits de la OR_MASK (matchean trg_src_bits de multitrigger_trig_src.sv) ----------
+# ---------- bits de la OR_MASK (matchean trg_src_bits de mt_trig_src.sv) ----------
 
 OR_MASK_ALL = 0xFFFF_FFFF
 
@@ -49,6 +49,16 @@ BIT_TRIG_CH0 = 1 << 13
 BIT_TRIG_CH1 = 1 << 14
 BIT_TRIG_CH2 = 1 << 15
 BIT_TRIG_CH3 = 1 << 16
+# Disparo por PENDIENTE (mt_slope_trig): p = flanco de subida, n = de bajada.
+# Se configuran en el slot 3 (ver MtRegion.set_slope), no en el slot 1.
+BIT_SLOPE_P0 = 1 << 17
+BIT_SLOPE_P1 = 1 << 18
+BIT_SLOPE_P2 = 1 << 19
+BIT_SLOPE_P3 = 1 << 20
+BIT_SLOPE_N0 = 1 << 21
+BIT_SLOPE_N1 = 1 << 22
+BIT_SLOPE_N2 = 1 << 23
+BIT_SLOPE_N3 = 1 << 24
 
 
 # ---------- decoder del snapshot @0x218 ----------
@@ -59,6 +69,11 @@ _SNAP_NAMES = [
     'adc_n0', 'adc_n1', 'adc_n2', 'adc_n3',
     'ext_p', 'ext_n', 'asg_p', 'asg_n',
     'trig_ch0', 'trig_ch1', 'trig_ch2', 'trig_ch3',
+    # bits 17..24: mismo lugar que en la OR_MASK. Solo los ve el SNAPSHOT del
+    # slot 3 (MtRegion.read_snapshot): el espejo de 0x218 y el event ring
+    # guardan 17 bits.
+    'slope_p0', 'slope_p1', 'slope_p2', 'slope_p3',
+    'slope_n0', 'slope_n1', 'slope_n2', 'slope_n3',
 ]
 
 
@@ -192,6 +207,144 @@ class MultiTrigger:
 
 
 # =============================================================================
+# Región propia del multitrigger (slot 3): disparo por pendiente
+# =============================================================================
+#
+# MultiTrigger habla con el espejo legacy del slot 1. Los registros del disparo
+# por pendiente existen SOLO en la región propia (mt_cfg.sv), así que tienen su
+# handle. En el top del MCA está en el slot 3; en red_pitaya_top en el 7:
+# `Integration.base('mtrg')` da la base real del bitstream cargado.
+
+MTRG_PHYS  = 0x4030_0000
+MTRG_SIZE  = 0x1000
+MTRG_MAGIC = 0x4D54_5247        # "MTRG"
+
+R3_CAPS       = 0x004           # {HAS_SLOPE[16], SHIELD_N[15:12], SRC_W[11:4], N_CH[3:0]}
+R3_SNAPSHOT   = 0x018           # 25 b, sticky
+R3_SLOPE_CFG  = 0x060           # +4·ch: {en[31], G[12:8], L[4:0]}
+R3_SLOPE_THR  = 0x070           # +4·ch: umbral sobre |s|
+R3_SLOPE_HYST = 0x080           # +4·ch: histéresis
+
+CAPS_HAS_SLOPE = 1 << 16
+
+# Rangos de mt_slope_trig con los parámetros del top (LMAX=16, GMAX=31, DW=14).
+SLOPE_LMAX = 16
+SLOPE_GMAX = 31
+SLOPE_TMAX = (1 << 18) - 1
+
+
+def slope_pico(L, G, escalon=None, pendiente=None):
+    """Valor de s que produce un escalón o una rampa, para elegir el umbral.
+
+    Escalón de alto A (más rápido que L+G muestras): s llega a L·A.
+    Rampa de m cuentas/muestra: s = L·(L+G)·m.
+    El ruido blanco σ da σ_s = σ·√(2L).
+    """
+    if (escalon is None) == (pendiente is None):
+        raise ValueError('pasar escalon o pendiente, uno solo')
+    if escalon is not None:
+        return L * escalon
+    return L * (L + G) * pendiente
+
+
+class MtRegion:
+    """La región propia del multitrigger (mt_cfg.sv), por /dev/mem."""
+
+    def __init__(self, mem, fd):
+        self._mmap = mem
+        self._fd   = fd
+
+    @classmethod
+    def open(cls, phys=MTRG_PHYS, size=MTRG_SIZE, check_magic=True):
+        fd = os.open('/dev/mem', os.O_RDWR | os.O_SYNC)
+        try:
+            m = mmap.mmap(fd, size, mmap.MAP_SHARED,
+                          mmap.PROT_READ | mmap.PROT_WRITE, offset=phys)
+        except Exception:
+            os.close(fd)
+            raise
+        r = cls(m, fd)
+        if check_magic and r.r32(0x000) != MTRG_MAGIC:
+            leido = r.r32(0x000)
+            r.close()
+            raise RuntimeError(
+                f'{phys:#010x} no es la región del multitrigger (MAGIC '
+                f'{leido:#010x} != {MTRG_MAGIC:#010x}). '
+                f"Integration.base('mtrg') da el slot de este bitstream.")
+        return r
+
+    def close(self):
+        try:
+            self._mmap.close()
+        finally:
+            os.close(self._fd)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+    def w32(self, off, v):
+        # Por slice, no struct.pack_into: ver MultiTrigger.w32.
+        self._mmap[off:off+4] = _U32.pack(v & 0xFFFFFFFF)
+
+    def r32(self, off):
+        return _U32.unpack_from(self._mmap, off)[0]
+
+    # ---------- disparo por pendiente ----------
+
+    def has_slope(self):
+        return bool(self.r32(R3_CAPS) & CAPS_HAS_SLOPE)
+
+    def set_slope(self, ch, L, G, thr, hyst, en=True):
+        """Configura el trapezoidal rápido del canal `ch`.
+
+        L: muestras de cada suma (1..16). G: separación entre sumas (0..31).
+        thr, hyst: en unidades de s (ver `slope_pico`); hyst < thr o el
+        Schmitt no re-arma en s=0. Para dispararlo hay que poner además
+        BIT_SLOPE_P<ch> / BIT_SLOPE_N<ch> en la OR_MASK.
+        """
+        if not 0 <= ch <= 3:
+            raise ValueError(f'canal {ch} fuera de 0..3')
+        if not 1 <= L <= SLOPE_LMAX:
+            raise ValueError(f'L={L} fuera de 1..{SLOPE_LMAX}')
+        if not 0 <= G <= SLOPE_GMAX:
+            raise ValueError(f'G={G} fuera de 0..{SLOPE_GMAX}')
+        if not 0 <= thr <= SLOPE_TMAX or not 0 <= hyst <= SLOPE_TMAX:
+            raise ValueError(f'thr/hyst fuera de 0..{SLOPE_TMAX}')
+        if en and hyst >= thr:
+            raise ValueError(f'hyst={hyst} >= thr={thr}: no re-arma nunca')
+        if not self.has_slope():
+            raise RuntimeError('el bitstream cargado no tiene disparo por '
+                               'pendiente (CAPS[16] = 0)')
+        cfg = (int(bool(en)) << 31) | (G << 8) | L
+        # Umbrales primero: el filtro se habilita con el Schmitt ya configurado.
+        for off, v in ((R3_SLOPE_THR, thr), (R3_SLOPE_HYST, hyst),
+                       (R3_SLOPE_CFG, cfg)):
+            self.w32(off + 4 * ch, v)
+            leido = self.r32(off + 4 * ch)
+            if leido != v:
+                raise RuntimeError(f'el registro {off + 4*ch:#05x} no retuvo '
+                                   f'lo escrito: {leido:#010x} != {v:#010x}')
+
+    def get_slope(self, ch):
+        cfg = self.r32(R3_SLOPE_CFG + 4 * ch)
+        return {'en':   bool(cfg >> 31),
+                'L':    cfg & 0x1F,
+                'G':    (cfg >> 8) & 0x1F,
+                'thr':  self.r32(R3_SLOPE_THR + 4 * ch),
+                'hyst': self.r32(R3_SLOPE_HYST + 4 * ch)}
+
+    def disable_slope(self, ch):
+        self.w32(R3_SLOPE_CFG + 4 * ch, 0)
+
+    def read_snapshot(self):
+        """El snapshot completo de 25 bits, incluidas las fuentes de pendiente."""
+        return decode_snap(self.r32(R3_SNAPSHOT))
+
+
+# =============================================================================
 # Configuración en bloque
 # =============================================================================
 #
@@ -263,6 +416,14 @@ BITS_OR_MASK = (
     ('trig_ch1', BIT_TRIG_CH1, 'trigger del canal 1'),
     ('trig_ch2', BIT_TRIG_CH2, 'trigger del canal 2'),
     ('trig_ch3', BIT_TRIG_CH3, 'trigger del canal 3'),
+    ('slope_p0', BIT_SLOPE_P0, 'pendiente positiva, canal 0 (MtRegion.set_slope)'),
+    ('slope_p1', BIT_SLOPE_P1, 'pendiente positiva, canal 1'),
+    ('slope_p2', BIT_SLOPE_P2, 'pendiente positiva, canal 2'),
+    ('slope_p3', BIT_SLOPE_P3, 'pendiente positiva, canal 3'),
+    ('slope_n0', BIT_SLOPE_N0, 'pendiente negativa, canal 0'),
+    ('slope_n1', BIT_SLOPE_N1, 'pendiente negativa, canal 1'),
+    ('slope_n2', BIT_SLOPE_N2, 'pendiente negativa, canal 2'),
+    ('slope_n3', BIT_SLOPE_N3, 'pendiente negativa, canal 3'),
 )
 
 
@@ -340,7 +501,7 @@ def multitrigger_arm(osc, mt, mask_ch0=BIT_ADC_P0, mask_ch1=BIT_ADC_P0,
     pre-arm: engancha adc_trg_dis y (en single-shot) auto-limpia set_trig_src
     ANTES de que la bram_sm esté armada, dejándola esperando un trigger
     imposible (wp_trig=0 permanente). El SW trigger es inmune porque adc_trig_sw
-    es pasivo hasta el pulso 0x04. Ver docs/multitrigger/orden_arm_trigger_captura.md.
+    es pasivo hasta el pulso 0x04. Ver docs/osc/orden_arm_trigger_captura.md.
 
     auto_rearm=True (default): activa el trigger_shield para clear automático
         de adc_trg_dis (dur=0, inmediato) Y sobreescribe set_dly raw para

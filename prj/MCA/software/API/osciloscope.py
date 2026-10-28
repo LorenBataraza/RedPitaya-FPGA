@@ -413,7 +413,7 @@ class Osciloscope:
         """Comprueba que el bitstream cargado sea realmente el diseño
         multitrigger (y no el scope stock ni una región sin decodificar).
 
-        Estrategia (ver docs/register_map_multitrigger_rp_scope_cfg.md):
+        Estrategia (ver docs/osc/register_map_mt_rp_scope_cfg.md):
 
         1. **Sanity** (necesario, no suficiente): registros comunes al scope
            stock leen su valor de reset. Detecta "no hay bitstream / región

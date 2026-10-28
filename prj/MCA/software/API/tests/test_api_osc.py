@@ -184,6 +184,59 @@ def test_decode_snap_nombra_las_fuentes_activas():
 
 
 # =============================================================================
+# Disparo por pendiente (región propia, slot 3)
+# =============================================================================
+
+def _region(caps=MT.CAPS_HAS_SLOPE):
+    """Una MtRegion sobre memoria común: retiene lo escrito, como un registro."""
+    mem = bytearray(MT.MTRG_SIZE)
+    mem[MT.R3_CAPS:MT.R3_CAPS + 4] = caps.to_bytes(4, 'little')
+    return MT.MtRegion(mem, -1)
+
+
+def test_las_fuentes_de_pendiente_caen_en_el_mismo_bit_de_mascara_y_snapshot():
+    assert MT.BIT_SLOPE_P0 == 1 << 17 and MT.BIT_SLOPE_N3 == 1 << 24
+    assert MT.decode_snap(MT.BIT_SLOPE_P0) == ['slope_p0']
+    assert MT.decode_snap(MT.BIT_SLOPE_N1) == ['slope_n1']
+
+
+def test_set_slope_escribe_el_layout_de_mt_cfg():
+    r = _region()
+    r.set_slope(1, L=4, G=7, thr=800, hyst=200)
+    assert r.r32(MT.R3_SLOPE_CFG + 4) == (1 << 31) | (7 << 8) | 4
+    assert r.r32(MT.R3_SLOPE_THR + 4) == 800
+    assert r.r32(MT.R3_SLOPE_HYST + 4) == 200
+    assert r.r32(MT.R3_SLOPE_CFG) == 0              # el canal 0 no se tocó
+    assert r.get_slope(1) == {'en': True, 'L': 4, 'G': 7, 'thr': 800, 'hyst': 200}
+    r.disable_slope(1)
+    assert r.get_slope(1)['en'] is False
+
+
+@pytest.mark.parametrize('kw', [
+    dict(L=0, G=0, thr=10, hyst=1),
+    dict(L=17, G=0, thr=10, hyst=1),
+    dict(L=4, G=32, thr=10, hyst=1),
+    dict(L=4, G=0, thr=MT.SLOPE_TMAX + 1, hyst=1),
+    dict(L=4, G=0, thr=10, hyst=10),                # no re-arma en s=0
+])
+def test_set_slope_rechaza_lo_que_el_rtl_saturaria(kw):
+    with pytest.raises(ValueError):
+        _region().set_slope(0, **kw)
+
+
+def test_set_slope_exige_el_bitstream_con_pendiente():
+    with pytest.raises(RuntimeError, match='CAPS'):
+        _region(caps=0).set_slope(0, L=4, G=7, thr=800, hyst=200)
+
+
+def test_slope_pico_da_la_respuesta_del_trapezoidal():
+    assert MT.slope_pico(4, 7, escalon=400) == 1600       # L·A
+    assert MT.slope_pico(4, 7, pendiente=4) == 176        # L·(L+G)·m
+    with pytest.raises(ValueError):
+        MT.slope_pico(4, 7)
+
+
+# =============================================================================
 # Los simulados
 # =============================================================================
 
