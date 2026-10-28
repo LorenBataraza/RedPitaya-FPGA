@@ -1,3 +1,0 @@
-current_design multitrigger_cfg
-clock -name adc_clk_i
-reset -name adc_rstn_i -value 0
