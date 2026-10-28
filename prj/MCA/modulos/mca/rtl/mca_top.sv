@@ -16,8 +16,8 @@
 // devuelve un valor sin sentido y SIN indicación de error.
 //
 // El scope tiene ese bug latente: ata bram_ack[2]/[3] = 0 para los canales no
-// construidos (rp_scope_multitrigger_com.sv:572-573) y
-// multitrigger_rp_scope_cfg.sv:506-507 lo usa como ack de las aperturas 3 y 4.
+// construidos (rp_scope_mt_com.sv:572-573) y
+// mt_rp_scope_cfg.sv:506-507 lo usa como ack de las aperturas 3 y 4.
 //
 // Acá el ack sale de un shift register incondicional: NO existe ninguna ruta de
 // ack por motor, así que un motor apagado por parámetro no puede colgar el bus.
@@ -42,7 +42,11 @@ module mca_top #(
   parameter integer QW     = 32,
   parameter integer LEN_W  = 16,
   parameter integer DIV_W  = 16,   // bits de cociente de los divisores de forma
-  parameter integer NFEAT  = 16    // ranuras del bus de features
+  parameter integer NFEAT  = 16,   // ranuras del bus de features
+  // FASE 2: lugares de la FIFO de publicacion. K=2 desacopla la publicacion del
+  // cierre de ventana; mas lugares no compran nada mientras haya UN solo juego
+  // de acumuladores (ver la cabecera de mca_pulse_feature).
+  parameter integer PUB_K  = 2
 )(
   input                    adc_clk_i   ,
   input                    adc_rstn_i  ,
@@ -56,6 +60,12 @@ module mca_top #(
   // reloj de tiempo vivo se detiene: el tiempo va a `vetotime`. Atar a 0 si
   // el top no lo usa.
   input                    veto_i      ,
+
+  // --- FASE 2: trigger externo (nivel del multitrigger, se toma por FLANCO) ---
+  // Abre ventana cuando cfg_trig_src lo habilita. Viene del trigger_event del
+  // multitrigger, ya en adc_clk, asi que no hace falta CDC. Atar a 0 si el top
+  // no lo usa: con cfg_trig_src = 0 (el default) no se mira.
+  input                    trig_i      ,
 
   // --- bus de sistema ---
   input      [32-1:0]      sys_addr    ,
@@ -89,6 +99,15 @@ reg [AMP_W-1:0]  cfg_amp_min;
 reg [AMP_W-1:0]  cfg_amp_max;
 reg              cfg_amp_src;
 reg [4:0]        cfg_q_shift;
+
+// FASE 2. Las tres politicas de ventana, todas en 0 = comportamiento historico.
+// Que convivan en el mismo bitstream es lo que permite decidir entre ellas con
+// datos sobre los MISMOS pulsos, igual que cfg_amp_src.
+reg [1:0]        cfg_trig_src;     // 0=Schmitt interno, 1=trigger externo, 2=ambos
+reg              cfg_rearm_mode;   // 0=nivel (thr_lo), 1=contador (holdoff)
+reg [LEN_W-1:0]  cfg_rearm_dly;    // holdoff de re-armado, en muestras
+reg              cfg_pub_mode;     // 0=bloqueante, 1=FIFO de PUB_K lugares
+
 // DEPRECADOS. Se siguen decodificando —se escriben y se leen— para que el
 // software viejo no vea errores, pero YA NO AFECTAN AL DATAPATH: el eje pasó de
 // `amp >> h_shift` a "feature normalizada, los AW bits altos de la ventana de
@@ -96,6 +115,7 @@ reg [4:0]        cfg_q_shift;
 // metadato; la conversión canal->volts vive en counts_to_volts(h_aw=...).
 reg [4:0]        cfg_h_shift;      // sin efecto: lo subsume cfg_zoom_1d
 reg [4:0]        cfg_h2_shift;     // sin efecto: lo subsume cfg_zoom_2dx
+
 // Que feature alimenta cada eje. Los indices son los localparam F_* de
 // mca_pulse_feature: un solo espacio de numeracion para los tres ejes.
 reg [3:0]        cfg_sel_1d, cfg_sel_2dx, cfg_sel_2dy;
@@ -158,11 +178,22 @@ wire                bl_stale, feat_busy;
 wire [31:0]         c_total, c_acc, c_rej_amp, c_rej_psd, c_pileup, c_lost;
 wire [QW-1:0]       last_qtot, last_qtail;
 
+// Casilleros de tiempo muerto y atribucion de arribos (ver "Relojes").
+wire                dt_win, dt_div, dt_rearm, puede_abrir, arribo;
+wire [31:0]         c_cross, c_open, c_lost_rearm, c_lost_active, c_lost_veto;
+
+// FASE 2: atribucion extra y estado del arbitro de publicacion.
+localparam integer PUB_AW = (PUB_K <= 2) ? 1 : $clog2(PUB_K);
+wire [31:0]         c_lost_notrig, c_win, c_trig;
+wire [PUB_AW:0]     pub_occ, pub_occ_max;
+wire [15:0]         last_win_id;
+
 wire [NFEAT*AMP_W-1:0] ev_feat;
 
 mca_pulse_feature #(
   .DW(DW), .QW(QW), .AMP_W(AMP_W), .PSD_AW(PSD_AW), .DIV_W(DIV_W),
-  .NFEAT(NFEAT), .LEN_W(LEN_W), .EN_PSD(EN_HIST_H_PSD)
+  .NFEAT(NFEAT), .LEN_W(LEN_W), .EN_PSD(EN_HIST_H_PSD),
+  .PUB_K(PUB_K), .PUB_IDW(16)
 ) i_feat (
   .clk_i(adc_clk_i), .rstn_i(adc_rstn_i),
   .dat_i($signed(dat_q)), .val_i(val_q),
@@ -175,13 +206,24 @@ mca_pulse_feature #(
   .cfg_gate_long_i(cfg_gate_long),
   .cfg_amp_min_i(cfg_amp_min), .cfg_amp_max_i(cfg_amp_max),
   .cfg_amp_src_i(cfg_amp_src), .cfg_q_shift_i(cfg_q_shift),
+  .trig_i(trig_i), .cfg_trig_src_i(cfg_trig_src),
+  .cfg_rearm_mode_i(cfg_rearm_mode), .cfg_rearm_dly_i(cfg_rearm_dly),
+  .cfg_pub_mode_i(cfg_pub_mode),
   .ev_valid_o(ev_valid), .ev_amp_o(ev_amp), .ev_psd_o(ev_psd),
   .ev_psd_ok_o(ev_psd_ok), .ev_feat_o(ev_feat),
   .baseline_o(baseline_now), .baseline_stale_o(bl_stale),
   .cnt_total_o(c_total), .cnt_accepted_o(c_acc), .cnt_rej_amp_o(c_rej_amp),
   .cnt_rej_psd_o(c_rej_psd), .cnt_pileup_o(c_pileup), .cnt_lost_busy_o(c_lost),
   .last_qtot_o(last_qtot), .last_qtail_o(last_qtail),
-  .busy_o(feat_busy)
+  .busy_o(feat_busy),
+  .dt_win_o(dt_win), .dt_div_o(dt_div), .dt_rearm_o(dt_rearm),
+  .puede_abrir_o(puede_abrir), .arribo_o(arribo),
+  .cnt_cross_o(c_cross), .cnt_open_o(c_open),
+  .cnt_lost_rearm_o(c_lost_rearm), .cnt_lost_active_o(c_lost_active),
+  .cnt_lost_veto_o(c_lost_veto),
+  .cnt_lost_notrig_o(c_lost_notrig), .cnt_win_o(c_win),
+  .pub_occ_o(pub_occ), .pub_occ_max_o(pub_occ_max),
+  .last_win_id_o(last_win_id), .cnt_trig_o(c_trig)
 );
 
 //=============================================================================
@@ -348,22 +390,132 @@ wire clear_busy = hist_h_busy || hist_2d_busy;
 //=============================================================================
 // Relojes de adquisición
 //=============================================================================
-// realtime = livetime + deadtime + vetotime. El veto tiene prioridad sobre
-// busy: un pulso que termina bajo veto cuenta su cola como tiempo vetado, no
-// muerto. Es la convencion de una compuerta de MCA (gate/anticoincidencia): el
-// reloj vivo se para mientras la compuerta esta cerrada, sea cual sea el
-// estado interno.
+// TESELADO. Con cfg_run, cada ciclo de adc_clk se atribuye a EXACTAMENTE un
+// casillero, y la invariante
+//
+//     realtime == vetotime + t_win + t_div + t_rearm + livetime
+//
+// vale en todo ciclo. Esta como assertion en sim/sva/mca_top_sva.sv; es la
+// propiedad que hace que el seguimiento sea exhaustivo y no una colección de
+// contadores que hay que creer.
+//
+// El veto tiene prioridad sobre el estado interno: un pulso que termina bajo
+// veto cuenta su cola como tiempo vetado, no muerto. Es la convencion de una
+// compuerta de MCA (gate/anticoincidencia): el reloj vivo se para mientras la
+// compuerta esta cerrada, sea cual sea el estado interno.
+//
+// t_rearm ES EL CASILLERO NUEVO, y es el grande. Ver la seccion "TIEMPO MUERTO"
+// de mca_pulse_feature.sv: el modulo esta en S_IDLE pero no puede abrir porque
+// la cola del ultimo pulso sigue arriba de thr_lo. Antes caia en `livetime`.
+//
+// deadtime_cnt SE MANTIENE BIT-IDENTICO al de antes —cuenta feat_busy— a
+// proposito: hay campanas guardadas que lo usaron y
+// API/osciloscope_store/annotators.py lo consume. El total honesto lo arma el
+// software como t_win + t_div + t_rearm y se publica aparte. Asi el valor viejo
+// sigue siendo comparable con lo ya medido y no hay regresion de datos.
+//
+// FASE 2. El teselado no cambia de forma, pero dos cosas cambian de contenido:
+//
+//  - t_div deja de ser "los divisores corriendo" y pasa a ser "bloqueado por la
+//    publicacion", que en modo bloqueante es S_DIV y en modo FIFO es la
+//    contrapresion de la FIFO llena. Es el MISMO casillero a proposito: las dos
+//    arquitecturas se comparan contra la misma vara.
+//  - la identidad con el registro viejo pasa a depender del modo:
+//        cfg_pub_mode = 0  ->  deadtime_cnt == t_win + t_div
+//        cfg_pub_mode = 1  ->  deadtime_cnt == t_win
+//    porque en modo FIFO la contrapresion ocurre con la FSM de ventana en
+//    reposo, o sea con feat_busy BAJO. Las dos estan como assertion.
+//
+// O sea que el registro de compatibilidad miente MAS en modo FIFO, no menos: la
+// unica razon de conservarlo sigue siendo no romper los datos ya tomados.
 reg [63:0] realtime_cnt, livetime_cnt, deadtime_cnt, vetotime_cnt;
+reg [63:0] t_win_cnt, t_div_cnt, t_rearm_cnt, t_clear_cnt;
+
+// Los ciclos que suman al tiempo muerto honesto. Es tambien el "periodo muerto"
+// cuya distribucion se mide abajo, asi que la suma de todos los L da
+// exactamente t_win + t_div + t_rearm y E[L] sale sin correcciones.
+wire bloqueado = cfg_run && !veto_i && (dt_win || dt_div || dt_rearm);
 
 always @(posedge adc_clk_i) begin
   if (!adc_rstn_i || clr_pulse) begin
     realtime_cnt <= 64'h0; livetime_cnt <= 64'h0; deadtime_cnt <= 64'h0;
     vetotime_cnt <= 64'h0;
+    t_win_cnt    <= 64'h0; t_div_cnt    <= 64'h0; t_rearm_cnt  <= 64'h0;
+    t_clear_cnt  <= 64'h0;
   end else if (cfg_run) begin
     realtime_cnt <= realtime_cnt + 64'h1;
-    if (veto_i)         vetotime_cnt <= vetotime_cnt + 64'h1;
-    else if (feat_busy) deadtime_cnt <= deadtime_cnt + 64'h1;
-    else                livetime_cnt <= livetime_cnt + 64'h1;
+    if      (veto_i)   vetotime_cnt <= vetotime_cnt + 64'h1;
+    else if (dt_win)   t_win_cnt    <= t_win_cnt    + 64'h1;
+    else if (dt_div)   t_div_cnt    <= t_div_cnt    + 64'h1;
+    else if (dt_rearm) t_rearm_cnt  <= t_rearm_cnt  + 64'h1;
+    else               livetime_cnt <= livetime_cnt + 64'h1;
+
+    // Compatibilidad: la definicion vieja, tal cual.
+    if (!veto_i && feat_busy) deadtime_cnt <= deadtime_cnt + 64'h1;
+
+    // El barrido de borrado del histograma es tiempo en que los eventos se
+    // descartan (van a cnt_dropped) pero el extractor sigue abriendo ventanas,
+    // asi que NO es un casillero del teselado: es ortogonal y va aparte.
+    if (clear_busy) t_clear_cnt <= t_clear_cnt + 64'h1;
+  end
+end
+
+//=============================================================================
+// Distribución del período muerto
+//=============================================================================
+// Los tres escalares que hacen falta para poner a prueba el modelo sin ajustar
+// ninguna curva. El doc (docs/mca/tiempo_muerto.md) predice, para el modelo
+// PARALIZABLE, E[L]/tau = (e^rho - 1)/rho —1.36 a 100 kcps—, mientras que el no
+// paralizable tiene L = tau exacto, sin dispersion. Con E[L] y max_dead_len
+// medidos en la placa eso se decide sin barrido de tasa.
+//
+// cnt_dead_ext cuenta PERIODOS EXTENDIDOS, no extensiones: un periodo con tres
+// arribos adentro cuenta UNA vez. Es lo que hace falta, porque
+//     P(L > tau) = periodos extendidos / periodos totales = 1 - e^{-rho}
+// es una medicion DIRECTA de la fraccion apilada — justo lo que cnt_pileup no
+// logra (marca 0.00-0.45 % donde el 40-47 % de los eventos tiene mas de un
+// pulso; ver docs/mca/ventana_de_medicion.md §3).
+//
+// Un veto en medio de un bloqueo lo PARTE en dos periodos, porque `bloqueado`
+// excluye el veto para que la suma de los L cierre con los relojes. Con el veto
+// apagado —el caso de toda caracterizacion de tiempo muerto— no pasa nunca.
+reg [31:0] dead_len;                    // largo del periodo muerto en curso
+reg [31:0] max_dead_len;
+reg [31:0] cnt_dead_periods, cnt_dead_ext;
+reg        bloq_q;                      // para el flanco
+reg        ext_visto;                   // ya se conto la extension de ESTE periodo
+
+wire dead_len_sat = (dead_len == 32'hFFFF_FFFF);
+// Un arribo durante el bloqueo lo alarga: sube la senal y retrasa el cruce de
+// thr_lo que re-arma. Vale para los dos modos de cierre —en el modo compuerta
+// la ventana cierra igual a gate_long, pero la cola queda mas alta y el
+// re-armado se corre, que es el bloqueo que importa.
+wire dead_ext_now = bloqueado && arribo && !ext_visto;
+
+always @(posedge adc_clk_i) begin
+  if (!adc_rstn_i || clr_pulse) begin
+    dead_len <= 32'h0; max_dead_len <= 32'h0;
+    cnt_dead_periods <= 32'h0; cnt_dead_ext <= 32'h0;
+    bloq_q <= 1'b0; ext_visto <= 1'b0;
+  end else begin
+    bloq_q <= bloqueado;
+
+    if (bloqueado) begin
+      if (!bloq_q) begin                       // flanco: arranca un periodo
+        dead_len         <= 32'h1;
+        cnt_dead_periods <= cnt_dead_periods + 32'h1;
+        ext_visto        <= 1'b0;
+      end else if (!dead_len_sat) begin
+        dead_len <= dead_len + 32'h1;
+      end
+      if (dead_ext_now) begin
+        cnt_dead_ext <= cnt_dead_ext + 32'h1;
+        ext_visto    <= 1'b1;
+      end
+    end else if (bloq_q) begin                 // se cerro: queda el maximo
+      if (dead_len > max_dead_len) max_dead_len <= dead_len;
+      ext_visto <= 1'b0;
+    end
   end
 end
 
@@ -389,6 +541,11 @@ always @(posedge adc_clk_i) begin
     cfg_dec <= 16'd1; cfg_keep_full <= 1'b0;
     cfg_discr_en <= 1'b0; cfg_discr_out <= 1'b0; cfg_discr_sel <= 4'd0;
     cfg_discr_min <= {AMP_W{1'b0}}; cfg_discr_max <= {AMP_W{1'b1}};
+    // FASE 2 en el comportamiento historico: Schmitt interno, re-armado por
+    // nivel, publicacion bloqueante. Un bitstream nuevo con software viejo se
+    // comporta exactamente como el anterior.
+    cfg_trig_src <= 2'd0; cfg_rearm_mode <= 1'b0;
+    cfg_rearm_dly <= {LEN_W{1'b0}}; cfg_pub_mode <= 1'b0;
     clr_pulse <= 1'b0;
   end else begin
     clr_pulse <= 1'b0;
@@ -446,6 +603,15 @@ always @(posedge adc_clk_i) begin
           cfg_sel_2dy <= sys_wdata[11:8];
         end
         // Zoom por eje: {k[15:8], z[3:0]}. z=0 = fondo de escala.
+        // FASE 2: las tres politicas de ventana en una palabra. Van juntas
+        // porque casi nunca se cambia una sola: la combinacion ES la
+        // arquitectura que se esta midiendo.
+        20'h00104 : begin
+          cfg_trig_src   <= sys_wdata[1:0];
+          cfg_rearm_mode <= sys_wdata[8];
+          cfg_pub_mode   <= sys_wdata[16];
+        end
+        20'h00108 : cfg_rearm_dly <= sys_wdata[LEN_W-1:0];
         20'h00094 : begin cfg_z_1d  <= sys_wdata[3:0]; cfg_k_1d  <= sys_wdata[15:8]; end
         20'h000B8 : begin cfg_z_2dx <= sys_wdata[3:0]; cfg_k_2dx <= sys_wdata[15:8]; end
         20'h000BC : begin cfg_z_2dy <= sys_wdata[3:0]; cfg_k_2dy <= sys_wdata[15:8]; end
@@ -464,6 +630,7 @@ end
 // verdad y no conviene colgarle lógica combinacional ancha.
 //=============================================================================
 reg [31:0] rt_hi_shadow, lt_hi_shadow, dt_hi_shadow, vt_hi_shadow;
+reg [31:0] tw_hi_shadow, td_hi_shadow, tr_hi_shadow, tc_hi_shadow;
 
 // Las dos sumas de contadores que se leen (0x064 y 0x0B0) se registran un
 // ciclo antes en vez de sumarse dentro del mux de lectura: dos cadenas de
@@ -482,6 +649,8 @@ always @(posedge adc_clk_i) begin
     sys_ack <= 1'b0; sys_err <= 1'b0; sys_rdata <= 32'h0;
     rt_hi_shadow <= 32'h0; lt_hi_shadow <= 32'h0; dt_hi_shadow <= 32'h0;
     vt_hi_shadow <= 32'h0;
+    tw_hi_shadow <= 32'h0; td_hi_shadow <= 32'h0; tr_hi_shadow <= 32'h0;
+    tc_hi_shadow <= 32'h0;
   end else begin
     // Ack incondicional a los 4 ciclos, para CUALQUIER dirección.
     sys_ack <= en_sr[3];
@@ -494,6 +663,10 @@ always @(posedge adc_clk_i) begin
         20'h00070 : lt_hi_shadow <= livetime_cnt[63:32];
         20'h00078 : dt_hi_shadow <= deadtime_cnt[63:32];
         20'h000C0 : vt_hi_shadow <= vetotime_cnt[63:32];
+        20'h000C8 : tw_hi_shadow <= t_win_cnt[63:32];
+        20'h000D0 : td_hi_shadow <= t_div_cnt[63:32];
+        20'h000D8 : tr_hi_shadow <= t_rearm_cnt[63:32];
+        20'h000FC : tc_hi_shadow <= t_clear_cnt[63:32];
         default   : ;
       endcase
     end
@@ -507,7 +680,10 @@ always @(posedge adc_clk_i) begin
 
       // --- control y estado ---
       20'h0000C : sys_rdata <= {23'h0, cfg_chan, 6'h0, 1'b0, cfg_run};
-      20'h00010 : sys_rdata <= {28'h0, veto_i, bl_stale, feat_busy, clear_busy};
+      // bits 4-5 nuevos: el estado de bloqueo que `busy` no muestra. Con
+      // puede_abrir = 0 y busy = 0, el modulo esta bloqueado por re-armado.
+      20'h00010 : sys_rdata <= {26'h0, puede_abrir, dt_rearm,
+                                veto_i, bl_stale, feat_busy, clear_busy};
 
       // --- configuración ---
       20'h00014 : sys_rdata <= {{(32-DW){cfg_thr[DW-1]}}, cfg_thr};
@@ -555,6 +731,58 @@ always @(posedge adc_clk_i) begin
       20'h0007C : sys_rdata <= dt_hi_shadow;
       20'h000C0 : sys_rdata <= vetotime_cnt[31:0];
       20'h000C4 : sys_rdata <= vt_hi_shadow;
+
+      // --- teselado del tiempo muerto (ver "Relojes de adquisición") ---
+      // realtime == vetotime + t_win + t_div + t_rearm + livetime, exacto.
+      // El total honesto es t_win + t_div + t_rearm; deadtime_cnt (0x078) es la
+      // definicion VIEJA —solo t_win + t_div— y se conserva por compatibilidad.
+      20'h000C8 : sys_rdata <= t_win_cnt[31:0];
+      20'h000CC : sys_rdata <= tw_hi_shadow;
+      20'h000D0 : sys_rdata <= t_div_cnt[31:0];
+      20'h000D4 : sys_rdata <= td_hi_shadow;
+      20'h000D8 : sys_rdata <= t_rearm_cnt[31:0];
+      20'h000DC : sys_rdata <= tr_hi_shadow;
+      20'h000FC : sys_rdata <= t_clear_cnt[31:0];
+      20'h00100 : sys_rdata <= tc_hi_shadow;
+
+      // --- distribución del período muerto ---
+      20'h000E0 : sys_rdata <= cnt_dead_periods;
+      20'h000E4 : sys_rdata <= max_dead_len;
+      20'h000E8 : sys_rdata <= cnt_dead_ext;
+
+      // --- atribución de arribos ---
+      // cnt_cross == cnt_open + lost_rearm + lost_active + cnt_lost_busy
+      //              + lost_veto, en todo ciclo.
+      20'h000EC : sys_rdata <= c_cross;
+      20'h000B4 : sys_rdata <= c_open;
+      20'h000F0 : sys_rdata <= c_lost_rearm;
+      20'h000F4 : sys_rdata <= c_lost_active;
+      20'h000F8 : sys_rdata <= c_lost_veto;
+
+      // --- FASE 2: ventana, arbitro y lo que trajeron de atribucion nueva ---
+      // La invariante de arribos pasa a tener SEIS casilleros:
+      //   cnt_cross == cnt_open + lost_rearm + lost_active + cnt_lost_busy
+      //                + lost_veto + lost_notrig
+      // lost_notrig es cero salvo con apertura por trigger externo, y ahi es el
+      // que impide que la cuenta se rompa en silencio.
+      //
+      // cnt_win NO es cnt_open: cuenta VENTANAS ABIERTAS, vengan o no de un
+      // cruce de thr_hi. Con re-armado por contador sobre una senal que se queda
+      // arriba, o con apertura por trigger, hay ventanas sin cruce: cnt_win es
+      // el que se compara con cnt_total.
+      20'h00104 : sys_rdata <= {15'h0, cfg_pub_mode, 7'h0, cfg_rearm_mode,
+                                6'h0, cfg_trig_src};
+      20'h00108 : sys_rdata <= {{(32-LEN_W){1'b0}}, cfg_rearm_dly};
+      // Estado del arbitro: ocupacion actual, marca de agua y el id de la
+      // ultima ventana publicada. occ_max == PUB_K significa que hubo
+      // contrapresion, y lo perdido por eso esta en cnt_lost_busy (0x064).
+      20'h0010C : sys_rdata <= {last_win_id,
+                                {(8-(PUB_AW+1)){1'b0}}, pub_occ_max,
+                                {(8-(PUB_AW+1)){1'b0}}, pub_occ};
+      20'h00110 : sys_rdata <= c_win;
+      20'h00114 : sys_rdata <= c_lost_notrig;
+      20'h00118 : sys_rdata <= c_trig;
+      20'h0011C : sys_rdata <= {28'h0, PUB_K[3:0]};
 
       // --- último evento (depuración) ---
       20'h00080 : sys_rdata <= {{(32-AMP_W){1'b0}}, ev_amp};

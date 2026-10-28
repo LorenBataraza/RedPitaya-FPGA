@@ -4,7 +4,7 @@
 //
 // El scope tiene un bug latente que este TB existe para no repetir: ata
 // bram_ack[2]/[3] = 0 para los canales no construidos, y
-// multitrigger_rp_scope_cfg.sv:506-507 entonces NUNCA hace ack, así que el bus
+// mt_rp_scope_cfg.sv:506-507 entonces NUNCA hace ack, así que el bus
 // se cuelga hasta el timeout de 32 ciclos de rtl/axi4_slave.sv:193 y devuelve
 // basura. Acá el BFM imita a sys_bus_cdc (sostiene wen/ren hasta el ack) y
 // FALLA el test si el ack no llega en <= 20 ciclos, barriendo TODAS las
@@ -57,13 +57,14 @@ module tb_mca_top;
   wire        b_err, b_ack;
 
   reg veto = 1'b0;                 // veto externo, solo en dut_a
+  reg trig = 1'b0;                 // trigger externo (Fase 2), solo en dut_a
 
   mca_top #(
     .DW(DW), .EN_HIST_H(1), .H_AW(H_AW),
     .EN_HIST_H_PSD(1), .H2_AW(H2_AW), .PSD_AW(PSD_AW)
   ) dut_a (
     .adc_clk_i(clk), .adc_rstn_i(rstn),
-    .mca_dat_i(mca_dat), .mca_val_i(mca_val), .veto_i(veto),
+    .mca_dat_i(mca_dat), .mca_val_i(mca_val), .veto_i(veto), .trig_i(trig),
     .sys_addr(a_addr), .sys_wdata(a_wdata), .sys_wen(a_wen), .sys_ren(a_ren),
     .sys_rdata(a_rdata), .sys_err(a_err), .sys_ack(a_ack)
   );
@@ -73,10 +74,28 @@ module tb_mca_top;
     .EN_HIST_H_PSD(0), .H2_AW(H2_AW), .PSD_AW(PSD_AW)
   ) dut_b (
     .adc_clk_i(clk), .adc_rstn_i(rstn),
-    .mca_dat_i(mca_dat), .mca_val_i(mca_val), .veto_i(1'b0),
+    .mca_dat_i(mca_dat), .mca_val_i(mca_val), .veto_i(1'b0), .trig_i(1'b0),
     .sys_addr(b_addr), .sys_wdata(b_wdata), .sys_wen(b_wen), .sys_ren(b_ren),
     .sys_rdata(b_rdata), .sys_err(b_err), .sys_ack(b_ack)
   );
+
+  // Engancha las assertions de sva/mca_top_sva.sv a las dos instancias.
+  //
+  // EL BIND VA ACA, DENTRO DEL TESTBENCH, Y NO EN UN ARCHIVO SUELTO. Un `bind`
+  // en el scope de la unidad de compilacion NO SE ELABORA: Questa avisa con
+  // (vlog-2650) "Please use -cuname to ensure that 'bind' gets elaborated",
+  // despues sigue adelante, el TB pasa, y las propiedades NO EXISTEN. Asi
+  // estaba sva/bind_mca.sv, y no se habia notado porque el archivo de
+  // propiedades estaba vacio; se descubrio con `find instances -recursive
+  // u_sva`, que no encontraba nada con 21 propiedades escritas.
+  //
+  // La via de -cuname tambien funciona pero hay que pasar la unidad como top
+  // adicional de vsim, lo que obliga a suprimir el error de los TB que no
+  // instancian el modulo y choca con "'u_sva' already declared" cuando el DUT
+  // es el propio objetivo del bind. Un bind dentro del modulo que instancia el
+  // DUT se elabora con el, sin flags y sin supresiones, y ademas deja a la
+  // vista en el testbench que las assertions estan activas.
+  bind mca_top mca_top_sva u_sva (.*);
 
   integer pass_cnt=0, fail_cnt=0;
   task automatic check(input string name, input bit cond);
@@ -364,6 +383,270 @@ module tb_mca_top;
     repeat (2*(1<<H_AW)) @(negedge clk);
     bus_a_read(20'h10000 + canal_de(200)*4, d); checkv("tras borrar: el canal del pico en 0", d, 0);
     bus_a_read(20'h00050, d);        checkv("tras borrar: cnt_total en 0", d, 0);
+
+    //-----------------------------------------------------------------------
+    // 8) EL TESELADO DEL TIEMPO MUERTO, visto por el BUS
+    //
+    // Las assertions de sva/mca_top_sva.sv ya verifican la invariante sobre las
+    // senales internas. Esto es distinto y hace falta igual: comprueba que los
+    // registros nuevos DECODIFICAN, que las lecturas de 64 b respetan el
+    // latcheo de la sombra, y que la suma cierra leida como la va a leer
+    // API/mca.py. Un registro bien calculado y mal decodificado se ve igual que
+    // uno que no existe.
+    //-----------------------------------------------------------------------
+    bus_a_write(20'h0000C, 32'h00000003);      // clear
+    repeat (2*(1<<H_AW)) @(negedge clk);
+    bus_a_write(20'h0000C, 32'h00000001);      // run
+    // Compuerta corta sobre una senal que NO baja: fabrica tiempo muerto
+    // oculto, que es el casillero que antes no existia.
+    bus_a_write(20'h00048, 32'h00000001);      // gate_mode = 1
+    bus_a_write(20'h0004C, {16'd10, 16'd4});   // larga = 10, corta = 4
+    pulse_rect(200, 60);                        // 60 muestras altas
+    push(0); push(0); push(0);
+    settle;
+
+    // SE PARA LA ADQUISICION ANTES DE LEER, y no es un detalle del testbench.
+    // Los relojes avanzan con cfg_run, y cada acceso al bus se lleva ~6 ciclos:
+    // leyendo en caliente, realtime se mide antes que livetime y la suma NO
+    // cierra por la diferencia de instantes (medido: 651 contra 677). La
+    // invariante vale ciclo a ciclo —lo prueba ap_suma_relojes sobre las
+    // senales internas—, pero para COMPROBARLA desde software hay que congelar
+    // los contadores. API/mca.py tiene que hacer lo mismo.
+    bus_a_write(20'h0000C, 32'h00000000);      // run = 0: congela los relojes
+
+    begin
+      reg [31:0] rt_lo, rt_hi, lt_lo, dt_lo, vt_lo, tw_lo, td_lo, tr_lo;
+      reg [31:0] cruces, open_c, l_rearm, l_act, l_busy, l_veto, per, ext, mx;
+      integer suma;
+
+      bus_a_read(20'h00068, rt_lo); bus_a_read(20'h0006C, rt_hi);
+      bus_a_read(20'h00070, lt_lo);
+      bus_a_read(20'h00078, dt_lo);
+      bus_a_read(20'h000C0, vt_lo);
+      bus_a_read(20'h000C8, tw_lo);            // t_win
+      bus_a_read(20'h000D0, td_lo);            // t_div
+      bus_a_read(20'h000D8, tr_lo);            // t_rearm
+
+      checkv("teselado: la palabra alta de realtime es 0", rt_hi, 0);
+      check ("teselado: realtime avanzo", rt_lo > 0);
+      // LA INVARIANTE, leida por bus.
+      suma = lt_lo + vt_lo + tw_lo + td_lo + tr_lo;
+      checkv("teselado: realtime = veto+win+div+rearm+live", rt_lo, suma);
+      // El registro viejo conserva su definicion: solo ventana + divisores.
+      checkv("compat: deadtime (0x078) = t_win + t_div", dt_lo, tw_lo + td_lo);
+      // Y el casillero nuevo tiene contenido: es el tiempo muerto que el
+      // contador viejo daba como VIVO.
+      check ("oculto: t_rearm > 0", tr_lo > 0);
+      check ("oculto: y supera a la ventana", tr_lo > tw_lo);
+      $display("  [info] por bus: win=%0d div=%0d rearm=%0d live=%0d de %0d",
+               tw_lo, td_lo, tr_lo, lt_lo, rt_lo);
+
+      // --- atribucion de arribos, tambien por bus ---
+      bus_a_read(20'h000EC, cruces);  bus_a_read(20'h000B4, open_c);
+      bus_a_read(20'h000F0, l_rearm); bus_a_read(20'h000F4, l_act);
+      bus_a_read(20'h00064, l_busy);  // sum_lost incluye cnt_lost_busy
+      bus_a_read(20'h000F8, l_veto);
+      check ("arribos: hubo al menos uno", cruces > 0);
+      checkv("arribos: uno abrio ventana", open_c, 1);
+      checkv("arribos: ninguno bajo veto", l_veto, 0);
+
+      // --- distribucion del periodo muerto ---
+      bus_a_read(20'h000E0, per); bus_a_read(20'h000E4, mx);
+      bus_a_read(20'h000E8, ext);
+      check ("periodo: hubo al menos un periodo muerto", per > 0);
+      check ("periodo: el maximo no excede el total", mx <= (tw_lo+td_lo+tr_lo));
+      check ("periodo: los extendidos no superan los periodos", ext <= per);
+    end
+
+    // Una direccion NO mapeada sigue ackeando y devolviendo 0: el contrato del
+    // bus no cambia por agregar registros (ver el encabezado de mca_top.sv).
+    bus_a_read(20'h00F00, d);
+    checkv("bus: direccion no mapeada devuelve 0", d, 0);
+
+    bus_a_write(20'h00048, 32'h00000000);      // vuelve a histeresis
+
+    //-----------------------------------------------------------------------
+    // 9) FASE 2 POR EL BUS: las politicas de ventana y el arbitro
+    //
+    // Lo que se comprueba aca es lo que las assertions NO pueden: que los
+    // registros nuevos decodifican en los dos sentidos y que el teselado sigue
+    // cerrando con el modo FIFO puesto. El comportamiento de cada politica se
+    // verifica en tb_mca_pulse_feature, que tiene acceso a la senal.
+    //-----------------------------------------------------------------------
+    begin
+      reg [31:0] d9, rt, lt, vt, tw, td, tr;
+      integer suma9;
+
+      // Ida y vuelta de la palabra de politicas.
+      bus_a_write(20'h00104, 32'h00010102);    // pub=1, rearm=1, src=2
+      bus_a_read (20'h00104, d9);
+      checkv("fase2: la palabra de politicas vuelve igual", d9, 32'h00010102);
+      bus_a_write(20'h00108, 32'd250);
+      bus_a_read (20'h00108, d9);
+      checkv("fase2: el holdoff de re-armado vuelve igual", d9, 250);
+      // PUB_K se publica para que el software sepa cuantos lugares hay sin
+      // tener que saber con que parametros se sintetizo.
+      bus_a_read (20'h0011C, d9);
+      checkv("fase2: PUB_K publicado", d9, 2);
+
+      // Ahora una corrida de verdad en modo FIFO + re-armado por contador, con
+      // los contadores borrados primero: el borrado es lo que hace comparables
+      // los relojes (ver el flag modo_mixto de las assertions).
+      bus_a_write(20'h0000C, 32'h00000003);    // clear
+      repeat (2*(1<<H_AW)) @(negedge clk);
+      bus_a_write(20'h00104, 32'h00010100);    // pub=FIFO, rearm=contador, src=interno
+      bus_a_write(20'h00108, 32'd4);           // holdoff corto: fuerza la cola
+      bus_a_write(20'h00048, 32'h00000001);    // gate_mode = 1
+      bus_a_write(20'h0004C, {16'd3, 16'd1});  // larga = 3, corta = 1
+      bus_a_write(20'h0000C, 32'h00000001);    // run
+      pulse_rect(200, 120);                    // 120 muestras altas
+      push(0); push(0); push(0);
+      settle;
+      bus_a_write(20'h0000C, 32'h00000000);    // stop: congela los relojes
+
+      bus_a_read(20'h00068, rt); bus_a_read(20'h00070, lt);
+      bus_a_read(20'h000C0, vt); bus_a_read(20'h000C8, tw);
+      bus_a_read(20'h000D0, td); bus_a_read(20'h000D8, tr);
+      suma9 = lt + vt + tw + td + tr;
+      checkv("fifo: el teselado sigue cerrando", rt, suma9);
+      // En modo FIFO el casillero de publicacion recibe la CONTRAPRESION, que
+      // ocurre con la FSM de ventana en reposo. Si fuera cero, o la FIFO nunca
+      // se lleno o el bloqueo del arbitro se esta yendo a livetime.
+      check ("fifo: hubo tiempo de publicacion contado", td > 0);
+      $display("  [info] fifo por bus: win=%0d div=%0d rearm=%0d live=%0d de %0d",
+               tw, td, tr, lt, rt);
+
+      // El registro viejo ya NO es t_win + t_div en modo FIFO: es solo t_win.
+      // Esta comprobacion existe para que el cambio quede fijado desde el bus y
+      // no solo en una assertion sobre senales internas.
+      bus_a_read(20'h00078, d9);
+      checkv("fifo: deadtime (0x078) = solo t_win", d9, tw);
+
+      // Estado del arbitro y atribucion nueva.
+      // Campos de 0x10C: id[31:16], occ_max[15:8], occ[7:0].
+      bus_a_read(20'h0010C, d9);
+      $display("  [info] arbitro: occ=%0d occ_max=%0d id=%0d",
+               d9 & 32'hFF, (d9 >> 8) & 32'hFF, d9 >> 16);
+      check ("arbitro: la marca de agua llego al tope",
+             ((d9 >> 8) & 32'hFF) == 2);
+      check ("arbitro: el id de ventana avanzo", (d9 >> 16) > 1);
+      bus_a_read(20'h00110, d9);
+      check ("arbitro: se abrieron varias ventanas", d9 > 1);
+      bus_a_read(20'h00114, d9);
+      checkv("arbitro: sin perdidas por falta de trigger", d9, 0);
+      bus_a_read(20'h00118, d9);
+      checkv("arbitro: ningun trigger externo", d9, 0);
+
+      // Y la atribucion de arribos, ahora con seis casilleros.
+      begin
+        reg [31:0] cr, op, lr, la, lv, ln, lb;
+        bus_a_read(20'h000EC, cr); bus_a_read(20'h000B4, op);
+        bus_a_read(20'h000F0, lr); bus_a_read(20'h000F4, la);
+        bus_a_read(20'h000F8, lv); bus_a_read(20'h00114, ln);
+        bus_a_read(20'h00064, lb);     // sum_lost incluye cnt_lost_busy
+        check ("arribos: hubo cruces", cr > 0);
+        // lb trae los dropped de los histogramas sumados, asi que solo se puede
+        // acotar: los seis casilleros nunca pueden exceder los cruces.
+        check ("arribos: los casilleros no exceden los cruces",
+               (op + lr + la + lv + ln) <= cr);
+      end
+
+      //---------------------------------------------------------------------
+      // APERTURA POR TRIGGER EXTERNO, por el puerto trig_i DEL TOP.
+      //
+      // Esto no se puede probar en tb_mca_pulse_feature: ahi el trigger entra
+      // directo al extractor, mientras que aca atraviesa el puerto de mca_top y
+      // el registro de entrada. Y es lo que engancha las propiedades de
+      // cobertura cp_trig_ext / cp_trig_flanco / cp_notrig, que sin esto quedan
+      // en CERO — o sea, la fuente externa sin verificar al nivel del top.
+      //---------------------------------------------------------------------
+      bus_a_write(20'h0000C, 32'h00000003);    // clear
+      repeat (2*(1<<H_AW)) @(negedge clk);
+      bus_a_write(20'h00104, 32'h00000001);    // src = EXTERNO
+      bus_a_write(20'h00048, 32'h00000001);    // gate_mode = 1
+      bus_a_write(20'h0004C, {16'd10, 16'd4});
+      bus_a_write(20'h0000C, 32'h00000001);    // run
+
+      // (a) Un pulso SIN trigger: cruza el umbral y no abre nada.
+      //     Primero hay que ARMAR el Schmitt: `armed` queda en 0 despues de un
+      //     stop (`!cfg_run && st==S_IDLE` lo desarma) y se pone recien con una
+      //     muestra por debajo de thr_lo. Sin esto el cruce caeria en
+      //     lost_rearm, que es correcto pero no es lo que este test mide.
+      push(0); push(0); push(0);
+      pulse_rect(200, 20);
+      push(0); push(0); push(0);
+      settle;
+      bus_a_read(20'h00110, d9);
+      checkv("ext: ninguna ventana sin trigger",   d9, 0);
+      bus_a_read(20'h00114, d9);
+      check ("ext: el cruce quedo en lost_notrig", d9 > 0);
+      bus_a_read(20'h00118, d9);
+      checkv("ext: ningun flanco de trigger",      d9, 0);
+
+      // (b) Ahora con trigger, y SOSTENIDO 5 muestras: es el largo de un
+      //     sys_wen, el caso que en la placa producia dos eventos por trigger
+      //     de software. Por flanco tiene que dar UNA ventana.
+      trig = 1'b1;
+      push(200); push(200); push(200); push(200); push(200);
+      trig = 1'b0;
+      for (i=0;i<20;i=i+1) push(200);
+      push(0); push(0); push(0);
+      settle;
+      bus_a_read(20'h00118, d9);
+      checkv("ext: un solo flanco contado",        d9, 1);
+      bus_a_read(20'h00110, d9);
+      checkv("ext: y UNA sola ventana abierta",    d9, 1);
+      bus_a_read(20'h00050, d9);
+      checkv("ext: la ventana cerro",              d9, 1);
+
+      bus_a_write(20'h0000C, 32'h00000000);    // stop
+
+      //---------------------------------------------------------------------
+      // ARRIBOS PERDIDOS DENTRO DE LA VENTANA Y DURANTE LA PUBLICACION.
+      //
+      // Los dos casos existian desde la Fase 1 y estaban verificados en
+      // tb_mca_pulse_feature, pero NUNCA se ejercitaban en tb_mca_top — que es
+      // el unico TB con el bind de assertions puesto. O sea que cp_lost_active y
+      // cp_lost_busy leian CERO y las ramas correspondientes de
+      // ap_atribucion_arribos no se habian evaluado nunca con contenido.
+      //---------------------------------------------------------------------
+      bus_a_write(20'h0000C, 32'h00000003);    // clear
+      repeat (2*(1<<H_AW)) @(negedge clk);
+      bus_a_write(20'h00104, 32'h00000000);    // fuente interna otra vez
+      bus_a_write(20'h00048, 32'h00000001);    // gate_mode = 1
+      bus_a_write(20'h0004C, {16'd60, 16'd4}); // larga = 60: entra un 2do pulso
+      bus_a_write(20'h0000C, 32'h00000001);    // run
+
+      // (a) DENTRO de la ventana: baja de thr_lo y vuelve a cruzar thr_hi.
+      push(0); push(0); push(0);               // arma
+      for (i=0;i<5;i=i+1)  push(200);          // abre
+      for (i=0;i<5;i=i+1)  push(0);            // baja, ventana sigue abierta
+      for (i=0;i<10;i=i+1) push(200);          // 2do cruce ADENTRO
+      for (i=0;i<60;i=i+1) push(0);
+      settle;
+      bus_a_read(20'h000F4, d9);
+      check ("arribo adentro: contado en lost_active", d9 > 0);
+
+      // (b) Durante la PUBLICACION: ventana corta, y el 2do pulso cae en los
+      //     17 ciclos del divisor.
+      bus_a_write(20'h0004C, {16'd4, 16'd2});  // larga = 4
+      push(0); push(0); push(0);
+      for (i=0;i<4;i=i+1) push(200);           // abre y cierra
+      push(0); push(0);                        // baja de thr_lo: re-arma
+      for (i=0;i<6;i=i+1) push(200);           // 2do cruce con el divisor ocupado
+      for (i=0;i<30;i=i+1) push(0);
+      settle;
+      bus_a_write(20'h0000C, 32'h00000000);    // stop
+      bus_a_read(20'h00064, d9);               // sum_lost incluye cnt_lost_busy
+      check ("arribo publicando: contado en lost_busy", d9 > 0);
+
+      // Se vuelve al default para no dejar el estado contaminado.
+      bus_a_write(20'h00104, 32'h00000000);
+      bus_a_write(20'h00108, 32'h00000000);
+      bus_a_write(20'h00048, 32'h00000000);
+      bus_a_write(20'h0000C, 32'h00000003);    // clear
+      repeat (2*(1<<H_AW)) @(negedge clk);
+    end
 
     $display("---------------------------------------------");
     $display("tb_mca_top: %0d PASS, %0d FAIL", pass_cnt, fail_cnt);
