@@ -3,6 +3,7 @@
 <!-- Generado por `modulos/mk/datasheet.py`. Lo que está entre las marcas
      AUTO:x y /AUTO:x se REESCRIBE en cada corrida: editar ahí no sirve.
      Todo el resto es prosa a mano y no se toca.
+     La §1.1 «Qué hace» se escribe en prosa/event_ring_top.md.
      Regenerar:  make -C modulos/event_ring/work datasheet              -->
 
 ## 1. Función y funcionamiento
@@ -36,7 +37,7 @@
 > ese slot no acepta mas transacciones (ver docs/TOP/bus_sistema_redpitaya.md 7.1,
 > y el bug latente de bram_ack[2]/[3] en el scope).
 >
-> UN SOLO DOMINIO DE RELOJ. En rp_scope_multitrigger_com.sv:686 hay
+> UN SOLO DOMINIO DE RELOJ. En rp_scope_mt_com.sv:686 hay
 > `assign axi_clk = adc_clk_i`, y el bus llega ya sincronizado a adc_clk por
 > sys_bus_cdc. O sea captura, writer y registros comparten adc_clk: no hace
 > falta ningun CDC ni codificacion Gray entre WR_SLOT y RD_SLOT.
@@ -57,8 +58,8 @@
 > err_cfg (sticky).
 <!-- /AUTO:resumen -->
 
-<!-- A mano: qué problema resuelve el bloque, cómo encaja en la cadena y las
-     dos o tres decisiones de diseño que explican por qué está hecho así. -->
+<!-- AUTO:prosa -->
+<!-- Prosa a mano: se edita en prosa/event_ring_top.md, no aca. -->
 
 **Qué hace.** Convierte cada evento en un **slot de DDR** y los encadena en una
 cola productor/consumidor de `N_SLOTS`. Reemplaza el ciclo «capturar → congelar
@@ -68,7 +69,7 @@ capturando mientras el PS drena**.
 El problema que resuelve es el techo de tasa. En el esquema K=1 el PS está en el
 camino crítico de cada evento: τ = 252.7 µs por evento, o sea ~3.7 kev/s, y lo
 que se pierde no es una fracción de los pulsos sino **períodos enteros** (está
-medido en [`multitrigger`](datasheet_multitrigger_cfg.md#16-transacciones):
+medido en [`multitrigger`](datasheet_mt_cfg.md#16-transacciones):
 a 8 kHz entra uno de cada cinco). Acá la PL escribe por AXI HP0 por DMA y
 mientras queden créditos no espera a nadie.
 
@@ -95,6 +96,7 @@ Un detalle que conviene tener presente al dimensionar: el slot tiene que ser
 de 512 muestras × 2 canales ocupa 4096 B de los cuales sólo la mitad son
 muestras. El layout palabra por palabra, con los valores de un evento real,
 está en [§1.6](#16-transacciones).
+<!-- /AUTO:prosa -->
 
 ### 1.2 Interfaces
 
@@ -250,7 +252,6 @@ _Sin figuras de ondas._ Se generan con un script en `docs/event_ring/figuras/ond
      mide el script, no se escriben acá.
        make -C modulos/event_ring/work wave TB=<tb>   # mirar en Questa
        make -C modulos/event_ring/work vcd  TB=<tb>   # VCD exportable -->
-orden en que la hace el software.
 
 ### 1.8 Verificación realizada
 

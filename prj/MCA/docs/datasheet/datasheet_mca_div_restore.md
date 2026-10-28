@@ -3,6 +3,7 @@
 <!-- Generado por `modulos/mk/datasheet.py`. Lo que está entre las marcas
      AUTO:x y /AUTO:x se REESCRIBE en cada corrida: editar ahí no sirve.
      Todo el resto es prosa a mano y no se toca.
+     La §1.1 «Qué hace» se escribe en prosa/mca_div_restore.md.
      Regenerar:  make -C modulos/mca/work datasheet              -->
 
 ## 1. Función y funcionamiento
@@ -53,10 +54,49 @@
 >   num == 0  -> q = 0, sin flags. Es un resultado válido.
 <!-- /AUTO:resumen -->
 
-<!-- A mano: qué problema resuelve el bloque, cómo encaja en la cadena y las
-     dos o tres decisiones de diseño que explican por qué está hecho así. -->
+<!-- AUTO:prosa -->
+<!-- Prosa a mano: se edita en prosa/mca_div_restore.md, no aca. -->
 
-**Qué hace.** TODO
+**Qué hace.** Es el divisor que convierte dos acumuladores de carga en un
+**índice de bin**: calcula `q = floor(num · 2^Q_W / den)` con `num < den`, o
+sea la fracción `num/den` expresada en `Q_W` bits. El resultado **es**
+directamente la coordenada del eje de forma, sin escalado posterior.
+
+[`mca_pulse_feature`](datasheet_mca_pulse_feature.md) instancia **dos**, con el
+mismo denominador y el mismo arranque: uno para `Q_cola/Q_total` y otro para
+`Pico/Q_total`. Como comparten latencia, el segundo no necesita ni que se le
+mire el `valid`.
+
+**El truco que lo hace barato.** Como `num < den`, arrancando con `rem = num` y
+haciendo `rem = 2·rem; if (rem ≥ den) { rem −= den; q |= 1; }` sale **un bit de
+cociente por iteración**, así que hacen falta exactamente `Q_W` iteraciones sin
+importar el ancho de los operandos: no hay que normalizar nada de antemano.
+Cero DSP. El invariante `rem < den` vale siempre —si `2·rem ≥ den` entonces
+`2·rem − den < den`, porque `2·rem < 2·den`— y por eso `rem` entra en `D_W`
+bits aunque el intermedio necesite `D_W+1`.
+
+**La latencia es fija para todos los casos, incluidos los de error.** Es
+deliberado: hace predecible el tiempo muerto por evento, que es uno de los
+parámetros a caracterizar del MCA
+([`tiempo_muerto.md`](../mca/tiempo_muerto.md)). Tal como está instanciado
+—`D_W = 32`, `Q_W = 16`— son 16 ciclos, 128 ns.
+
+**Los tres casos borde rompen cosas distintas si no se tratan.**
+
+| Caso | Sin la guarda | Con la guarda |
+|---|---|---|
+| `den == 0` | `rem ≥ 0` da siempre cierto y el cociente sale todo unos: **todos** esos eventos caen en el bin superior del eje | `err_o`, y el evento se rechaza |
+| `num ≥ den` | `num == den` da `2^Q_W`, que no entra en `Q_W` bits y **envuelve a 0**: manda el evento al extremo **opuesto** del eje. Es el modo de falla peligroso | `sat_o` y `q = 2^Q_W − 1` |
+| `num == 0` | — | `q = 0`, sin flags. Es un resultado válido |
+
+> **Dónde no llega el testbench.** `tb_mca_div_restore` hace un barrido
+> **exhaustivo** de `num`/`den`… con anchos reducidos: `D_W = 8, Q_W = 6`. El
+> diseño lo instancia con `D_W = 32, Q_W = 16`. O sea que la prueba más fuerte
+> que tiene el módulo cubre un ancho que el diseño no usa. Es exacto, acotado y
+> de espacio de estados chico: el mejor candidato barato a verificación formal
+> del repo, con `q·d + r == n` y `start |-> ##N valid` como propiedades. Ver
+> [`verificacion_formal.md`](../verificacion_formal.md).
+<!-- /AUTO:prosa -->
 
 ### 1.2 Interfaces
 
@@ -121,7 +161,47 @@ El `metrics.txt` del módulo es de `mca_top`, no de `mca_div_restore`: la sínte
 <!-- A mano: qué hay en el camino crítico y qué se haría para romperlo si
      hubiera que subir la frecuencia. -->
 
-### 1.6 Waveforms
+### 1.6 Transacciones
+
+<!-- AUTO:transacciones -->
+**LA CADENA DE UN EVENTO  -  senal, registro y espectro**
+
+![LA CADENA DE UN EVENTO  -  senal, registro y espectro](../mca/figuras/07_cadena.png)
+
+La transaccion del MCA es UN EVENTO, y la figura la sigue entera: (a) la senal de entrada con el umbral y la ventana que `pulse_feature` abre y cierra, (b) el camino de datos, donde entre los dos bloques no va una flecha pelada sino el tren de amplitudes concretas que viaja --un registro de evento por pulso--, y (c) el espectro que se acumula del otro lado, una cuenta por numero. Los numeros de los tres paneles son los mismos: la amplitud que se mide en (a) es la que viaja en (b) y la que cae en un canal en (c), con el mismo `amp >> h_shift` que hace el RTL. Es la unica figura del proyecto que muestra la cuenta completa de punta a punta.
+
+_Origen: simulacion con semilla fija (`animacion_cadena_mca.py`), los mismos cuadros que los videos._
+
+**(a) LA SENAL: UN PULSO POR EVENTO**
+
+![(a) LA SENAL: UN PULSO POR EVENTO](../mca/figuras/07a_senal.png)
+
+Las bandas parten el eje de TIEMPO en estados --ventana abierta, reposo-- y no la senal en eventos. La ventana abre al cruzar `thr` y cierra recien al bajar de `thr - hyst`, que es lo que hace que termine bastante despues del pico.
+
+_Origen: la misma simulacion, panel (a) suelto._
+
+**(b) EL CAMINO DE DATOS: UN NUMERO POR PULSO**
+
+![(b) EL CAMINO DE DATOS: UN NUMERO POR PULSO](../mca/figuras/07b_cadena.png)
+
+`pulse_feature` emite un registro de evento por pulso y el histograma lo convierte en una cuenta. La tabla de abajo son los mismos pulsos como los ve el histograma, incluido el que no cruza el umbral y no produce nada.
+
+_Origen: la misma simulacion, panel (b) suelto._
+
+**(c) EL ESPECTRO: UNA CUENTA POR NUMERO**
+
+![(c) EL ESPECTRO: UNA CUENTA POR NUMERO](../mca/figuras/07c_histograma.png)
+
+El mismo espectro en tres momentos de la acumulacion (12, 64 y 227 cuentas): la forma aparece recien cuando hay estadistica.
+
+_Origen: la misma simulacion, panel (c) suelto._
+
+---
+
+Las figuras **recalculan cada número al dibujar** en vez de tomarlo escrito.
+<!-- /AUTO:transacciones -->
+
+### 1.7 Waveforms
 
 <!-- AUTO:ondas -->
 **LA VIDA DE UN PULSO  -  cruce de umbral, ventana, carga acumulada y evento**
@@ -160,7 +240,7 @@ _Origen: `tb_mca_top`, escena 5 (lectura durante el borrado)._
 
 ![FLUJO DE UNA MEDICION  -  mca_top](../mca/figuras/ondas/mca_flujo.svg)
 
-Es un esquema de la SECUENCIA, no una medicion. Las dos cosas que fija: el borrado hay que ESPERARLO --`clear_busy` avisa, y los eventos que llegan mientras barre se descartan y se cuentan en `dropped`--, y los contadores se pueden leer con la medicion corriendo, que es lo que permite supervisar sin frenar. La misma secuencia en software esta en docs/API/guia_de_uso.md; si las dos se contradicen, una de las dos esta mal.
+Es un esquema de la SECUENCIA, no una medicion. La configuracion es una escalera: el bus del PS escribe un registro por vez, y la figura los pone en el orden en que los escribe Mca.configure(). Ese orden importa en un solo punto: cfg_hist_sel va DESPUES de cfg_amp_src, porque escribir cfg_amp_src tambien lo mueve. Un registro que no se escribe conserva lo que tenia (el valor de reset solo despues de cargar el bitstream; ver register_map_mca.md). Despues, las dos cosas que fija: el borrado hay que ESPERARLO --`clear_busy` avisa, y los eventos que llegan mientras barre se descartan y se cuentan en `dropped`--, y los contadores se pueden leer con la medicion corriendo, que es lo que permite supervisar sin frenar. La misma secuencia en software esta en docs/API/guia_de_uso.md; si las dos se contradicen, una de las dos esta mal.
 
 _Origen: esquema (sin VCD)._
 
@@ -179,13 +259,13 @@ python3 docs/mca/figuras/ondas/ondas_mca.py    # regenerar
        make -C modulos/mca/work wave TB=<tb>   # mirar en Questa
        make -C modulos/mca/work vcd  TB=<tb>   # VCD exportable -->
 
-### 1.7 Verificación realizada
+### 1.8 Verificación realizada
 
 <!-- AUTO:verificacion -->
 Todo corre en batch y se chequea el `RESULT: PASS` del testbench; las ondas quedan en `work/waves/<tb>.wlf`.
 
 ```bash
-make -C modulos/mca/work            # los 6 testbenches
+make -C modulos/mca/work            # los 7 testbenches
 make -C modulos/mca/work cov        # + cobertura
 make -C modulos/mca/work lint
 ```
@@ -196,20 +276,18 @@ make -C modulos/mca/work lint
 | [`tb_mca_hist`](../../modulos/mca/sim/tb_mca_hist.sv) | `mca_hist` | 8 | 31 | vectores a mano |  |
 | [`tb_mca_zoom`](../../modulos/mca/sim/tb_mca_zoom.sv) | `mca_zoom` | 5 | 11 | vectores a mano |  |
 | [`tb_mca_discriminator`](../../modulos/mca/sim/tb_mca_discriminator.sv) | `mca_discriminator` | 7 | 21 | vectores a mano |  |
-| [`tb_mca_pulse_feature`](../../modulos/mca/sim/tb_mca_pulse_feature.sv) | `mca_pulse_feature` | 13 | 99 | vectores a mano |  |
-| [`tb_mca_top`](../../modulos/mca/sim/tb_mca_top.sv) | `mca_top` | 7 | 48 | vectores a mano |  |
+| [`tb_mca_pulse_feature`](../../modulos/mca/sim/tb_mca_pulse_feature.sv) | `mca_pulse_feature` | 17 | 161 | vectores a mano |  |
+| [`tb_mca_pulse_feature_eq`](../../modulos/mca/sim/tb_mca_pulse_feature_eq.sv) | `mca_pulse_feature_eq` | — | — | RTL de referencia `mca_pulse_feature_ref.v` instanciado al lado del DUT |  |
+| [`tb_mca_top`](../../modulos/mca/sim/tb_mca_top.sv) | `mca_top` | 9 | 82 | vectores a mano |  |
 
 
-**232 casos con nombre** en 6 testbenches (46 escenas). La lista completa, caso por caso, está en el plan de verificación.
+**328 casos con nombre** en 7 testbenches (52 escenas). La lista completa, caso por caso, está en el plan de verificación.
 
 Las escenas de [`tb_mca_div_restore`](../../modulos/mca/sim/tb_mca_div_restore.sv): 1) Barrido EXHAUSTIVO del camino normal, 2) den == 0 -> err_o, 3) num >= den -> sat_o, q = 2^Q_W-1. Sin esta guard, 4) Casos de valor conocido, 5) Latencia fija = Q_W ciclos, tambien en los casos, 6) start_i durante busy se ignora (no corrompe la d.
 
 **Assertions** — en `sim/sva/`, enganchadas por `bind` (no tocan el RTL sintetizable).
 
-- [`bind_mca.sv`](../../modulos/mca/sim/sva/bind_mca.sv)
-- [`mca_top_sva.sv`](../../modulos/mca/sim/sva/mca_top_sva.sv)
-
-> **Los archivos de assertions están vacíos.** Son el scaffold de `create_module.py`: tienen el `bind`, el `default clocking` y un `// TODO:`, pero **ninguna propiedad**. O sea que hoy no aportan nada a la verificación; el enganche ya está hecho y lo que falta es escribirlas. Ver [`verificacion_formal.md`](../verificacion_formal.md), que discute cuáles convienen primero.
+- [`mca_top_sva.sv`](../../modulos/mca/sim/sva/mca_top_sva.sv) — 64 propiedades
 
 Plan de verificación, casos cubiertos y deuda: [`mca/sim/VERIFICACION.md`](../../modulos/mca/sim/VERIFICACION.md).
 <!-- /AUTO:verificacion -->

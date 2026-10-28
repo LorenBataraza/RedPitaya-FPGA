@@ -3,6 +3,7 @@
 <!-- Generado por `modulos/mk/datasheet.py`. Lo que está entre las marcas
      AUTO:x y /AUTO:x se REESCRIBE en cada corrida: editar ahí no sirve.
      Todo el resto es prosa a mano y no se toca.
+     La §1.1 «Qué hace» se escribe en prosa/osc_cfg.md.
      Regenerar:  make -C modulos/osc/work datasheet              -->
 
 ## 1. Función y funcionamiento
@@ -25,8 +26,8 @@
 
 > osc_cfg — región de OSC: esclavo del bus de sistema (slot 1, 0x4010_0000)
 >
-> Sale de multitrigger_rp_scope_cfg, quitándole los registros del multitrigger
-> (que se mudaron al slot 3, ver multitrigger_cfg.sv) y reorganizando el mapa.
+> Sale de mt_rp_scope_cfg, quitándole los registros del multitrigger
+> (que se mudaron al slot 3, ver mt_cfg.sv) y reorganizando el mapa.
 >
 > LOS DOS MAPAS
 >
@@ -71,7 +72,7 @@
 > ACK DE LATENCIA FIJA — Y EL BUG QUE ESTO ARREGLA
 >
 > El módulo original sacaba el ack de las aperturas BRAM de bram_ack_i[i], y
-> rp_scope_multitrigger_com ata bram_ack[2]/[3] = 0 para los canales no
+> rp_scope_mt_com ata bram_ack[2]/[3] = 0 para los canales no
 > construidos: cualquier lectura en 0x4013_0000-0x4014_FFFF no hacía ack NUNCA
 > y dejaba el CDC del slot desincronizado (docs/TOP/bus_sistema_redpitaya.md §7.1).
 >
@@ -82,8 +83,8 @@
 > O sea que se arregla el cuelgue sin cambiar en nada las lecturas buenas.
 <!-- /AUTO:resumen -->
 
-<!-- A mano: qué problema resuelve el bloque, cómo encaja en la cadena y las
-     dos o tres decisiones de diseño que explican por qué está hecho así. -->
+<!-- AUTO:prosa -->
+<!-- Prosa a mano: se edita en prosa/osc_cfg.md, no aca. -->
 
 **Qué hace.** Es el esclavo de registros del osciloscopio: configura la cadena
 de adquisición —umbral, histéresis, decimación, retardo de disparo, ecualizador—
@@ -91,8 +92,8 @@ y expone las **aperturas de BRAM** por donde el PS lee las muestras capturadas.
 No procesa datos: todo el flujo de muestras pasa por fuera, y lo que este bloque
 controla es *dónde se congela* y *cómo se lee*.
 
-Sale de `multitrigger_rp_scope_cfg` quitándole los registros del multitrigger,
-que se mudaron al slot 3 ([`multitrigger_cfg`](datasheet_multitrigger_cfg.md)),
+Sale de `mt_rp_scope_cfg` quitándole los registros del multitrigger,
+que se mudaron al slot 3 ([`mt_cfg`](datasheet_mt_cfg.md)),
 y reorganizando el mapa.
 
 La decisión que explica casi toda su forma: **decodifica dos mapas de
@@ -132,6 +133,7 @@ Dos cosas que conviene saber antes de tocarlo:
 
 El otro bloque del módulo, `osc_filter`, es el ecualizador IIR: qué le hace a un
 flujo de muestras está medido en [§1.6](#16-transacciones).
+<!-- /AUTO:prosa -->
 
 ### 1.2 Interfaces
 
@@ -219,7 +221,7 @@ flujo de muestras está medido en [§1.6](#16-transacciones).
 | `set_axi_en_o` | out | 4 | adc_clk_i |
 
 
-##### Puente legacy hacia multitrigger_cfg (slot 3)
+##### Puente legacy hacia mt_cfg (slot 3)
 
 Pulsos ya decodificados por canal desde los offsets 0x004 y 0x094.
 
@@ -234,6 +236,7 @@ Pulsos ya decodificados por canal desde los offsets 0x004 y 0x094.
 <!-- AUTO:regmap -->
 `osc_cfg` es esclavo del bus de sistema (`sys_addr`, `sys_wdata`, `sys_wen`, `sys_ren`, `sys_rdata`, `sys_err`, `sys_ack`). El mapa completo está en:
 
+- [`register_map_mt_rp_scope_cfg.md`](../osc/register_map_mt_rp_scope_cfg.md)
 - [`register_map_osc.md`](../osc/register_map_osc.md)
 
 Contrato del bus: [`bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) · Mapa de slots: [`register_map_top.md`](../TOP/register_map_top.md)
@@ -354,7 +357,7 @@ _Origen: `tb_osc_filter`, caso de compensacion polo-cero._
 
 ![FLUJO DE UNA ADQUISICION  -  osc_cfg](../osc/figuras/ondas/osc_cfg_adquisicion.svg)
 
-Es un esquema de la SECUENCIA, no una medicion: no hay testbench de osc_cfg del que sacar las ondas (ver §1.7 de su datasheet, que lo marca como deuda de verificacion). Lo que la figura fija es el orden y las dependencias: la configuracion del filtro y del diezmado va ANTES del armado, porque cambiarla con el buffer llenandose mezcla muestras de dos configuraciones en la misma traza; y la lectura va despues de que el puntero deje de moverse, porque leer durante la captura devuelve una traza partida entre dos vueltas del buffer.
+Es un esquema de la SECUENCIA, no una medicion: no hay testbench de osc_cfg del que sacar las ondas (ver §1.7 de su datasheet, que lo marca como deuda de verificacion). La configuracion es una escalera: el bus del PS escribe un registro por vez, primero los modos globales y despues la cadena de cada canal en el orden del datapath; DLY tiene que quedar en 1 o mas, porque el 0 de reset es el caso degenerado de rp_bram_sm. Lo que la figura fija es el orden y las dependencias: la configuracion del filtro y del diezmado va ANTES del armado, porque cambiarla con el buffer llenandose mezcla muestras de dos configuraciones en la misma traza; y la lectura va despues de que el puntero deje de moverse, porque leer durante la captura devuelve una traza partida entre dos vueltas del buffer.
 
 _Origen: esquema (sin VCD: `osc_cfg` no tiene testbench)._
 
@@ -373,7 +376,6 @@ python3 docs/osc/figuras/ondas/ondas_osc.py    # regenerar
      mide el script, no se escriben acá.
        make -C modulos/osc/work wave TB=<tb>   # mirar en Questa
        make -C modulos/osc/work vcd  TB=<tb>   # VCD exportable -->
-orden en que la hace el software.
 
 ### 1.8 Verificación realizada
 

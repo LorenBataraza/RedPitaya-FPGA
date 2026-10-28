@@ -3,6 +3,7 @@
 <!-- Generado por `modulos/mk/datasheet.py`. Lo que está entre las marcas
      AUTO:x y /AUTO:x se REESCRIBE en cada corrida: editar ahí no sirve.
      Todo el resto es prosa a mano y no se toca.
+     La §1.1 «Qué hace» se escribe en prosa/integration_cfg.md.
      Regenerar:  make -C modulos/comun/work datasheet              -->
 
 ## 1. Función y funcionamiento
@@ -49,8 +50,8 @@
 > docs/TOP/bus_sistema_redpitaya.md §7.1).
 <!-- /AUTO:resumen -->
 
-<!-- A mano: qué problema resuelve el bloque, cómo encaja en la cadena y las
-     dos o tres decisiones de diseño que explican por qué está hecho así. -->
+<!-- AUTO:prosa -->
+<!-- Prosa a mano: se edita en prosa/integration_cfg.md, no aca. -->
 
 **Qué hace.** Es el registro de identidad y el panel de ruteo del bitstream.
 No mueve muestras: contesta dos preguntas que antes no tenían a quién
@@ -84,6 +85,7 @@ Dos decisiones que explican la forma:
 El `dsp_tap_mux` que estos registros manejan, y qué muestra entrega cada nodo,
 están en [`register_map_top.md`](../TOP/register_map_top.md) §Ruteo del
 datapath; el mismo pulso dibujado en los cuatro nodos, en [§1.6](#16-transacciones).
+<!-- /AUTO:prosa -->
 
 ### 1.2 Interfaces
 
@@ -257,7 +259,6 @@ _Sin figuras de ondas._ Se generan con un script en `docs/comun/figuras/ondas/`,
      mide el script, no se escriben acá.
        make -C modulos/comun/work wave TB=<tb>   # mirar en Questa
        make -C modulos/comun/work vcd  TB=<tb>   # VCD exportable -->
-orden en que la hace el software.
 
 ### 1.8 Verificación realizada
 

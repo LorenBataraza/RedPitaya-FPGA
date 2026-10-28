@@ -3,6 +3,7 @@
 <!-- Generado por `modulos/mk/datasheet.py`. Lo que está entre las marcas
      AUTO:x y /AUTO:x se REESCRIBE en cada corrida: editar ahí no sirve.
      Todo el resto es prosa a mano y no se toca.
+     La §1.1 «Qué hace» se escribe en prosa/mca_hist.md.
      Regenerar:  make -C modulos/mca/work datasheet              -->
 
 ## 1. Función y funcionamiento
@@ -60,10 +61,62 @@
 > directo, cada acceso del bus robaría 4 ciclos al pipeline en vez de 1.
 <!-- /AUTO:resumen -->
 
-<!-- A mano: qué problema resuelve el bloque, cómo encaja en la cadena y las
-     dos o tres decisiones de diseño que explican por qué está hecho así. -->
+<!-- AUTO:prosa -->
+<!-- Prosa a mano: se edita en prosa/mca_hist.md, no aca. -->
 
-**Qué hace.** TODO
+**Qué hace.** Es **el motor de histograma**: una memoria de `2^AW` bins de `CW`
+bits que acepta **un incremento por ciclo**. Una sola implementación, varias
+instancias — el espectro 1D de 8192 canales y el mapa 2D de 128 × 64 de
+[`mca_top`](datasheet_mca_top.md) son el mismo módulo con parámetros distintos.
+
+El read-modify-write de un bin y el caso difícil —dos eventos seguidos al
+mismo bin— están medidos sobre la simulación en
+[`mca_hist_rmw.svg`](../mca/figuras/ondas/mca_hist_rmw.svg).
+
+**Un incremento por ciclo, y lo que cuesta.** Un puerto de BRAM tiene **una**
+dirección por ciclo, así que no puede leer `addr(n)` y escribir `addr(n−2)` a
+la vez. Poniendo la lectura en un puerto y la escritura en el otro se consigue
+el incremento por ciclo, al precio de necesitar **forwarding de 2 etapas**: el
+evento que lee en el ciclo *m* escribe en *m+2*, así que otro evento al mismo
+bin en *m+1* o *m+2* leería un valor viejo y hay que puentearlo. La alternativa
+—la máquina de 3 estados del `axis_histogram.v` de pavel-demin— acepta un
+evento cada 3 ciclos, lo que obligaría a decimar un futuro mapa de
+persistencia.
+
+**El barrido de borrado no puede frenar al bus, y por eso usa sólo el puerto de
+escritura.** Un barrido de 16384 bins son 16384 ciclos = **131 µs**, unas 500
+veces el timeout de 32 ciclos del esclavo AXI. Si el barrido bloqueara el ack,
+el bus se colgaría. Con el puerto de lectura vivo durante todo el barrido, se
+puede leer el histograma **mientras se borra** — que es lo que muestra
+[`mca_ack_borrado.svg`](../mca/figuras/ondas/mca_ack_borrado.svg), y lo que la
+cabecera del RTL de `mca_top` marca como lo más importante del módulo.
+
+**La pérdida es medible, no silenciosa.** La lectura del bus tiene prioridad;
+un evento que llegue en ese ciclo, o durante el barrido, se descarta y se
+**cuenta** en `dropped_o`. Con eventos separados por cientos de ciclos y
+lecturas separadas por microsegundos la colisión es despreciable, y leer con
+`run = 0` la elimina del todo — pero si ocurre, queda escrita.
+
+**La saturación congela TODO el histograma, no el bin que se llenó.** `full_o`
+es pegajoso y con `cfg_keep = 0` la acumulación se detiene en el histograma
+entero: un espectro con unos canales congelados y otros no ya no es un
+espectro, porque las áreas relativas dejan de corresponder al mismo *live
+time*. Para escala: 2³² cuentas a 794 kcps con **todo** en un solo pico son
+~14 h. Es alcanzable en una corrida larga, pero está cuatro órdenes de
+magnitud por encima de la deriva, que es lo que de verdad limita
+([`limites_resolucion_y_deriva.md`](../mca/limites_resolucion_y_deriva.md) §7).
+Sirve sobre todo como disparador de rebanada y como seguro contra la
+saturación silenciosa.
+
+> **Una trampa de cableado.** `rd_i` tiene que ser un **pulso de un ciclo**, no
+> el `ren` sostenido del bus: `sys_bus_cdc` mantiene `ren` alto hasta el ack
+> (~4 ciclos) y conectarlo directo haría que cada acceso del bus le robara 4
+> ciclos al pipeline en vez de 1.
+>
+> **Candidato a formal.** «Dos eventos al mismo bin no pierden cuenta» es datos
+> sin acotar con control mínimo: el caso de libro. Hoy se prueba con vectores
+> puntuales ([`verificacion_formal.md`](../verificacion_formal.md)).
+<!-- /AUTO:prosa -->
 
 ### 1.2 Interfaces
 
@@ -163,7 +216,47 @@ El `metrics.txt` del módulo es de `mca_top`, no de `mca_hist`: la síntesis OOC
 <!-- A mano: qué hay en el camino crítico y qué se haría para romperlo si
      hubiera que subir la frecuencia. -->
 
-### 1.6 Waveforms
+### 1.6 Transacciones
+
+<!-- AUTO:transacciones -->
+**LA CADENA DE UN EVENTO  -  senal, registro y espectro**
+
+![LA CADENA DE UN EVENTO  -  senal, registro y espectro](../mca/figuras/07_cadena.png)
+
+La transaccion del MCA es UN EVENTO, y la figura la sigue entera: (a) la senal de entrada con el umbral y la ventana que `pulse_feature` abre y cierra, (b) el camino de datos, donde entre los dos bloques no va una flecha pelada sino el tren de amplitudes concretas que viaja --un registro de evento por pulso--, y (c) el espectro que se acumula del otro lado, una cuenta por numero. Los numeros de los tres paneles son los mismos: la amplitud que se mide en (a) es la que viaja en (b) y la que cae en un canal en (c), con el mismo `amp >> h_shift` que hace el RTL. Es la unica figura del proyecto que muestra la cuenta completa de punta a punta.
+
+_Origen: simulacion con semilla fija (`animacion_cadena_mca.py`), los mismos cuadros que los videos._
+
+**(a) LA SENAL: UN PULSO POR EVENTO**
+
+![(a) LA SENAL: UN PULSO POR EVENTO](../mca/figuras/07a_senal.png)
+
+Las bandas parten el eje de TIEMPO en estados --ventana abierta, reposo-- y no la senal en eventos. La ventana abre al cruzar `thr` y cierra recien al bajar de `thr - hyst`, que es lo que hace que termine bastante despues del pico.
+
+_Origen: la misma simulacion, panel (a) suelto._
+
+**(b) EL CAMINO DE DATOS: UN NUMERO POR PULSO**
+
+![(b) EL CAMINO DE DATOS: UN NUMERO POR PULSO](../mca/figuras/07b_cadena.png)
+
+`pulse_feature` emite un registro de evento por pulso y el histograma lo convierte en una cuenta. La tabla de abajo son los mismos pulsos como los ve el histograma, incluido el que no cruza el umbral y no produce nada.
+
+_Origen: la misma simulacion, panel (b) suelto._
+
+**(c) EL ESPECTRO: UNA CUENTA POR NUMERO**
+
+![(c) EL ESPECTRO: UNA CUENTA POR NUMERO](../mca/figuras/07c_histograma.png)
+
+El mismo espectro en tres momentos de la acumulacion (12, 64 y 227 cuentas): la forma aparece recien cuando hay estadistica.
+
+_Origen: la misma simulacion, panel (c) suelto._
+
+---
+
+Las figuras **recalculan cada número al dibujar** en vez de tomarlo escrito.
+<!-- /AUTO:transacciones -->
+
+### 1.7 Waveforms
 
 <!-- AUTO:ondas -->
 **LA VIDA DE UN PULSO  -  cruce de umbral, ventana, carga acumulada y evento**
@@ -202,7 +295,7 @@ _Origen: `tb_mca_top`, escena 5 (lectura durante el borrado)._
 
 ![FLUJO DE UNA MEDICION  -  mca_top](../mca/figuras/ondas/mca_flujo.svg)
 
-Es un esquema de la SECUENCIA, no una medicion. Las dos cosas que fija: el borrado hay que ESPERARLO --`clear_busy` avisa, y los eventos que llegan mientras barre se descartan y se cuentan en `dropped`--, y los contadores se pueden leer con la medicion corriendo, que es lo que permite supervisar sin frenar. La misma secuencia en software esta en docs/API/guia_de_uso.md; si las dos se contradicen, una de las dos esta mal.
+Es un esquema de la SECUENCIA, no una medicion. La configuracion es una escalera: el bus del PS escribe un registro por vez, y la figura los pone en el orden en que los escribe Mca.configure(). Ese orden importa en un solo punto: cfg_hist_sel va DESPUES de cfg_amp_src, porque escribir cfg_amp_src tambien lo mueve. Un registro que no se escribe conserva lo que tenia (el valor de reset solo despues de cargar el bitstream; ver register_map_mca.md). Despues, las dos cosas que fija: el borrado hay que ESPERARLO --`clear_busy` avisa, y los eventos que llegan mientras barre se descartan y se cuentan en `dropped`--, y los contadores se pueden leer con la medicion corriendo, que es lo que permite supervisar sin frenar. La misma secuencia en software esta en docs/API/guia_de_uso.md; si las dos se contradicen, una de las dos esta mal.
 
 _Origen: esquema (sin VCD)._
 
@@ -221,13 +314,13 @@ python3 docs/mca/figuras/ondas/ondas_mca.py    # regenerar
        make -C modulos/mca/work wave TB=<tb>   # mirar en Questa
        make -C modulos/mca/work vcd  TB=<tb>   # VCD exportable -->
 
-### 1.7 Verificación realizada
+### 1.8 Verificación realizada
 
 <!-- AUTO:verificacion -->
 Todo corre en batch y se chequea el `RESULT: PASS` del testbench; las ondas quedan en `work/waves/<tb>.wlf`.
 
 ```bash
-make -C modulos/mca/work            # los 6 testbenches
+make -C modulos/mca/work            # los 7 testbenches
 make -C modulos/mca/work cov        # + cobertura
 make -C modulos/mca/work lint
 ```
@@ -238,20 +331,18 @@ make -C modulos/mca/work lint
 | [`tb_mca_hist`](../../modulos/mca/sim/tb_mca_hist.sv) | `mca_hist` | 8 | 31 | vectores a mano | **sí** |
 | [`tb_mca_zoom`](../../modulos/mca/sim/tb_mca_zoom.sv) | `mca_zoom` | 5 | 11 | vectores a mano |  |
 | [`tb_mca_discriminator`](../../modulos/mca/sim/tb_mca_discriminator.sv) | `mca_discriminator` | 7 | 21 | vectores a mano |  |
-| [`tb_mca_pulse_feature`](../../modulos/mca/sim/tb_mca_pulse_feature.sv) | `mca_pulse_feature` | 13 | 99 | vectores a mano |  |
-| [`tb_mca_top`](../../modulos/mca/sim/tb_mca_top.sv) | `mca_top` | 7 | 48 | vectores a mano |  |
+| [`tb_mca_pulse_feature`](../../modulos/mca/sim/tb_mca_pulse_feature.sv) | `mca_pulse_feature` | 17 | 161 | vectores a mano |  |
+| [`tb_mca_pulse_feature_eq`](../../modulos/mca/sim/tb_mca_pulse_feature_eq.sv) | `mca_pulse_feature_eq` | — | — | RTL de referencia `mca_pulse_feature_ref.v` instanciado al lado del DUT |  |
+| [`tb_mca_top`](../../modulos/mca/sim/tb_mca_top.sv) | `mca_top` | 9 | 82 | vectores a mano |  |
 
 
-**232 casos con nombre** en 6 testbenches (46 escenas). La lista completa, caso por caso, está en el plan de verificación.
+**328 casos con nombre** en 7 testbenches (52 escenas). La lista completa, caso por caso, está en el plan de verificación.
 
 Las escenas de [`tb_mca_hist`](../../modulos/mca/sim/tb_mca_hist.sv): 1) Estado inicial, 2) Incremento simple y acumulación, 3) FORWARDING, 4) Saturación, 5) Barrido de borrado, 6) El puerto de LECTURA sigue vivo durante el barri, 7) Contador de descartes, 8) Los eventos en vuelo al arrancar un borrado se d.
 
 **Assertions** — en `sim/sva/`, enganchadas por `bind` (no tocan el RTL sintetizable).
 
-- [`bind_mca.sv`](../../modulos/mca/sim/sva/bind_mca.sv)
-- [`mca_top_sva.sv`](../../modulos/mca/sim/sva/mca_top_sva.sv)
-
-> **Los archivos de assertions están vacíos.** Son el scaffold de `create_module.py`: tienen el `bind`, el `default clocking` y un `// TODO:`, pero **ninguna propiedad**. O sea que hoy no aportan nada a la verificación; el enganche ya está hecho y lo que falta es escribirlas. Ver [`verificacion_formal.md`](../verificacion_formal.md), que discute cuáles convienen primero.
+- [`mca_top_sva.sv`](../../modulos/mca/sim/sva/mca_top_sva.sv) — 64 propiedades
 
 Plan de verificación, casos cubiertos y deuda: [`mca/sim/VERIFICACION.md`](../../modulos/mca/sim/VERIFICACION.md).
 <!-- /AUTO:verificacion -->

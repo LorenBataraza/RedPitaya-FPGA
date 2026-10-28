@@ -1,48 +1,37 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="795" height="938" viewBox="0 0 795 938" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
+<svg xmlns="http://www.w3.org/2000/svg" width="735" height="980" viewBox="0 0 735 980" font-family="&quot;Latin Modern Mono&quot;,&quot;CMU Typewriter Text&quot;,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
 <style>
-  .bg{fill:#ffffff}            .box{fill:#ffffff;stroke:#1b1f24;stroke-width:1.6}
-  .hdr{fill:#f2f4f7;stroke:none}
-  .rule{stroke:#1b1f24;stroke-width:1.1}
-  .sep{stroke:#c3cad1;stroke-width:0.9;stroke-dasharray:4 4}
-  .pin{stroke:#1b1f24;stroke-width:1.3;fill:none}
-  .arr{fill:#1b1f24;stroke:none}
-  .nm{fill:#1b1f24}            .wd{fill:#57606a}
-  .gp{fill:#0b6bcb;font-style:italic}
-  .ti{fill:#1b1f24;font-weight:700} .sb{fill:#57606a} .pr{fill:#24292f}
+  .bg{fill:#ffffff}            .box{stroke:#000000;stroke-width:1.3}
+  .hdr{stroke:none}
+  .rule{stroke:#000000;stroke-width:1.0}
+  .sep{stroke:#8c8c8c;stroke-width:0.9;stroke-dasharray:4 3}
+  .pin{stroke:#000000;stroke-width:1.2;fill:none}
+  .arr{fill:#000000;stroke:none}
+  .nm{fill:#000000}            .wd{fill:#595959}
+  .gp{fill:#4d4d4d;font-style:italic;font-family:&quot;Latin Modern Roman&quot;,&quot;CMU Serif&quot;,&quot;Computer Modern Serif&quot;,Georgia,serif}
+  .ti{fill:#000000;font-weight:700} .sb{fill:#595959} .pr{fill:#262626}
+  .lg{fill:#4d4d4d;font-family:&quot;Latin Modern Roman&quot;,&quot;CMU Serif&quot;,&quot;Computer Modern Serif&quot;,Georgia,serif}
   /* Tintes planos y no fill-opacity: hay renderers de SVG a PNG que ignoran la
      opacidad y dejan la elipse maciza, tapando los cables que abarca. */
-  .brc{fill:none;stroke:#8c959f;stroke-width:1.2}
-  .bus {fill:#eceff2;stroke:#aeb7c0;stroke-width:1.1}
-  .busm{fill:#dcebfb;stroke:#0b6bcb;stroke-width:1.3}
-  .buss{fill:#fbefd6;stroke:#bf8700;stroke-width:1.3}
-  .dotm{fill:#0b6bcb;stroke:none}
-  .dots{fill:#ffffff;stroke:#bf8700;stroke-width:1.6}
-  @media (prefers-color-scheme: dark){
-    .bg{fill:#0d1117}          .box{fill:#0d1117;stroke:#c9d1d9}
-    .hdr{fill:#161b22}         .rule{stroke:#c9d1d9}
-    .sep{stroke:#30363d}       .pin{stroke:#c9d1d9}
-    .arr{fill:#c9d1d9}         .nm{fill:#e6edf3} .wd{fill:#8b949e}
-    .gp{fill:#58a6ff}          .ti{fill:#e6edf3} .sb{fill:#8b949e} .pr{fill:#c9d1d9}
-    .brc{stroke:#6e7681}
-    .bus {fill:#21262d;stroke:#6e7681}
-    .busm{fill:#10243e;stroke:#58a6ff}
-    .buss{fill:#2b2008;stroke:#d29922}
-    .dotm{fill:#58a6ff}        .dots{fill:#0d1117;stroke:#d29922}
-  }
+  .brc{fill:none;stroke:#8c8c8c;stroke-width:1.2}
+  .bus {fill:#e2e2e2;stroke:#8c8c8c;stroke-width:1.0}
+  .busm{fill:#fdddbc;stroke:#000000;stroke-width:1.1}
+  .buss{fill:#f8c6c6;stroke:#000000;stroke-width:1.1}
+  .dotm{fill:#fccea0;stroke:#000000;stroke-width:1.1}
+  .dots{fill:#f08080;stroke:#000000;stroke-width:1.1}
 </style>
-<rect class="bg" x="0" y="0" width="795" height="938"/>
-<rect class="box" x="256.2" y="14.0" width="360.3" height="909.5" rx="4"/>
-<rect class="hdr" x="257.2" y="15.0" width="358.3" height="121.5" rx="3"/>
-<text class="ti" x="436.4" y="42.0" font-size="16" text-anchor="middle">multitrigger_event_logic</text>
-<text class="sb" x="436.4" y="56.5" font-size="9.5" text-anchor="middle">prj/MCA/modulos/multitrigger/rtl/multitrigger_event_logic.v</text>
-<text class="pr" x="321.4" y="79.0" font-size="10.5">N_CH=2</text>
-<text class="pr" x="321.4" y="93.5" font-size="10.5">DW=14</text>
-<text class="pr" x="321.4" y="108.0" font-size="10.5">SRC_W=32</text>
-<text class="pr" x="321.4" y="122.5" font-size="10.5">SHIELD_N=4</text>
-<text class="pr" x="406.4" y="79.0" font-size="10.5">DURATION_W=16</text>
-<text class="pr" x="406.4" y="93.5" font-size="10.5">SHIELD_SRC=SHIELD_N + 3</text>
-<text class="pr" x="406.4" y="108.0" font-size="10.5">SHIELD_DST=SHIELD_N + 1</text>
-<line class="rule" x1="256.2" y1="136.5" x2="616.5" y2="136.5"/>
+<rect class="bg" x="0" y="0" width="735" height="980"/>
+<rect class="box" x="256.2" y="14.0" width="300.4" height="951.5" rx="4" fill="#fef8e2"/>
+<rect class="hdr" x="256.9" y="14.7" width="299.0" height="121.8" rx="3.5" fill="#fce8a0"/>
+<text class="ti" x="406.4" y="42.0" font-size="16" text-anchor="middle">mt_event_logic</text>
+<text class="sb" x="406.4" y="56.5" font-size="9.5" text-anchor="middle">prj/MCA/modulos/mt/rtl/mt_event_logic.v</text>
+<text class="pr" x="291.4" y="79.0" font-size="10.5">N_CH=2</text>
+<text class="pr" x="291.4" y="93.5" font-size="10.5">DW=14</text>
+<text class="pr" x="291.4" y="108.0" font-size="10.5">SRC_W=32</text>
+<text class="pr" x="291.4" y="122.5" font-size="10.5">SHIELD_N=4</text>
+<text class="pr" x="376.4" y="79.0" font-size="10.5">DURATION_W=16</text>
+<text class="pr" x="376.4" y="93.5" font-size="10.5">SHIELD_SRC=SHIELD_N + 3</text>
+<text class="pr" x="376.4" y="108.0" font-size="10.5">SHIELD_DST=SHIELD_N + 1</text>
+<line class="rule" x1="256.2" y1="136.5" x2="556.6" y2="136.5"/>
 <ellipse class="bus" cx="231.8" cy="178.5" rx="12.0" ry="17.5"/>
 <path class="brc" d="M156.0,164.0 Q149.0,164.0 149.0,171.2 L149.0,171.2 Q149.0,178.5 144.8,178.5 Q149.0,178.5 149.0,185.8 L149.0,185.8 Q149.0,193.0 156.0,193.0"/>
 <text class="gp" x="143.0" y="182.5" font-size="10" text-anchor="end">reloj y reset</text>
@@ -52,7 +41,7 @@
 <line class="pin" x1="198.2" y1="189.0" x2="256.2" y2="189.0"/>
 <path class="arr" d="M249.2,185.6 L256.2,189.0 L249.2,192.4 Z"/>
 <text class="nm" x="268.2" y="193.0" font-size="12">adc_rstn_i</text>
-<line class="sep" x1="256.2" y1="199.5" x2="616.5" y2="199.5"/>
+<line class="sep" x1="256.2" y1="199.5" x2="556.6" y2="199.5"/>
 <ellipse class="bus" cx="231.8" cy="294.0" rx="12.0" ry="70.0"/>
 <path class="brc" d="M156.0,227.0 Q149.0,227.0 149.0,235.0 L149.0,286.0 Q149.0,294.0 144.8,294.0 Q149.0,294.0 149.0,302.0 L149.0,353.0 Q149.0,361.0 156.0,361.0"/>
 <text class="gp" x="143.0" y="286.0" font-size="10" text-anchor="end">Control / config (de</text>
@@ -85,10 +74,10 @@
 <path class="arr" d="M249.2,353.6 L256.2,357.0 L249.2,360.4 Z"/>
 <text class="wd" x="192.2" y="360.4" font-size="9.5" text-anchor="end">[3:0]</text>
 <text class="nm" x="268.2" y="361.0" font-size="12">dly_valp_i</text>
-<line class="sep" x1="256.2" y1="367.5" x2="616.5" y2="367.5"/>
-<ellipse class="bus" cx="231.8" cy="483.0" rx="12.0" ry="91.0"/>
-<path class="brc" d="M156.0,395.0 Q149.0,395.0 149.0,403.0 L149.0,475.0 Q149.0,483.0 144.8,483.0 Q149.0,483.0 149.0,491.0 L149.0,563.0 Q149.0,571.0 156.0,571.0"/>
-<text class="gp" x="143.0" y="487.0" font-size="10" text-anchor="end">Fuentes de trigger</text>
+<line class="sep" x1="256.2" y1="367.5" x2="556.6" y2="367.5"/>
+<ellipse class="bus" cx="231.8" cy="504.0" rx="12.0" ry="112.0"/>
+<path class="brc" d="M156.0,395.0 Q149.0,395.0 149.0,403.0 L149.0,496.0 Q149.0,504.0 144.8,504.0 Q149.0,504.0 149.0,512.0 L149.0,605.0 Q149.0,613.0 156.0,613.0"/>
+<text class="gp" x="143.0" y="508.0" font-size="10" text-anchor="end">Fuentes de trigger</text>
 <line class="pin" x1="198.2" y1="399.0" x2="256.2" y2="399.0"/>
 <path class="arr" d="M249.2,395.6 L256.2,399.0 L249.2,402.4 Z"/>
 <text class="wd" x="192.2" y="402.4" font-size="9.5" text-anchor="end">[3:0]</text>
@@ -120,64 +109,72 @@
 <path class="arr" d="M249.2,563.6 L256.2,567.0 L249.2,570.4 Z"/>
 <text class="wd" x="192.2" y="570.4" font-size="9.5" text-anchor="end">[3:0]</text>
 <text class="nm" x="268.2" y="571.0" font-size="12">trig_ch_i</text>
-<line class="sep" x1="256.2" y1="577.5" x2="616.5" y2="577.5"/>
-<ellipse class="bus" cx="231.8" cy="630.0" rx="12.0" ry="28.0"/>
-<path class="brc" d="M156.0,605.0 Q149.0,605.0 149.0,613.0 L149.0,622.0 Q149.0,630.0 144.8,630.0 Q149.0,630.0 149.0,638.0 L149.0,647.0 Q149.0,655.0 156.0,655.0"/>
-<text class="gp" x="143.0" y="628.0" font-size="10" text-anchor="end">Shield config -</text>
-<text class="gp" x="143.0" y="640.0" font-size="10" text-anchor="end">Control Signals</text>
+<line class="pin" x1="198.2" y1="588.0" x2="256.2" y2="588.0"/>
+<path class="arr" d="M249.2,584.6 L256.2,588.0 L249.2,591.4 Z"/>
+<text class="wd" x="192.2" y="591.4" font-size="9.5" text-anchor="end">[3:0]</text>
+<text class="nm" x="268.2" y="592.0" font-size="12">slope_p_i</text>
 <line class="pin" x1="198.2" y1="609.0" x2="256.2" y2="609.0"/>
 <path class="arr" d="M249.2,605.6 L256.2,609.0 L249.2,612.4 Z"/>
-<text class="wd" x="192.2" y="612.4" font-size="9.5" text-anchor="end">[6:0]</text>
-<text class="nm" x="268.2" y="613.0" font-size="12">shield_src_i</text>
-<line class="pin" x1="198.2" y1="630.0" x2="256.2" y2="630.0"/>
-<path class="arr" d="M249.2,626.6 L256.2,630.0 L249.2,633.4 Z"/>
-<text class="wd" x="192.2" y="633.4" font-size="9.5" text-anchor="end">[4:0]</text>
-<text class="nm" x="268.2" y="634.0" font-size="12">shield_dst_i</text>
+<text class="wd" x="192.2" y="612.4" font-size="9.5" text-anchor="end">[3:0]</text>
+<text class="nm" x="268.2" y="613.0" font-size="12">slope_n_i</text>
+<line class="sep" x1="256.2" y1="619.5" x2="556.6" y2="619.5"/>
+<ellipse class="bus" cx="231.8" cy="672.0" rx="12.0" ry="28.0"/>
+<path class="brc" d="M156.0,647.0 Q149.0,647.0 149.0,655.0 L149.0,664.0 Q149.0,672.0 144.8,672.0 Q149.0,672.0 149.0,680.0 L149.0,689.0 Q149.0,697.0 156.0,697.0"/>
+<text class="gp" x="143.0" y="670.0" font-size="10" text-anchor="end">Shield config -</text>
+<text class="gp" x="143.0" y="682.0" font-size="10" text-anchor="end">Control Signals</text>
 <line class="pin" x1="198.2" y1="651.0" x2="256.2" y2="651.0"/>
 <path class="arr" d="M249.2,647.6 L256.2,651.0 L249.2,654.4 Z"/>
-<text class="wd" x="192.2" y="654.4" font-size="9.5" text-anchor="end">[15:0]</text>
-<text class="nm" x="268.2" y="655.0" font-size="12">shield_dur_i</text>
-<line class="sep" x1="256.2" y1="661.5" x2="616.5" y2="661.5"/>
-<ellipse class="bus" cx="640.9" cy="756.0" rx="12.0" ry="70.0"/>
-<path class="brc" d="M716.7,689.0 Q723.7,689.0 723.7,697.0 L723.7,748.0 Q723.7,756.0 727.9,756.0 Q723.7,756.0 723.7,764.0 L723.7,815.0 Q723.7,823.0 716.7,823.0"/>
-<text class="gp" x="729.7" y="760.0" font-size="10" text-anchor="start">Salidas</text>
-<line class="pin" x1="616.5" y1="693.0" x2="674.5" y2="693.0"/>
-<path class="arr" d="M667.5,689.6 L674.5,693.0 L667.5,696.4 Z"/>
-<text class="wd" x="680.5" y="696.4" font-size="9.5">[3:0]</text>
-<text class="nm" x="604.5" y="697.0" font-size="12" text-anchor="end">trig_ch_o</text>
-<line class="pin" x1="616.5" y1="714.0" x2="674.5" y2="714.0"/>
-<path class="arr" d="M667.5,710.6 L674.5,714.0 L667.5,717.4 Z"/>
-<text class="wd" x="680.5" y="717.4" font-size="9.5">[63:0]</text>
-<text class="nm" x="604.5" y="718.0" font-size="12" text-anchor="end">trg_state_o</text>
-<line class="pin" x1="616.5" y1="735.0" x2="674.5" y2="735.0"/>
-<path class="arr" d="M667.5,731.6 L674.5,735.0 L667.5,738.4 Z"/>
-<text class="wd" x="680.5" y="738.4" font-size="9.5">[3:0]</text>
-<text class="nm" x="604.5" y="739.0" font-size="12" text-anchor="end">adc_trg_dis_o</text>
-<line class="pin" x1="616.5" y1="756.0" x2="674.5" y2="756.0"/>
-<path class="arr" d="M667.5,752.6 L674.5,756.0 L667.5,759.4 Z"/>
-<text class="nm" x="604.5" y="760.0" font-size="12" text-anchor="end">daisy_trig_o</text>
-<line class="pin" x1="616.5" y1="777.0" x2="674.5" y2="777.0"/>
-<path class="arr" d="M667.5,773.6 L674.5,777.0 L667.5,780.4 Z"/>
-<text class="nm" x="604.5" y="781.0" font-size="12" text-anchor="end">event_arm_o</text>
-<line class="pin" x1="616.5" y1="798.0" x2="674.5" y2="798.0"/>
-<path class="arr" d="M667.5,794.6 L674.5,798.0 L667.5,801.4 Z"/>
-<text class="nm" x="604.5" y="802.0" font-size="12" text-anchor="end">trigger_event_o</text>
-<line class="pin" x1="616.5" y1="819.0" x2="674.5" y2="819.0"/>
-<path class="arr" d="M667.5,815.6 L674.5,819.0 L667.5,822.4 Z"/>
-<text class="nm" x="604.5" y="823.0" font-size="12" text-anchor="end">mca_veto_o</text>
-<line class="sep" x1="256.2" y1="829.5" x2="616.5" y2="829.5"/>
-<ellipse class="bus" cx="640.9" cy="882.0" rx="12.0" ry="28.0"/>
-<path class="brc" d="M716.7,857.0 Q723.7,857.0 723.7,865.0 L723.7,874.0 Q723.7,882.0 727.9,882.0 Q723.7,882.0 723.7,890.0 L723.7,899.0 Q723.7,907.0 716.7,907.0"/>
-<text class="gp" x="729.7" y="886.0" font-size="10" text-anchor="start">State</text>
-<line class="pin" x1="616.5" y1="861.0" x2="674.5" y2="861.0"/>
-<path class="arr" d="M667.5,857.6 L674.5,861.0 L667.5,864.4 Z"/>
-<text class="wd" x="680.5" y="864.4" font-size="9.5">[15:0]</text>
-<text class="nm" x="604.5" y="865.0" font-size="12" text-anchor="end">shield_cnt_o</text>
-<line class="pin" x1="616.5" y1="882.0" x2="674.5" y2="882.0"/>
-<path class="arr" d="M667.5,878.6 L674.5,882.0 L667.5,885.4 Z"/>
-<text class="nm" x="604.5" y="886.0" font-size="12" text-anchor="end">shield_active_o</text>
-<line class="pin" x1="616.5" y1="903.0" x2="674.5" y2="903.0"/>
-<path class="arr" d="M667.5,899.6 L674.5,903.0 L667.5,906.4 Z"/>
-<text class="wd" x="680.5" y="906.4" font-size="9.5">[16:0]</text>
-<text class="nm" x="604.5" y="907.0" font-size="12" text-anchor="end">trig_snapshot_o</text>
+<text class="wd" x="192.2" y="654.4" font-size="9.5" text-anchor="end">[6:0]</text>
+<text class="nm" x="268.2" y="655.0" font-size="12">shield_src_i</text>
+<line class="pin" x1="198.2" y1="672.0" x2="256.2" y2="672.0"/>
+<path class="arr" d="M249.2,668.6 L256.2,672.0 L249.2,675.4 Z"/>
+<text class="wd" x="192.2" y="675.4" font-size="9.5" text-anchor="end">[4:0]</text>
+<text class="nm" x="268.2" y="676.0" font-size="12">shield_dst_i</text>
+<line class="pin" x1="198.2" y1="693.0" x2="256.2" y2="693.0"/>
+<path class="arr" d="M249.2,689.6 L256.2,693.0 L249.2,696.4 Z"/>
+<text class="wd" x="192.2" y="696.4" font-size="9.5" text-anchor="end">[15:0]</text>
+<text class="nm" x="268.2" y="697.0" font-size="12">shield_dur_i</text>
+<line class="sep" x1="256.2" y1="703.5" x2="556.6" y2="703.5"/>
+<ellipse class="bus" cx="581.0" cy="798.0" rx="12.0" ry="70.0"/>
+<path class="brc" d="M656.8,731.0 Q663.8,731.0 663.8,739.0 L663.8,790.0 Q663.8,798.0 668.0,798.0 Q663.8,798.0 663.8,806.0 L663.8,857.0 Q663.8,865.0 656.8,865.0"/>
+<text class="gp" x="669.8" y="802.0" font-size="10" text-anchor="start">Salidas</text>
+<line class="pin" x1="556.6" y1="735.0" x2="614.6" y2="735.0"/>
+<path class="arr" d="M607.6,731.6 L614.6,735.0 L607.6,738.4 Z"/>
+<text class="wd" x="620.6" y="738.4" font-size="9.5">[3:0]</text>
+<text class="nm" x="544.6" y="739.0" font-size="12" text-anchor="end">trig_ch_o</text>
+<line class="pin" x1="556.6" y1="756.0" x2="614.6" y2="756.0"/>
+<path class="arr" d="M607.6,752.6 L614.6,756.0 L607.6,759.4 Z"/>
+<text class="wd" x="620.6" y="759.4" font-size="9.5">[63:0]</text>
+<text class="nm" x="544.6" y="760.0" font-size="12" text-anchor="end">trg_state_o</text>
+<line class="pin" x1="556.6" y1="777.0" x2="614.6" y2="777.0"/>
+<path class="arr" d="M607.6,773.6 L614.6,777.0 L607.6,780.4 Z"/>
+<text class="wd" x="620.6" y="780.4" font-size="9.5">[3:0]</text>
+<text class="nm" x="544.6" y="781.0" font-size="12" text-anchor="end">adc_trg_dis_o</text>
+<line class="pin" x1="556.6" y1="798.0" x2="614.6" y2="798.0"/>
+<path class="arr" d="M607.6,794.6 L614.6,798.0 L607.6,801.4 Z"/>
+<text class="nm" x="544.6" y="802.0" font-size="12" text-anchor="end">daisy_trig_o</text>
+<line class="pin" x1="556.6" y1="819.0" x2="614.6" y2="819.0"/>
+<path class="arr" d="M607.6,815.6 L614.6,819.0 L607.6,822.4 Z"/>
+<text class="nm" x="544.6" y="823.0" font-size="12" text-anchor="end">event_arm_o</text>
+<line class="pin" x1="556.6" y1="840.0" x2="614.6" y2="840.0"/>
+<path class="arr" d="M607.6,836.6 L614.6,840.0 L607.6,843.4 Z"/>
+<text class="nm" x="544.6" y="844.0" font-size="12" text-anchor="end">trigger_event_o</text>
+<line class="pin" x1="556.6" y1="861.0" x2="614.6" y2="861.0"/>
+<path class="arr" d="M607.6,857.6 L614.6,861.0 L607.6,864.4 Z"/>
+<text class="nm" x="544.6" y="865.0" font-size="12" text-anchor="end">mca_veto_o</text>
+<line class="sep" x1="256.2" y1="871.5" x2="556.6" y2="871.5"/>
+<ellipse class="bus" cx="581.0" cy="924.0" rx="12.0" ry="28.0"/>
+<path class="brc" d="M656.8,899.0 Q663.8,899.0 663.8,907.0 L663.8,916.0 Q663.8,924.0 668.0,924.0 Q663.8,924.0 663.8,932.0 L663.8,941.0 Q663.8,949.0 656.8,949.0"/>
+<text class="gp" x="669.8" y="928.0" font-size="10" text-anchor="start">State</text>
+<line class="pin" x1="556.6" y1="903.0" x2="614.6" y2="903.0"/>
+<path class="arr" d="M607.6,899.6 L614.6,903.0 L607.6,906.4 Z"/>
+<text class="wd" x="620.6" y="906.4" font-size="9.5">[15:0]</text>
+<text class="nm" x="544.6" y="907.0" font-size="12" text-anchor="end">shield_cnt_o</text>
+<line class="pin" x1="556.6" y1="924.0" x2="614.6" y2="924.0"/>
+<path class="arr" d="M607.6,920.6 L614.6,924.0 L607.6,927.4 Z"/>
+<text class="nm" x="544.6" y="928.0" font-size="12" text-anchor="end">shield_active_o</text>
+<line class="pin" x1="556.6" y1="945.0" x2="614.6" y2="945.0"/>
+<path class="arr" d="M607.6,941.6 L614.6,945.0 L607.6,948.4 Z"/>
+<text class="wd" x="620.6" y="948.4" font-size="9.5">[24:0]</text>
+<text class="nm" x="544.6" y="949.0" font-size="12" text-anchor="end">trig_snapshot_o</text>
 </svg>

@@ -3,6 +3,7 @@
 <!-- Generado por `modulos/mk/datasheet.py`. Lo que está entre las marcas
      AUTO:x y /AUTO:x se REESCRIBE en cada corrida: editar ahí no sirve.
      Todo el resto es prosa a mano y no se toca.
+     La §1.1 «Qué hace» se escribe en prosa/mca_top.md.
      Regenerar:  make -C modulos/mca/work datasheet              -->
 
 ## 1. Función y funcionamiento
@@ -14,8 +15,8 @@
 |---|---|
 | Módulo RTL | `mca_top` |
 | Archivo | [`mca_top.sv`](../../modulos/mca/rtl/mca_top.sv) |
-| Parámetros | 11 |
-| Puertos | 12 (9 in / 3 out) |
+| Parámetros | 12 |
+| Puertos | 13 (10 in / 3 out) |
 | MAGIC | `32'h4D434131` — `"MCA1"` |
 | Parte | `xc7z010clg400-1` |
 
@@ -40,8 +41,8 @@
 > devuelve un valor sin sentido y SIN indicación de error.
 >
 > El scope tiene ese bug latente: ata bram_ack[2]/[3] = 0 para los canales no
-> construidos (rp_scope_multitrigger_com.sv:572-573) y
-> multitrigger_rp_scope_cfg.sv:506-507 lo usa como ack de las aperturas 3 y 4.
+> construidos (rp_scope_mt_com.sv:572-573) y
+> mt_rp_scope_cfg.sv:506-507 lo usa como ack de las aperturas 3 y 4.
 >
 > Acá el ack sale de un shift register incondicional: NO existe ninguna ruta de
 > ack por motor, así que un motor apagado por parámetro no puede colgar el bus.
@@ -52,8 +53,8 @@
 > ALTA en un registro sombra, que es lo que devuelve la dirección alta.
 <!-- /AUTO:resumen -->
 
-<!-- A mano: qué problema resuelve el bloque, cómo encaja en la cadena y las
-     dos o tres decisiones de diseño que explican por qué está hecho así. -->
+<!-- AUTO:prosa -->
+<!-- Prosa a mano: se edita en prosa/mca_top.md, no aca. -->
 
 **Qué hace.** Recibe el flujo de muestras de los dos canales y devuelve, por el
 bus de sistema, el **espectro de alturas de pulso**: un histograma de 8192
@@ -94,6 +95,7 @@ nombres; el detalle de cada una está acá:
 La **vida de un pulso** medida sobre la simulación, con los números de cada
 etapa, está en [§1.7](#17-waveforms); el espectro que se acumula del otro lado,
 en [`figuras/07_cadena.png`](../mca/figuras/07_cadena.png).
+<!-- /AUTO:prosa -->
 
 ### 1.2 Interfaces
 
@@ -113,6 +115,7 @@ en [`figuras/07_cadena.png`](../mca/figuras/07_cadena.png).
 | `LEN_W` | `integer` | `16` |  |
 | `DIV_W` | `integer` | `16` | bits de cociente de los divisores de forma |
 | `NFEAT` | `integer` | `16` | ranuras del bus de features |
+| `PUB_K` | `integer` | `2` |  |
 
 
 Los marcados **(del TOP)** son los valores con los que el diseño se construye de verdad (`GENERICS` del `work/Makefile`); los anchos de esta página están resueltos con ésos, no con los defaults del RTL.
@@ -143,6 +146,15 @@ Mientras vale 1 no se abren pulsos, el pulso en curso termina normal y el reloj 
 | Puerto | Dir | Bits | Dominio |
 |---|---|---|---|
 | `veto_i` | in | 1 | adc_clk_i |
+
+
+##### FASE 2: trigger externo (nivel del multitrigger, se toma por FLANCO)
+
+Abre ventana cuando cfg_trig_src lo habilita. Viene del trigger_event del multitrigger, ya en adc_clk, asi que no hace falta CDC. Atar a 0 si el top no lo usa: con cfg_trig_src = 0 (el default) no se mira.
+
+| Puerto | Dir | Bits | Dominio |
+|---|---|---|---|
+| `trig_i` | in | 1 | adc_clk_i |
 
 
 ##### Bus de sistema
@@ -191,25 +203,25 @@ Contrato del bus: [`bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) 
 | Métrica | Valor |
 |---|---|
 | Período de la restricción | 8.00 ns (125.0 MHz) |
-| WNS | 0.070 ns |
-| Camino crítico | 7.930 ns |
-| **Fmax** | **126.1 MHz** |
-| Niveles de lógica | 8 |
+| WNS | -0.148 ns |
+| Camino crítico | 8.148 ns |
+| **Fmax** | **122.7 MHz** |
+| Niveles de lógica | 13 |
 
 
 **Camino crítico**
 
 |  |  |
 |---|---|
-| startpoint | `cfg_amp_max_reg[4]/C` |
-| endpoint | `i_feat/max_q_reg[0]/S` |
+| startpoint | `dat_q_reg[1]/C` |
+| endpoint | `i_feat/i_win/q_tot_reg[15]/D` |
 
 
 **Recursos**
 
 | LUT | FF | BRAM | DSP | CARRY | MUXF |
 |---|---|---|---|---|---|
-| 3460 | 3049 | 16 | 0 | 526 | 123 |
+| 3778 | 3153 | 16 | 0 | 558 | 42 |
 
 
 `lut` cuenta **primitivas** LUT, no los _Slice LUTs_ del `report_utilization` (dos LUT5 que comparten O5/O6 ocupan un solo sitio).
@@ -220,7 +232,100 @@ _Barrido no corrido_: `make -C modulos/mca/work sweep-all` y regenerar.
 <!-- A mano: qué hay en el camino crítico y qué se haría para romperlo si
      hubiera que subir la frecuencia. -->
 
-### 1.6 Transacciones
+#### El número de arriba es out-of-context y NO es el que decide si el diseño cierra
+
+La tabla automática sintetiza `mca_top` solo, con estimación de carga de cable.
+El bitstream real mete el módulo en un diseño con el osciloscopio, el
+multitrigger y el PS, y ahí el ruteo es otro. Los dos números del build completo
+de `red_pitaya_vivado_Z10_mca.tcl`, post-route, medidos el 2026-10-22:
+
+| build | WNS post-route | endpoints | camino crítico |
+|---|---|---|---|
+| HEAD, antes de las fases 1-2 | 0.050 ns | 26 416 | `i_scope/i_osc_cfg/...` (fuera del MCA) |
+| con las fases 1 y 2 | **0.006 ns** | 29 332 | `i_mca/dat_q_reg[7]/C` → `i_mca/i_feat/q_tot_reg[14]/R` |
+
+**Cumple, con 6 picosegundos.** Eso no es margen: es el ancho del redondeo.
+Y el camino crítico del diseño entero **se mudó adentro del MCA**, que antes no
+era el peor.
+
+**La discrepancia con el OOC no es ruido, es estructural, y conviene entenderla
+antes de confiar en el número automático.** El OOC dice que el peor camino es
+`cfg_amp_max → max_q` y que las fases 1-2 no costaron nada; el build completo
+dice que el peor camino es `dat_q → q_tot/R` y que se fue casi todo el margen.
+Los dos tienen razón sobre lo que miden: OOC optimiza el módulo aislado y
+estima el cable, y `q_tot/R` es un camino cuyo delay es **62 % ruteo**, que es
+justo lo que el OOC no puede saber.
+
+El camino, término por término, es este
+([`mca_pulse_feature.sv:276`](../../modulos/mca/rtl/mca_pulse_feature.sv#L276),
+[`:340-348`](../../modulos/mca/rtl/mca_pulse_feature.sv#L340-L348),
+[`:402`](../../modulos/mca/rtl/mca_pulse_feature.sv#L402)):
+
+```
+dat_q  →  x = dat − baseline  →  disparo_int = (x >= thr_hi)
+       →  disparo = src_int_en & disparo_int | src_ext_en & disparo_ext
+       →  open_pulse = (st==S_IDLE) & cfg_run & !veto & armed & !pub_lleno & disparo
+       →  mux de q_tot_d  →  q_tot[14]/R
+```
+
+El endpoint es el pin de *reset* porque al abrir `q_tot_d` carga
+`{{(QW-DW){1'b0}}, xc}`: los bits altos van a cero, y el sintetizador los mapea
+al reset síncrono del flop.
+
+**Es exactamente el camino que la fase 2 tocó.** El plan de la fase 1 se había
+puesto como condición no tocarlo —sus señales nuevas son funciones puras de
+`st` y `armed` y ninguna realimenta `open_pulse`— y la cumplió. La fase 2 no
+tenía esa salida: multiplexar la fuente de disparo es, por definición, meterse
+en `open_pulse`. El mux quedó mitigado (`cfg_trig_src` se decodifica registrado
+en `src_int_en`/`src_ext_en`, y `pub_lleno` con `K=2` es un bit de un flop),
+pero son 9 niveles de lógica con 4.7 ns de ruteo y la mitigación no alcanza.
+
+**Y hay un precedente que decide la cuestión, escrito en el propio RTL.**
+[`:423`](../../modulos/mca/rtl/mca_pulse_feature.sv#L423) dice que la ventana de
+amplitud *"ERA el camino critico de todo el bitstream (6 ps de slack en el
+build, y -0.129 ns con mca_top aislado)"*. O sea: **este diseño ya estuvo en 6
+ps una vez**, en un camino vecino del mismo ciclo de cierre, y el proyecto no lo
+dejó así — de ahí salieron las sombras `d_min`/`d_max` y los umbrales
+pre-desplazados de
+[`:424-474`](../../modulos/mca/rtl/mca_pulse_feature.sv#L424-L474).
+
+Eso aporta las dos mitades del juicio. Por un lado, 6 ps no es un valor que haga
+fallar la placa: el diseño ya funcionó así. Por el otro, cuando este proyecto se
+encontró en 6 ps **decidió que no era aceptable y refactorizó** — y el OOC
+aislado de entonces marcaba −0.129 ns, exactamente el mismo patrón de hoy pero
+al revés (OOC pesimista entonces, optimista ahora). La recomendación de abajo no
+es una precaución inventada: es lo que el repo ya hizo la vez anterior.
+
+**Si hubiera que recuperar slack, en orden de relación costo/beneficio:**
+
+1. **Sacar `t_win` del hardware** y derivarlo en software como
+   `deadtime − t_div`. Es exacto en modo bloqueante y está probado por
+   assertion (`ap_deadtime_viejo_identidad`); libera un contador de 64 b y su
+   sumador del dominio de `adc_clk`. No cambia ninguna semántica observable.
+   Es el único de los tres que no toca el camino de decisión.
+2. **Comparar contra el umbral desplazado, no contra la señal corregida.** Hoy
+   la resta `dat − baseline` está **dentro** del camino, antes del comparador, y
+   `thr_hi` es `cfg_thr_i` a secas. Comparando `dat >= thr_mas_bl` con
+   `thr_mas_bl = cfg_thr_i + baseline` **registrado**, la resta sale del camino
+   y queda sólo el comparador sobre la muestra. El costo es que el umbral llega
+   un ciclo tarde cuando el seguidor mueve la base — irrelevante contra su
+   constante de 2^`bl_k` muestras (4096 con `bl_k=12`), pero rompe la
+   comparación ciclo a ciclo de `tb_mca_pulse_feature` en el ciclo exacto del
+   cambio, así que hay que ajustar el TB y decidirlo a propósito.
+3. **Registrar el término estático de la apertura.** `cfg_run`, `veto_i`,
+   `src_*_en` y `pub_lleno` no dependen de la muestra de este ciclo; `st ==
+   S_IDLE`, `armed` y el comparador sí. Un flop con el AND de los primeros deja
+   la apertura en `habilitado && armed && disparo`. Es el más barato de
+   escribir y el más fácil de arruinar: si se mete `armed` o `st` adentro del
+   flop, la decisión corre un ciclo. `tb_mca_pulse_feature` lo detecta.
+
+**Mientras no se haga nada de esto, el bitstream de las fases 1-2 es para
+medir, no para dejar instalado.** Un re-place con otra semilla puede dar
+negativo, y el reporte no avisa dos veces.
+
+**Mientras no se haga nada de esto, el bitstream de las fases 1-2 es para
+medir, no para dejar instalado.** Un re-place con otra semilla puede dar
+negativo, y el reporte no avisa dos veces.
 
 <!-- AUTO:transacciones -->
 **LA CADENA DE UN EVENTO  -  senal, registro y espectro**
@@ -299,7 +404,7 @@ _Origen: `tb_mca_top`, escena 5 (lectura durante el borrado)._
 
 ![FLUJO DE UNA MEDICION  -  mca_top](../mca/figuras/ondas/mca_flujo.svg)
 
-Es un esquema de la SECUENCIA, no una medicion. Las dos cosas que fija: el borrado hay que ESPERARLO --`clear_busy` avisa, y los eventos que llegan mientras barre se descartan y se cuentan en `dropped`--, y los contadores se pueden leer con la medicion corriendo, que es lo que permite supervisar sin frenar. La misma secuencia en software esta en docs/API/guia_de_uso.md; si las dos se contradicen, una de las dos esta mal.
+Es un esquema de la SECUENCIA, no una medicion. La configuracion es una escalera: el bus del PS escribe un registro por vez, y la figura los pone en el orden en que los escribe Mca.configure(). Ese orden importa en un solo punto: cfg_hist_sel va DESPUES de cfg_amp_src, porque escribir cfg_amp_src tambien lo mueve. Un registro que no se escribe conserva lo que tenia (el valor de reset solo despues de cargar el bitstream; ver register_map_mca.md). Despues, las dos cosas que fija: el borrado hay que ESPERARLO --`clear_busy` avisa, y los eventos que llegan mientras barre se descartan y se cuentan en `dropped`--, y los contadores se pueden leer con la medicion corriendo, que es lo que permite supervisar sin frenar. La misma secuencia en software esta en docs/API/guia_de_uso.md; si las dos se contradicen, una de las dos esta mal.
 
 _Origen: esquema (sin VCD)._
 
@@ -318,7 +423,6 @@ python3 docs/mca/figuras/ondas/ondas_mca.py    # regenerar
      mide el script, no se escriben acá.
        make -C modulos/mca/work wave TB=<tb>   # mirar en Questa
        make -C modulos/mca/work vcd  TB=<tb>   # VCD exportable -->
-orden en que la hace el software.
 
 ### 1.8 Verificación realizada
 
@@ -326,7 +430,7 @@ orden en que la hace el software.
 Todo corre en batch y se chequea el `RESULT: PASS` del testbench; las ondas quedan en `work/waves/<tb>.wlf`.
 
 ```bash
-make -C modulos/mca/work            # los 6 testbenches
+make -C modulos/mca/work            # los 7 testbenches
 make -C modulos/mca/work cov        # + cobertura
 make -C modulos/mca/work lint
 ```
@@ -337,17 +441,18 @@ make -C modulos/mca/work lint
 | [`tb_mca_hist`](../../modulos/mca/sim/tb_mca_hist.sv) | `mca_hist` | 8 | 31 | vectores a mano |  |
 | [`tb_mca_zoom`](../../modulos/mca/sim/tb_mca_zoom.sv) | `mca_zoom` | 5 | 11 | vectores a mano |  |
 | [`tb_mca_discriminator`](../../modulos/mca/sim/tb_mca_discriminator.sv) | `mca_discriminator` | 7 | 21 | vectores a mano |  |
-| [`tb_mca_pulse_feature`](../../modulos/mca/sim/tb_mca_pulse_feature.sv) | `mca_pulse_feature` | 14 | 125 | vectores a mano |  |
-| [`tb_mca_top`](../../modulos/mca/sim/tb_mca_top.sv) | `mca_top` | 8 | 61 | vectores a mano | **sí** |
+| [`tb_mca_pulse_feature`](../../modulos/mca/sim/tb_mca_pulse_feature.sv) | `mca_pulse_feature` | 17 | 161 | vectores a mano |  |
+| [`tb_mca_pulse_feature_eq`](../../modulos/mca/sim/tb_mca_pulse_feature_eq.sv) | `mca_pulse_feature_eq` | — | — | RTL de referencia `mca_pulse_feature_ref.v` instanciado al lado del DUT |  |
+| [`tb_mca_top`](../../modulos/mca/sim/tb_mca_top.sv) | `mca_top` | 9 | 82 | vectores a mano | **sí** |
 
 
-**271 casos con nombre** en 6 testbenches (48 escenas). La lista completa, caso por caso, está en el plan de verificación.
+**328 casos con nombre** en 7 testbenches (52 escenas). La lista completa, caso por caso, está en el plan de verificación.
 
-Las escenas de [`tb_mca_top`](../../modulos/mca/sim/tb_mca_top.sv): 1) Identificación, 2) Escritura y relectura de todos los registros RW, 3) BARRIDO DE ACK — la regresión importante, 4) El mismo barrido en el DUT B, con el motor 2D AU, 5) Lectura DURANTE el barrido de borrado, 6) CAMINO DE DATOS COMPLETO, 7) El borrado deja el espectro y los contadores en , 8) EL TESELADO DEL TIEMPO MUERTO, visto por el BUS.
+Las escenas de [`tb_mca_top`](../../modulos/mca/sim/tb_mca_top.sv): 1) Identificación, 2) Escritura y relectura de todos los registros RW, 3) BARRIDO DE ACK — la regresión importante, 4) El mismo barrido en el DUT B, con el motor 2D AU, 5) Lectura DURANTE el barrido de borrado, 6) CAMINO DE DATOS COMPLETO, 7) El borrado deja el espectro y los contadores en , 8) EL TESELADO DEL TIEMPO MUERTO, visto por el BUS, 9) FASE 2 POR EL BUS.
 
 **Assertions** — en `sim/sva/`, enganchadas por `bind` (no tocan el RTL sintetizable).
 
-- [`mca_top_sva.sv`](../../modulos/mca/sim/sva/mca_top_sva.sv) — 42 propiedades
+- [`mca_top_sva.sv`](../../modulos/mca/sim/sva/mca_top_sva.sv) — 64 propiedades
 
 Plan de verificación, casos cubiertos y deuda: [`mca/sim/VERIFICACION.md`](../../modulos/mca/sim/VERIFICACION.md).
 <!-- /AUTO:verificacion -->

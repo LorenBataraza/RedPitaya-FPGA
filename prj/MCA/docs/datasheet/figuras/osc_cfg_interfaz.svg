@@ -1,38 +1,27 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="829" height="1240" viewBox="0 0 829 1240" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
+<svg xmlns="http://www.w3.org/2000/svg" width="829" height="1240" viewBox="0 0 829 1240" font-family="&quot;Latin Modern Mono&quot;,&quot;CMU Typewriter Text&quot;,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
 <style>
-  .bg{fill:#ffffff}            .box{fill:#ffffff;stroke:#1b1f24;stroke-width:1.6}
-  .hdr{fill:#f2f4f7;stroke:none}
-  .rule{stroke:#1b1f24;stroke-width:1.1}
-  .sep{stroke:#c3cad1;stroke-width:0.9;stroke-dasharray:4 4}
-  .pin{stroke:#1b1f24;stroke-width:1.3;fill:none}
-  .arr{fill:#1b1f24;stroke:none}
-  .nm{fill:#1b1f24}            .wd{fill:#57606a}
-  .gp{fill:#0b6bcb;font-style:italic}
-  .ti{fill:#1b1f24;font-weight:700} .sb{fill:#57606a} .pr{fill:#24292f}
+  .bg{fill:#ffffff}            .box{stroke:#000000;stroke-width:1.3}
+  .hdr{stroke:none}
+  .rule{stroke:#000000;stroke-width:1.0}
+  .sep{stroke:#8c8c8c;stroke-width:0.9;stroke-dasharray:4 3}
+  .pin{stroke:#000000;stroke-width:1.2;fill:none}
+  .arr{fill:#000000;stroke:none}
+  .nm{fill:#000000}            .wd{fill:#595959}
+  .gp{fill:#4d4d4d;font-style:italic;font-family:&quot;Latin Modern Roman&quot;,&quot;CMU Serif&quot;,&quot;Computer Modern Serif&quot;,Georgia,serif}
+  .ti{fill:#000000;font-weight:700} .sb{fill:#595959} .pr{fill:#262626}
+  .lg{fill:#4d4d4d;font-family:&quot;Latin Modern Roman&quot;,&quot;CMU Serif&quot;,&quot;Computer Modern Serif&quot;,Georgia,serif}
   /* Tintes planos y no fill-opacity: hay renderers de SVG a PNG que ignoran la
      opacidad y dejan la elipse maciza, tapando los cables que abarca. */
-  .brc{fill:none;stroke:#8c959f;stroke-width:1.2}
-  .bus {fill:#eceff2;stroke:#aeb7c0;stroke-width:1.1}
-  .busm{fill:#dcebfb;stroke:#0b6bcb;stroke-width:1.3}
-  .buss{fill:#fbefd6;stroke:#bf8700;stroke-width:1.3}
-  .dotm{fill:#0b6bcb;stroke:none}
-  .dots{fill:#ffffff;stroke:#bf8700;stroke-width:1.6}
-  @media (prefers-color-scheme: dark){
-    .bg{fill:#0d1117}          .box{fill:#0d1117;stroke:#c9d1d9}
-    .hdr{fill:#161b22}         .rule{stroke:#c9d1d9}
-    .sep{stroke:#30363d}       .pin{stroke:#c9d1d9}
-    .arr{fill:#c9d1d9}         .nm{fill:#e6edf3} .wd{fill:#8b949e}
-    .gp{fill:#58a6ff}          .ti{fill:#e6edf3} .sb{fill:#8b949e} .pr{fill:#c9d1d9}
-    .brc{stroke:#6e7681}
-    .bus {fill:#21262d;stroke:#6e7681}
-    .busm{fill:#10243e;stroke:#58a6ff}
-    .buss{fill:#2b2008;stroke:#d29922}
-    .dotm{fill:#58a6ff}        .dots{fill:#0d1117;stroke:#d29922}
-  }
+  .brc{fill:none;stroke:#8c8c8c;stroke-width:1.2}
+  .bus {fill:#e2e2e2;stroke:#8c8c8c;stroke-width:1.0}
+  .busm{fill:#fdddbc;stroke:#000000;stroke-width:1.1}
+  .buss{fill:#f8c6c6;stroke:#000000;stroke-width:1.1}
+  .dotm{fill:#fccea0;stroke:#000000;stroke-width:1.1}
+  .dots{fill:#f08080;stroke:#000000;stroke-width:1.1}
 </style>
 <rect class="bg" x="0" y="0" width="829" height="1240"/>
-<rect class="box" x="243.9" y="14.0" width="329.2" height="1190.5" rx="4"/>
-<rect class="hdr" x="244.9" y="15.0" width="327.2" height="150.5" rx="3"/>
+<rect class="box" x="243.9" y="14.0" width="329.2" height="1190.5" rx="4" fill="#d3e6f7"/>
+<rect class="hdr" x="244.6" y="14.7" width="327.8" height="150.8" rx="3.5" fill="#6cace4"/>
 <text class="ti" x="408.5" y="42.0" font-size="16" text-anchor="middle">osc_cfg</text>
 <text class="sb" x="408.5" y="56.5" font-size="9.5" text-anchor="middle">prj/MCA/modulos/osc/rtl/osc_cfg.sv</text>
 <text class="pr" x="351.8" y="79.0" font-size="10.5">MAGIC=32'h4F534331</text>
@@ -242,9 +231,8 @@
 <line class="sep" x1="243.9" y1="1131.5" x2="573.1" y2="1131.5"/>
 <ellipse class="bus" cx="597.5" cy="1173.5" rx="12.0" ry="17.5"/>
 <path class="brc" d="M679.0,1159.0 Q686.0,1159.0 686.0,1166.2 L686.0,1166.2 Q686.0,1173.5 690.2,1173.5 Q686.0,1173.5 686.0,1180.8 L686.0,1180.8 Q686.0,1188.0 679.0,1188.0"/>
-<text class="gp" x="692.0" y="1165.5" font-size="10" text-anchor="start">puente legacy hacia</text>
-<text class="gp" x="692.0" y="1177.5" font-size="10" text-anchor="start">multitrigger_cfg</text>
-<text class="gp" x="692.0" y="1189.5" font-size="10" text-anchor="start">(slot 3)</text>
+<text class="gp" x="692.0" y="1171.5" font-size="10" text-anchor="start">puente legacy hacia</text>
+<text class="gp" x="692.0" y="1183.5" font-size="10" text-anchor="start">mt_cfg (slot 3)</text>
 <line class="pin" x1="573.1" y1="1163.0" x2="631.1" y2="1163.0"/>
 <path class="arr" d="M624.1,1159.6 L631.1,1163.0 L624.1,1166.4 Z"/>
 <text class="wd" x="637.1" y="1166.4" font-size="9.5">[3:0]</text>
@@ -254,7 +242,7 @@
 <text class="wd" x="637.1" y="1187.4" font-size="9.5">[3:0]</text>
 <text class="nm" x="561.1" y="1188.0" font-size="12" text-anchor="end">legacy_trig_dis_clr_o</text>
 <circle class="dotm" cx="243.9" cy="1215.1" r="3.6"/>
-<text class="sb" x="252.9" y="1218.5" font-size="9.5">maestro: el módulo inicia las transacciones</text>
+<text class="lg" x="252.9" y="1218.5" font-size="9.5">maestro: el módulo inicia las transacciones</text>
 <circle class="dots" cx="520.0" cy="1215.1" r="3.6"/>
-<text class="sb" x="529.0" y="1218.5" font-size="9.5">esclavo: las recibe y contesta</text>
+<text class="lg" x="529.0" y="1218.5" font-size="9.5">esclavo: las recibe y contesta</text>
 </svg>

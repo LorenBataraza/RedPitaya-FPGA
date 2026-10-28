@@ -3,6 +3,7 @@
 <!-- Generado por `modulos/mk/datasheet.py`. Lo que está entre las marcas
      AUTO:x y /AUTO:x se REESCRIBE en cada corrida: editar ahí no sirve.
      Todo el resto es prosa a mano y no se toca.
+     La §1.1 «Qué hace» se escribe en prosa/event_slot_writer.md.
      Regenerar:  make -C modulos/event_ring/work datasheet              -->
 
 ## 1. Función y funcionamiento
@@ -65,10 +66,52 @@
 > mitad del slot dejaria basura indistinguible de un evento bueno.
 <!-- /AUTO:resumen -->
 
-<!-- A mano: qué problema resuelve el bloque, cómo encaja en la cadena y las
-     dos o tres decisiones de diseño que explican por qué está hecho así. -->
+<!-- AUTO:prosa -->
+<!-- Prosa a mano: se edita en prosa/event_slot_writer.md, no aca. -->
 
-**Qué hace.** TODO
+**Qué hace.** Serializa un evento a **un slot del anillo en DDR**: emite
+exactamente `2^(slot_shift−3)` palabras de 64 bits en orden de dirección
+creciente —cabecera, muestras intercaladas de los dos canales, relleno y
+footer— para que el generador lineal del `axi_wr_fifo` las coloque sin saltos.
+Es la última etapa del [`event_ring_top`](datasheet_event_ring_top.md).
+
+El formato completo, decodificado con el **mismo decodificador que usa el
+software en producción** (`ring_format.decode_slot`) sobre datos de una corrida
+real, está en
+[`event_ring_b_slot.png`](../event_ring/figuras/transacciones/event_ring_b_slot.png).
+
+**El footer es el commit, y eso reemplaza al `BRESP`.** El plan original decía
+«incrementar `wr_slot` recién con el `BRESP` del último burst». Es correcto e
+**inaplicable**: ni `axi_wr_fifo` ni `axi_master` exponen el canal B, así que
+no hay forma de observarlo sin tocar RTL compartido. La solución estándar de
+*descriptor ring* es mejor y además más barata: se escribe una **marca al
+final**. Todas las escrituras salen por un único master con un único ID hacia
+el mismo esclavo, y AXI garantiza que las escrituras con el mismo ID se
+observan en orden — así que si el PS ve el footer del slot *i* con el `seq`
+esperado, **todo lo que está antes del footer ya está en DDR**.
+
+Eso tiene una consecuencia que cambia el lazo caliente: **el PS no necesita
+leer ningún registro por GP0** para enterarse de que hay un evento nuevo.
+Poléa el footer del próximo slot directamente en DDR, que es más rápido que una
+lectura de registro (**2.3 µs**) y saca el bus GP0 del camino. `wr_slot_o`
+queda como diagnóstico, no como mecanismo.
+
+El footer lleva `{~seq, seq}`: una lectura rota o vieja se detecta comparando
+las dos mitades, sin depender de que el valor `0` sea especial.
+
+**Sin créditos el writer NO descarta: se frena.** La contrapresión sube a la
+stage y el descarte ocurre arriba de todo, en la captura, donde se puede tirar
+el evento **entero** y contarlo. Descartar a mitad del slot dejaría basura
+indistinguible de un evento bueno.
+
+> **Un detalle de reset que parece de más y no lo es.** `flush_i` vacía la FSM
+> y el dato en vuelo; `clr_cnt_i` resetea `wr_slot`/`seq`. Están **separados a
+> propósito**: `wr_slot` vive en pareja con el `rd_slot` que publica el PS, y
+> resetear uno solo deja la resta de créditos en underflow —ocupados ≈ 2³²— y
+> el ring descartando todo. Un stop/start no tiene por qué invalidar el anillo,
+> así que los contadores se reinician sólo cuando el PS lo pide explícitamente,
+> y ahí el top resetea los dos a la vez.
+<!-- /AUTO:prosa -->
 
 ### 1.2 Interfaces
 
@@ -180,7 +223,47 @@ y volver a generar esta página.
 <!-- A mano: qué hay en el camino crítico y qué se haría para romperlo si
      hubiera que subir la frecuencia. -->
 
-### 1.6 Waveforms
+### 1.6 Transacciones
+
+<!-- AUTO:transacciones -->
+**LA VENTANA QUE CONGELA EL TRIGGER**
+
+![LA VENTANA QUE CONGELA EL TRIGGER](../event_ring/figuras/transacciones/event_ring_a_ventana.png)
+
+Que entra al modulo. Un evento es una ventana de 512 muestras por canal --32 antes del disparo y 480 despues, 4.10 us en total a 125 MSPS-- congelada en el instante en que el canal 0 cruza el umbral de 1229 cuentas (0.15 V a 8192 cuentas/V). El cruce de subida cae en la muestra 31 y el pre-buffer mide 32: la figura no dibuja esa coincidencia, la MIDE sobre el dato, y es lo que confirma que la ventana esta alineada con el disparo. El pico llega 69 muestras despues del cruce, con 2420 cuentas. La banda gris de la izquierda es la historia que el pre-buffer ya tenia guardada cuando el trigger llego: sin ella el flanco de subida no estaria en el archivo.
+
+_Origen: campaña e2e, `software/datos/e2e_20260528_013404/principal/chunk_000000.npz`, evento 1._
+
+**UNA VENTANA, UN SLOT**
+
+![UNA VENTANA, UN SLOT](../event_ring/figuras/transacciones/event_ring_b_slot.png)
+
+Que viaja. La ventana cruza tres bloques --captura, cola elastica de 4 eventos en vuelo y serializador-- y sale por AXI HP0 como exactamente 512 palabras de 64 b, en orden de direccion creciente para que el generador lineal del axi_wr_fifo las coloque sin saltos. La tabla son las palabras de este evento concreto, no un ejemplo: cabecera de 32 B, 2048 B de muestras, 2008 B de relleno y 8 B de footer. El relleno existe porque el slot tiene que ser potencia de dos para que la direccion salga de un shift, asi que de los 4096 B del slot solo 50 % son muestras. El FOOTER vale {~seq, seq} y es la MARCA DE COMMIT: como todas las escrituras salen por un unico master con un unico ID, AXI garantiza que se observan en orden, asi que si el footer esta bien formado todo lo anterior ya llego a DDR. Por eso el PS no necesita leer ningun registro por GP0 para saber que hay un evento nuevo. Los rangos de bits exactos de cada campo estan en la cabecera de `event_slot_writer.sv`; aca va el valor, que es lo que la figura puede mostrar y el RTL no.
+
+_Origen: layout de `event_slot_writer.sv`, verificado con `software/API/modelo_rtl/ring_format.py`._
+
+**EL RING EN DDR**
+
+![EL RING EN DDR](../event_ring/figuras/transacciones/event_ring_c_ring.png)
+
+Que sale. Los slots forman una cola productor/consumidor en DDR: la PL avanza WR_SLOT al terminar de escribir y el PS avanza RD_SLOT al terminar de leer, y los dos son contadores LIBRES de 32 b --la resta cierra en modulo 2^32 aunque hayan dado la vuelta, que es exactamente lo que hace el comparador de creditos del RTL--. En el dibujo hay 4 slots ocupados. El rectangulo verde de cada slot lleno es el footer. La diferencia con el esquema anterior (K=1, tau = 252.7 us) es que aca la PL no espera a nadie: mientras queden creditos sigue capturando, y el tiempo muerto deja de depender de la latencia del lector. Es un esquema: la cantidad de slots del dibujo es ilustrativa, la real sale de RING_SZ / SLOT_SZ.
+
+_Origen: esquema; los créditos salen de `ring_format.credits_used()`._
+
+**LA TRANSACCION COMPLETA**
+
+![LA TRANSACCION COMPLETA](../event_ring/figuras/transacciones/event_ring_transaccion.png)
+
+Las tres preguntas en una imagen: que entra, que viaja y que sale. Es la que va al informe si entra una sola.
+
+_Origen: las tres anteriores, en una figura._
+
+---
+
+Las figuras **recalculan cada número al dibujar** en vez de tomarlo escrito. Las genera [`transacciones_event_ring.py`](../event_ring/figuras/transacciones/transacciones_event_ring.py); de dónde sale el dato de cada una está en la columna «Datos» de [`README.md`](../event_ring/figuras/transacciones/README.md); los epígrafes completos, en [`epigrafes.txt`](../event_ring/figuras/transacciones/epigrafes.txt).
+<!-- /AUTO:transacciones -->
+
+### 1.7 Waveforms
 
 <!-- AUTO:ondas -->
 _Sin figuras de ondas._ Se generan con un script en `docs/event_ring/figuras/ondas/`, que saca las ondas de un VCD de los testbenches del módulo; el patrón está en [`docs/figuras/ondas.py`](../figuras/ondas.py).
@@ -192,7 +275,7 @@ _Sin figuras de ondas._ Se generan con un script en `docs/event_ring/figuras/ond
        make -C modulos/event_ring/work wave TB=<tb>   # mirar en Questa
        make -C modulos/event_ring/work vcd  TB=<tb>   # VCD exportable -->
 
-### 1.7 Verificación realizada
+### 1.8 Verificación realizada
 
 <!-- AUTO:verificacion -->
 Todo corre en batch y se chequea el `RESULT: PASS` del testbench; las ondas quedan en `work/waves/<tb>.wlf`.

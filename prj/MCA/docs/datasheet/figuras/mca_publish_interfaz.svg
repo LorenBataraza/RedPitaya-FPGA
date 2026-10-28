@@ -1,0 +1,148 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="770" height="778" viewBox="0 0 770 778" font-family="&quot;Latin Modern Mono&quot;,&quot;CMU Typewriter Text&quot;,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
+<style>
+  .bg{fill:#ffffff}            .box{stroke:#000000;stroke-width:1.3}
+  .hdr{stroke:none}
+  .rule{stroke:#000000;stroke-width:1.0}
+  .sep{stroke:#8c8c8c;stroke-width:0.9;stroke-dasharray:4 3}
+  .pin{stroke:#000000;stroke-width:1.2;fill:none}
+  .arr{fill:#000000;stroke:none}
+  .nm{fill:#000000}            .wd{fill:#595959}
+  .gp{fill:#4d4d4d;font-style:italic;font-family:&quot;Latin Modern Roman&quot;,&quot;CMU Serif&quot;,&quot;Computer Modern Serif&quot;,Georgia,serif}
+  .ti{fill:#000000;font-weight:700} .sb{fill:#595959} .pr{fill:#262626}
+  .lg{fill:#4d4d4d;font-family:&quot;Latin Modern Roman&quot;,&quot;CMU Serif&quot;,&quot;Computer Modern Serif&quot;,Georgia,serif}
+  /* Tintes planos y no fill-opacity: hay renderers de SVG a PNG que ignoran la
+     opacidad y dejan la elipse maciza, tapando los cables que abarca. */
+  .brc{fill:none;stroke:#8c8c8c;stroke-width:1.2}
+  .bus {fill:#e2e2e2;stroke:#8c8c8c;stroke-width:1.0}
+  .busm{fill:#fdddbc;stroke:#000000;stroke-width:1.1}
+  .buss{fill:#f8c6c6;stroke:#000000;stroke-width:1.1}
+  .dotm{fill:#fccea0;stroke:#000000;stroke-width:1.1}
+  .dots{fill:#f08080;stroke:#000000;stroke-width:1.1}
+</style>
+<rect class="bg" x="0" y="0" width="770" height="778"/>
+<rect class="box" x="256.2" y="14.0" width="241.3" height="749.5" rx="4" fill="#d4f3dd"/>
+<rect class="hdr" x="256.9" y="14.7" width="239.9" height="150.8" rx="3.5" fill="#6ed68e"/>
+<text class="ti" x="376.9" y="42.0" font-size="16" text-anchor="middle">mca_publish</text>
+<text class="sb" x="376.9" y="56.5" font-size="9.5" text-anchor="middle">prj/MCA/modulos/mca/rtl/mca_publish.sv</text>
+<text class="pr" x="268.2" y="79.0" font-size="10.5">DW=14</text>
+<text class="pr" x="268.2" y="93.5" font-size="10.5">QW=32</text>
+<text class="pr" x="268.2" y="108.0" font-size="10.5">AMP_W=16</text>
+<text class="pr" x="268.2" y="122.5" font-size="10.5">PSD_AW=6</text>
+<text class="pr" x="268.2" y="137.0" font-size="10.5">DIV_W=16</text>
+<text class="pr" x="268.2" y="151.5" font-size="10.5">NFEAT=16</text>
+<text class="pr" x="340.6" y="79.0" font-size="10.5">LEN_W=16</text>
+<text class="pr" x="340.6" y="93.5" font-size="10.5">EN_PSD=1</text>
+<text class="pr" x="340.6" y="108.0" font-size="10.5">PUB_K=2</text>
+<text class="pr" x="340.6" y="122.5" font-size="10.5">PUB_IDW=16</text>
+<text class="pr" x="340.6" y="137.0" font-size="10.5">PUB_AW=(PUB_K &lt;= 2) ? …</text>
+<line class="rule" x1="256.2" y1="165.5" x2="497.5" y2="165.5"/>
+<ellipse class="bus" cx="231.8" cy="207.5" rx="12.0" ry="17.5"/>
+<path class="brc" d="M156.0,193.0 Q149.0,193.0 149.0,200.2 L149.0,200.2 Q149.0,207.5 144.8,207.5 Q149.0,207.5 149.0,214.8 L149.0,214.8 Q149.0,222.0 156.0,222.0"/>
+<text class="gp" x="143.0" y="211.5" font-size="10" text-anchor="end">reloj y reset</text>
+<line class="pin" x1="198.2" y1="197.0" x2="256.2" y2="197.0"/>
+<path class="arr" d="M249.2,193.6 L256.2,197.0 L249.2,200.4 Z"/>
+<text class="nm" x="268.2" y="201.0" font-size="12">clk_i</text>
+<line class="pin" x1="198.2" y1="218.0" x2="256.2" y2="218.0"/>
+<path class="arr" d="M249.2,214.6 L256.2,218.0 L249.2,221.4 Z"/>
+<text class="nm" x="268.2" y="222.0" font-size="12">rstn_i</text>
+<line class="sep" x1="256.2" y1="228.5" x2="497.5" y2="228.5"/>
+<ellipse class="bus" cx="231.8" cy="260.0" rx="12.0" ry="9.0"/>
+<line class="pin" x1="198.2" y1="260.0" x2="256.2" y2="260.0"/>
+<path class="arr" d="M249.2,256.6 L256.2,260.0 L249.2,263.4 Z"/>
+<text class="nm" x="268.2" y="264.0" font-size="12">cnt_clr_i</text>
+<line class="sep" x1="256.2" y1="270.5" x2="497.5" y2="270.5"/>
+<ellipse class="bus" cx="231.8" cy="386.0" rx="12.0" ry="91.0"/>
+<path class="brc" d="M156.0,298.0 Q149.0,298.0 149.0,306.0 L149.0,378.0 Q149.0,386.0 144.8,386.0 Q149.0,386.0 149.0,394.0 L149.0,466.0 Q149.0,474.0 156.0,474.0"/>
+<text class="gp" x="143.0" y="372.0" font-size="10" text-anchor="end">la ventana que</text>
+<text class="gp" x="143.0" y="384.0" font-size="10" text-anchor="end">cierra ACEPTADA</text>
+<text class="gp" x="143.0" y="396.0" font-size="10" text-anchor="end">(pulso de 1 ciclo) y</text>
+<text class="gp" x="143.0" y="408.0" font-size="10" text-anchor="end">sus valores vivos</text>
+<line class="pin" x1="198.2" y1="302.0" x2="256.2" y2="302.0"/>
+<path class="arr" d="M249.2,298.6 L256.2,302.0 L249.2,305.4 Z"/>
+<text class="nm" x="268.2" y="306.0" font-size="12">acepta_i</text>
+<line class="pin" x1="198.2" y1="323.0" x2="256.2" y2="323.0"/>
+<path class="arr" d="M249.2,319.6 L256.2,323.0 L249.2,326.4 Z"/>
+<text class="wd" x="192.2" y="326.4" font-size="9.5" text-anchor="end">[15:0]</text>
+<text class="nm" x="268.2" y="327.0" font-size="12">amp_sel_i</text>
+<line class="pin" x1="198.2" y1="344.0" x2="256.2" y2="344.0"/>
+<path class="arr" d="M249.2,340.6 L256.2,344.0 L249.2,347.4 Z"/>
+<text class="wd" x="192.2" y="347.4" font-size="9.5" text-anchor="end">[15:0]</text>
+<text class="nm" x="268.2" y="348.0" font-size="12">amp_int_i</text>
+<line class="pin" x1="198.2" y1="365.0" x2="256.2" y2="365.0"/>
+<path class="arr" d="M249.2,361.6 L256.2,365.0 L249.2,368.4 Z"/>
+<text class="wd" x="192.2" y="368.4" font-size="9.5" text-anchor="end">[13:0]</text>
+<text class="nm" x="268.2" y="369.0" font-size="12">peak_i</text>
+<line class="pin" x1="198.2" y1="386.0" x2="256.2" y2="386.0"/>
+<path class="arr" d="M249.2,382.6 L256.2,386.0 L249.2,389.4 Z"/>
+<text class="wd" x="192.2" y="389.4" font-size="9.5" text-anchor="end">[15:0]</text>
+<text class="nm" x="268.2" y="390.0" font-size="12">len_i</text>
+<line class="pin" x1="198.2" y1="407.0" x2="256.2" y2="407.0"/>
+<path class="arr" d="M249.2,403.6 L256.2,407.0 L249.2,410.4 Z"/>
+<text class="wd" x="192.2" y="410.4" font-size="9.5" text-anchor="end">[15:0]</text>
+<text class="nm" x="268.2" y="411.0" font-size="12">t_peak_i</text>
+<line class="pin" x1="198.2" y1="428.0" x2="256.2" y2="428.0"/>
+<path class="arr" d="M249.2,424.6 L256.2,428.0 L249.2,431.4 Z"/>
+<text class="wd" x="192.2" y="431.4" font-size="9.5" text-anchor="end">[31:0]</text>
+<text class="nm" x="268.2" y="432.0" font-size="12">q_tot_i</text>
+<line class="pin" x1="198.2" y1="449.0" x2="256.2" y2="449.0"/>
+<path class="arr" d="M249.2,445.6 L256.2,449.0 L249.2,452.4 Z"/>
+<text class="wd" x="192.2" y="452.4" font-size="9.5" text-anchor="end">[31:0]</text>
+<text class="nm" x="268.2" y="453.0" font-size="12">q_tail_i</text>
+<line class="pin" x1="198.2" y1="470.0" x2="256.2" y2="470.0"/>
+<path class="arr" d="M249.2,466.6 L256.2,470.0 L249.2,473.4 Z"/>
+<text class="wd" x="192.2" y="473.4" font-size="9.5" text-anchor="end">[15:0]</text>
+<text class="nm" x="268.2" y="474.0" font-size="12">win_id_i</text>
+<line class="sep" x1="256.2" y1="480.5" x2="497.5" y2="480.5"/>
+<ellipse class="bus" cx="521.9" cy="533.0" rx="12.0" ry="28.0"/>
+<path class="brc" d="M620.5,508.0 Q627.5,508.0 627.5,516.0 L627.5,525.0 Q627.5,533.0 631.7,533.0 Q627.5,533.0 627.5,541.0 L627.5,550.0 Q627.5,558.0 620.5,558.0"/>
+<text class="gp" x="633.5" y="519.0" font-size="10" text-anchor="start">estado del arbitro,</text>
+<text class="gp" x="633.5" y="531.0" font-size="10" text-anchor="start">hacia la ventana y</text>
+<text class="gp" x="633.5" y="543.0" font-size="10" text-anchor="start">el banco de</text>
+<text class="gp" x="633.5" y="555.0" font-size="10" text-anchor="start">registros</text>
+<line class="pin" x1="497.5" y1="512.0" x2="555.5" y2="512.0"/>
+<path class="arr" d="M548.5,508.6 L555.5,512.0 L548.5,515.4 Z"/>
+<text class="wd" x="561.5" y="515.4" font-size="9.5">[PUB_AW:0]</text>
+<text class="nm" x="485.5" y="516.0" font-size="12" text-anchor="end">pub_occ_o</text>
+<line class="pin" x1="497.5" y1="533.0" x2="555.5" y2="533.0"/>
+<path class="arr" d="M548.5,529.6 L555.5,533.0 L548.5,536.4 Z"/>
+<text class="wd" x="561.5" y="536.4" font-size="9.5">[PUB_AW:0]</text>
+<text class="nm" x="485.5" y="537.0" font-size="12" text-anchor="end">pub_occ_max_o</text>
+<line class="pin" x1="497.5" y1="554.0" x2="555.5" y2="554.0"/>
+<path class="arr" d="M548.5,550.6 L555.5,554.0 L548.5,557.4 Z"/>
+<text class="nm" x="485.5" y="558.0" font-size="12" text-anchor="end">pub_done_o</text>
+<line class="sep" x1="256.2" y1="564.5" x2="497.5" y2="564.5"/>
+<ellipse class="bus" cx="521.9" cy="669.5" rx="12.0" ry="80.5"/>
+<path class="brc" d="M620.5,592.0 Q627.5,592.0 627.5,600.0 L627.5,661.5 Q627.5,669.5 631.7,669.5 Q627.5,669.5 627.5,677.5 L627.5,739.0 Q627.5,747.0 620.5,747.0"/>
+<text class="gp" x="633.5" y="667.5" font-size="10" text-anchor="start">evento de salida</text>
+<text class="gp" x="633.5" y="679.5" font-size="10" text-anchor="start">(pulso de 1 ciclo)</text>
+<line class="pin" x1="497.5" y1="596.0" x2="555.5" y2="596.0"/>
+<path class="arr" d="M548.5,592.6 L555.5,596.0 L548.5,599.4 Z"/>
+<text class="nm" x="485.5" y="600.0" font-size="12" text-anchor="end">ev_valid_o</text>
+<line class="pin" x1="497.5" y1="617.0" x2="555.5" y2="617.0"/>
+<path class="arr" d="M548.5,613.6 L555.5,617.0 L548.5,620.4 Z"/>
+<text class="wd" x="561.5" y="620.4" font-size="9.5">[15:0]</text>
+<text class="nm" x="485.5" y="621.0" font-size="12" text-anchor="end">ev_amp_o</text>
+<line class="pin" x1="497.5" y1="638.0" x2="555.5" y2="638.0"/>
+<path class="arr" d="M548.5,634.6 L555.5,638.0 L548.5,641.4 Z"/>
+<text class="wd" x="561.5" y="641.4" font-size="9.5">[5:0]</text>
+<text class="nm" x="485.5" y="642.0" font-size="12" text-anchor="end">ev_psd_o</text>
+<line class="pin" x1="497.5" y1="659.0" x2="555.5" y2="659.0"/>
+<path class="arr" d="M548.5,655.6 L555.5,659.0 L548.5,662.4 Z"/>
+<text class="nm" x="485.5" y="663.0" font-size="12" text-anchor="end">ev_psd_ok_o</text>
+<line class="pin" x1="497.5" y1="680.0" x2="555.5" y2="680.0"/>
+<path class="arr" d="M548.5,676.6 L555.5,680.0 L548.5,683.4 Z"/>
+<text class="wd" x="561.5" y="683.4" font-size="9.5">[255:0]</text>
+<text class="nm" x="485.5" y="684.0" font-size="12" text-anchor="end">ev_feat_o</text>
+<line class="pin" x1="497.5" y1="701.0" x2="555.5" y2="701.0"/>
+<path class="arr" d="M548.5,697.6 L555.5,701.0 L548.5,704.4 Z"/>
+<text class="wd" x="561.5" y="704.4" font-size="9.5">[31:0]</text>
+<text class="nm" x="485.5" y="705.0" font-size="12" text-anchor="end">cnt_accepted_o</text>
+<line class="pin" x1="497.5" y1="722.0" x2="555.5" y2="722.0"/>
+<path class="arr" d="M548.5,718.6 L555.5,722.0 L548.5,725.4 Z"/>
+<text class="wd" x="561.5" y="725.4" font-size="9.5">[31:0]</text>
+<text class="nm" x="485.5" y="726.0" font-size="12" text-anchor="end">cnt_rej_psd_o</text>
+<line class="pin" x1="497.5" y1="743.0" x2="555.5" y2="743.0"/>
+<path class="arr" d="M548.5,739.6 L555.5,743.0 L548.5,746.4 Z"/>
+<text class="wd" x="561.5" y="746.4" font-size="9.5">[15:0]</text>
+<text class="nm" x="485.5" y="747.0" font-size="12" text-anchor="end">last_win_id_o</text>
+</svg>

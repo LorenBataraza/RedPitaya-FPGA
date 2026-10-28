@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="765" height="461" viewBox="0 0 765 461" font-family="&quot;Latin Modern Mono&quot;,&quot;CMU Typewriter Text&quot;,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
+<style>
+  .bg{fill:#ffffff}            .box{stroke:#000000;stroke-width:1.3}
+  .hdr{stroke:none}
+  .rule{stroke:#000000;stroke-width:1.0}
+  .sep{stroke:#8c8c8c;stroke-width:0.9;stroke-dasharray:4 3}
+  .pin{stroke:#000000;stroke-width:1.2;fill:none}
+  .arr{fill:#000000;stroke:none}
+  .nm{fill:#000000}            .wd{fill:#595959}
+  .gp{fill:#4d4d4d;font-style:italic;font-family:&quot;Latin Modern Roman&quot;,&quot;CMU Serif&quot;,&quot;Computer Modern Serif&quot;,Georgia,serif}
+  .ti{fill:#000000;font-weight:700} .sb{fill:#595959} .pr{fill:#262626}
+  .lg{fill:#4d4d4d;font-family:&quot;Latin Modern Roman&quot;,&quot;CMU Serif&quot;,&quot;Computer Modern Serif&quot;,Georgia,serif}
+  /* Tintes planos y no fill-opacity: hay renderers de SVG a PNG que ignoran la
+     opacidad y dejan la elipse maciza, tapando los cables que abarca. */
+  .brc{fill:none;stroke:#8c8c8c;stroke-width:1.2}
+  .bus {fill:#e2e2e2;stroke:#8c8c8c;stroke-width:1.0}
+  .busm{fill:#fdddbc;stroke:#000000;stroke-width:1.1}
+  .buss{fill:#f8c6c6;stroke:#000000;stroke-width:1.1}
+  .dotm{fill:#fccea0;stroke:#000000;stroke-width:1.1}
+  .dots{fill:#f08080;stroke:#000000;stroke-width:1.1}
+</style>
+<rect class="bg" x="0" y="0" width="765" height="461"/>
+<rect class="box" x="232.2" y="14.0" width="300.4" height="433.0" rx="4" fill="#d4f3dd"/>
+<rect class="hdr" x="232.9" y="14.7" width="299.0" height="107.3" rx="3.5" fill="#6ed68e"/>
+<text class="ti" x="382.4" y="42.0" font-size="16" text-anchor="middle">mca_baseline</text>
+<text class="sb" x="382.4" y="56.5" font-size="9.5" text-anchor="middle">prj/MCA/modulos/mca/rtl/mca_baseline.sv</text>
+<text class="pr" x="357.2" y="79.0" font-size="10.5">DW=14</text>
+<text class="pr" x="357.2" y="93.5" font-size="10.5">LEN_W=16</text>
+<text class="pr" x="357.2" y="108.0" font-size="10.5">BL_KW=4</text>
+<line class="rule" x1="232.2" y1="122.0" x2="532.6" y2="122.0"/>
+<ellipse class="bus" cx="207.8" cy="164.0" rx="12.0" ry="17.5"/>
+<path class="brc" d="M132.0,149.5 Q125.0,149.5 125.0,156.8 L125.0,156.8 Q125.0,164.0 120.8,164.0 Q125.0,164.0 125.0,171.2 L125.0,171.2 Q125.0,178.5 132.0,178.5"/>
+<text class="gp" x="119.0" y="168.0" font-size="10" text-anchor="end">reloj y reset</text>
+<line class="pin" x1="174.2" y1="153.5" x2="232.2" y2="153.5"/>
+<path class="arr" d="M225.2,150.1 L232.2,153.5 L225.2,156.9 Z"/>
+<text class="nm" x="244.2" y="157.5" font-size="12">clk_i</text>
+<line class="pin" x1="174.2" y1="174.5" x2="232.2" y2="174.5"/>
+<path class="arr" d="M225.2,171.1 L232.2,174.5 L225.2,177.9 Z"/>
+<text class="nm" x="244.2" y="178.5" font-size="12">rstn_i</text>
+<line class="sep" x1="232.2" y1="185.0" x2="532.6" y2="185.0"/>
+<ellipse class="bus" cx="207.8" cy="227.0" rx="12.0" ry="17.5"/>
+<line class="pin" x1="174.2" y1="216.5" x2="232.2" y2="216.5"/>
+<path class="arr" d="M225.2,213.1 L232.2,216.5 L225.2,219.9 Z"/>
+<text class="wd" x="168.2" y="219.9" font-size="9.5" text-anchor="end">[13:0]</text>
+<text class="nm" x="244.2" y="220.5" font-size="12">dat_i</text>
+<line class="pin" x1="174.2" y1="237.5" x2="232.2" y2="237.5"/>
+<path class="arr" d="M225.2,234.1 L232.2,237.5 L225.2,240.9 Z"/>
+<text class="nm" x="244.2" y="241.5" font-size="12">val_i</text>
+<line class="sep" x1="232.2" y1="248.0" x2="532.6" y2="248.0"/>
+<ellipse class="bus" cx="207.8" cy="311.0" rx="12.0" ry="38.5"/>
+<path class="brc" d="M132.0,275.5 Q125.0,275.5 125.0,283.5 L125.0,303.0 Q125.0,311.0 120.8,311.0 Q125.0,311.0 125.0,319.0 L125.0,338.5 Q125.0,346.5 132.0,346.5"/>
+<text class="gp" x="119.0" y="315.0" font-size="10" text-anchor="end">configuración</text>
+<line class="pin" x1="174.2" y1="279.5" x2="232.2" y2="279.5"/>
+<path class="arr" d="M225.2,276.1 L232.2,279.5 L225.2,282.9 Z"/>
+<text class="wd" x="168.2" y="282.9" font-size="9.5" text-anchor="end">[13:0]</text>
+<text class="nm" x="244.2" y="283.5" font-size="12">cfg_baseline_i</text>
+<line class="pin" x1="174.2" y1="300.5" x2="232.2" y2="300.5"/>
+<path class="arr" d="M225.2,297.1 L232.2,300.5 L225.2,303.9 Z"/>
+<text class="nm" x="244.2" y="304.5" font-size="12">cfg_bl_auto_i</text>
+<line class="pin" x1="174.2" y1="321.5" x2="232.2" y2="321.5"/>
+<path class="arr" d="M225.2,318.1 L232.2,321.5 L225.2,324.9 Z"/>
+<text class="wd" x="168.2" y="324.9" font-size="9.5" text-anchor="end">[3:0]</text>
+<text class="nm" x="244.2" y="325.5" font-size="12">cfg_bl_k_i</text>
+<line class="pin" x1="174.2" y1="342.5" x2="232.2" y2="342.5"/>
+<path class="arr" d="M225.2,339.1 L232.2,342.5 L225.2,345.9 Z"/>
+<text class="wd" x="168.2" y="345.9" font-size="9.5" text-anchor="end">[15:0]</text>
+<text class="nm" x="244.2" y="346.5" font-size="12">cfg_bl_holdoff_i</text>
+<line class="sep" x1="232.2" y1="353.0" x2="532.6" y2="353.0"/>
+<ellipse class="bus" cx="207.8" cy="405.5" rx="12.0" ry="28.0"/>
+<path class="brc" d="M132.0,380.5 Q125.0,380.5 125.0,388.5 L125.0,397.5 Q125.0,405.5 120.8,405.5 Q125.0,405.5 125.0,413.5 L125.0,422.5 Q125.0,430.5 132.0,430.5"/>
+<text class="gp" x="119.0" y="409.5" font-size="10" text-anchor="end">desde la ventana</text>
+<ellipse class="bus" cx="557.0" cy="395.0" rx="12.0" ry="17.5"/>
+<path class="brc" d="M632.8,380.5 Q639.8,380.5 639.8,387.8 L639.8,387.8 Q639.8,395.0 644.0,395.0 Q639.8,395.0 639.8,402.2 L639.8,402.2 Q639.8,409.5 632.8,409.5"/>
+<text class="gp" x="645.8" y="399.0" font-size="10" text-anchor="start">desde la ventana</text>
+<line class="pin" x1="174.2" y1="384.5" x2="232.2" y2="384.5"/>
+<path class="arr" d="M225.2,381.1 L232.2,384.5 L225.2,387.9 Z"/>
+<text class="nm" x="244.2" y="388.5" font-size="12">track_i</text>
+<line class="pin" x1="174.2" y1="405.5" x2="232.2" y2="405.5"/>
+<path class="arr" d="M225.2,402.1 L232.2,405.5 L225.2,408.9 Z"/>
+<text class="nm" x="244.2" y="409.5" font-size="12">hold_load_i</text>
+<line class="pin" x1="174.2" y1="426.5" x2="232.2" y2="426.5"/>
+<path class="arr" d="M225.2,423.1 L232.2,426.5 L225.2,429.9 Z"/>
+<text class="nm" x="244.2" y="430.5" font-size="12">stale_set_i</text>
+<line class="pin" x1="532.6" y1="384.5" x2="590.6" y2="384.5"/>
+<path class="arr" d="M583.6,381.1 L590.6,384.5 L583.6,387.9 Z"/>
+<text class="wd" x="596.6" y="387.9" font-size="9.5">[13:0]</text>
+<text class="nm" x="520.6" y="388.5" font-size="12" text-anchor="end">baseline_o</text>
+<line class="pin" x1="532.6" y1="405.5" x2="590.6" y2="405.5"/>
+<path class="arr" d="M583.6,402.1 L590.6,405.5 L583.6,408.9 Z"/>
+<text class="nm" x="520.6" y="409.5" font-size="12" text-anchor="end">baseline_stale_o</text>
+</svg>

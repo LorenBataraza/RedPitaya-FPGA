@@ -1,9 +1,10 @@
-# Datasheet — `multitrigger_rp_scope_cfg`
+# Datasheet — `mt_rp_scope_cfg`
 
 <!-- Generado por `modulos/mk/datasheet.py`. Lo que está entre las marcas
      AUTO:x y /AUTO:x se REESCRIBE en cada corrida: editar ahí no sirve.
      Todo el resto es prosa a mano y no se toca.
-     Regenerar:  make -C modulos/multitrigger/work datasheet              -->
+     La §1.1 «Qué hace» se escribe en prosa/mt_rp_scope_cfg.md.
+     Regenerar:  make -C modulos/mt/work datasheet              -->
 
 ## 1. Función y funcionamiento
 
@@ -12,19 +13,57 @@
 <!-- AUTO:resumen -->
 |  |  |
 |---|---|
-| Módulo RTL | `multitrigger_rp_scope_cfg` |
-| Archivo | [`multitrigger_rp_scope_cfg.sv`](../../modulos/multitrigger/rtl/multitrigger_rp_scope_cfg.sv) |
+| Módulo RTL | `mt_rp_scope_cfg` |
+| Archivo | [`mt_rp_scope_cfg.sv`](../../modulos/osc/rtl/mt_rp_scope_cfg.sv) |
 | Parámetros | 4 |
 | Puertos | 57 (23 in / 34 out) |
+| Parte | `xc7z010clg400-1` |
 
 
-![Interfaz de multitrigger_rp_scope_cfg](figuras/multitrigger_rp_scope_cfg_interfaz.svg)
+![Interfaz de mt_rp_scope_cfg](figuras/mt_rp_scope_cfg_interfaz.svg)
 <!-- /AUTO:resumen -->
 
-<!-- A mano: qué problema resuelve el bloque, cómo encaja en la cadena y las
-     dos o tres decisiones de diseño que explican por qué está hecho así. -->
+<!-- AUTO:prosa -->
+<!-- Prosa a mano: se edita en prosa/mt_rp_scope_cfg.md, no aca. -->
 
-**Qué hace.** TODO
+> **Este bloque ya no se instancia en ningún top.** Está en el repo como
+> referencia del diseño anterior a la separación en regiones, y esta página
+> existe para que el lector que lo encuentre sepa en un renglón por qué no
+> tiene que tocarlo. Su reemplazo son **dos** esclavos con slot propio:
+> [`osc_cfg`](datasheet_osc_cfg.md) (slot 1) y
+> [`mt_cfg`](datasheet_mt_cfg.md) (slot 3).
+
+**Qué hace.** Es el esclavo de registros del scope en su forma **monolítica**:
+el `rp_scope_cfg` de Red Pitaya con los registros del multitrigger agregados
+adentro —la máscara de fuentes de 32 b por canal en `0x240 + 4·ch` y la
+configuración del escudo en `0x210`—, y con un
+[`trigger_shield`](datasheet_trigger_shield.md) instanciado en su cuerpo. El
+resto del mapa es idéntico al original.
+
+Por qué se partió: tener la configuración del scope y la del multitrigger en el
+mismo esclavo hacía que **cualquier** registro nuevo del multitrigger tuviera
+que entrar en la ventana de direcciones del slot 1, que es la que `librp`
+escribe con offsets fijos. Separar en slots deja crecer el multitrigger sin
+tocar el mapa que el software cerrado ya usa, y el mapa histórico está
+documentado en
+[`register_map_mt_rp_scope_cfg.md`](../osc/register_map_mt_rp_scope_cfg.md).
+
+**El bug que la separación arregló —y que acá sigue estando.** Las aperturas de
+BRAM sacan su `sys_ack` de `bram_ack_i[i]`, y
+[`rp_scope_mt_com`](datasheet_rp_scope_mt_com.md) ata
+`bram_ack[2]` y `bram_ack[3]` a cero para los canales que no se construyen:
+cualquier lectura en `0x4013_0000`–`0x4014_FFFF` **no hacía ack nunca** y
+dejaba el CDC del slot desincronizado, o sea el slot muerto hasta el próximo
+reset (ver [`bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) §7.1).
+En `osc_cfg` el ack sale de un shift register incondicional, a los 4 ciclos y
+para cualquier dirección; para los canales que sí existen el timing es
+**idéntico**, porque `rp_acq_bram` ya generaba su ack como `sys_en` retrasado 4
+ciclos. Se arregla el cuelgue sin cambiar una sola lectura buena.
+
+Se conserva sin corregir a propósito: es el estado de las cosas contra el que
+se compara, y tocarlo haría perder la referencia sin ganar nada — no está en
+ningún bitstream.
+<!-- /AUTO:prosa -->
 
 ### 1.2 Interfaces
 
@@ -125,10 +164,10 @@
 ### 1.3 Mapa de registros
 
 <!-- AUTO:regmap -->
-`multitrigger_rp_scope_cfg` es esclavo del bus de sistema (`sys_addr`, `sys_wdata`, `sys_wen`, `sys_ren`, `sys_rdata`, `sys_err`, `sys_ack`). El mapa completo está en:
+`mt_rp_scope_cfg` es esclavo del bus de sistema (`sys_addr`, `sys_wdata`, `sys_wen`, `sys_ren`, `sys_rdata`, `sys_err`, `sys_ack`). El mapa completo está en:
 
-- [`register_map_multitrigger.md`](../multitrigger/register_map_multitrigger.md)
-- [`register_map_multitrigger_rp_scope_cfg.md`](../multitrigger/register_map_multitrigger_rp_scope_cfg.md)
+- [`register_map_mt_rp_scope_cfg.md`](../osc/register_map_mt_rp_scope_cfg.md)
+- [`register_map_osc.md`](../osc/register_map_osc.md)
 
 Contrato del bus: [`bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) · Mapa de slots: [`register_map_top.md`](../TOP/register_map_top.md)
 <!-- /AUTO:regmap -->
@@ -151,100 +190,122 @@ Contrato del bus: [`bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) 
 ### 1.5 Frecuencia máxima de trabajo
 
 <!-- AUTO:timing -->
-Sin datos de síntesis todavía. Correr:
-
-```bash
-make -C modulos/multitrigger/work syn
-make -C modulos/multitrigger/work sweep-all
-```
-
-y volver a generar esta página.
+El `metrics.txt` del módulo es de `osc_cfg`, no de `mt_rp_scope_cfg`: la síntesis OOC del módulo apunta a otro top, así que acá no hay números propios de este bloque.
 <!-- /AUTO:timing -->
 
 <!-- A mano: qué hay en el camino crítico y qué se haría para romperlo si
      hubiera que subir la frecuencia. -->
 
-### 1.6 Waveforms
+### 1.6 Transacciones
 
-<!-- AUTO:ondas -->
-**LAS TRES FORMAS DEL VETO AL MCA  -  nivel / nivel con cola / ventana por flanco**
+<!-- AUTO:transacciones -->
+**LO QUE ENTRA: UN IMPULSO**
 
-![LAS TRES FORMAS DEL VETO AL MCA  -  nivel / nivel con cola / ventana por flanco](../multitrigger/figuras/ondas/mt_veto_tres_formas.svg)
+![LO QUE ENTRA: UN IMPULSO](../osc/figuras/transacciones/osc_a_impulso.png)
 
-El mismo bloque da tres vetos distintos segun como se lo configure, y la diferencia no esta en el RTL sino en que fuente se elige y que duracion se escribe. Con una fuente de NIVEL y dur=0 el veto es la linea con un ciclo de latencia: dura lo que dure la linea. Con la misma fuente y dur=8 el veto se extiende ocho ciclos despues de que la linea baje, que es lo que hace falta cuando el estimulo deja cola. Con una fuente de FLANCO y dur=12 el veto es una ventana fija de doce ciclos, sin importar cuanto dure el pulso. Los tres tramos vienen de escenas distintas del testbench y el hueco entre ellos dice que se salteo tiempo: no es una secuencia.
+Que entra. Una muestra de 4000 cuentas y el resto cero. Para un filtro lineal invariante eso no es un caso mas: la respuesta al impulso LO DESCRIBE ENTERO, asi que las dos curvas del panel (c) son la caracterizacion completa del bloque con cada juego de coeficientes. El flujo es de una muestra por ciclo de adc_clk (8 ns) y no hay handshake que lo pueda frenar: el `tready` existe en los puertos pero el dato llega igual, asi que lo que el bloque hace tiene que hacerlo en un ciclo.
 
-_Origen: `tb_trigger_shield`, escenas 4, 5 y 6._
+_Origen: `tb_osc_filter`, VCD completo._
 
-**HOLDOFF Y RE-ARM  -  el escudo cuenta y al expirar limpia el canal de destino**
+**EL BLOQUE, Y EL MODELO QUE CORRE AL LADO**
 
-![HOLDOFF Y RE-ARM  -  el escudo cuenta y al expirar limpia el canal de destino](../multitrigger/figuras/ondas/mt_holdoff_rearm.svg)
+![EL BLOQUE, Y EL MODELO QUE CORRE AL LADO](../osc/figuras/transacciones/osc_b_cadena.png)
 
-Lo que el escudo hace de verdad: cuando el canal fuente dispara, arranca un contador y mantiene `active` mientras cuenta; al expirar emite UN pulso de clear en el canal de destino, que es lo que lo vuelve a armar. Importa que el clear salga al EXPIRAR y no al disparar: si saliera al disparar, el canal de destino se re-armaria en medio del evento que el escudo esta tratando de protegerlo.
+Que viaja. El bloque es una compensacion polo-cero, dos IIR de primer orden y una etapa de escalado, con cuatro coeficientes configurables. Lo que esta figura agrega a un diagrama de bloques es el segundo camino: el testbench instancia AL LADO del DUT una copia congelada del filtro anterior al rediseno (`osc_filter_ref.v`) y le da el mismo flujo. No se comparan resumenes ni metricas: se comparan las dos salidas muestra por muestra.
 
-_Origen: `tb_trigger_shield`, escena 2._
+_Origen: `osc_filter.v` y `sim/osc_filter_ref.v`._
 
-**DISPARO SINGLE-SHOT  -  el flanco dispara, engancha el disable y la mascara se auto-limpia**
+**LO QUE SALE: EL MISMO IMPULSO, DOS FILTROS**
 
-![DISPARO SINGLE-SHOT  -  el flanco dispara, engancha el disable y la mascara se auto-limpia](../multitrigger/figuras/ondas/mt_trig_src_enganche.svg)
+![LO QUE SALE: EL MISMO IMPULSO, DOS FILTROS](../osc/figuras/transacciones/osc_c_respuesta.png)
 
-El flanco de la fuente habilitada dispara `adc_trig` y en el mismo movimiento engancha `adc_trg_dis`, que es lo que impide que el siguiente flanco vuelva a disparar. En modo single-shot la mascara se auto-limpia, asi que para volver a disparar hace falta reescribirla; en modo continuo la mascara persiste y basta con limpiar el disable. Esa es la unica diferencia entre los dos modos.
+Que sale, y es donde esta todo. Con los coeficientes de RESET la cadena queda transparente: el impulso de 4000 sale como una sola muestra de 3999 --o sea ganancia 0.99975, el error de redondeo de kk = 2^24-1 en vez de 2^24-- 8 ciclos despues. Con la compensacion POLO-CERO el mismo impulso sale como una exponencial que arranca en 3943 y tarda 99 ciclos en caer al 1 %: el filtro no recorta la cola, la FABRICA, porque esta pensado para cancelar la del detector --un cero donde el preamplificador pone su polo--. La latencia es la misma en los dos casos, 8 ciclos, porque el pipeline no depende de los coeficientes: lo MEDIDO es 8 y 8. Lo que si cambia es que con polo-cero el pico viene precedido por un precursor de hasta 118 cuentas que arranca 4 ciclos antes --el camino directo, que llega antes que las dos IIR--; es chico pero existe, y medir la latencia por la primera muestra no nula en vez de por el pico lo contaria como si la respuesta empezara ahi. Los circulos son `ref_out`: la salida del modelo congelado coincide con la del DUT en 460 de los 460 ciclos dibujados, o sea TODOS. Esa coincidencia es el contenido de la figura.
 
-_Origen: `tb_multitrigger_trig_src`, escena 1._
+_Origen: `tb_osc_filter`, escenas de coeficientes de reset y polo-cero._
 
-**FLUJO DE UTILIZACION  -  multitrigger_cfg**
+**LA TRANSACCION COMPLETA**
 
-![FLUJO DE UTILIZACION  -  multitrigger_cfg](../multitrigger/figuras/ondas/mt_flujo.svg)
+![LA TRANSACCION COMPLETA](../osc/figuras/transacciones/osc_transaccion.png)
 
-Es un esquema de la SECUENCIA, no una medicion. Lo que fija es el orden y una dependencia que no se ve en el mapa de registros: el disable queda ENGANCHADO despues del disparo, asi que sin escribir TRIG_DIS_CLR no hay segundo disparo. Un programa que configure, dispare y se quede esperando el proximo evento sin limpiar el disable espera para siempre.
+Las tres preguntas en una imagen: que entra, que viaja y que sale.
 
-_Origen: esquema (sin VCD)._
+_Origen: las tres anteriores, en una figura._
 
 ---
 
-Las figuras y sus epígrafes los escribe [`ondas_multitrigger.py`](../multitrigger/figuras/ondas/ondas_multitrigger.py): los tiempos y las latencias se **miden sobre el VCD**, no se escriben a mano, así que no pueden desincronizarse del RTL. Los epígrafes completos, con los números, están en [`epigrafes.txt`](../multitrigger/figuras/ondas/epigrafes.txt).
+Las figuras **recalculan cada número al dibujar** en vez de tomarlo escrito. Las genera [`transacciones_osc.py`](../osc/figuras/transacciones/transacciones_osc.py); de dónde sale el dato de cada una está en la columna «Datos» de [`README.md`](../osc/figuras/transacciones/README.md); los epígrafes completos, en [`epigrafes.txt`](../osc/figuras/transacciones/epigrafes.txt).
+<!-- /AUTO:transacciones -->
+
+### 1.7 Waveforms
+
+<!-- AUTO:ondas -->
+**RESPUESTA AL IMPULSO  -  coeficientes de reset (la cadena es transparente), osc_filter vs osc_filter_ref**
+
+![RESPUESTA AL IMPULSO  -  coeficientes de reset (la cadena es transparente), osc_filter vs osc_filter_ref](../osc/figuras/ondas/osc_filter_impulso.svg)
+
+Los coeficientes de reset son los que usa el driver hoy, asi que es la configuracion que mas importa que no haya cambiado. Un impulso entra y sale UN solo impulso, del mismo tamano: con aa=bb=pp=0 y kk en 2^24-1 la cadena es transparente y lo unico que agrega es latencia, que es el numero que da esta figura. Las dos salidas se dibujan superpuestas a proposito: tb_osc_filter es un test de EQUIVALENCIA contra el filtro original del repo, asi que las filas de osc_filter y osc_filter_ref tienen que ser la misma onda columna por columna. Si en alguna se separan, el testbench esta fallando y la figura lo muestra.
+
+_Origen: `tb_osc_filter`, caso de coeficientes de reset._
+
+**RESPUESTA AL IMPULSO  -  compensacion polo-cero (aa=25000): la cola que compensa el preamplificador**
+
+![RESPUESTA AL IMPULSO  -  compensacion polo-cero (aa=25000): la cola que compensa el preamplificador](../osc/figuras/ondas/osc_filter_polocero.svg)
+
+La misma entrada que la figura anterior --un impulso-- con el lazo recursivo activo. Ahora la salida no es un impulso sino un pico seguido de una COLA que decae: eso es la compensacion polo-cero, que cancela la cola del preamplificador para que el pulso vuelva a la linea de base antes del siguiente. Es la parte del filtro que se rediseno, y la figura muestra que la cola entera --mas de veinte muestras-- coincide con la del filtro original muestra por muestra. Se dibuja el impulso y no un escalon porque con aa=25000 la constante de tiempo es de cientos de ciclos: un escalon no se asienta dentro de una ventana que se pueda mirar.
+
+_Origen: `tb_osc_filter`, caso de compensacion polo-cero._
+
+**FLUJO DE UNA ADQUISICION  -  osc_cfg**
+
+![FLUJO DE UNA ADQUISICION  -  osc_cfg](../osc/figuras/ondas/osc_cfg_adquisicion.svg)
+
+Es un esquema de la SECUENCIA, no una medicion: no hay testbench de osc_cfg del que sacar las ondas (ver §1.7 de su datasheet, que lo marca como deuda de verificacion). Lo que la figura fija es el orden y las dependencias: la configuracion del filtro y del diezmado va ANTES del armado, porque cambiarla con el buffer llenandose mezcla muestras de dos configuraciones en la misma traza; y la lectura va despues de que el puntero deje de moverse, porque leer durante la captura devuelve una traza partida entre dos vueltas del buffer.
+
+_Origen: esquema (sin VCD: `osc_cfg` no tiene testbench)._
+
+---
+
+Las figuras y sus epígrafes los escribe [`ondas_osc.py`](../osc/figuras/ondas/ondas_osc.py): los tiempos y las latencias se **miden sobre el VCD**, no se escriben a mano, así que no pueden desincronizarse del RTL. Los epígrafes completos, con los números, están en [`epigrafes.txt`](../osc/figuras/ondas/epigrafes.txt).
 
 ```bash
-python3 docs/multitrigger/figuras/ondas/ondas_multitrigger.py    # regenerar
+python3 docs/osc/figuras/ondas/ondas_osc.py    # regenerar
 ```
 <!-- /AUTO:ondas -->
 
 <!-- A mano: lo que las figuras no pueden mostrar solas. Para agregar una,
-     editar docs/multitrigger/figuras/ondas/ondas_multitrigger.py: la onda
+     editar docs/mt/figuras/ondas/ondas_mt.py: la onda
      sale de un VCD de los testbenches y los tiempos los mide el script.
-       make -C modulos/multitrigger/work wave TB=<tb>   # mirar en Questa
-       make -C modulos/multitrigger/work vcd  TB=<tb>   # VCD exportable -->
+       make -C modulos/mt/work wave TB=<tb>   # mirar en Questa
+       make -C modulos/mt/work vcd  TB=<tb>   # VCD exportable -->
 
-### 1.7 Verificación realizada
+### 1.8 Verificación realizada
 
 <!-- AUTO:verificacion -->
 Todo corre en batch y se chequea el `RESULT: PASS` del testbench; las ondas quedan en `work/waves/<tb>.wlf`.
 
 ```bash
-make -C modulos/multitrigger/work            # los 4 testbenches
-make -C modulos/multitrigger/work cov        # + cobertura
-make -C modulos/multitrigger/work lint
+make -C modulos/osc/work            # el 1 testbench
+make -C modulos/osc/work cov        # + cobertura
+make -C modulos/osc/work lint
 ```
 
 | Testbench | DUT | Escenas | Casos | Contra qué compara | Es el de este módulo |
 |---|---|---|---|---|---|
-| [`tb_multitrigger_cfg`](../../modulos/multitrigger/sim/tb_multitrigger_cfg.sv) | `multitrigger_cfg` | 11 | 30 | vectores a mano |  |
-| [`tb_multitrigger_trig_src`](../../modulos/multitrigger/sim/tb_multitrigger_trig_src.sv) | `multitrigger_trig_src` | 5 | 8 | vectores a mano |  |
-| [`tb_multitrigger_event_logic`](../../modulos/multitrigger/sim/tb_multitrigger_event_logic.sv) | `multitrigger_event_logic` | 3 | 5 | vectores a mano |  |
-| [`tb_trigger_shield`](../../modulos/multitrigger/sim/tb_trigger_shield.sv) | `trigger_shield` | 8 | 19 | vectores a mano |  |
+| [`tb_osc_filter`](../../modulos/osc/sim/tb_osc_filter.sv) | `osc_filter` | 7 | 10 | RTL de referencia `osc_filter_ref.v` instanciado al lado del DUT |  |
 
 
-**62 casos con nombre** en 4 testbenches (27 escenas). La lista completa, caso por caso, está en el plan de verificación.
+**10 casos con nombre** en 1 testbench (7 escenas). La lista completa, caso por caso, está en el plan de verificación.
 
-> **`multitrigger_rp_scope_cfg` no tiene testbench propio.** Ningún `TBS` del `work/Makefile` lo instancia como DUT: lo que se verifica de este módulo es lo que arrastre el TB de otro. Es deuda de verificación, no una omisión de esta página.
+> **`mt_rp_scope_cfg` no tiene testbench propio.** Ningún `TBS` del `work/Makefile` lo instancia como DUT: lo que se verifica de este módulo es lo que arrastre el TB de otro. Es deuda de verificación, no una omisión de esta página.
 
 **Assertions** — en `sim/sva/`, enganchadas por `bind` (no tocan el RTL sintetizable).
 
-- [`bind_multitrigger.sv`](../../modulos/multitrigger/sim/sva/bind_multitrigger.sv)
-- [`multitrigger_cfg_sva.sv`](../../modulos/multitrigger/sim/sva/multitrigger_cfg_sva.sv)
+- [`bind_osc.sv`](../../modulos/osc/sim/sva/bind_osc.sv)
+- [`osc_cfg_sva.sv`](../../modulos/osc/sim/sva/osc_cfg_sva.sv)
 
 > **Los archivos de assertions están vacíos.** Son el scaffold de `create_module.py`: tienen el `bind`, el `default clocking` y un `// TODO:`, pero **ninguna propiedad**. O sea que hoy no aportan nada a la verificación; el enganche ya está hecho y lo que falta es escribirlas. Ver [`verificacion_formal.md`](../verificacion_formal.md), que discute cuáles convienen primero.
 
-Plan de verificación, casos cubiertos y deuda: [`multitrigger/sim/VERIFICACION.md`](../../modulos/multitrigger/sim/VERIFICACION.md).
+Plan de verificación, casos cubiertos y deuda: [`osc/sim/VERIFICACION.md`](../../modulos/osc/sim/VERIFICACION.md).
 <!-- /AUTO:verificacion -->
 
 #### Esquema de laboratorio

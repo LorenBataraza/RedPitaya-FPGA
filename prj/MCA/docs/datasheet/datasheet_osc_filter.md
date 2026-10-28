@@ -3,6 +3,7 @@
 <!-- Generado por `modulos/mk/datasheet.py`. Lo que está entre las marcas
      AUTO:x y /AUTO:x se REESCRIBE en cada corrida: editar ahí no sirve.
      Todo el resto es prosa a mano y no se toca.
+     La §1.1 «Qué hace» se escribe en prosa/osc_filter.md.
      Regenerar:  make -C modulos/osc/work datasheet              -->
 
 ## 1. Función y funcionamiento
@@ -22,10 +23,67 @@
 ![Interfaz de osc_filter](figuras/osc_filter_interfaz.svg)
 <!-- /AUTO:resumen -->
 
-<!-- A mano: qué problema resuelve el bloque, cómo encaja en la cadena y las
-     dos o tres decisiones de diseño que explican por qué está hecho así. -->
+<!-- AUTO:prosa -->
+<!-- Prosa a mano: se edita en prosa/osc_filter.md, no aca. -->
 
-**Qué hace.** TODO
+**Qué hace.** Es el **ecualizador** del camino de datos del osciloscopio: una
+compensación polo-cero de cuatro coeficientes (`aa`, `bb`, `kk`, `pp`), dos IIR
+de primer orden más una etapa de escalado, que procesa una muestra por ciclo de
+`adc_clk`. Va entre la calibración y la decimación, dentro de
+[`rp_scope_mt_com`](datasheet_rp_scope_mt_com.md), y su
+razón de ser es cancelar la cola del detector: poner un **cero donde el
+preamplificador pone su polo**.
+
+Lo que el filtro hace está medido, no descrito: su respuesta al impulso lo
+caracteriza entero, y es lo que dibuja
+[`osc_c_respuesta.png`](../osc/figuras/transacciones/osc_c_respuesta.png).
+
+| Coeficientes | Qué sale de un impulso de 4000 cuentas |
+|---|---|
+| los de **reset** | una sola muestra de 3999 — ganancia 0.99975, que es el redondeo de `kk = 2^24−1` en vez de `2^24` |
+| **polo-cero** | una exponencial que arranca en 3943 y tarda 99 ciclos en caer al 1 % |
+
+La latencia medida es **8 ciclos en los dos casos**: el pipeline no depende de
+los coeficientes. Con polo-cero el pico viene precedido por un precursor de
+hasta 118 cuentas que arranca 4 ciclos antes —el camino directo llega antes que
+las dos IIR—, así que medir la latencia por la primera muestra no nula daría 4
+y sería una lectura equivocada del mismo dato.
+
+**Tres cosas que conviene saber antes de usarlo.**
+
+- **No está en el bitstream del MCA.** El lazo IIR no cierra timing a 125 MHz y
+  es lo que fijaba el camino crítico del diseño, así que los tops del MCA y del
+  anillo de eventos lo instancian con `EN_FILT = 0`, que lo saca del camino de
+  datos; sólo el top de fábrica
+  ([`red_pitaya_top.sv`](../../rtl/mine/tops/red_pitaya_top.sv)) lo compila
+  dentro. Con `EN_FILT = 0` la señal calibrada pasa directo y **también
+  desaparecen los ~5 ciclos de latencia del filtro**, pero el corrimiento es
+  común al trigger y al buffer, así que siguen alineados.
+- **El `tready` de la interfaz AXI-S no frena nada.** El dato llega una muestra
+  por ciclo venga de donde venga, así que lo que el bloque hace tiene que
+  hacerlo en un ciclo. El puerto existe; el contrato de flujo, no.
+- **El bypass no se hace acá.** `cfg_bypass` está atado a `1'b0` en la
+  instancia; quien elige entre señal filtrada y señal cruda es `set_filt_byp`,
+  un mux de afuera.
+
+El bloque se verifica por **equivalencia secuencial** contra una copia
+congelada del filtro anterior al rediseño (`osc_filter_ref.v`), instanciada al
+lado del DUT y alimentada con el mismo flujo: no se comparan métricas sino las
+dos salidas muestra por muestra, y coinciden en 460 de 460 ciclos dibujados
+([`osc_b_cadena.png`](../osc/figuras/transacciones/osc_b_cadena.png)). Eso vale
+**para los coeficientes de esas escenas más los 12 juegos aleatorios del
+testbench**, no para todo el espacio; cubrirlo entero con `aa/bb/kk/pp`
+simbólicos es uno de los candidatos que discute
+[`verificacion_formal.md`](../verificacion_formal.md).
+
+> **Dos deudas documentadas.** El archivo es Verilog heredado y **no tiene
+> cabecera**: todo lo de arriba está reconstruido del código y de la
+> simulación, no copiado de un comentario. Y la escena 5 de `tb_osc_filter`,
+> que se llama «kk extremos: saturación en la etapa de escalado», escribe
+> `25'h1FFFFFF` sobre un `wire signed [24:0]`: ese valor es **−1**, no un
+> máximo. La ganancia queda en ≈−2⁻²⁴, la salida colapsa a 0 y las ramas de
+> saturación nunca se ejercitan. La escena pasa; lo que dice probar, no.
+<!-- /AUTO:prosa -->
 
 ### 1.2 Interfaces
 
@@ -81,6 +139,7 @@
 <!-- AUTO:regmap -->
 Mapas de registros de la región:
 
+- [`register_map_mt_rp_scope_cfg.md`](../osc/register_map_mt_rp_scope_cfg.md)
 - [`register_map_osc.md`](../osc/register_map_osc.md)
 
 Contrato del bus: [`bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) · Mapa de slots: [`register_map_top.md`](../TOP/register_map_top.md)
@@ -110,7 +169,47 @@ El `metrics.txt` del módulo es de `osc_cfg`, no de `osc_filter`: la síntesis O
 <!-- A mano: qué hay en el camino crítico y qué se haría para romperlo si
      hubiera que subir la frecuencia. -->
 
-### 1.6 Waveforms
+### 1.6 Transacciones
+
+<!-- AUTO:transacciones -->
+**LO QUE ENTRA: UN IMPULSO**
+
+![LO QUE ENTRA: UN IMPULSO](../osc/figuras/transacciones/osc_a_impulso.png)
+
+Que entra. Una muestra de 4000 cuentas y el resto cero. Para un filtro lineal invariante eso no es un caso mas: la respuesta al impulso LO DESCRIBE ENTERO, asi que las dos curvas del panel (c) son la caracterizacion completa del bloque con cada juego de coeficientes. El flujo es de una muestra por ciclo de adc_clk (8 ns) y no hay handshake que lo pueda frenar: el `tready` existe en los puertos pero el dato llega igual, asi que lo que el bloque hace tiene que hacerlo en un ciclo.
+
+_Origen: `tb_osc_filter`, VCD completo._
+
+**EL BLOQUE, Y EL MODELO QUE CORRE AL LADO**
+
+![EL BLOQUE, Y EL MODELO QUE CORRE AL LADO](../osc/figuras/transacciones/osc_b_cadena.png)
+
+Que viaja. El bloque es una compensacion polo-cero, dos IIR de primer orden y una etapa de escalado, con cuatro coeficientes configurables. Lo que esta figura agrega a un diagrama de bloques es el segundo camino: el testbench instancia AL LADO del DUT una copia congelada del filtro anterior al rediseno (`osc_filter_ref.v`) y le da el mismo flujo. No se comparan resumenes ni metricas: se comparan las dos salidas muestra por muestra.
+
+_Origen: `osc_filter.v` y `sim/osc_filter_ref.v`._
+
+**LO QUE SALE: EL MISMO IMPULSO, DOS FILTROS**
+
+![LO QUE SALE: EL MISMO IMPULSO, DOS FILTROS](../osc/figuras/transacciones/osc_c_respuesta.png)
+
+Que sale, y es donde esta todo. Con los coeficientes de RESET la cadena queda transparente: el impulso de 4000 sale como una sola muestra de 3999 --o sea ganancia 0.99975, el error de redondeo de kk = 2^24-1 en vez de 2^24-- 8 ciclos despues. Con la compensacion POLO-CERO el mismo impulso sale como una exponencial que arranca en 3943 y tarda 99 ciclos en caer al 1 %: el filtro no recorta la cola, la FABRICA, porque esta pensado para cancelar la del detector --un cero donde el preamplificador pone su polo--. La latencia es la misma en los dos casos, 8 ciclos, porque el pipeline no depende de los coeficientes: lo MEDIDO es 8 y 8. Lo que si cambia es que con polo-cero el pico viene precedido por un precursor de hasta 118 cuentas que arranca 4 ciclos antes --el camino directo, que llega antes que las dos IIR--; es chico pero existe, y medir la latencia por la primera muestra no nula en vez de por el pico lo contaria como si la respuesta empezara ahi. Los circulos son `ref_out`: la salida del modelo congelado coincide con la del DUT en 460 de los 460 ciclos dibujados, o sea TODOS. Esa coincidencia es el contenido de la figura.
+
+_Origen: `tb_osc_filter`, escenas de coeficientes de reset y polo-cero._
+
+**LA TRANSACCION COMPLETA**
+
+![LA TRANSACCION COMPLETA](../osc/figuras/transacciones/osc_transaccion.png)
+
+Las tres preguntas en una imagen: que entra, que viaja y que sale.
+
+_Origen: las tres anteriores, en una figura._
+
+---
+
+Las figuras **recalculan cada número al dibujar** en vez de tomarlo escrito. Las genera [`transacciones_osc.py`](../osc/figuras/transacciones/transacciones_osc.py); de dónde sale el dato de cada una está en la columna «Datos» de [`README.md`](../osc/figuras/transacciones/README.md); los epígrafes completos, en [`epigrafes.txt`](../osc/figuras/transacciones/epigrafes.txt).
+<!-- /AUTO:transacciones -->
+
+### 1.7 Waveforms
 
 <!-- AUTO:ondas -->
 **RESPUESTA AL IMPULSO  -  coeficientes de reset (la cadena es transparente), osc_filter vs osc_filter_ref**
@@ -152,7 +251,7 @@ python3 docs/osc/figuras/ondas/ondas_osc.py    # regenerar
        make -C modulos/osc/work wave TB=<tb>   # mirar en Questa
        make -C modulos/osc/work vcd  TB=<tb>   # VCD exportable -->
 
-### 1.7 Verificación realizada
+### 1.8 Verificación realizada
 
 <!-- AUTO:verificacion -->
 Todo corre en batch y se chequea el `RESULT: PASS` del testbench; las ondas quedan en `work/waves/<tb>.wlf`.
