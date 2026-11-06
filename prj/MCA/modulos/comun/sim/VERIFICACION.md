@@ -17,9 +17,55 @@ que hay que mirar ya pasó.
 
 ## Casos cubiertos
 
-| # | Caso | Testbench | Estado |
-|---|------|-----------|--------|
-| 1 | reset y valores iniciales | | |
+<!-- AUTO:casos -->
+<!-- Esta tabla la escribe `modulos/mk/datasheet.py` leyendo los
+     testbenches: las escenas numeradas (`// N) ...`) y el nombre de
+     cada check(). No editarla a mano. Lo de abajo (casos borde,
+     assertions, metas) SI es a mano y no se toca. -->
+
+**36 casos con nombre** en 1 testbench. Cada fila es un `check()` que corre y tiene que dar PASS; el testbench entero falla si alguno no da.
+
+### [`tb_integration_cfg`](tb_integration_cfg.sv) — `integration_cfg`
+
+| Escena | Qué prueba | Caso |
+|---|---|---|
+| 1 | EL RESET ES EL COMPORTAMIENTO PRE-REFACTOR | ROUTE_OSC  tap = NATIVO en reset |
+|  |  | ROUTE_MTRG tap = NATIVO en reset |
+|  |  | ROUTE_MCA  tap = NATIVO en reset |
+|  |  | ROUTE_RING tap = NATIVO en reset |
+|  |  | ROUTE_OSC  enable en reset |
+|  |  | ROUTE_MTRG enable en reset |
+|  |  | ROUTE_MCA  enable en reset |
+|  |  | ROUTE_RING enable en reset |
+|  |  | run global apagado en reset |
+| 2 | IDENTIFICACIÓN Y DESCRIPCIÓN | MAGIC |
+|  |  | VERSION |
+|  |  | GITH_0 |
+|  |  | GITH_4 |
+|  |  | MODULES |
+|  |  | SLOTS |
+|  |  | CAPS0 |
+|  |  | CAPS1 |
+| 3 | RUTEO: escritura, readback y efecto en los puertos | ROUTE_MCA tap = DEC_IN |
+|  |  | ROUTE_MCA enable sigue en 1 |
+|  |  | ROUTE_MCA readback |
+|  |  | ROUTE_OSC tap = ADC |
+|  |  | ROUTE_OSC enable en 0 |
+|  |  | ROUTE_OSC readback |
+|  |  | ROUTE_MTRG tap = BRAM_IN |
+|  |  | ROUTE_RING intacto tras escribir los otros |
+| 4 | CONTROL GLOBAL: run es nivel, clear/srst son de UN ciclo | run global en 1 |
+|  |  | CTRL readback |
+|  |  | clear no se activo |
+|  |  | clear duro exactamente 1 ciclo |
+|  |  | run sigue en 1 tras el clear |
+|  |  | srst duro exactamente 1 ciclo |
+|  |  | run bajo a 0 |
+| 5 | BARRIDO DE ACK: toda dirección del slot tiene que responder | no mapeada devuelve 0 |
+|  |  | tope del slot devuelve 0 |
+|  |  | sin timeouts de ack |
+|  |  | sin err en ningun acceso |
+<!-- /AUTO:casos -->
 
 ## Casos borde conocidos
 

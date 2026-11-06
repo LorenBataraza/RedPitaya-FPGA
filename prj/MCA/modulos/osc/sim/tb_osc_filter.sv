@@ -89,7 +89,7 @@ module tb_osc_filter;
   endtask
 
   // Aplica un juego de coeficientes con el filtro en reset, que es lo que hace
-  // el diseño real: multitrigger_rp_scope_cfg.sv:201 pulsa filt_rstn en cada
+  // el diseño real: mt_rp_scope_cfg.sv:201 pulsa filt_rstn en cada
   // escritura de coeficientes.
   task automatic set_coeffs(input [17:0] aa, input [24:0] bb,
                             input [24:0] kk, input [24:0] pp);

@@ -98,11 +98,25 @@ RPT    := $(CURDIR)/rpt
 # `log -r /*` de abajo no encuentra nada, con lo cual los .wlf salen vacios.
 VSIM_FLAGS += -voptargs=+acc
 
+# `make vcd`: que se vuelca y cuanto se corre. Acotarlos achica el VCD
+# (ej: VCD_ADD="/tb_osc_filter/*" VCD_RUN="20us").
+VCD_ADD ?= -r /*
+VCD_RUN ?= -all
+
 # Cobertura: libreria y flags aparte, para no invalidar la compilacion normal.
 ifdef COV
   WORK       := $(CURDIR)/questa_cov
   VLOG_FLAGS += +cover=bcesxf
-  VSIM_FLAGS += -coverage
+  # -onfinish stop ES OBLIGATORIO ACA, y por eso `make cov` no funcionaba. Los
+  # testbenches terminan con $finish, que por defecto SALE del simulador: el
+  # `coverage save` del -do nunca se ejecutaba, cov/ quedaba vacio y el `vcover
+  # merge` fallaba con "All files were empty". Con -onfinish stop el $finish
+  # frena la simulacion en vez de cerrarla y el resto del -do corre.
+  #
+  # Es el mismo modo de falla que tenia el `bind` de las assertions: algo que el
+  # flujo daba por hecho y que en realidad no se ejecutaba nunca. Va solo en
+  # esta rama para no cambiar en nada el flujo normal.
+  VSIM_FLAGS += -coverage -onfinish stop
   COV_SAVE    = coverage save $(COVDIR)/$@.ucdb;
 else
   WORK := $(CURDIR)/questa
@@ -166,8 +180,8 @@ vcd:               ## reejecuta volcando VCD (exportable fuera de Questa)
 	@test -n "$(TB)" || { echo "uso: make vcd TB=<tb>"; exit 1; }
 	@$(MAKE) --no-print-directory compile
 	@mkdir -p $(WAVES)
-	$(VSIM) -c -quiet -work $(WORK) $(TB) \
-	    -do "vcd file $(WAVES)/$(TB).vcd; vcd add -r /*; run -all; quit -f"
+	$(VSIM) -c -quiet $(VSIM_FLAGS) -work $(WORK) $(TB) \
+	    -do "vcd file $(WAVES)/$(TB).vcd; vcd add $(VCD_ADD); run $(VCD_RUN); quit -f"
 
 cov:               ## reejecuta con cobertura y arma el reporte HTML
 	@$(MAKE) --no-print-directory COV=1 all
@@ -218,20 +232,33 @@ extract:           ## junta los metrics.txt del barrido -> rpt/sweep_results.csv
 	python3 $(MODULOS)/mk/extract_metrics.py --rpt-dir $(RPT)
 
 # --- datasheet ---------------------------------------------------------------
-# Diagrama de interfaz + pagina de datasheet en docs/<modulo>/. Reescribe solo
-# las regiones <!-- AUTO:x -->: la prosa escrita a mano no se toca. Conviene
-# correrlo DESPUES de `syn` o `sweep-all`, asi la seccion de Fmax sale con
-# numeros en vez de un "sin datos de sintesis todavia".
+# Diagrama de interfaz + pagina de datasheet en docs/datasheet/. Reescribe solo
+# las regiones <!-- AUTO:x -->; la prosa de la seccion 1.1 vive aparte, en
+# docs/datasheet/prosa/<top>.md, y el generador la crea una vez y despues no la
+# pisa nunca. Conviene correrlo DESPUES de `syn` o `sweep-all`, asi la seccion
+# de Fmax sale con numeros en vez de un "sin datos de sintesis todavia".
 #
-#   make datasheet                      el TOP del modulo
-#   make datasheet DS_TOP=trigger_shield  otro modulo RTL del mismo directorio
-#   make datasheet DS_ARGS=--all-tops   todos los de files.f
-DS_TOP  ?= $(TOP)
+# DS_TOPS es a los datasheets lo que TBS a los testbenches: la lista de tops que
+# tienen pagina. Vacia —lo normal— quiere decir TODOS los de files.f.
+#
+#   make datasheet                        todos los tops de files.f
+#   make datasheet DS_TOP=trigger_shield  uno solo
+#   make datasheet DS_TOPS="a b c"        esos
+DS_TOPS ?=
+DS_TOP  ?=
 DS_ARGS ?=
 
-datasheet:         ## datasheet del modulo -> docs/<modulo>/ (DS_TOP=<top>)
-	python3 $(MODULOS)/mk/datasheet.py --module $(MODULE) \
-	    $(if $(DS_TOP),--top $(DS_TOP)) $(DS_ARGS)
+datasheet:         ## datasheets del modulo -> docs/datasheet/ (DS_TOPS=...)
+ifneq ($(strip $(DS_TOP)),)
+	python3 $(MODULOS)/mk/datasheet.py --module $(MODULE) --top $(DS_TOP) $(DS_ARGS)
+else ifneq ($(strip $(DS_TOPS)),)
+	@for t in $(DS_TOPS); do \
+	    python3 $(MODULOS)/mk/datasheet.py --module $(MODULE) --top $$t $(DS_ARGS) \
+	        || exit 1; \
+	done
+else
+	python3 $(MODULOS)/mk/datasheet.py --module $(MODULE) --all-tops $(DS_ARGS)
+endif
 
 datasheet-check:   ## falla si el datasheet quedo viejo (para CI)
 	@$(MAKE) --no-print-directory datasheet DS_ARGS="$(DS_ARGS) --check"

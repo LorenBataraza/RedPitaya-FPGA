@@ -4,20 +4,21 @@
 //
 // Es la decision D3 (cfg_bl_auto) de la vista general
 // (docs/mca/vista_general_mca.md). Las dos opciones conviven y la salida es un
-// REGISTRO: mca_window la resta de la muestra (x = dat - base) y compara contra
-// los umbrales, asi que los umbrales del MCA son siempre relativos a la base.
+// REGISTRO: mca_window la resta de la muestra (x = dat - base), y todo lo que
+// acumulan las ranuras es relativo a la base.
 //
 // LÍNEA DE BASE. Seguidor IIR  bl_acc += x - (bl_acc >> k),  bl = bl_acc >> k.
 // El acumulador es ancho a propósito: con la forma ingenua `bl += (x-bl)>>k`
 // el incremento se cuantiza a cero cuando |x-bl| < 2^k y el seguidor se
-// congela. Se congela durante el pulso Y durante cfg_bl_holdoff muestras
-// después: si se descongelara al cruzar la histéresis hacia abajo, agarraría
-// el undershoot de la cola y arrastraría la base hacia el lado equivocado.
+// congela. Se congela mientras haya una ventana abierta Y durante
+// cfg_bl_holdoff muestras después de cada cierre: si siguiera apenas cierra la
+// compuerta, agarraría la cola y el undershoot del pulso y arrastraría la base
+// hacia el lado equivocado.
 //
 // QUIEN DECIDE CUANDO SEGUIR es la ventana: track_i, hold_load_i y stale_set_i
-// salen de mca_window porque dependen de su estado. La resta x = dat - base NO
-// esta aca sino alla, en el mismo modulo que los umbrales: es el comienzo del
-// camino critico del bitstream, y el sintetizador no aplana jerarquia.
+// salen de mca_window porque dependen del estado de las ranuras. La resta
+// x = dat - base NO esta aca sino alla, junto al registro que la reparte a las
+// ranuras: el sintetizador no aplana jerarquia.
 //=============================================================================
 
 module mca_baseline #(
@@ -38,9 +39,9 @@ module mca_baseline #(
   input             [LEN_W-1:0] cfg_bl_holdoff_i,
 
   // --- desde la ventana ---
-  input                        track_i          ,  // reposo y sin abrir en este flanco
+  input                        track_i          ,  // ninguna ventana sobre esta muestra
   input                        hold_load_i      ,  // cierre: arranca el holdoff
-  input                        stale_set_i      ,  // pulso abierto sin muestras desde hace maxlen
+  input                        stale_set_i      ,  // ventana vencida sin muestras
 
   output     signed [DW-1:0]   baseline_o       ,
   output reg                   baseline_stale_o
@@ -81,10 +82,9 @@ always @(posedge clk_i) begin
     baseline_stale_o <= 1'b0;
   end else begin
     //--- seguidor: sólo en reposo y fuera del holdoff -----------------------
-    // Ojo con `!open_pulse` (va dentro de track_i): en el flanco en que se abre
-    // el pulso, `st` TODAVÍA vale S_IDLE (la transición se registra en este
-    // mismo flanco). Sin esa condición el IIR se come la primera muestra del
-    // flanco de subida de CADA pulso, y a tasa alta eso arrastra la base hacia
+    // Ojo: track_i excluye tambien la muestra con la que se decide ABRIR, que
+    // todavia no tiene ninguna ranura abierta. Sin eso el IIR se come la
+    // primera muestra de CADA pulso, y a tasa alta eso arrastra la base hacia
     // arriba de forma sistemática: corre el centroide de todo el espectro.
     if (val_i) begin
       if (track_i && bl_hold == {LEN_W{1'b0}}) begin
@@ -99,9 +99,9 @@ always @(posedge clk_i) begin
     // El cierre carga el holdoff y gana sobre la cuenta atrás de este ciclo.
     if (hold_load_i) bl_hold <= cfg_bl_holdoff_i;
 
-    // Sin muestras válidas el pulso no puede cerrarse por histéresis; el
-    // watchdog avisa si esto se vuelve permanente. No choca con el borrado de
-    // arriba: aquel exige val_i y este lo pide en bajo.
+    // Sin muestras válidas una ventana vencida no puede cerrar; el watchdog
+    // avisa si esto se vuelve permanente. No choca con el borrado de arriba:
+    // aquel exige val_i y este lo pide en bajo.
     if (stale_set_i) baseline_stale_o <= 1'b1;
   end
 end

@@ -25,12 +25,10 @@
 // osc_cfg sigue decodificando 0x004 y 0x094 en el slot 1 y manda acá el pulso
 // ya decodificado por canal. Las dos vías se OR-ean.
 //
-// SEMÁNTICA PRESERVADA TAL CUAL, INCLUIDA UNA VERRUGA. sys_bus_cdc sostiene
-// wen hasta el ack, así que los pulsos de abajo (adc_trig_sw, trig_dis_clr,
-// new_trg_src) duran ~5 ciclos, no uno. Es el comportamiento que tenía el
-// módulo original y del que depende la lógica aguas abajo; convertirlos en
-// estrobos de un ciclo es un cambio deliberado y aparte, no algo que deba
-// colarse en una mudanza de registros.
+// LOS PULSOS DE ABAJO NO DURAN UN CICLO. sys_bus_cdc sostiene wen hasta el ack, y
+// este módulo y osc_cfg dan el ack a los 5 ciclos, así que adc_trig_sw, trig_dis_clr
+// y new_trg_src duran 6. En el módulo original los registros daban el ack al ciclo
+// siguiente y duraban 2. Por eso mt_trig_src toma adc_trig_sw por flanco.
 //
 // DISPARO POR PENDIENTE (mt_slope_trig). Tres registros por canal, sin espejo
 // en el slot 1 ni fan-out por indep_mode: son procesamiento de la señal de
@@ -41,6 +39,16 @@
 //   0x080 + 4·ch  SLOPE_HYST  histéresis        [TW-1:0]
 //
 // CAPS[16] = 1 anuncia que el bitstream los tiene.
+//
+// DISPARO CON POLO-CERO (mt_pz_trig). Cuatro registros por canal, mismo
+// criterio que los de la pendiente:
+//
+//   0x090 + 4·ch  PZ_CFG   {en[31], sh[29:24], m[KW+7:8], k[KW-1:0]}
+//   0x0A0 + 4·ch  PZ_MQ    constante polo-cero, M * 16   [MW-1:0]
+//   0x0B0 + 4·ch  PZ_THR   umbral sobre la salida        [TW-1:0]
+//   0x0C0 + 4·ch  PZ_HYST  histéresis                    [TW-1:0]
+//
+// CAPS[17] = 1 anuncia que el bitstream los tiene.
 //=============================================================================
 
 module mt_cfg #(
@@ -55,7 +63,11 @@ module mt_cfg #(
   // Campos del disparo por pendiente (ver mt_slope_trig.sv)
   parameter integer SLOPE_LW   = 5,
   parameter integer SLOPE_GW   = 5,
-  parameter integer SLOPE_TW   = 18
+  parameter integer SLOPE_TW   = 18,
+  // Campos del disparo con polo-cero (ver mt_pz_trig.sv)
+  parameter integer PZ_KW      = 5,
+  parameter integer PZ_MW      = 20,
+  parameter integer PZ_TW      = 18
 )(
   input                    adc_clk_i  ,
   input                    adc_rstn_i ,
@@ -68,7 +80,7 @@ module mt_cfg #(
   input      [  16  -1:0]  shield_cnt_i       ,
   input                    shield_active_i    ,
   input                    mca_veto_i         , // nivel de veto hacia el MCA
-  input      [  25  -1:0]  trig_snapshot_i    ,
+  input      [  29  -1:0]  trig_snapshot_i    ,
 
   // --- puente legacy desde osc_cfg (offsets 0x004 y 0x094 del slot 1) ---
   input      [   4  -1:0]  legacy_trig_sw_i      ,
@@ -89,6 +101,15 @@ module mt_cfg #(
   output     [ 4*SLOPE_GW-1:0]     slope_gap_o  ,
   output     [ 4*SLOPE_TW-1:0]     slope_thr_o  ,
   output     [ 4*SLOPE_TW-1:0]     slope_hyst_o ,
+
+  // --- salidas hacia mt_pz_trig (una rebanada por canal) ---
+  output     [   4  -1:0]          pz_en_o      ,
+  output     [ 4*PZ_KW-1:0]        pz_k_o       ,
+  output     [ 4*PZ_KW-1:0]        pz_m_o       ,
+  output     [ 4*6  -1:0]          pz_sh_o      ,
+  output     [ 4*PZ_MW-1:0]        pz_mq_o      ,
+  output     [ 4*PZ_TW-1:0]        pz_thr_o     ,
+  output     [ 4*PZ_TW-1:0]        pz_hyst_o    ,
 
   // --- bus de sistema ---
   input      [  32  -1:0]  sys_addr   ,
@@ -181,10 +202,58 @@ assign slope_thr_o  = slope_thr ;
 assign slope_hyst_o = slope_hyst;
 
 //=============================================================================
+// Disparo con polo-cero: 0x090/0x0A0/0x0B0/0x0C0 + 4*ch. Sin fan-out.
+//=============================================================================
+reg [4-1:0]        pz_en  ;
+reg [4*PZ_KW-1:0]  pz_k   ;
+reg [4*PZ_KW-1:0]  pz_m   ;
+reg [4*6-1:0]      pz_sh  ;
+reg [4*PZ_MW-1:0]  pz_mq  ;
+reg [4*PZ_TW-1:0]  pz_thr ;
+reg [4*PZ_TW-1:0]  pz_hyst;
+
+genvar GZ;
+generate
+for (GZ = 0; GZ < 4; GZ = GZ + 1) begin : g_pz_regs
+  always @(posedge adc_clk_i)
+  if (!adc_rstn_i) begin
+    pz_en  [GZ]                 <= 1'b0;
+    pz_k   [GZ*PZ_KW +: PZ_KW]  <= {PZ_KW{1'b0}};
+    pz_m   [GZ*PZ_KW +: PZ_KW]  <= {PZ_KW{1'b0}};
+    pz_sh  [GZ*6 +: 6]          <= 6'd0;
+    pz_mq  [GZ*PZ_MW +: PZ_MW]  <= {PZ_MW{1'b0}};
+    pz_thr [GZ*PZ_TW +: PZ_TW]  <= {PZ_TW{1'b0}};
+    pz_hyst[GZ*PZ_TW +: PZ_TW]  <= {PZ_TW{1'b0}};
+  end else if (sys_wen) begin
+    if (sys_addr[19:0] == (20'h090 + GZ*4)) begin
+      pz_en[GZ]                <= sys_wdata[31];
+      pz_sh[GZ*6 +: 6]         <= sys_wdata[29:24];
+      pz_m [GZ*PZ_KW +: PZ_KW] <= sys_wdata[8 +: PZ_KW];
+      pz_k [GZ*PZ_KW +: PZ_KW] <= sys_wdata[0 +: PZ_KW];
+    end
+    if (sys_addr[19:0] == (20'h0A0 + GZ*4))
+      pz_mq  [GZ*PZ_MW +: PZ_MW] <= sys_wdata[PZ_MW-1:0];
+    if (sys_addr[19:0] == (20'h0B0 + GZ*4))
+      pz_thr [GZ*PZ_TW +: PZ_TW] <= sys_wdata[PZ_TW-1:0];
+    if (sys_addr[19:0] == (20'h0C0 + GZ*4))
+      pz_hyst[GZ*PZ_TW +: PZ_TW] <= sys_wdata[PZ_TW-1:0];
+  end
+end
+endgenerate
+
+assign pz_en_o   = pz_en  ;
+assign pz_k_o    = pz_k   ;
+assign pz_m_o    = pz_m   ;
+assign pz_sh_o   = pz_sh  ;
+assign pz_mq_o   = pz_mq  ;
+assign pz_thr_o  = pz_thr ;
+assign pz_hyst_o = pz_hyst;
+
+//=============================================================================
 // Pulsos por canal.
 //
 // Combinacionales sobre sys_wen, igual que en el módulo original: duran lo que
-// dura la transacción (~5 ciclos). Ver la nota de la cabecera.
+// dura la transacción (6 ciclos). Ver la nota de la cabecera.
 //
 // new_trg_src se emite en CUALQUIER escritura a la dirección de la máscara,
 // incluso con wdata = 0, para poder limpiarla explícitamente.
@@ -257,6 +326,12 @@ function automatic [31:0] slope_cfg_rd(input integer ch);
                   slope_len[ch*SLOPE_LW +: SLOPE_LW]};
 endfunction
 
+// Readback de PZ_CFG con el mismo formato que la escritura.
+function automatic [31:0] pz_cfg_rd(input integer ch);
+  pz_cfg_rd = {pz_en[ch], 1'b0, pz_sh[ch*6 +: 6], {(16-PZ_KW){1'b0}},
+               pz_m[ch*PZ_KW +: PZ_KW], {(8-PZ_KW){1'b0}}, pz_k[ch*PZ_KW +: PZ_KW]};
+endfunction
+
 reg [7:0] en_sr;
 always @(posedge adc_clk_i)
   if (!adc_rstn_i) en_sr <= 8'h0;
@@ -272,7 +347,7 @@ always @(posedge adc_clk_i) begin
     casez (sys_addr[19:0])
       // --- identificación ---
       20'h00000 : sys_rdata <= MAGIC;
-      20'h00004 : sys_rdata <= {15'h0, 1'b1 /*HAS_SLOPE*/,
+      20'h00004 : sys_rdata <= {14'h0, 1'b1 /*HAS_PZ*/, 1'b1 /*HAS_SLOPE*/,
                                 SHIELD_N[3:0], SRC_W[7:0], N_CH[3:0]};
 
       // --- trigger_shield ---
@@ -282,7 +357,7 @@ always @(posedge adc_clk_i) begin
       20'h00014 : sys_rdata <= {{32-18{1'b0}}, mca_veto_i, shield_active_i, shield_cnt_i};
 
       // --- snapshot y flags ---
-      20'h00018 : sys_rdata <= {{32-25{1'b0}}, trig_snapshot_i};
+      20'h00018 : sys_rdata <= {{32-29{1'b0}}, trig_snapshot_i};
       20'h0001C : sys_rdata <= {24'h0, adc_we_keep_i[3:0], adc_trg_dis_act_i[3:0]};
 
       // --- comandos (sin estado propio: el readback devuelve 0) ---
@@ -311,6 +386,24 @@ always @(posedge adc_clk_i) begin
       20'h00084 : sys_rdata <= {{32-SLOPE_TW{1'b0}}, slope_hyst[1*SLOPE_TW +: SLOPE_TW]};
       20'h00088 : sys_rdata <= {{32-SLOPE_TW{1'b0}}, slope_hyst[2*SLOPE_TW +: SLOPE_TW]};
       20'h0008C : sys_rdata <= {{32-SLOPE_TW{1'b0}}, slope_hyst[3*SLOPE_TW +: SLOPE_TW]};
+
+      // --- disparo con polo-cero ---
+      20'h00090 : sys_rdata <= pz_cfg_rd(0);
+      20'h00094 : sys_rdata <= pz_cfg_rd(1);
+      20'h00098 : sys_rdata <= pz_cfg_rd(2);
+      20'h0009C : sys_rdata <= pz_cfg_rd(3);
+      20'h000A0 : sys_rdata <= {{32-PZ_MW{1'b0}}, pz_mq  [0*PZ_MW +: PZ_MW]};
+      20'h000A4 : sys_rdata <= {{32-PZ_MW{1'b0}}, pz_mq  [1*PZ_MW +: PZ_MW]};
+      20'h000A8 : sys_rdata <= {{32-PZ_MW{1'b0}}, pz_mq  [2*PZ_MW +: PZ_MW]};
+      20'h000AC : sys_rdata <= {{32-PZ_MW{1'b0}}, pz_mq  [3*PZ_MW +: PZ_MW]};
+      20'h000B0 : sys_rdata <= {{32-PZ_TW{1'b0}}, pz_thr [0*PZ_TW +: PZ_TW]};
+      20'h000B4 : sys_rdata <= {{32-PZ_TW{1'b0}}, pz_thr [1*PZ_TW +: PZ_TW]};
+      20'h000B8 : sys_rdata <= {{32-PZ_TW{1'b0}}, pz_thr [2*PZ_TW +: PZ_TW]};
+      20'h000BC : sys_rdata <= {{32-PZ_TW{1'b0}}, pz_thr [3*PZ_TW +: PZ_TW]};
+      20'h000C0 : sys_rdata <= {{32-PZ_TW{1'b0}}, pz_hyst[0*PZ_TW +: PZ_TW]};
+      20'h000C4 : sys_rdata <= {{32-PZ_TW{1'b0}}, pz_hyst[1*PZ_TW +: PZ_TW]};
+      20'h000C8 : sys_rdata <= {{32-PZ_TW{1'b0}}, pz_hyst[2*PZ_TW +: PZ_TW]};
+      20'h000CC : sys_rdata <= {{32-PZ_TW{1'b0}}, pz_hyst[3*PZ_TW +: PZ_TW]};
 
       default   : sys_rdata <= 32'h0;
     endcase

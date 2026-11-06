@@ -16,6 +16,8 @@
 //     siguen al canal 0. Es la lógica *_x del módulo original.
 //  5. DISPARO POR PENDIENTE (nuevo, 0x060/0x070/0x080 + 4c): escritura,
 //     readback, saturación de campos y SIN fan-out por indep_mode.
+//  6. DISPARO CON POLO-CERO (0x090/0x0A0/0x0B0/0x0C0 + 4c): lo mismo, y el
+//     bit HAS_PZ de CAPS.
 //============================================================================
 module tb_mt_cfg;
 
@@ -37,7 +39,7 @@ module tb_mt_cfg;
   reg  [  4-1:0] indep_mode      = 4'h0;
   reg  [ 16-1:0] shield_cnt      = 16'h0;
   reg            shield_active   = 1'b0;
-  reg  [ 25-1:0] trig_snapshot   = 25'h0;
+  reg  [ 29-1:0] trig_snapshot   = 29'h0;
 
   // puente legacy desde osc_cfg
   reg  [  4-1:0] legacy_trig_sw      = 4'h0;
@@ -51,6 +53,11 @@ module tb_mt_cfg;
   wire [  4-1:0] slope_en;
   wire [ 4*5-1:0] slope_len, slope_gap;
   wire [4*18-1:0] slope_thr, slope_hyst;
+  wire [  4-1:0] pz_en;
+  wire [ 4*5-1:0] pz_k, pz_m;
+  wire [ 4*6-1:0] pz_sh;
+  wire [4*20-1:0] pz_mq;
+  wire [4*18-1:0] pz_thr, pz_hyst;
 
   mt_cfg #(
     .MAGIC(MAGIC), .N_CH(N_CH), .SRC_W(32), .SHIELD_N(4)
@@ -68,6 +75,8 @@ module tb_mt_cfg;
     .shield_dur_o(shield_dur),
     .slope_en_o(slope_en), .slope_len_o(slope_len), .slope_gap_o(slope_gap),
     .slope_thr_o(slope_thr), .slope_hyst_o(slope_hyst),
+    .pz_en_o(pz_en), .pz_k_o(pz_k), .pz_m_o(pz_m), .pz_sh_o(pz_sh), .pz_mq_o(pz_mq),
+    .pz_thr_o(pz_thr), .pz_hyst_o(pz_hyst),
     .sys_addr(addr), .sys_wdata(wdata), .sys_wen(wen), .sys_ren(ren),
     .sys_rdata(rdata), .sys_err(err), .sys_ack(ack)
   );
@@ -150,7 +159,8 @@ module tb_mt_cfg;
     //----------------------------------------------------------------------
     $display("-- identificacion --");
     bus_read(20'h000, d); checkv("MAGIC", d, MAGIC);
-    bus_read(20'h004, d); checkv("CAPS (HAS_SLOPE en bit 16)", d, {15'h0, 1'b1, 4'd4, 8'd32, 4'd2});
+    bus_read(20'h004, d); checkv("CAPS (HAS_PZ en 17, HAS_SLOPE en 16)", d,
+                                 {14'h0, 1'b1, 1'b1, 4'd4, 8'd32, 4'd2});
 
     //----------------------------------------------------------------------
     // 2. SHIELD: 0x210 del mapa viejo -> 0x010, mismo layout de bits
@@ -172,9 +182,9 @@ module tb_mt_cfg;
     // 3. SNAPSHOT y FLAGS (eran 0x218 y 0x21C)
     //----------------------------------------------------------------------
     $display("-- snapshot y flags --");
-    trig_snapshot = 25'h1A5_5A5A; adc_trg_dis_act = 4'b0101; adc_we_keep = 4'b1100;
+    trig_snapshot = 29'h11A5_5A5A; adc_trg_dis_act = 4'b0101; adc_we_keep = 4'b1100;
     @(negedge clk);
-    bus_read(20'h018, d); checkv("SNAPSHOT (25 b)",  d, {7'h0, 25'h1A5_5A5A});
+    bus_read(20'h018, d); checkv("SNAPSHOT (29 b)",  d, {3'h0, 29'h11A5_5A5A});
     bus_read(20'h01C, d); checkv("DIS_FLAGS", d, {24'h0, 4'b1100, 4'b0101});
 
     trg_state = 32'hAABBCCDD;
@@ -285,6 +295,37 @@ module tb_mt_cfg;
     bus_read(20'h080, d); checkv("SLOPE_HYST ch0 readback", d, 32'd123);
     bus_write(20'h08C, 32'd456);
     bus_read(20'h08C, d); checkv("SLOPE_HYST ch3 readback", d, 32'd456);
+
+    //----------------------------------------------------------------------
+    // 7b. DISPARO CON POLO-CERO
+    //----------------------------------------------------------------------
+    $display("-- disparo con polo-cero --");
+    check("reset: pz_en en 0", pz_en === 4'h0);
+    bus_write(20'h090, {1'b1, 1'b0, 6'd10, 11'h0, 5'd1, 3'h0, 5'd2});   // ch0: en, sh=10, m=1, k=2
+    check("pz_en ch0", pz_en[0] === 1'b1);
+    check("pz_k ch0",  pz_k[0*5 +: 5] === 5'd2);
+    check("pz_m ch0",  pz_m[0*5 +: 5] === 5'd1);
+    check("pz_sh ch0", pz_sh[0*6 +: 6] === 6'd10);
+    check("pz ch1 no sigue a ch0 (sin fan-out)", pz_en[1] === 1'b0);
+    bus_read(20'h090, d); checkv("PZ_CFG ch0 readback", d, {1'b1, 1'b0, 6'd10, 11'h0, 5'd1, 3'h0, 5'd2});
+    bus_write(20'h09C, 32'h7FFF_FFFF);                                    // ch3: en=0, campos en 1
+    bus_read(20'h09C, d); checkv("PZ_CFG ch3 solo campos", d, {1'b0, 1'b0, 6'h3F, 11'h0, 5'h1F, 3'h0, 5'h1F});
+    bus_write(20'h0A4, 32'hFFFF_FFFF);                                    // ch1 Mq: satura al ancho
+    check("pz_mq ch1", pz_mq[1*20 +: 20] === 20'hFFFFF);
+    bus_read(20'h0A4, d); checkv("PZ_MQ ch1 readback", d, 32'h000F_FFFF);
+    bus_write(20'h0A0, 32'd3992);
+    bus_read(20'h0A0, d); checkv("PZ_MQ ch0 readback", d, 32'd3992);
+    bus_write(20'h0B0, 32'd353);
+    check("pz_thr ch0", pz_thr[0*18 +: 18] === 18'd353);
+    bus_read(20'h0B0, d); checkv("PZ_THR ch0 readback", d, 32'd353);
+    bus_write(20'h0BC, 32'hFFFF_FFFF);
+    bus_read(20'h0BC, d); checkv("PZ_THR ch3 satura", d, 32'h0003_FFFF);
+    bus_write(20'h0C0, 32'd177);
+    check("pz_hyst ch0", pz_hyst[0*18 +: 18] === 18'd177);
+    bus_read(20'h0C0, d); checkv("PZ_HYST ch0 readback", d, 32'd177);
+    bus_write(20'h0C8, 32'd99);
+    bus_read(20'h0C8, d); checkv("PZ_HYST ch2 readback", d, 32'd99);
+    check("la pendiente no se toca", slope_hyst[0*18 +: 18] === 18'd123);
 
     //----------------------------------------------------------------------
     // 8. BARRIDO DE ACK

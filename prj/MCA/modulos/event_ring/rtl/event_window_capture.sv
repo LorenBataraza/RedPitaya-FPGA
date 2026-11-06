@@ -7,19 +7,22 @@
 // estructural: rp_bram_sm CONGELA un buffer de 16384 muestras y no puede
 // capturar de nuevo hasta que el PS re-arma (K=1, ~252 us de tiempo muerto).
 // Acá la ventana se copia a un stream aguas abajo y el bloque vuelve a estar
-// listo en pre+post ciclos (~256 ns con S=32), sin intervencion del PS.
+// listo en (pre+post)*N_CH + 2 ciclos (528 ns con S=32 y dos canales), sin
+// intervencion del PS.
 //
 // UNA SOLA MEMORIA. El pre-trigger vive en un buffer circular que se escribe
 // siempre; la lectura de la ventana sale del MISMO buffer, arrancando `pre`
-// muestras atras del trigger. El puntero de lectura queda rezagado y, como se
-// consume 1 muestra/ciclo y se produce <=1 muestra/ciclo, el rezago nunca
-// crece: alcanza al productor y despues va en lock-step durante el post.
-// Por eso la profundidad sólo tiene que cubrir `pre`, no `pre+post`.
+// muestras atras del trigger. Con N_CH canales se lee una palabra cada N_CH ciclos
+// y se escribe una por ciclo, asi que el rezago CRECE durante la ventana, hasta
+//     rezago = (pre + post)*N_CH - post                  (con dv_i = 1 siempre)
+// Si llega a 2^PRE_AW, el escritor pisa lo que falta leer EN SILENCIO: este bloque
+// no lo verifica. Con N_CH=2 y PRE_AW=11 la condicion es pre + (pre+post) < 2048,
+// o sea que cualquier ventana de hasta 1024 muestras entra con pre <= 1023.
 //
 // DOS CAUSAS DE PERDIDA, contadas por separado porque son diagnosticos
-// distintos (ver docs/multitrigger/):
+// distintos (ver docs/mt/):
 //   drop_busy_o  el trigger cayo mientras se drenaba la ventana anterior.
-//                Es el tiempo muerto INTRINSECO del PL: pre+post ciclos.
+//                Es el tiempo muerto INTRINSECO del PL.
 //   drop_full_o  aguas abajo no acepto el evento (stage llena, o sin creditos
 //                de DDR porque el PS no drena). Es tiempo muerto del CONSUMIDOR.
 //
@@ -33,7 +36,7 @@ module event_window_capture #(
   parameter integer DW      = 14,   // ancho de la muestra del ADC
   parameter integer N_CH    = 2,    // canales capturados por evento
   parameter integer SW      = 16,   // ancho de la muestra en el stream (sign-ext)
-  parameter integer PRE_AW  = 9,    // buffer circular de pre-trigger: 2^PRE_AW
+  parameter integer PRE_AW  = 11,   // buffer circular de pre-trigger: 2^PRE_AW
   parameter integer S_AW    = 11,   // ancho de los contadores de muestras
   parameter integer TS_W    = 64    // ancho del timestamp
 )(
@@ -55,7 +58,7 @@ module event_window_capture #(
   input                      dv_i,         // muestra valida este ciclo
 
   // --- trigger -------------------------------------------------------------
-  // trig_i se toma por FLANCO, no por nivel. multitrigger_trig_src registra
+  // trig_i se toma por FLANCO, no por nivel. mt_trig_src registra
   // `adc_trig <= trig_comb` (un NIVEL), y el strobe de escritura que llega por
   // el sys_bus_cdc puede durar mas de un ciclo de adc_clk: en la placa, cada
   // trigger por software producia DOS eventos (uno capturado y uno contado como

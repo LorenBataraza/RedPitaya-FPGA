@@ -7,6 +7,9 @@
 //   - un flanco en ch1 tambien dispara el evento conjunto
 //   - una fuente de pendiente queda en el snapshot en el mismo bit que en la
 //     mascara (slope_p0 -> bit 17)
+//   - un SW de 6 ciclos, lo que dura en el bus, con auto-rearme inmediato da un
+//     solo evento, con el trigger_shield de verdad
+//   - el snapshot ya vale en el ciclo del evento, que es cuando lo lee el ring
 //============================================================================
 module tb_mt_event_logic;
 
@@ -18,7 +21,7 @@ module tb_mt_event_logic;
   reg  [3:0]         rst_do=0, sw_clr=0, we_keep=0, set_new=0, trig_sw=0, trig_p=0, trig_n=0, trig_ch=0;
   reg                dly_do=0, ext_p=0, ext_n=0, asg_p=0, asg_n=0;
   reg  [3:0]         dly_valp=4'hF;
-  reg  [3:0]         slope_p=0, slope_n=0;
+  reg  [3:0]         slope_p=0, slope_n=0, pz_p=0;
   reg  [N_CH*32-1:0] set_src=0;
   reg  [6:0]         sh_src=0;
   reg  [4:0]         sh_dst=0;
@@ -30,7 +33,7 @@ module tb_mt_event_logic;
   wire               daisy, arm, trigger_event;
   wire [15:0]        sh_cnt;
   wire               sh_active;
-  wire [24:0]        snapshot;
+  wire [28:0]        snapshot;
 
   mt_event_logic #(.N_CH(N_CH)) dut (
     .adc_clk_i(clk), .adc_rstn_i(rstn),
@@ -41,7 +44,7 @@ module tb_mt_event_logic;
     .ext_trig_p_i(ext_p), .ext_trig_n_i(ext_n), .asg_trig_p_i(asg_p), .asg_trig_n_i(asg_n),
     .ext_lvl_i(1'b0),
     .trig_ch_i(trig_ch),
-    .slope_p_i(slope_p), .slope_n_i(slope_n),
+    .slope_p_i(slope_p), .slope_n_i(slope_n), .pz_p_i(pz_p),
     .shield_src_i(sh_src), .shield_dst_i(sh_dst), .shield_dur_i(sh_dur),
     .trig_ch_o(trig_ch_o), .trg_state_o(trg_state), .adc_trg_dis_o(dis),
     .daisy_trig_o(daisy), .event_arm_o(arm), .trigger_event_o(trigger_event),
@@ -59,6 +62,18 @@ module tb_mt_event_logic;
 
   reg seen_event=0;
   always @(posedge clk) if (rstn && trigger_event) seen_event<=1'b1;
+
+  // Como lo ve event_window_capture: por flanco, y el snapshot en ese mismo flanco.
+  reg        ev_d=0;
+  integer    ev_flancos=0;
+  reg [28:0] snap_en_flanco=0;
+  always @(posedge clk) begin
+    ev_d <= trigger_event;
+    if (rstn && trigger_event && !ev_d) begin
+      ev_flancos = ev_flancos + 1;
+      snap_en_flanco <= snapshot;
+    end
+  end
 
   task automatic reset_dut;
     begin
@@ -87,7 +102,7 @@ module tb_mt_event_logic;
 
     // 2) snapshot se resetea con sw_trig_dis_clr
     @(negedge clk); sw_clr=4'hF; @(negedge clk); sw_clr=0; @(negedge clk);
-    check("sw_trig_dis_clr resetea el snapshot", snapshot==25'h0);
+    check("sw_trig_dis_clr resetea el snapshot", snapshot==29'h0);
 
     // 3) flanco en ch1 (adc_trig_p bit1) tambien dispara el evento conjunto
     reset_dut;
@@ -105,7 +120,7 @@ module tb_mt_event_logic;
     @(negedge clk); slope_p=4'b0001; @(negedge clk); slope_p=0;
     repeat(2) @(negedge clk);
     check("slope_p0 dispara trigger_event", seen_event==1'b1);
-    check("snapshot engancha slope_p0 (bit17) y nada mas", snapshot==(25'h1 << 17));
+    check("snapshot engancha slope_p0 (bit17) y nada mas", snapshot==(29'h1 << 17));
 
     // 5) slope_n[1] (bit 22)
     reset_dut;
@@ -114,7 +129,44 @@ module tb_mt_event_logic;
     @(negedge clk); slope_n=4'b0010; @(negedge clk); slope_n=0;
     repeat(2) @(negedge clk);
     check("slope_n1 dispara trigger_event", seen_event==1'b1);
-    check("snapshot engancha slope_n1 (bit22)", snapshot==(25'h1 << 22));
+    check("snapshot engancha slope_n1 (bit22)", snapshot==(29'h1 << 22));
+
+    // 6) polo-cero: pz_p[1] (bit 26) -> evento + snapshot bit 26
+    reset_dut;
+    load_mask(32'h1 << 26, 32'h1 << 26);
+    seen_event=0;
+    @(negedge clk); pz_p=4'b0010; @(negedge clk); pz_p=0;
+    repeat(2) @(negedge clk);
+    check("pz_p1 dispara trigger_event", seen_event==1'b1);
+    check("snapshot engancha pz_p1 (bit26) y nada mas", snapshot==(29'h1 << 26));
+
+    // 7) SW de 6 ciclos con auto-rearme: una escritura, un evento
+    reset_dut;
+    we_keep=4'hF; sh_src=7'h3; sh_dst=5'h3; sh_dur=0;
+    load_mask(32'h1, 32'h0);
+    for (int vuelta = 1; vuelta <= 3; vuelta++) begin
+      ev_flancos=0;
+      @(negedge clk); trig_sw=4'h1; repeat(6) @(negedge clk); trig_sw=0;
+      repeat(8) @(negedge clk);
+      check($sformatf("SW de 6 ciclos con auto-rearme, escritura %0d: un evento", vuelta),
+            ev_flancos==1);
+    end
+
+    // 8) dos fuentes alternadas: cada evento lee la suya en el ciclo del disparo
+    reset_dut;
+    we_keep=4'hF; sh_src=7'h3; sh_dst=5'h3; sh_dur=0;
+    load_mask((32'h1 << 1) | (32'h1 << 2), 32'h0);   // BIT_ADC_P0 y BIT_ADC_N0
+    for (int vuelta = 0; vuelta < 3; vuelta++) begin
+      @(negedge clk); trig_p=4'b0001; @(negedge clk); trig_p=0;
+      repeat(6) @(negedge clk);
+      check($sformatf("snapshot en el flanco, vuelta %0d: adc_p0 (bit1)", vuelta),
+            snap_en_flanco==(29'h1 << 1));
+      @(negedge clk); trig_n=4'b0001; @(negedge clk); trig_n=0;
+      repeat(6) @(negedge clk);
+      check($sformatf("snapshot en el flanco, vuelta %0d: adc_n0 (bit5)", vuelta),
+            snap_en_flanco==(29'h1 << 5));
+    end
+    sh_src=0; sh_dst=0;
 
     $display("---------------------------------------------");
     $display("tb_mt_event_logic: %0d PASS, %0d FAIL", pass_cnt, fail_cnt);

@@ -28,7 +28,7 @@ module tb_mt_trig_src;
   reg              set_new=0, dly_valp=1'b1;
   reg              trig_sw=0;
   reg  [3:0]       trig_p=0, trig_n=0, trig_ch=0;
-  reg  [3:0]       slope_p=0, slope_n=0;
+  reg  [3:0]       slope_p=0, slope_n=0, pz_p=0;
   reg              ext_p=0, ext_n=0, asg_p=0, asg_n=0;
 
   wire [SRC_W-1:0] trg_state;
@@ -44,7 +44,7 @@ module tb_mt_trig_src;
     .ext_trig_p_i(ext_p), .ext_trig_n_i(ext_n),
     .asg_trig_p_i(asg_p), .asg_trig_n_i(asg_n),
     .trig_ch_i(trig_ch),
-    .slope_p_i(slope_p), .slope_n_i(slope_n),
+    .slope_p_i(slope_p), .slope_n_i(slope_n), .pz_p_i(pz_p),
     .trg_state_o(trg_state), .adc_trg_dis_o(adc_trg_dis), .adc_trig_o(adc_trig)
   );
 
@@ -129,6 +129,27 @@ module tb_mt_trig_src;
     load_mask(BIT_ADC_P0);
     @(negedge clk); slope_p=4'b1111; slope_n=4'b1111; @(negedge clk); slope_p=0; slope_n=0;
     check("pendiente fuera de mascara NO dispara", adc_trig==1'b0);
+
+    // 7) polo-cero: pz_p[ch] -> bit 25 + ch, solo con su bit
+    for (int ch = 0; ch < 4; ch++) begin
+      reset_dut; we_keep=0; pz_p=0;
+      load_mask(32'h1 << (25 + ch));
+      @(negedge clk); pz_p=4'b1111 & ~(4'b1 << ch); @(negedge clk); pz_p=0;
+      check($sformatf("pz_p de otros canales NO dispara con el bit %0d", 25 + ch), adc_trig==1'b0);
+      @(negedge clk); pz_p=4'b1 << ch; @(negedge clk); pz_p=0;
+      check($sformatf("pz_p[%0d] dispara con el bit %0d", ch, 25 + ch), adc_trig==1'b1);
+    end
+
+    reset_dut; we_keep=0;
+    load_mask(BIT_SLOPE_P0);
+    @(negedge clk); pz_p=4'b1111; @(negedge clk); pz_p=0;
+    check("polo-cero fuera de mascara NO dispara", adc_trig==1'b0);
+
+    reset_dut; we_keep=0;
+    load_mask(32'hE000_0000);
+    @(negedge clk); pz_p=4'b1111; slope_p=4'b1111; slope_n=4'b1111; trig_p=4'b1111;
+    @(negedge clk); pz_p=0; slope_p=0; slope_n=0; trig_p=0;
+    check("bits 29..31 reservados: no disparan", adc_trig==1'b0);
 
     $display("---------------------------------------------");
     $display("tb_mt_trig_src: %0d PASS, %0d FAIL", pass_cnt, fail_cnt);

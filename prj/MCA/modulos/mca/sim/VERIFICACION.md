@@ -23,7 +23,7 @@ que hay que mirar ya pasó.
      cada check(). No editarla a mano. Lo de abajo (casos borde,
      assertions, metas) SI es a mano y no se toca. -->
 
-**328 casos con nombre** en 7 testbenches. Cada fila es un `check()` que corre y tiene que dar PASS; el testbench entero falla si alguno no da.
+**206 casos con nombre** en 8 testbenches. Cada fila es un `check()` que corre y tiene que dar PASS; el testbench entero falla si alguno no da.
 
 ### [`tb_mca_div_restore`](tb_mca_div_restore.sv) — `mca_div_restore`
 
@@ -134,191 +134,27 @@ que hay que mirar ya pasó.
 |  |  | sin signo: 0x0000 tambien |
 
 
-### [`tb_mca_pulse_feature`](tb_mca_pulse_feature.sv) — `mca_pulse_feature`
-
-| Escena | Qué prueba | Caso |
-|---|---|---|
-| 1 | Pulso rectangular: ventana, q_tot, q_tail, amplitud de pico, psd | rect: cnt_total |
-|  |  | rect: cnt_accepted |
-|  |  | rect: q_tot = 20*500 |
-|  |  | rect: q_tail = 19*500 |
-|  |  | rect: amplitud de pico |
-|  |  | rect: psd = 60 |
-|  |  | rect: psd valido |
-|  |  | rect: un solo evento |
-|  |  | bus: F_PEAK alineado = 500<<2 |
-|  |  | bus: F_INT   = 10000 |
-|  |  | bus: F_LEN   = 20 |
-|  |  | bus: F_TRISE = 0 |
-|  |  | bus: F_PSD   = 62259 |
-|  |  | bus: F_INVW  = 3276 |
-|  |  | bus: ev_psd son los 6 bits altos de F_PSD |
-|  |  | bus: ranura 6 reservada en cero |
-|  |  | bus: ranura 15 reservada en cero |
-|  |  | ancho inverso: pulso corto  = 6553 |
-|  |  | ancho inverso: pulso largo  = 1638 |
-|  |  | ancho inverso: mas ancho => menor P/Q |
-|  |  | ancho inverso: el pico no cambia con el ancho |
-| 2 | Estimador de INTEGRAL: amp = q_tot >> q_shift = 10000>>5 = 312 | integral: amp = 10000>>5 |
-| 3 | Pulso por debajo del umbral: no genera evento | bajo umbral: sin eventos |
-|  |  | bajo umbral: sin aceptados |
-| 4 | Ventana de aceptación de amplitud | amp>max: contado en total |
-|  |  | amp>max: rechazado |
-|  |  | amp>max: no aceptado |
-|  |  | amp<min: rechazado |
-|  |  | amp<min: no aceptado |
-|  |  | borde min=amp: aceptado |
-|  |  | borde min=amp: sin rechazo |
-|  |  | borde min=amp+1: rechazado |
-|  |  | borde max=amp: aceptado |
-|  |  | borde max=amp: sin rechazo |
-|  |  | borde max=amp-1: rechazado |
-|  |  | saturado, max=FFFF: aceptado |
-|  |  | saturado, max=FFFF: amp |
-|  |  | saturado, max=FFFE: rechazado |
-|  |  | saturado, max=FFFE: no acept. |
-|  |  | pico borde min=pico: aceptado |
-|  |  | pico borde min=pico+1: rechaz. |
-|  |  | veto: sin eventos |
-|  |  | veto: no cuenta como perdido |
-|  |  | veto a mitad: el pulso termina y se acepta |
-|  |  | veto a mitad: q_tot completo = 20*500 |
-|  |  | liberar a mitad de pulso: no abre |
-|  |  | liberar a mitad de pulso: el siguiente si |
-| 5 | APILAMIENTO: la ventana llega a maxlen | apilamiento: cnt_pileup |
-|  |  | apilamiento: no aceptado |
-|  |  | apilamiento: contado en total |
-| 6 | Pulso que NUNCA vuelve a bajar de la histéresis: cierra por maxlen | sin retorno: no queda colgado (busy bajo) |
-|  |  | sin retorno: cerro por maxlen |
-| 7 | Línea de base FIJA distinta de cero: q_tot usa (muestra - base) | base=200: q_tot = 20*300 |
-|  |  | base=200: amp = 300 |
-| 8 | Línea de base AUTOMÁTICA: converge al valor DC de la entrada | base auto: converge a ~80 |
-|  |  | base auto: congelada durante el pulso |
-| 9 | Caso borde PSD: q_tot == 0  -> err del divisor -> cnt_rej_psd | q_tot=0: q_tot leido |
-|  |  | q_tot=0: cnt_rej_psd |
-|  |  | q_tot=0: evento sin psd valido |
-|  |  | q_tot=0: igual entra al espectro 1D |
-| 10 | Caso borde PSD: q_tail == q_tot -> guarda psd_inputs_ok | q_tail==q_tot: ambos 5000 (tot) |
-|  |  | q_tail==q_tot: ambos 5000 (tail) |
-|  |  | q_tail==q_tot: cnt_rej_psd |
-|  |  | q_tail==q_tot: psd invalidado (no envuelve a 0) |
-| 11 | Dos pulsos SEPARADOS (hueco > latencia del divisor): se cuentan los dos | dos pulsos separados: cnt_total |
-|  |  | dos pulsos separados: cnt_accepted |
-|  |  | dos pulsos separados: amp del 2do |
-|  |  | dos pulsos separados: q_tot del 2do |
-|  |  | dos pulsos separados: nada perdido |
-|  |  | hueco corto: solo cierra el 1ro |
-|  |  | hueco corto: solo se acepta el 1ro |
-|  |  | hueco corto: el 2do se cuenta perdido |
-|  |  | hueco corto: la amplitud es la del 1ro |
-|  |  | tiempo muerto: solo el 1er pulso contado |
-|  |  | tiempo muerto: el 2do se contabiliza como perdido |
-|  |  | tiempo muerto: amp del 1ro intacta |
-|  |  | tiempo muerto: q_tot del 1ro intacto |
-| 12 | cfg_run=0 inhibe la detección | run=0: no detecta |
-| 13 | COMPUERTAS DE LARGO FIJO (cfg_gate_mode = 1) | compuerta corta que el pulso: q_tot = 10*500 |
-|  |  | compuerta: contado en total |
-|  |  | la cola del PROPIO pulso no es apilamiento |
-|  |  | compuerta corta: el evento se acepta |
-|  |  | compuerta larga: q_tot = 20*500 |
-|  |  | compuerta larga: q_tail = 16*500 |
-|  |  | compuerta larga: NO es apilamiento |
-|  |  | compuerta larga: aceptado |
-|  |  | compuerta larga: amplitud de pico |
-|  |  | misma compuerta, otra amplitud: q_tot = 20*200 |
-|  |  | maxlen no actua en modo compuerta: q_tot completo |
-|  |  | maxlen no actua en modo compuerta: sin apilamiento |
-|  |  | modo 0 ignora gate_long: q_tot = 20*500 |
-|  |  | modo 0 ignora gate_short: q_tail = 19*500 |
-|  |  | modo 0: sin apilamiento |
-|  |  | 2do pulso en la compuerta: contado |
-|  |  | 2do pulso en la compuerta: APILAMIENTO |
-|  |  | 2do pulso en la compuerta: NO se acepta |
-|  |  | bajar sin volver a subir NO es apilamiento |
-|  |  | y el evento se acepta |
-|  |  | con la carga del unico pulso |
-| 14 | TIEMPO MUERTO: los casilleros y la atribucion de arribos | oculto: en S_IDLE sin poder abrir |
-|  |  | oculto: puede_abrir en 0 |
-|  |  | oculto: 31 ciclos que busy_o no ve |
-|  |  | rearm: 60 esta bajo thr_hi pero no re-arma |
-|  |  | rearm: 10 esta bajo thr_lo y SI re-arma |
-|  |  | rearm: y vuelve a poder abrir |
-|  |  | zona bloqueada: 2 arribos en total |
-|  |  | zona bloqueada: 1 abrio ventana |
-|  |  | zona bloqueada: 1 perdido por rearm |
-|  |  | zona bloqueada: ninguno en la ventana |
-|  |  | zona bloqueada: ninguno bajo veto |
-|  |  | zona bloqueada: la atribucion cierra |
-|  |  | en la ventana: 2 arribos |
-|  |  | en la ventana: 1 abrio |
-|  |  | en la ventana: 1 perdido adentro |
-|  |  | en la ventana: ninguno por rearm |
-|  |  | en la ventana: la atribucion cierra |
-|  |  | veto: 1 arribo |
-|  |  | veto: no abrio ventana |
-|  |  | veto: contado como vetado |
-|  |  | veto: no cuenta como rearm |
-|  |  | veto: la atribucion cierra |
-|  |  | histeresis: un evento |
-|  |  | histeresis: sin tiempo muerto oculto |
-|  |  | histeresis: 1 arribo, 1 apertura |
-|  |  | histeresis: nada perdido |
-| 15 | FASE 2 — RE-ARMADO POR CONTADOR | nivel: UNA sola ventana en 120 muestras |
-|  |  | nivel: y el resto es bloqueo oculto |
-|  |  | contador: reabre con la senal ARRIBA de thr_lo |
-|  |  | contador: el bloqueo oculto queda acotado |
-|  |  | contador: los pedazos tienen el largo de la compuerta |
-|  |  | contador: un pulso ancho dio VARIOS eventos |
-|  |  | rechazo: el holdoff corre igual |
-|  |  | rechazo: no reabrio |
-|  |  | rechazo: y quedo rechazado |
-| 16 | FASE 2 — APERTURA POR TRIGGER EXTERNO | ext: hubo un cruce de thr_hi |
-|  |  | ext: pero NO abrio ventana |
-|  |  | ext: atribuido a lost_notrig |
-|  |  | ext: no llego ningun trigger |
-|  |  | ext: la atribucion CIERRA igual |
-|  |  | trigger: un flanco contado |
-|  |  | trigger: abrio una ventana |
-|  |  | trigger: y la cerro |
-|  |  | trigger: el cruce fue a cnt_open |
-|  |  | trigger: la atribucion cierra |
-|  |  | flanco: 5 ciclos en alto = UN flanco |
-|  |  | flanco: y UNA sola ventana |
-| 17 | FASE 2 — FIFO DE PUBLICACION | bloqueante: una sola ventana |
-|  |  | bloqueante: un solo evento |
-|  |  | bloqueante: el 2do perdido en busy |
-|  |  | bloqueante: sin contrapresion de FIFO |
-|  |  | fifo: DOS ventanas |
-|  |  | fifo: DOS eventos publicados |
-|  |  | fifo: ninguno perdido |
-|  |  | fifo: la ocupacion llego a 2 |
-|  |  | fifo: vacia al final |
-|  |  | fifo: el id publicado es el de la 2da ventana |
-|  |  | fifo: la contrapresion se cuenta como tiempo muerto |
-|  |  | saturada: la FIFO toco el tope |
-|  |  | saturada: hubo eventos publicados |
-|  |  | saturada: y contrapresion contada |
-|  |  | saturada: la atribucion cierra |
-
-
 ### [`tb_mca_top`](tb_mca_top.sv) — `mca_top`
 
 | Escena | Qué prueba | Caso |
 |---|---|---|
-| 1 | Identificación | magic = 'MCA1' |
+| 1 | Identificación | magic = 'MCA2' |
 |  |  | CAPS: los dos motores presentes |
 |  |  | anchos: H_AW |
 |  |  | anchos: H2_AW |
 |  |  | anchos: PSD_AW |
 |  |  | CAPS del DUT B: 2D ausente |
-| 2 | Escritura y relectura de todos los registros RW | RW cfg_thr |
-|  |  | RW cfg_hyst |
-|  |  | RW cfg_baseline |
+|  |  | CAPS: trapecio presente (bit 2) |
+|  |  | reset: trapecio k y m |
+|  |  | reset: trapecio M |
+|  |  | reset: ventana de la meseta (ok, sh, lw, off) |
+|  |  | reset: banco (umbr_ok, N_FORMAS = 4, n_formas = 1) |
+|  |  | reset: FORMA_KM 0 = 0x128 |
+|  |  | reset: FORMA_MED 0 = 0x130 |
+| 2 | Escritura y relectura de todos los registros RW | RW cfg_baseline |
 |  |  | RW cfg_bl_ctrl (holdoff) |
 |  |  | RW cfg_bl_ctrl (k) |
 |  |  | RW cfg_bl_ctrl (auto) |
-|  |  | RW cfg_maxlen |
-|  |  | RW cfg_tail_dly |
 |  |  | RW cfg_amp_min |
 |  |  | RW cfg_amp_max |
 |  |  | RW cfg_amp_src |
@@ -326,8 +162,33 @@ que hay que mirar ya pasó.
 |  |  | RW cfg_h_shift |
 |  |  | RW cfg_h2_shift |
 |  |  | RW cfg_dec |
+|  |  | RW compuerta larga |
+|  |  | RW compuerta corta |
+|  |  | RW cfg_n_acc |
+|  |  | RW cfg_pre_dly |
+|  |  | N_ACC publicado |
+|  |  | RW trapecio k |
+|  |  | RW trapecio m |
+|  |  | RW trapecio M (20 bits) |
+|  |  | RW meseta off |
+|  |  | RW meseta lw |
+|  |  | RW meseta sh |
+|  |  | la ventana de la meseta entra en la compuerta |
+|  |  | la ventana de la meseta NO entra en la compuerta |
+|  |  | alias: 0x128 es FORMA_KM 0 |
+|  |  | alias: 0x130 es FORMA_MED 0 |
+|  |  | alias: escribir 0x128 escribe FORMA_KM 0 |
+|  |  | reservado: +C de la forma 0 lee 0 |
+|  |  | reservado: 0x1C0 lee 0 |
+|  |  | la ventana y los umbrales no pulsan clr |
+|  |  | FORMA_KM 2 pulsa clr |
+|  |  | n_formas = 1: el despues de la forma 0 entra (umbr_ok) |
+|  |  | n_formas = 2: el de la forma 1 no entra (umbr_ok = 0) |
+|  |  | RW n_formas (3 bits) |
+|  |  | N_FORMAS es de solo lectura |
 |  |  | RW CTRL run |
 |  |  | RW CTRL chan_sel |
+|  |  | reservados: se leen en cero |
 | 3 | BARRIDO DE ACK — la regresión importante | barrido de ack: ningun timeout |
 |  |  | barrido de ack: sys_err siempre 0 |
 | 4 | El mismo barrido en el DUT B, con el motor 2D AUSENTE | motor 2D ausente: sin timeouts de ack |
@@ -345,48 +206,59 @@ que hay que mirar ya pasó.
 |  |  | realtime avanza |
 |  |  | livetime avanza |
 |  |  | vetotime en 0 sin veto |
+|  |  | sin disparo: cnt_total sigue en 3 |
 |  |  | estado: bit 3 = vetoed |
 |  |  | livetime NO avanza bajo veto |
 |  |  | bajo veto: cnt_total sigue en 3 |
+|  |  | bajo veto: dos arribos vetados |
 |  |  | vetotime avanza |
 |  |  | estado: vetoed vuelve a 0 |
 |  |  | tras el veto: cnt_total = 4 |
 | 7 | El borrado deja el espectro y los contadores en cero | tras borrar: el canal del pico en 0 |
 |  |  | tras borrar: cnt_total en 0 |
-| 8 | EL TESELADO DEL TIEMPO MUERTO, visto por el BUS | teselado: la palabra alta de realtime es 0 |
+| 8 | EL TESELADO DEL TIEMPO MUERTO, visto por el BUS, con UNA ranura | teselado: la palabra alta de realtime es 0 |
 |  |  | teselado: realtime avanzo |
-|  |  | teselado: realtime = veto+win+div+rearm+live |
-|  |  | compat: deadtime (0x078) = t_win + t_div |
-|  |  | oculto: t_rearm > 0 |
-|  |  | oculto: y supera a la ventana |
-|  |  | arribos: hubo al menos uno |
-|  |  | arribos: uno abrio ventana |
+|  |  | teselado: realtime = veto + win + div + live |
+|  |  | una ranura: deadtime (0x078) = t_win + t_div |
+|  |  | una ranura: la ventana ocupa la compuerta + 1 |
+|  |  | una ranura: la espera de los divisores |
+|  |  | ocupacion: t_ocup[0] + t_ocup[1] = realtime |
+|  |  | ocupacion: t_ocup[1] = deadtime |
+|  |  | arribos: uno |
+|  |  | arribos: y abrio ventana |
 |  |  | arribos: ninguno bajo veto |
-|  |  | periodo: hubo al menos un periodo muerto |
-|  |  | periodo: el maximo no excede el total |
-|  |  | periodo: los extendidos no superan los periodos |
+|  |  | periodo: uno |
+|  |  | periodo: dura la ventana mas la publicacion |
+|  |  | periodo: sin arribos adentro |
 |  |  | bus: direccion no mapeada devuelve 0 |
-| 9 | FASE 2 POR EL BUS: las politicas de ventana y el arbitro | fase2: la palabra de politicas vuelve igual |
-|  |  | fase2: el holdoff de re-armado vuelve igual |
-|  |  | fase2: PUB_K publicado |
-|  |  | fifo: el teselado sigue cerrando |
-|  |  | fifo: hubo tiempo de publicacion contado |
-|  |  | fifo: deadtime (0x078) = solo t_win |
-|  |  | arbitro: la marca de agua llego al tope |
-|  |  | arbitro: el id de ventana avanzo |
-|  |  | arbitro: se abrieron varias ventanas |
-|  |  | arbitro: sin perdidas por falta de trigger |
-|  |  | arbitro: ningun trigger externo |
-|  |  | arribos: hubo cruces |
-|  |  | arribos: los casilleros no exceden los cruces |
-|  |  | ext: ninguna ventana sin trigger |
-|  |  | ext: el cruce quedo en lost_notrig |
-|  |  | ext: ningun flanco de trigger |
-|  |  | ext: un solo flanco contado |
-|  |  | ext: y UNA sola ventana abierta |
-|  |  | ext: la ventana cerro |
-|  |  | arribo adentro: contado en lost_active |
-|  |  | arribo publicando: contado en lost_busy |
+| 9 | VARIAS RANURAS, por el bus | ranuras: cuatro ventanas abiertas |
+|  |  | ranuras: dos perdidas con todas midiendo |
+|  |  | ranuras: cuatro eventos publicados |
+|  |  | ranuras: la cola llego a las cuatro cerradas |
+|  |  | ranuras: atribucion (cross = open + active + veto + busy) |
+|  |  | ranuras: el teselado sigue cerrando |
+|  |  | ranuras: hubo tiempo con las cuatro ocupadas |
+|  |  | ranuras: la ocupacion tesela el tiempo sin veto |
+|  |  | ranuras: t_ocup[4] > 0 |
+|  |  | disparo sostenido: un solo flanco contado |
+|  |  | disparo sostenido: UNA sola ventana |
+|  |  | retardo: la ventana abrio en el pie (pico 500) |
+| 10 | EL TRAPECIO: el pulso que monta sobre la cola de otro mide limpio | trapecio: un evento |
+|  |  | trapecio: par a dt = 60, dos eventos |
+|  |  | trapecio: par a dt = 30, dos eventos |
+|  |  | trapecio: ventana incompleta, F_TRAP = 0 |
+| 10 | toma los pares que la forma 0 no puede medir limpio | banco: con la forma 0 descartada, publica la 1 |
+|  |  | banco: dt = 60, dos eventos |
+|  |  | banco: dt = 60, el primero con la forma 0 |
+|  |  | banco: dt = 60, el segundo con la forma 0 |
+|  |  | banco: dt = 30, dos eventos |
+|  |  | banco: dt = 30, el primero con la forma 1 |
+|  |  | banco: dt = 30, el segundo con la forma 1 |
+|  |  | banco: dt = 5, dos eventos |
+|  |  | banco: dt = 5, el primero marcado (F_FORMA) |
+|  |  | banco: dt = 5, el primero marcado (F_TRAP = 0) |
+|  |  | banco: dt = 5, el segundo marcado (F_FORMA) |
+|  |  | banco: dt = 5, el segundo marcado (F_TRAP = 0) |
 <!-- /AUTO:casos -->
 
 ## Casos borde conocidos
@@ -422,65 +294,103 @@ imposible el bug que motivó el bloque de tiempo muerto.
 
 | Propiedad | Qué garantiza |
 |-----------|---------------|
-| `ap_dt_disjuntos` | Los casilleros de tiempo muerto no se solapan |
+| `ap_dt_disjuntos` | Los dos casilleros de tiempo muerto (`dt_win`, `dt_div`) no se solapan |
 | `ap_puede_abrir_complemento` | …y son el complemento exacto de poder abrir: no hay un estado de bloqueo sin casillero |
-| **`ap_suma_relojes`** | **`realtime = vetotime + t_win + t_div + t_rearm + livetime`, en todo ciclo.** Si se agrega una causa de bloqueo y se olvida su reloj, falla |
-| `ap_deadtime_viejo_subestima` | El registro histórico `0x078` nunca excede el total honesto |
-| `ap_deadtime_viejo_identidad` | …y con `pub_mode = 0` vale exactamente `t_win + t_div` |
-| `ap_deadtime_viejo_fifo` | …mientras con `pub_mode = 1` vale sólo `t_win`: el registro viejo miente **más** en modo FIFO |
-| `ap_busy_es_win_o_div` | `feat_busy` coincide con los casilleros que lo componen, según el modo |
-| **`ap_contrapresion_es_muerta`** | **El desborde de la FIFO cuenta como tiempo muerto.** Sin esto el bloqueo oculto se habría mudado del Schmitt al árbitro |
-| **`ap_atribucion_arribos`** | **`cnt_cross = cnt_open + lost_rearm + lost_active + lost_busy + lost_veto + lost_notrig`.** Ningún pulso se pierde sin quedar atribuido |
-| `ap_win_vs_total` | Ventanas abiertas y cierres difieren como mucho en la ventana en vuelo |
-| `ap_open_acotado_por_win` | Los cruces que abrieron nunca exceden las ventanas abiertas |
-| `ap_arribo_libre_abre` | Un arribo con el módulo libre y sin veto siempre abre (fuente interna) |
+| **`ap_suma_relojes`** | **`realtime = vetotime + t_win + t_div + livetime`, en todo ciclo.** Si se agrega una causa de bloqueo y se olvida su reloj, falla |
+| **`ap_suma_ocupacion`** | **`Σ t_ocup[j] = realtime − vetotime`**: cada ciclo sin veto suma a exactamente un casillero de ocupación |
+| `ap_deadtime_es_ocupacion` | `deadtime` (0x078) es la ocupación de **alguna** ranura: todo menos `t_ocup[0]` |
+| `ap_busy_es_ocupacion` | `feat_busy` coincide con haber alguna ranura ocupada |
+| `ap_una_ranura` | Con `cfg_n_acc = 1` (y sin cambiarlo desde el `clear`), `deadtime = t_win + t_div`: la arquitectura de una ventana |
+| `ap_llenas_no_abre` | Todas las ranuras ocupadas implica no poder abrir |
+| `ap_cola_acotada` | La cola de publicación nunca pasa de `N_ACC` |
+| **`ap_atribucion_arribos`** | **`cnt_cross = cnt_open + lost_active + lost_busy + lost_veto`.** Ningún disparo se pierde sin quedar atribuido |
+| `ap_open_es_win` | Con el disparo como única fuente, cada ventana viene de un disparo |
+| `ap_win_vs_total` | Ventanas abiertas y cierres difieren como mucho en las `N_ACC` en vuelo |
+| `ap_arribo_libre_abre` | Un arribo con alguna ranura libre y sin veto siempre abre |
 | `ap_periodos_acotados` | No hay más períodos muertos que ciclos muertos |
-| `ap_ext_acotado_por_periodos` | Los períodos extendidos se cuentan uno por período, no uno por arribo |
-| `ap_ext_acotado_por_perdidas` | Cada extensión es un arribo perdido durante el bloqueo |
+| `ap_ext_acotado_por_periodos` | Los períodos con arribo se cuentan uno por período, no uno por arribo |
+| `ap_ext_acotado_por_perdidas` | Cada período con arribo es un disparo perdido por falta de ranura |
 | `ap_max_len_acotado` | El período más largo no excede el total |
-| `ap_dead_len_congelado` | El largo en curso sólo avanza durante el bloqueo |
+| `ap_dead_len_congelado` | El largo en curso solo avanza durante el bloqueo |
 
-**Las dos identidades de compatibilidad valen sólo si `pub_mode` no cambió desde
-el último `clear`.** Los relojes son acumulativos, así que mezclar dos modos en
-una misma cuenta no tiene identidad — sin que haya ningún bug. Se expresa con un
-flag `modo_sucio` dentro del módulo de assertions, en vez de dejar una propiedad
-que falle en un caso legítimo: una assertion que grita cuando no hay error se
-termina desactivando, y entonces ya no protege nada.
+**`ap_una_ranura` vale solo si `cfg_n_acc` no cambió desde el último `clear`.**
+Los relojes son acumulativos, así que mezclar dos configuraciones en una misma
+cuenta no tiene identidad —sin que haya ningún bug—. Se expresa con un flag
+`modo_sucio` dentro del módulo de assertions, en vez de dejar una propiedad que
+falle en un caso legítimo: una assertion que grita cuando no hay error se termina
+desactivando, y entonces ya no protege nada.
 
 ### Los `cover property`, y por qué hacen falta
 
-Quince, y no son decorativos: una propiedad condicionada por modo pasa
-trivialmente si ese modo nunca se ejercitó. Estado (ucdb combinado de los 6 TB,
-`make cov`):
+Una propiedad condicionada pasa trivialmente si su condición nunca se dio. Los
+once covers aseguran que las ramas de las propiedades de arriba se evaluaron con
+contenido:
 
-| Cover | Hits | Qué asegura |
+| Cover | Qué asegura |
+|---|---|
+| `cp_llenas` / `cp_varias` | Hubo ciclos con todas las ranuras ocupadas, y con dos o más |
+| `cp_dt_win` / `cp_dt_div` | Se cargaron los dos casilleros de tiempo muerto |
+| `cp_lost_active` / `cp_lost_busy` / `cp_lost_veto` | Las tres causas de pérdida de un disparo |
+| `cp_ext` / `cp_periodo` | Períodos muertos, y períodos con un arribo adentro |
+| `cp_cola_llena` | La cola de publicación llegó a `N_ACC` |
+| `cp_flanco` | Llegaron flancos de trigger de verdad |
+
+La sección 9 de `tb_mca_top` (la ráfaga con cuatro ranuras) es la que alcanza
+los covers de las ranuras al nivel del top: sin ella quedaban en cero, que es el
+modo de falla de un `bind` que no se elabora pero con otra cara.
+
+## El trapecio (`mca_trap`)
+
+No lleva assertions propias: su contrato es aritmético y se verifica contra
+modelos.
+
+| Qué | Dónde | Resultado |
 |---|---|---|
-| `cp_rearm` | 33291 | Se ejercitó el bloqueo por re-armado |
-| `cp_oculto` | 30974 | …con `busy` bajo: el caso que el diseño anterior no veía |
-| `cp_lost_rearm` | 4 | Arribos perdidos esperando el re-armado |
-| `cp_lost_active` | 2 | Arribos dentro de la ventana |
-| `cp_lost_busy` | 2 | Arribos sin lugar donde publicar |
-| `cp_ext` / `cp_periodo` | 7 / 56 | Períodos muertos y extensiones |
-| `cp_trig_ext` | 1005 | Fuente de apertura externa seleccionada |
-| `cp_trig_ambos` | 1180 | Fuente mixta |
-| `cp_trig_flanco` | 4 | Flancos de trigger recibidos de verdad |
-| `cp_notrig` | 4 | Cruces libres que no abrieron por falta de trigger |
-| `cp_rearm_cnt` | 3144 | Re-armado por contador |
-| `cp_pub_fifo` | 3144 | Publicación por FIFO |
-| `cp_win_sin_cruce` | 39 | Ventana abierta **sin** cruce de `thr`: el caso que obligó a separar `cnt_win` de `cnt_open` |
-| **`cp_contrapresion`** | **108** | **La FIFO se llenó de verdad.** En cero, el casillero nuevo del teselado estaría sin probar |
+| **bit a bit contra `estimadores.trapecio`**, el modelo de Python | `tb_mca_trap`, vectores de [`vectores/gen_trap.py`](vectores/gen_trap.py) | 28 413 muestras en cuatro formas (polo-cero exacto con apilamiento; líneas de 1000 muestras; `sh = 0`; M y muestras al límite), con 30 % de huecos de `val` y el `clr` entre casos: **0 errores** |
+| dentro de las ranuras | `tb_mca_multi` | un modelo del trapecio aparte, con `clr` a mitad de ventana; cubre `F_TRAP` en rango, saturado, negativo e incompleto en los tres DUT que lo tienen |
+| de punta a punta | `tb_mca_top` §10 | pulso solo 6313 (teoría 6312.5); par a Δt = 60 ≥ k+m: **6313 y 3787 = 0.6 × 6313**, con el pico del segundo en 901 en vez de 600; a Δt = 30 < k+m, contaminado; ventana fuera de la compuerta, `F_TRAP = 0` |
 
-> **Tres de estos covers leían CERO hasta que se los fue a buscar.** `cp_trig_*`
-> y `cp_notrig` sólo se ejercitaban en `tb_mca_pulse_feature`, que **no tiene el
-> bind** de assertions; y `cp_lost_active`/`cp_lost_busy`, que existen desde la
-> fase 1, nunca se habían ejercitado en `tb_mca_top` —el único TB con las
-> propiedades puestas—, así que esas ramas de `ap_atribucion_arribos` jamás se
-> habían evaluado con contenido. Es el mismo modo de falla que el `bind` que no
-> se elaboraba: algo que el flujo daba por verificado y no lo estaba. Los casos
-> que faltaban están ahora en `tb_mca_top` test 9.
+**Mutaciones**: 14 errores inyectados a mano en `mca_trap`, `mca_slot`,
+`mca_window` y `mca_publish`, y `tb_mca_multi` los detectó **todos**: la dirección
+de la tercera línea, la máscara de `k + l`, los bits fraccionarios de M, el reset
+de `p` con el `clr`, el signo de la saturación, el borde de la ventana, la
+latencia, la comprobación de ventana completa, el índice de la máscara corrido
+una etapa, la saturación del contador, un corrimiento lógico en vez de
+aritmético, el reset de la suma al abrir, la entrada saturada en vez de con signo
+y la cadena de retardo de la tercera línea.
 
-Estado: **17 propiedades × 2 instancias, 0 fallas** en `tb_mca_top`, y **15 de 15
-covers alcanzados**.
+## El banco de trapecios (2026-11-03)
+
+`N_FORMAS` trapecios en `mca_window`, una meseta por forma en cada `mca_slot`, y
+la elección en `mca_publish` (`F_TRAP` de la forma elegida y `F_FORMA`). Ver
+[`pruebas_banco_trapecios.md`](../../../docs/mca/pruebas_banco_trapecios.md) §5.
+
+| Qué | Dónde | Resultado |
+|---|---|---|
+| `mca_trap` con las líneas en LUT y el reset sin `clr` | `tb_mca_trap` (`dut` y `dut_lut`), más los 10 casos de `banco_vectores_trap.py` con `+NCASOS=10` | 0 errores en las dos memorias. El caso de reset sin `clr` **falla con el reset viejo de `kl`** (en cero) y pasa con el nuevo (en todo unos) |
+| la regla de elección y las N mesetas | `tb_mca_multi`, con 4 DUT: (N_ACC, EN_PSD, N_FORMAS) = (4,1,4), (1,1,1), (3,1,2), (2,0,0) | cobertura completa en seis semillas: cada forma elegida, el marcado, y la forma elegida **justo** en su umbral de antes y en el de después |
+| los registros y el banco por el bus | `tb_mca_top` §1, §2 y §10b | reset de `0x134` y de los cuatro bloques, el alias `0x128`/`0x180`, el `clr` solo con k, m o M, `umbr_ok`. Con dos formas: a Δt = 60 se elige la forma 0; a 30 la 1, limpia (6312 y 3787); a 5, los dos marcados |
+| invariantes | SVA `ap_forma_valida`, `ap_marcado_sin_altura` | `F_FORMA` ∈ {0..n_formas−1, 0xFFFF} y marcado ⇒ `F_TRAP` = 0, en todos los eventos |
+| de punta a punta, con el polo-cero | `tb_banco_e2e.sv` y `banco_e2e.py` | sobre un tren de Poisson, `F_TRAP` bit a bit en 21 966 de 21 966 eventos, y la misma clase que el modelo en el 99.95–100 % de los pulsos |
+
+**Mutaciones del banco**: 13 inyectadas en `mca_publish`, `mca_window` y
+`mca_slot`, con `tb_mca_multi` corriendo 300 000 ciclos:
+
+- **Detectadas, 12:**
+  - `≤` por `<` en cada umbral;
+  - `dt_prev` y `dt_next` cruzados;
+  - la prioridad al revés;
+  - el marcado sin poner `F_TRAP` en cero;
+  - `n_formas` ignorado;
+  - la ventana, el `lw`, la salida, el `sh` y el `l` de otra forma;
+  - la elección registrada en el ciclo equivocado.
+- **No detectada, 1, y es equivalente:** sacar la saturación de `n_formas`, que
+  el lazo ya acota.
+
+Las de ventana se detectaban con 2 o 3 errores en 300 000 ciclos, porque con
+formas al azar `F_TRAP` casi siempre salía en cero. Con el sorteo de un "banco
+realista" (formas que se acortan a la mitad, ventanas dentro de la compuerta, el
+M de una cola típica) pasaron a 16–33.
 
 > **`make cov` no funcionaba, y por la misma razón que el `bind`.** Los
 > testbenches terminan con `$finish`, que por defecto **sale** del simulador: el
@@ -503,14 +413,56 @@ arrastre por `extra.f`.
 
 ## Lo que la simulación no cubre: la validación en placa
 
-Las 17 assertions prueban las invariantes **en el modelo**. Que valgan en el
+Las assertions prueban las invariantes **en el modelo**. Que valgan en el
 silicio, leídas por el bus de verdad, es otra afirmación y necesita la placa.
-La campaña que lo hace es
+
+### Estado al 2026-10-30 — el bitstream de las ranuras ("MCA2")
+
+[`software/API/tests/placa/test_mca2_placa.py`](../../../software/API/tests/placa/test_mca2_placa.py),
+corrido en la placa (`rp-f08768`, 10.73.28.30) con el Rigol en IN1: **349 PASS,
+0 FAIL**. Es autónomo (habla los registros "MCA2" a mano) porque `API/mca.py`
+todavía es el de "MCA1".
+
+| Etapa | Qué mide | Resultado |
+|---|---|---|
+| `regs` | identificación, 17 registros escribibles, 11 reservados en cero, barrido del bus, borrado, relojes en reposo | 42 / 42 |
+| `periodico` | tren de 2 kHz: disparos sin pérdida, las cinco identidades por AXI con pulsos de verdad, la ley de Little | ocupación por ventana **403.00 = gate + 19** ciclos; espectro con 1 ranura contra 4: pico **1149.84 contra 1149.85**, ancho 1.37 contra 1.38 |
+| | `F_TRISE` contra `cfg_pre_dly` | pendiente **0.9989**; la latencia del disparo con este pulso es ~14 ciclos (conviene `pre_dly` 16, no el 11 del reset) |
+| | `F_DTPREV` contra el período del generador | 99.98 % en el canal del período |
+| `par` | pares a 1.6 µs | con 1 ranura el segundo es `lost_active` y toda ventana queda marcada; con 2 y 4 se miden los dos, `F_DTPREV`/`F_DTNEXT` = 200 ± 3 muestras y `F_SOLAPE` mitad "adentro", mitad "otra abierta" |
+| `poisson` | 30, 100 y 250 kev/s, dos semillas, 1 a 4 ranuras | la pérdida medida coincide con una simulación M/D/N/N **sobre el mismo patrón de arribos**, reconstruido de la semilla del generador: 37.36 contra 37.00 %, 7.63 contra 7.05 %, 1.05 contra 1.01 %; la ocupación `t_ocup[j]` a ±0.01 por casillero. Erlang B la sobreestima (41.8, 13.1 %) porque el disparo funde los pulsos a menos de ~0.5 µs y el proceso de disparos queda más regular que Poisson |
+
+La etapa `trapecio` (bitstream con `mca_trap`) usa pulsos de preamplificador del
+Rigol (subida de 10 ns, cola de 2 µs) en una forma con un **par** (a1 y
+a2 = 0.6 a1 a 1 µs) y **los mismos dos pulsos aislados**; el discriminador por
+`F_DTPREV` separa el segundo del par de su referencia aislada, con la misma forma
+cargada. k = 64, m = 48 (k + m = 112 muestras < 125):
+
+| M | segundo del par | a2 aislado | error |
+|---|---|---|---|
+| 239.5 | 2398.03 | 2382.75 | +0.64 % |
+| 244.5 | 2414.44 | 2422.28 | −0.32 % |
+| 249.5 (nominal, τ = 2 µs) | 2430.84 | 2461.87 | −1.26 % |
+| 259.5 | 2463.92 | 2541.13 | −3.04 % |
+| **242.8 (ajustado)** | **2409.05 ± 0.98** | **2409.08 ± 1.02** | **−0.001 %** |
+
+**El polo-cero hay que ajustarlo en el hardware.** El error es lineal en M y
+cruza cero en M = 242.8: la cola que llega al ADC es de 1.946 µs, no los 2 µs
+programados (la cadena Rigol → entrada de la placa la acorta un 2.7 %). Con M
+ajustado, el segundo pulso —que llega sobre el 61 % de la cola del primero— mide
+lo mismo que aislado; su pico, en cambio, da el doble (canal 2461 contra 1204). A
+Δt = 0.5 µs < k + m el segundo se contamina (+66 %), como tiene que ser. La
+primera carga de una forma después del `reset` del generador a veces no sale
+(se midió ~1 MHz de disparos espurios): la etapa verifica la tasa de cada forma
+y la recarga.
+
+### Estado al 2026-10-22 — el bitstream "MCA1" (histórico)
+
+La campaña era
 [`campanas/run_politicas.py`](../../../software/campanas/run_politicas.py)
 (`make -C software campana-politicas-remoto`), con cinco secciones:
-`invariantes`, `barrido`, `politicas`, `rearm_dly` y `distribucion`.
-
-### Estado al 2026-10-22
+`invariantes`, `barrido`, `politicas`, `rearm_dly` y `distribucion`. Las
+políticas que medía (re-armado, modo de publicación) ya no existen.
 
 Corrido en la placa (`rp-f08768`, 10.73.28.30) con el bitstream de las fases
 1-2 cargado:
@@ -549,6 +501,34 @@ paralizable/no paralizable por `E[L]/tau`.
 > que "reproduce la tabla" sería comparar dos estímulos distintos. Lo que sí se
 > contrasta es la forma (monotonía) y el τ medido contra el que predice la
 > configuración.
+
+### El bitstream con el trapecio no cierra timing — y no es el MCA
+
+Con `mca_trap` el diseño pasa a 69 % de LUT (12 188), 5 DSP y 26.5 BRAM. El
+dominio del MCA (`pll_adc_clk`) cierra con **+0.023 ns**, pero el build falla en
+`clk_fpga_3`: **−0.383 ns** en un camino interno del `axi_protocol_converter_0`
+que lleva el AXI-lite del PS al XADC, a 200 MHz. Es IP del block design, no RTL
+del proyecto; con las ranuras ya cerraba por +0.003 ns, y el script de build
+documenta que "cada tanto queda del otro lado". Se probaron cinco
+implementaciones desde el mismo `post_synth.dcp` y ninguna cierra:
+
+| Implementación | WNS `clk_fpga_3` |
+|---|---|
+| la del build (y `phys_opt` post-route) | −0.383 ns |
+| `place_design -directive ExtraTimingOpt` | −0.154 ns |
+| ExtraTimingOpt + `phys_opt`/`route` AggressiveExplore | −0.123 ns |
+| Pblock del convertidor | −0.214 ns |
+| Pblock del convertidor y el XADC + lo anterior | −0.243 ns |
+| `AltSpreadLogic_high` + AggressiveExplore | −0.040 ns |
+
+El camino es lógica real (8 niveles con un sumador de 12 bits) a 200 MHz en un
+7z010 grado −1: compacto o no, vive en el límite. El arreglo de fondo es de
+plataforma: en `prj/MCA/ip/systemZ10.tcl` el XADC, el convertidor, el register
+slice y `M_AXI_GP1` comparten `FCLK_CLK3` (200 MHz), que existe para la
+referencia de los IDELAY; pasarlos a `FCLK_CLK0` (125 MHz) les da 3 ns más.
+
+**Hecho el 2026-10-30** en `prj/MCA/ip/systemZ10.tcl` (y `dts/pl_patch.dtsi` a
+fclk0). Falta rearmar el bitstream para confirmar que cierra.
 
 ### Síntesis: el build completo no dice lo mismo que el OOC
 

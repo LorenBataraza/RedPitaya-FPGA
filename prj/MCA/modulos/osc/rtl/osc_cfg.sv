@@ -2,8 +2,8 @@
 //=============================================================================
 // osc_cfg — región de OSC: esclavo del bus de sistema (slot 1, 0x4010_0000)
 //
-// Sale de multitrigger_rp_scope_cfg, quitándole los registros del multitrigger
-// (que se mudaron al slot 3, ver multitrigger_cfg.sv) y reorganizando el mapa.
+// Sale de mt_rp_scope_cfg, quitándole los registros del multitrigger
+// (que se mudaron al slot 3, ver mt_cfg.sv) y reorganizando el mapa.
 //
 //=============================================================================
 // LOS DOS MAPAS
@@ -52,7 +52,7 @@
 //=============================================================================
 //
 // El módulo original sacaba el ack de las aperturas BRAM de bram_ack_i[i], y
-// rp_scope_multitrigger_com ata bram_ack[2]/[3] = 0 para los canales no
+// rp_scope_mt_com ata bram_ack[2]/[3] = 0 para los canales no
 // construidos: cualquier lectura en 0x4013_0000-0x4014_FFFF no hacía ack NUNCA
 // y dejaba el CDC del slot desincronizado (docs/TOP/bus_sistema_redpitaya.md §7.1).
 //
@@ -61,6 +61,9 @@
 // rp_acq_bram genera bram_ack_o = sys_en retrasado 4 ciclos
 // (adc_rval <= {adc_rval[2:0], bram_ack_i}), que es exactamente en_sr[3].
 // O sea que se arregla el cuelgue sin cambiar en nada las lecturas buenas.
+//
+// Los registros sí cambiaron: antes daban el ack al ciclo siguiente, y ahora tardan
+// lo mismo, así que un wen dura 6 ciclos en vez de 2. Ver mt_cfg.
 //=============================================================================
 
 module osc_cfg #(
@@ -124,7 +127,7 @@ module osc_cfg #(
   output     [   4*32 -1: 0] set_axi_dly_o        ,
   output     [       4-1: 0] set_axi_en_o         ,
 
-  // --- puente legacy hacia multitrigger_cfg (slot 3) ---
+  // --- puente legacy hacia mt_cfg (slot 3) ---
   // Pulsos ya decodificados por canal desde los offsets 0x004 y 0x094.
   output     [       4-1: 0] legacy_trig_sw_o     ,
   output     [       4-1: 0] legacy_trig_dis_clr_o

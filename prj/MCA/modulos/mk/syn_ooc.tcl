@@ -9,6 +9,9 @@
 #   SYN_SRCS   lista de fuentes, ya resuelta y ordenada por module.mk
 #   PERIOD_NS  periodo de reloj objetivo (el barrido lo pisa por frecuencia)
 #   SYN_GEN    opcional: parametros del top, "NOMBRE=VALOR NOMBRE=VALOR"
+#   OUT_DIR    opcional: donde dejar los reportes (por defecto MOD_DIR/syn/outputs).
+#              Lo usa un barrido que corre varias sintesis a la vez, como el de
+#              docs/mca/figuras/recursos/recursos_ranuras.py
 #
 # SYN_GEN existe porque medir el modulo con sus DEFAULTS mide una configuracion
 # que no se construye. Paso concreto: mca_top tiene H_AW=14 por defecto y los
@@ -26,7 +29,7 @@ set SRCS    $::env(SYN_SRCS)
 set GEN     [expr {[info exists ::env(SYN_GEN)] ? $::env(SYN_GEN) : ""}]
 set PART    xc7z010clg400-1
 
-set OUT ${MOD_DIR}/syn/outputs
+set OUT [expr {[info exists ::env(OUT_DIR)] ? $::env(OUT_DIR) : "${MOD_DIR}/syn/outputs"}]
 file mkdir $OUT
 
 puts "=== sintesis OOC: $MODULE / $TOP @ $::env(PERIOD_NS) ns ==="
@@ -58,6 +61,9 @@ synth_design -top $TOP -mode out_of_context -part $PART -flatten_hierarchy none 
 opt_design
 
 report_utilization    -file ${OUT}/utilization.rpt
+# Por instancia: lo que cuesta cada submodulo (con -flatten_hierarchy none la
+# jerarquia sobrevive, asi que los numeros son de cada bloque y no estimados).
+report_utilization -hierarchical -hierarchical_depth 6 -file ${OUT}/util_hier.rpt
 report_timing_summary -file ${OUT}/timing.rpt
 report_power          -file ${OUT}/power.rpt
 write_checkpoint -force ${OUT}/${TOP}_synth.dcp

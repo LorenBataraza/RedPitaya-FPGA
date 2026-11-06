@@ -13,6 +13,7 @@
 //     auto-limpieza en single-shot, DIS_FLAGS y re-arm por TRIG_DIS_CLR.
 //  3. PENDIENTE configurada por registros: SLOPE_* → mt_slope_trig → bit 17.
 //     El bit no sale por event_snap_o (17 b) pero sí por SNAPSHOT.
+// 3b. POLO-CERO configurado por registros en ch1: PZ_* → mt_pz_trig → bit 26.
 //  4. EXTERNA: trig_ext_i → rp_ext_trig → trig_ext_asg_o → (lazo del top) →
 //     trig_ext_asg_i → bit 9.
 //  5. VETO por nivel externo: SHIELD_CFG src=ext_lvl, dst=mca → mca_veto_o.
@@ -206,6 +207,7 @@ module tb_mt_top;
     checkv("CAPS.N_CH es el del top", d[3:0], N_CH);
     checkv("CAPS.SRC_W", d[11:4], 32);
     check ("CAPS.HAS_SLOPE", d[16]);
+    check ("CAPS.HAS_PZ", d[17]);
     check ("reset: ningun evento", n_events == 0);
 
     //----------------------------------------------------------------------
@@ -249,6 +251,29 @@ module tb_mt_top;
     check ("event_snap_o no tiene los bits de pendiente", event_snap === d[16:0]);
     set_ch(0, 0);
     bus_write(20'h060, 32'h0);
+    rearm();
+
+    //----------------------------------------------------------------------
+    // 3b. POLO-CERO, configurado por registros, en ch1
+    //----------------------------------------------------------------------
+    // Un escalon de 500 por el trapecio k=2, m=1 con polo-cero: el transitorio
+    // sube a ~3900 (dispara) y se asienta en ~47, debajo del re-armado (176).
+    $display("-- 3b. disparo con polo-cero en ch1 --");
+    set_tresh[1*DW +: DW] = 8000;
+    bus_write(20'h0B4, 353);                            // PZ_THR ch1
+    bus_write(20'h0C4, 177);                            // PZ_HYST ch1
+    bus_write(20'h0A4, 3992);                           // PZ_MQ ch1 (tau = 250)
+    bus_write(20'h094, 32'h8A00_0102);                  // en, sh=10, m=1, k=2
+    repeat (40) @(negedge clk);                         // el arranque
+    bus_write(20'h040, 32'h1 << 26);                    // bit 26: pz_p ch1
+    no_event(20, quiet); check("polo-cero sin pulso: quieto", quiet);
+    set_ch(1, 500);
+    wait_event(50, got); check("evento por polo-cero en ch1", got);
+    repeat (3) @(negedge clk);
+    bus_read(20'h018, d); checkv("SNAPSHOT: solo pz_p[1] (bit 26)", d, 32'h1 << 26);
+    check ("event_snap_o no tiene los bits de polo-cero", event_snap === d[16:0]);
+    set_ch(1, 0);
+    bus_write(20'h094, 32'h0);
     rearm();
 
     //----------------------------------------------------------------------

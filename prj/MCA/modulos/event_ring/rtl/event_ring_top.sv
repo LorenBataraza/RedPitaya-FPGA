@@ -13,7 +13,7 @@
 // ese slot no acepta mas transacciones (ver docs/TOP/bus_sistema_redpitaya.md 7.1,
 // y el bug latente de bram_ack[2]/[3] en el scope).
 //
-// UN SOLO DOMINIO DE RELOJ. En rp_scope_multitrigger_com.sv:686 hay
+// UN SOLO DOMINIO DE RELOJ. En rp_scope_mt_com.sv:686 hay
 // `assign axi_clk = adc_clk_i`, y el bus llega ya sincronizado a adc_clk por
 // sys_bus_cdc. O sea captura, writer y registros comparten adc_clk: no hace
 // falta ningun CDC ni codificacion Gray entre WR_SLOT y RD_SLOT.
@@ -38,7 +38,7 @@ module event_ring_top #(
   parameter integer DW      = 14,
   parameter integer N_CH    = 2,
   parameter integer SW      = 16,
-  parameter integer PRE_AW  = 9,    // pre-buffer: 512 muestras
+  parameter integer PRE_AW  = 11,   // pre-buffer: 2048, para ventanas de hasta 1024
   parameter integer S_AW    = 11,
   parameter integer DATA_AW = 12,   // stage: 4096 muestras (~2 RAMB36)
   parameter integer E       = 4,    // eventos en vuelo en el stage

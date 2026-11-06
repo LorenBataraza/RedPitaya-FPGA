@@ -20,6 +20,10 @@
 //   7. sin creditos el writer SE FRENA (no descarta) y retoma despues
 //   8. seq y wr_slot avanzan de a uno por evento
 //   9. err_slot_ovf con ventana que no entra en el slot
+//  10. RITMO: una palabra de datos cada 4 ciclos, sin contrapresion
+//  11. una ventana que entra JUSTA en el slot no es un error
+//  12. una ventana no multiplo de 4 con contrapresion: el relleno de la ultima
+//      palabra tambien tiene que esperar la salida
 //============================================================================
 module tb_event_slot_writer;
 
@@ -99,6 +103,9 @@ module tb_event_slot_writer;
   // Captura del stream de salida
   //--------------------------------------------------------------------------
   reg [63:0] cap [0:1023];
+  integer    cap_t [0:1023];   // ciclo en que salio cada palabra
+  integer    ciclo = 0;
+  always @(posedge clk) ciclo = ciclo + 1;
   integer    cap_n = 0;
   integer    foot_pos = -1;
   integer    last_data_pos = -1;
@@ -106,6 +113,7 @@ module tb_event_slot_writer;
   always @(posedge clk) begin
     if (wr_val && wr_rdy) begin
       cap[cap_n] = wr_dat;
+      cap_t[cap_n] = ciclo;
       // posicion de la ultima palabra que NO es cero (proxy de "ultimo dato")
       if (wr_dat != 64'h0) last_data_pos = cap_n;
       cap_n = cap_n + 1;
@@ -142,7 +150,7 @@ module tb_event_slot_writer;
   endtask
 
   //--------------------------------------------------------------------------
-  integer i, errs, exp_words, ndata;
+  integer i, k, errs, exp_words, ndata;
   reg [63:0] w, ref_cap [0:1023];
   integer    ref_n;
 
@@ -211,7 +219,7 @@ module tb_event_slot_writer;
     //======================================================================
     $display("[3] contrapresion aleatoria: stream identico");
     cap_clear();
-    fork
+    fork : pinchar3
       begin
         // reproducir exactamente el evento [1] pero con wr_rdy pinchado
         push_event(64'h1122_3344_5566_7788, 17'h5, 32, 100);
@@ -223,6 +231,9 @@ module tb_event_slot_writer;
         end
       end
     join_any
+    // Sin esto la otra rama sigue corriendo: mueve wr_rdy en las escenas siguientes
+    // y pisa `i`, que es compartida.
+    disable pinchar3;
     wr_rdy = 1'b1;
     wait_idle(4000);
 
@@ -274,6 +285,62 @@ module tb_event_slot_writer;
     wait_idle(4000);
     check("err_slot_ovf levantado", err_ovf === 1'b1);
     checkv("no se paso del slot", cap_n, (1<<(6-3)));
+
+    // err_slot_ovf es sticky: se limpia con el flush, como al parar la adquisicion
+    slot_shift = 5'd9;
+    @(negedge clk); flush = 1'b1;
+    repeat (2) @(negedge clk); flush = 1'b0;
+    check("err_ovf limpio tras el flush", err_ovf === 1'b0);
+
+    //======================================================================
+    $display("[7] ritmo: una palabra de datos cada 4 ciclos");
+    cap_clear();
+    push_event(64'h1, 17'h1, 32, 600);
+    wait_idle(2000);
+    errs = 0;
+    for (i = 0; i < ndata - 1; i = i + 1)
+      if (cap_t[5+i] - cap_t[4+i] != 4) errs = errs + 1;
+    checkv("4 ciclos entre palabras de datos", errs, 0);
+
+    //======================================================================
+    $display("[8] ventana justa: 4 + 59 + footer = 64 palabras");
+    cap_clear();
+    push_event(64'h2, 17'h1, 118, 700);     // 118*2 = 236 muestras = 59 palabras
+    wait_idle(2000);
+    check("no es un error", err_ovf === 1'b0);
+    checkv("palabras por slot (justa)", cap_n, exp_words);
+    checkv("ultima palabra de datos (justa)", cap[62][63:48], (700+235) & 16'hFFFF);
+    checkv("footer inmediatamente despues", cap[63][31:0] ^ cap[63][63:32], 32'hFFFF_FFFF);
+
+    //======================================================================
+    $display("[9] no multiplo de 4 con contrapresion: la ultima palabra se completa con ceros");
+    fork : pinchar
+      forever begin
+        @(negedge clk);
+        // $urandom y no $random: $random da negativos y dejaria wr_rdy casi siempre en 1
+        wr_rdy = ($urandom % 100) < 25;
+      end
+      begin
+        errs = 0;
+        for (k = 0; k < 20; k = k + 1) begin
+          cap_clear();
+          push_event(64'h3, 17'h1, 31, 800);  // 62 muestras: la ultima palabra lleva 2
+          wait_idle(4000);
+          if (cap_n != exp_words) errs = errs + 1;
+          for (i = 0; i < 15; i = i + 1) begin
+            w = cap[4+i];
+            if (w[15:0]  !== ((800 + 4*i + 0) & 16'hFFFF)) errs = errs + 1;
+            if (w[63:48] !== ((800 + 4*i + 3) & 16'hFFFF)) errs = errs + 1;
+          end
+          if (cap[19] !== {32'h0, 16'(800+61), 16'(800+60)}) errs = errs + 1;
+          if (cap[20] !== 64'h0) errs = errs + 1;
+          if (err_ovf !== 1'b0) errs = errs + 1;
+        end
+      end
+    join_any
+    disable pinchar;
+    wr_rdy = 1'b1;
+    checkv("20 eventos identicos, con el relleno en su lugar", errs, 0);
 
     //======================================================================
     $display("");

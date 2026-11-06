@@ -23,20 +23,20 @@ que hay que mirar ya pasó.
      cada check(). No editarla a mano. Lo de abajo (casos borde,
      assertions, metas) SI es a mano y no se toca. -->
 
-**142 casos con nombre** en 6 testbenches. Cada fila es un `check()` que corre y tiene que dar PASS; el testbench entero falla si alguno no da.
+**170 casos con nombre** en 7 testbenches. Cada fila es un `check()` que corre y tiene que dar PASS; el testbench entero falla si alguno no da.
 
 ### [`tb_mt_cfg`](tb_mt_cfg.sv) — `mt_cfg`
 
 | Escena | Qué prueba | Caso |
 |---|---|---|
 | 1 | IDENTIFICACIÓN | MAGIC |
-|  |  | CAPS (HAS_SLOPE en bit 16) |
+|  |  | CAPS (HAS_PZ en 17, HAS_SLOPE en 16) |
 | 2 | SHIELD: 0x210 del mapa viejo -> 0x010, mismo layout de bits | shield_src |
 |  |  | shield_dst |
 |  |  | shield_dur |
 |  |  | SHIELD_CFG readback |
 |  |  | SHIELD_STAT |
-| 3 | SNAPSHOT y FLAGS (eran 0x218 y 0x21C) | SNAPSHOT (25 b) |
+| 3 | SNAPSHOT y FLAGS (eran 0x218 y 0x21C) | SNAPSHOT (29 b) |
 |  |  | DIS_FLAGS |
 |  |  | TRG_STATE |
 | 4 | MÁSCARAS OR: 0x240+4c del mapa viejo -> 0x040+4c | new_trg_src ch0 pulso |
@@ -66,6 +66,24 @@ que hay que mirar ya pasó.
 |  |  | slope_hyst ch0 |
 |  |  | SLOPE_HYST ch0 readback |
 |  |  | SLOPE_HYST ch3 readback |
+|  |  | reset: pz_en en 0 |
+|  |  | pz_en ch0 |
+|  |  | pz_k ch0 |
+|  |  | pz_m ch0 |
+|  |  | pz_sh ch0 |
+|  |  | pz ch1 no sigue a ch0 (sin fan-out) |
+|  |  | PZ_CFG ch0 readback |
+|  |  | PZ_CFG ch3 solo campos |
+|  |  | pz_mq ch1 |
+|  |  | PZ_MQ ch1 readback |
+|  |  | PZ_MQ ch0 readback |
+|  |  | pz_thr ch0 |
+|  |  | PZ_THR ch0 readback |
+|  |  | PZ_THR ch3 satura |
+|  |  | pz_hyst ch0 |
+|  |  | PZ_HYST ch0 readback |
+|  |  | PZ_HYST ch2 readback |
+|  |  | la pendiente no se toca |
 | 8 | BARRIDO DE ACK | no mapeada devuelve 0 |
 |  |  | tope del slot devuelve 0 |
 |  |  | sin timeouts de ack |
@@ -93,6 +111,13 @@ que hay que mirar ya pasó.
 |  |  | cfg_en=0: s queda en 0 |
 
 
+### [`tb_mt_pz_trig`](tb_mt_pz_trig.sv) — `mt_pz_trig`
+
+| Escena | Qué prueba | Caso |
+|---|---|---|
+| 5 | Pares | en = 0: ningun disparo |
+
+
 ### [`tb_mt_trig_src`](tb_mt_trig_src.sv) — `mt_trig_src`
 
 | Escena | Qué prueba | Caso |
@@ -109,6 +134,8 @@ que hay que mirar ya pasó.
 |  |  | slope_n[0] NO dispara con BIT_SLOPE_N1 |
 |  |  | slope_n[1] dispara con BIT_SLOPE_N1 (bit22) |
 |  |  | pendiente fuera de mascara NO dispara |
+| 7 | polo-cero: pz_p[ch] -> bit 25 + ch, solo con su bit | polo-cero fuera de mascara NO dispara |
+|  |  | bits 29..31 reservados: no disparan |
 
 
 ### [`tb_mt_event_logic`](tb_mt_event_logic.sv) — `mt_event_logic`
@@ -124,6 +151,8 @@ que hay que mirar ya pasó.
 |  |  | snapshot engancha slope_p0 (bit17) y nada mas |
 | 5 | slope_n[1] (bit 22) | slope_n1 dispara trigger_event |
 |  |  | snapshot engancha slope_n1 (bit22) |
+| 6 | polo-cero: pz_p[1] (bit 26) -> evento + snapshot bit 26 | pz_p1 dispara trigger_event |
+|  |  | snapshot engancha pz_p1 (bit26) y nada mas |
 
 
 ### [`tb_trigger_shield`](tb_trigger_shield.sv) — `trigger_shield`
@@ -159,6 +188,7 @@ que hay que mirar ya pasó.
 |  |  | CAPS.N_CH es el del top |
 |  |  | CAPS.SRC_W |
 |  |  | CAPS.HAS_SLOPE |
+|  |  | CAPS.HAS_PZ |
 |  |  | reset: ningun evento |
 | 2 | NIVEL, single-shot | trg_state: mascara activa en ch0 |
 |  |  | trg_state: ch1 sigue a ch0 sin indep_mode |
@@ -176,6 +206,10 @@ que hay que mirar ya pasó.
 | 3 | PENDIENTE, configurada por registros | evento por pendiente |
 |  |  | SNAPSHOT: slope_p[0] (bit 17) |
 |  |  | event_snap_o no tiene los bits de pendiente |
+|  |  | polo-cero sin pulso: quieto |
+|  |  | evento por polo-cero en ch1 |
+|  |  | SNAPSHOT: solo pz_p[1] (bit 26) |
+|  |  | event_snap_o no tiene los bits de polo-cero |
 | 4 | EXTERNA, por el lazo trig_ext_asg | evento por flanco externo |
 |  |  | trig_ext_asg_o[0] (ext_p) pulso |
 |  |  | event_snap_o: ext_p |
@@ -211,6 +245,22 @@ verificación, no una idea suelta.
 | Caso borde | Por qué importa | Cubierto |
 |------------|-----------------|----------|
 | | | no |
+
+## El disparo con polo-cero (2026-11-03)
+
+`mt_pz_trig`: un `mca_trap` corto (k = 2, m = 1) con un Schmitt, en los bits
+25..28 de `OR_MASK`. Ver [`disparo_polo_cero.md`](../../../docs/mt/disparo_polo_cero.md).
+
+| Qué | Dónde | Resultado |
+|---|---|---|
+| el trapecio bit a bit y el Schmitt en cada ciclo | `tb_mt_pz_trig`, contra modelos escritos aparte | 248 903 ciclos, 0 errores, con decimación y con cambios de forma (k = 0 y k + m > 31 incluidos) a mitad de la corrida |
+| el arranque | `tb_mt_pz_trig` | sin falsos con −1000, 5, 1000 y 1800 cuentas de continua; el Schmitt evalúa recién a k + l + 12 muestras del re-arranque |
+| la detección | `tb_mt_pz_trig` | 564 de 564 pulsos aislados (A = 100..8000, ruido 4.5) con un disparo cada uno; ningún falso. Pares 2000 → 1200 y 8000 → 300: dos disparos desde Δt = 7 |
+| los registros, la máscara, el snapshot | `tb_mt_cfg`, `tb_mt_trig_src`, `tb_mt_event_logic`, `tb_mt_top` §3b | `PZ_*` con readback y saturación, `CAPS[17]`; bits 25..28 cada uno con su canal, 29..31 reservados; snapshot de 29 b; el disparo por registro de punta a punta |
+| contra el modelo del banco | `tb_banco_disparo.sv` (`docs/mca/figuras/trapecio/`) | los mismos disparos que el Schmitt con el que se validó el banco, en 3600 pulsos y 6320 pares, un ciclo más tarde |
+
+OOC de `mt_top`: WNS +1.46 ns a 125 MHz; 457 LUT, 380 FF y 1 DSP por canal, sin
+BRAM.
 
 ## Assertions
 

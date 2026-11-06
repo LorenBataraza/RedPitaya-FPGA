@@ -41,6 +41,7 @@ module mt_event_logic #(
   input  [        4-1: 0]        trig_ch_i        ,  // cadena desde el otro scope
   input  [        4-1: 0]        slope_p_i        ,  // pendiente positiva por canal
   input  [        4-1: 0]        slope_n_i        ,  // pendiente negativa por canal
+  input  [        4-1: 0]        pz_p_i           ,  // polo-cero por canal
 
   // Shield config - Control Signals
   input  [SHIELD_SRC-1: 0]       shield_src_i     ,
@@ -59,7 +60,7 @@ module mt_event_logic #(
   // State
   output [DURATION_W-1: 0]       shield_cnt_o     ,  // contador del shield
   output                         shield_active_o  ,  // shield en holdoff
-  output [       25-1: 0]        trig_snapshot_o     // sticky: qué disparó el último evento
+  output [       29-1: 0]        trig_snapshot_o     // sticky: qué disparó el último evento
 );
 
 wire [ 4-1: 0] adc_trig    ;  // trigger por canal
@@ -118,6 +119,7 @@ mt_trig_src #(
   .trig_ch_i      ( trig_ch_i                                  ),
   .slope_p_i      ( slope_p_i                                  ),
   .slope_n_i      ( slope_n_i                                  ),
+  .pz_p_i         ( pz_p_i                                     ),
 
   .trg_state_o    ( trg_state_o[(GV+1)*SRC_W-1:GV*SRC_W]       ),
   .adc_trg_dis_o  ( adc_trg_dis_o[GV]                          ),
@@ -147,15 +149,16 @@ assign trig_ch_o = {adc_trig_n_i[1], adc_trig_p_i[1],
                     adc_trig_n_i[0], adc_trig_p_i[0]};
 
 // Snapshot sticky de las fuentes activas en el momento del último trigger_event.
-// 25 bits: {slope_n[3:0], slope_p[3:0],
+// 29 bits: {pz_p[3:0], slope_n[3:0], slope_p[3:0],
 //            trig_ch[3:0], asg_n, asg_p, ext_n, ext_p, adc_n[3:0], adc_p[3:0], sw_any}
 // Los 17 bajos conservan el orden histórico (que NO es el de la máscara OR);
-// los 8 de pendiente caen en los mismos bits 17..24 que en la máscara.
+// los 8 de pendiente y los 4 de polo-cero caen en los mismos bits 17..28 que
+// en la máscara.
 // src_now se retrasa 1 ciclo para alinear con el pipeline de mt_trig_src
 // (trig_comb combinacional → adc_trig registrado → event_signal).
-reg  [25-1: 0] src_now_d ;
-reg  [25-1: 0] trig_snapshot;
-wire [25-1: 0] src_now = {slope_n_i, slope_p_i,
+reg  [29-1: 0] src_now_d ;
+reg  [29-1: 0] trig_snapshot;
+wire [29-1: 0] src_now = {pz_p_i, slope_n_i, slope_p_i,
                           trig_ch_i,
                           asg_trig_n_i, asg_trig_p_i,
                           ext_trig_n_i, ext_trig_p_i,
@@ -167,14 +170,17 @@ always @(posedge adc_clk_i)
 
 always @(posedge adc_clk_i)
 if (adc_rstn_i == 1'b0)
-   trig_snapshot <= 25'h0 ;
+   trig_snapshot <= 29'h0 ;
 else if (|adc_rst_do_i)
-   trig_snapshot <= 25'h0 ;
+   trig_snapshot <= 29'h0 ;
 else if (|sw_trig_dis_clr_i)
-   trig_snapshot <= 25'h0 ;
+   trig_snapshot <= 29'h0 ;
 else if (event_signal)
    trig_snapshot <= src_now_d ;
 
-assign trig_snapshot_o = trig_snapshot;
+// Con event_signal arriba sale el valor nuevo: el registro lo toma recién en el flanco
+// siguiente, y event_window_capture lee el snapshot en el flanco del trigger. Sin esto,
+// cada slot se lleva las fuentes del evento anterior.
+assign trig_snapshot_o = event_signal ? src_now_d : trig_snapshot;
 
 endmodule

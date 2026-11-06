@@ -255,7 +255,7 @@ module tb_event_window_capture;
     checkv("alineacion evento B", rx[2*8], trig_sample_idx);
 
     //======================================================================
-    // Regresion de un bug encontrado en la PLACA: multitrigger_trig_src registra
+    // Regresion de un bug encontrado en la PLACA: mt_trig_src registra
     // adc_trig como NIVEL (`adc_trig <= trig_comb`), y el strobe que llega por
     // el sys_bus_cdc puede durar mas de un ciclo de adc_clk. Con trig tomado por
     // nivel, cada trigger por software producia DOS eventos: uno capturado y uno

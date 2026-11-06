@@ -39,6 +39,7 @@ module mt_trig_src #(
   input  [ 4-1: 0]      trig_ch_i       , // Triggers de la cadena (otro par)
   input  [ 4-1: 0]      slope_p_i       , // pendiente positiva por canal (mt_slope_trig)
   input  [ 4-1: 0]      slope_n_i       , // pendiente negativa por canal
+  input  [ 4-1: 0]      pz_p_i          , // polo-cero por canal (mt_pz_trig)
 
    // Salidas
   output [ SRC_W-1: 0]  trg_state_o     , // máscara activa (set_trig_src), 32 b
@@ -51,6 +52,7 @@ reg                 adc_trg_dis   ;      // Trigger Disable
 reg                 adc_trig      ;
 wire                adc_trig_sw   ;
 reg                 adc_trig_sw_r ;
+reg                 adc_trig_sw_d ;
 
 assign adc_trig_sw = (adc_trig_sw_r) && dly_valp_i;
 
@@ -59,6 +61,7 @@ if (adc_rstn_i == 1'b0) begin
    adc_trg_dis   <= 1'b0 ;
    set_trig_src  <= {SRC_W{1'b0}} ;
    adc_trig_sw_r <= 1'b0 ;
+   adc_trig_sw_d <= 1'b0 ;
 end else begin
    if (set_trg_new_i)
       set_trig_src <= set_trg_src_i ;                 // Máscara de fuentes
@@ -74,14 +77,18 @@ end else begin
    else if (adc_trig)
       adc_trg_dis <= 1'b1 ;
 
-   if (adc_trig_sw_i)  // extend wait for next valid sample
+   // Por flanco: una escritura es un disparo. El pulso dura lo que la transacción
+   // del bus (6 ciclos, ver mt_cfg), y por nivel, con auto-rearme y holdoff 0,
+   // adc_trg_dis se limpia con el pulso todavía arriba y sale un segundo trigger.
+   adc_trig_sw_d <= adc_trig_sw_i;
+   if (adc_trig_sw_i && !adc_trig_sw_d)  // extend wait for next valid sample
       adc_trig_sw_r <= 1'b1;
    else if (dly_valp_i)
       adc_trig_sw_r <= 1'b0;
 end
 
 // Vector de fuentes: 1 bit por entrada de trigger (sin OR colapsado).
-// 25 fuentes individuales, bits 31:25 reservados (0).
+// 29 fuentes individuales, bits 31:29 reservados (0).
 wire [ SRC_W-1: 0] trg_src_bits;
 assign trg_src_bits[0]  = adc_trig_sw   ; // SW manual
 assign trg_src_bits[1]  = adc_trig_p_i[0] ; // ADC ch0 posedge
@@ -108,7 +115,11 @@ assign trg_src_bits[21] = slope_n_i[0]  ; // pendiente ch0 negativa
 assign trg_src_bits[22] = slope_n_i[1]  ; // pendiente ch1 negativa
 assign trg_src_bits[23] = slope_n_i[2]  ; // pendiente ch2 negativa
 assign trg_src_bits[24] = slope_n_i[3]  ; // pendiente ch3 negativa
-assign trg_src_bits[SRC_W-1:25] = {(SRC_W-25){1'b0}} ; // reservado
+assign trg_src_bits[25] = pz_p_i[0]     ; // polo-cero ch0
+assign trg_src_bits[26] = pz_p_i[1]     ; // polo-cero ch1
+assign trg_src_bits[27] = pz_p_i[2]     ; // polo-cero ch2
+assign trg_src_bits[28] = pz_p_i[3]     ; // polo-cero ch3
+assign trg_src_bits[SRC_W-1:29] = {(SRC_W-29){1'b0}} ; // reservado
 
 // Máscara enmascarada por el disable (igual idea que el original, ahora SRC_W)
 wire [ SRC_W-1: 0] src_mask = set_trig_src & {SRC_W{!adc_trg_dis}};

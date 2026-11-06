@@ -56,7 +56,7 @@
 */
 
 // Cada uno de estos tiene como entradas dos canales de datos 
-module rp_scope_multitrigger_com #(
+module rp_scope_mt_com #(
   // En estos valores se encuentra el modelo de Pitaya empleado
   // 
   parameter CHN  = 0 , // Channel Number
@@ -97,9 +97,9 @@ module rp_scope_multitrigger_com #(
    output     [N_CH   -1: 0] mca_val_o      ,
 
    // Evento conjunto hacia el event_ring (Fase 1). Es el MISMO trigger_event
-   // que alimenta a rp_bram_sm y rp_axi_sm, y el mismo snapshot que se lee por
-   // 0x218: el ring no introduce una fuente de disparo nueva, se cuelga de la
-   // que ya existe.
+   // que alimenta a rp_bram_sm y rp_axi_sm, y el mismo snapshot que se lee en
+   // SNAPSHOT (0x018 del slot 3): el ring no introduce una fuente de disparo
+   // nueva, se cuelga de la que ya existe.
    output                    event_trig_o   ,
    output     [     17-1: 0] event_snap_o   ,
    
@@ -171,48 +171,21 @@ wire [    N_CH-1: 0] axi_rstn          ;
 wire [       4-1: 0] adc_arm_do        ; // Tengo un arm por canal
 
 wire [       4-1: 0] adc_rst_do        ;
-wire [       4-1: 0] adc_trig_sw       ; // SW
 wire [       4-1: 0] adc_we_keep       ;
 
 wire [       4-1: 0] trig_dis_clr      ;
 
-// multitrigger: config del trigger_shield (desde multitrigger_cfg). Fuentes:
-// 4 canales + {ext_p, ext_n, ext_lvl}; destinos: 4 canales + {mca}.
-wire [       7-1: 0] shield_src        ;
-wire [       5-1: 0] shield_dst        ;
-wire [      16-1: 0] shield_dur        ;
-
-// NIVEL de la entrada externa, sincronizado a adc_clk para usarlo como fuente
-// de veto. rp_ext_trig ya sincroniza y rebota la misma linea, pero solo saca
-// los flancos; el nivel rebotado no es puerto suyo y es RTL del repo raiz, asi
-// que se sincroniza aca aparte (dos flops). Un veto es un nivel largo: un
-// ciclo de mas o de menos en el borde no importa.
-reg  [2-1:0] ext_lvl_sync;
-always @(posedge adc_clk_i[0])
-  if (!adc_rstn_i[0]) ext_lvl_sync <= 2'b00;
-  else                ext_lvl_sync <= {ext_lvl_sync[0], trig_ext_i};
-wire ext_lvl = ext_lvl_sync[1];
-
 // adc_dly_do a nivel módulo (cada rp_bram_sm maneja su bit por canal)
 wire [       4-1: 0] adc_dly_do        ;
 
-// estado de trigger del event_logic: solo la máscara activa set_trig_src[31:0]
-// por canal (32 b cada uno). El bit adc_trg_dis sale por puerto aparte.
-wire [N_CH*32-1: 0]  ev_trg_state      ;
-wire [      4-1: 0]  ev_adc_trg_dis    ; // dis por canal (padded por el event_logic)
-
-// debug: adc_trg_dis_act, estado del shield, snapshot (la máscara configurada
-// se lee desde el cfg-stored, no de aquí)
-wire [      4-1: 0]  adc_trg_dis_act   ;
-wire [     16-1: 0]  shield_cnt        ;
-wire                 shield_active     ;
-wire [     17-1: 0]  trig_snapshot     ;
-
-assign adc_trg_dis_act = ev_adc_trg_dis;
+// Tap MTRG de cada canal, empaquetado para mt_top (lo elige el dsp_tap_mux
+// MTRG dentro del generate por canal).
+wire [ N_CH*DW-1: 0] mtrg_dat          ;
+wire [ N_CH   -1: 0] mtrg_val          ;
 
 wire [       4-1: 0] axi_en_pulse      ;
 
-// Puente legacy osc_cfg -> multitrigger_cfg (offsets 0x004 y 0x094 del slot 1)
+// Puente legacy osc_cfg -> mt_cfg (offsets 0x004 y 0x094 del slot 1)
 wire [       4-1: 0] legacy_trig_sw    ;
 wire [       4-1: 0] legacy_trig_dis_clr;
 wire [       4-1: 0] new_trg_src       ; // Indica cuando el trig_src actualiza la entrada 
@@ -253,15 +226,7 @@ wire [   4*32 -1: 0] axi_wp_trig  ;
 wire [       4-1: 0] bram_ack     ;
 wire [   4*DW -1: 0] bram_rd_dat  ;
 
-// Todas las senales de triggering, siguen siendo útiles
-wire [       4-1: 0] adc_trig_p   ; // posedge de canales adc
-wire [       4-1: 0] adc_trig_n   ; // nedege del canales adc
-wire                 ext_trig_p   ;
-wire                 ext_trig_n   ;
-wire                 asg_trig_p   ;
-wire                 asg_trig_n   ;
-
-wire                 trigger_event; // Nueva senal de disparo conjunta
+wire                 trigger_event; // Nueva senal de disparo conjunta (de mt_top)
 
 wire [       4-1: 0] axi_trig     ; // Controlado por la sm del rp_axi
 wire                 sys_en       ; 
@@ -284,64 +249,60 @@ assign adc_state_o = adc_state[15:0];
 assign axi_state_o = axi_state[15:0];
 assign trg_state_o = trg_state[15:0];
 
-// Lógica de evento conjunta: N multitrigger_trig_src + trigger_shield.
-multitrigger_event_logic #(
-  .N_CH       ( N_CH ),
-  .DW         ( DW   ),
-  .SRC_W      ( 32   ),
-  .SHIELD_N   ( 4    ),
-  .DURATION_W ( 16   )
-) i_event_logic (
-  .adc_clk_i        ( adc_clk_i[0]        ),
-  .adc_rstn_i       ( adc_rstn_i[0]       ),
+//===========================================================================
+// MULTITRIGGER: todo el cálculo de disparos, la lógica de evento y los
+// registros del slot 3, detrás de un solo borde (modulos/mt/rtl/mt_top.sv).
+// Lo que queda acá es el lazo con la captura: el tap MTRG entra, el
+// trigger_event sale hacia rp_bram_sm/rp_axi_sm y vuelve el control de la
+// captura.
+//===========================================================================
+mt_top #(
+  .N_CH ( N_CH ),
+  .DW   ( DW   )
+) i_mt (
+  .adc_clk_i             ( adc_clk_i           ),
+  .adc_rstn_i            ( adc_rstn_i          ),
 
-  .adc_rst_do_i     ( adc_rst_do          ),
-  .adc_dly_do_i     ( |adc_dly_do         ),
-  .sw_trig_dis_clr_i( trig_dis_clr        ),
-  .adc_we_keep_i    ( adc_we_keep         ),
+  .mtrg_dat_i            ( mtrg_dat            ),
+  .mtrg_val_i            ( mtrg_val            ),
 
-  .set_trg_src_i    ( trg_src[N_CH*32-1:0] ),
-  .set_trg_new_i    ( new_trg_src         ),
-  .dly_valp_i       ( adc_dv_del_p        ),
+  .set_tresh_i           ( set_tresh           ),
+  .set_hyst_i            ( set_hyst            ),
+  .set_deb_len_i         ( set_deb_len         ),
+  .indep_mode_i          ( indep_mode          ),
+  .legacy_trig_sw_i      ( legacy_trig_sw      ),
+  .legacy_trig_dis_clr_i ( legacy_trig_dis_clr ),
 
-  .adc_trig_sw_i    ( adc_trig_sw         ),
-  .adc_trig_p_i     ( adc_trig_p          ),
-  .adc_trig_n_i     ( adc_trig_n          ),
-  .ext_trig_p_i     ( trig_ext_asg_i[0]   ),
-  .ext_trig_n_i     ( trig_ext_asg_i[1]   ),
-  .asg_trig_p_i     ( trig_ext_asg_i[2]   ),
-  .asg_trig_n_i     ( trig_ext_asg_i[3]   ),
-  .ext_lvl_i        ( ext_lvl             ),
-  .trig_ch_i        ( trig_ch_i           ),
+  .adc_rst_do_i          ( adc_rst_do          ),
+  .adc_dly_do_i          ( adc_dly_do          ),
+  .adc_we_keep_i         ( adc_we_keep         ),
+  .dly_valp_i            ( adc_dv_del_p        ),
 
-  .shield_src_i     ( shield_src          ),
-  .shield_dst_i     ( shield_dst          ),
-  .shield_dur_i     ( shield_dur          ),
+  .trig_ext_i            ( trig_ext_i          ),
+  .trig_asg_i            ( trig_asg_i          ),
+  .trig_ext_asg_o        ( trig_ext_asg_o      ),
+  .trig_ext_asg_i        ( trig_ext_asg_i      ),
+  .trig_ch_i             ( trig_ch_i           ),
+  .trig_ch_o             ( trig_ch_o           ),
 
-  .trig_ch_o        ( trig_ch_o           ),
-  .trg_state_o      ( ev_trg_state        ),
-  .adc_trg_dis_o    ( ev_adc_trg_dis      ),
-  .daisy_trig_o     ( daisy_trig_o        ),
-  .event_arm_o      (                     ),  // redundante con trigger_event_o
-  .trigger_event_o  ( trigger_event       ),
-  .mca_veto_o       ( mca_veto_o          ),
+  .trigger_event_o       ( trigger_event       ),
+  .daisy_trig_o          ( daisy_trig_o        ),
+  .mca_veto_o            ( mca_veto_o          ),
+  .event_snap_o          ( event_snap_o        ),
 
-  // Debug
-  .shield_cnt_o     ( shield_cnt          ),
-  .shield_active_o  ( shield_active       ),
-  .trig_snapshot_o  ( trig_snapshot       )
+  .trig_dis_clr_o        ( trig_dis_clr        ),
+  .trg_src_o             ( trg_src             ),
+  .new_trg_src_o         ( new_trg_src         ),
+  .trg_state_o           ( trg_state           ),
+
+  .sys_addr              ( sys_mtrg_addr       ),
+  .sys_wdata             ( sys_mtrg_wdata      ),
+  .sys_wen               ( sys_mtrg_wen        ),
+  .sys_ren               ( sys_mtrg_ren        ),
+  .sys_rdata             ( sys_mtrg_rdata      ),
+  .sys_err               ( sys_mtrg_err        ),
+  .sys_ack               ( sys_mtrg_ack        )
 );
-
-// Empaqueta el estado por canal en el bus trg_state de 8 b/canal: los 8 bits
-// bajos de la máscara activa (set_trig_src). El bit adc_trg_dis sale por su
-// propia vía (ev_adc_trg_dis → adc_trg_dis_act @0x21C). La máscara completa
-// configurada se lee desde el cfg-stored en 0x240+4*GA, no de aquí.
-genvar GS;
-generate
-for (GS = 0 ; GS < N_CH ; GS = GS + 1) begin : g_trg_state
-  assign trg_state[(GS+1)*8-1:GS*8] = ev_trg_state[GS*32 +: 8];
-end
-endgenerate
 
 
 // Vectores empaquetados hacia el MCA. Cada iteracion del generate maneja su
@@ -353,7 +314,6 @@ assign mca_dat_o = mca_dat;
 assign mca_val_o = mca_val;
 
 assign event_trig_o = trigger_event;
-assign event_snap_o = trig_snapshot;
 
 genvar GV;
 generate
@@ -502,8 +462,8 @@ rp_delay #(
 // rp_AcqAxi*. Está así a propósito, para no duplicar el mux en un segundo
 // dominio de datos; si hiciera falta, es agregar un cuarto dsp_tap_mux.
 //---------------------------------------------------------------------------
-wire [DW-1:0] osc_dat, mtrg_dat, mca_tap_dat;
-wire          osc_val, mtrg_val, mca_tap_val;
+wire [DW-1:0] osc_dat, mtrg_tap_dat, mca_tap_dat;
+wire          osc_val, mtrg_tap_val, mca_tap_val;
 
 dsp_tap_mux #(.DW(DW)) i_tap_osc (
   .tap_sel_i (route_osc_tap_i), .en_i(route_osc_en_i),
@@ -520,7 +480,7 @@ dsp_tap_mux #(.DW(DW)) i_tap_mtrg (
   .adc_dat_i (adc_calib_in                  ), .adc_val_i (1'b1           ),
   .dec_dat_i (adc_dec_in                    ), .dec_val_i (1'b1           ),
   .bram_dat_i(adc_bram_in[(GV+1)*DW-1:GV*DW]), .bram_val_i(adc_dv_bram[GV]),
-  .dat_o(mtrg_dat), .val_o(mtrg_val)
+  .dat_o(mtrg_tap_dat), .val_o(mtrg_tap_val)
 );
 
 dsp_tap_mux #(.DW(DW)) i_tap_mca (
@@ -535,24 +495,10 @@ dsp_tap_mux #(.DW(DW)) i_tap_mca (
 assign mca_dat[(GV+1)*DW-1:GV*DW] = mca_tap_dat;
 assign mca_val[GV]                = mca_tap_val;
 
-// Este módulo convierte los datos del adc en las senales de trigger a partir
-// de un disparador smith
-rp_adc_trig #(
-  .DW  (  DW     )
-) i_adc_trig (
-   // global signals
-  .adc_clk_i      ( adc_clk_i[GV]   ),  // ADC clock
-  .adc_rstn_i     ( adc_rstn_i[GV]  ),  // ADC reset - active low
-
-   // Connection to AXI master
-  .adc_dat_i      ( mtrg_dat                        ),
-  .adc_dv_i       ( mtrg_val                        ),
-  .set_tresh_i    ( set_tresh[(GV+1)*DW-1:GV*DW]    ),
-  .set_hyst_i     ( set_hyst[(GV+1)*DW-1:GV*DW]     ),
-
-  .adc_trig_p_o   ( adc_trig_p[GV]                  ),
-  .adc_trig_n_o   ( adc_trig_n[GV]                  )
-);
+// El tap MTRG sale del generate hacia mt_top, que hace con él el disparo de
+// nivel (rp_adc_trig) y el de pendiente (mt_slope_trig) de este canal.
+assign mtrg_dat[(GV+1)*DW-1:GV*DW] = mtrg_tap_dat;
+assign mtrg_val[GV]                = mtrg_tap_val;
 
 
 
@@ -657,7 +603,6 @@ assign adc_dv_del_p[GM]                 =  1'b0;
 
 assign adc_state[(GM+1)*8  -1:GM*8  ]   =  8'h0;
 assign axi_state[(GM+1)*8  -1:GM*8  ]   =  8'h0;
-assign trg_state[(GM+1)*8  -1:GM*8  ]   =  8'h0;
 
 assign adc_wp_act[(GM+1)*RSZ-1:GM*RSZ]  = {RSZ{1'b0}};
 assign adc_wp_cur[(GM+1)*RSZ-1:GM*RSZ]  = {RSZ{1'b0}};
@@ -669,8 +614,6 @@ assign axi_wp_trig[(GM+1)*32 -1:GM*32 ] = 32'h0;
 
 assign bram_rd_dat[(GM+1)*DW -1:GM*DW ] = {DW{1'b0}};
 assign bram_ack[GM]                     =  1'b0;
-assign adc_trig_p[GM]                   =  1'b0;
-assign adc_trig_n[GM]                   =  1'b0;
 assign axi_trig[GM]                     =  1'b0;
 
 assign adc_we[GM]                       =  1'b0;
@@ -679,36 +622,16 @@ assign adc_dly_do[GM]                   =  1'b0;
 end
 endgenerate
 
-// Externar Trigger 
-rp_ext_trig #(
-  .DW  (  DW     )
-) i_ext_trig (
-   // global signals
-  .adc_clk_i      ( adc_clk_i[0]    ),  // ADC clock
-  .adc_rstn_i     ( adc_rstn_i[0]   ),  // ADC reset - active low
-
-   // Connection to AXI master
-  .trig_asg_i     ( trig_asg_i      ),  // Que es esto
-  .trig_ext_i     ( trig_ext_i      ),
-  .set_deb_len_i  ( set_deb_len     ),  // debouncer len
-
-
-  .ext_trig_p_o   ( ext_trig_p      ),
-  .ext_trig_n_o   ( ext_trig_n      ),
-  .asg_trig_p_o   ( asg_trig_p      ),
-  .asg_trig_n_o   ( asg_trig_n      )
-);
-
 //===========================================================================
-// Los dos esclavos de configuración.
+// Los dos esclavos de configuración: osc_cfg acá y mt_cfg dentro de mt_top.
 //
-// Antes había uno solo (multitrigger_rp_scope_cfg) que mezclaba el mapa del
+// Antes había uno solo (mt_rp_scope_cfg) que mezclaba el mapa del
 // scope con el del multitrigger en el mismo casez y el mismo sys_ack. Ahora
 // cada región tiene su slot y su ack propio.
 //
 // El puente legacy los une: librp escribe el SW-trigger en 0x004 y el
 // trig_dis_clr en 0x094 del slot 1, así que osc_cfg los sigue decodificando y
-// se los pasa a multitrigger_cfg ya decodificados por canal.
+// se los pasa a mt_cfg ya decodificados por canal.
 //===========================================================================
 osc_cfg #(
   .EN_LEGACY_MAP ( 1      ),   // 0 = saca el mapa viejo cuando el SW migre
@@ -773,51 +696,12 @@ osc_cfg #(
   .legacy_trig_dis_clr_o ( legacy_trig_dis_clr )
 );
 
-multitrigger_cfg #(
-  .N_CH     ( N_CH ),
-  .SRC_W    ( 32   ),
-  .SHIELD_N ( 4    )
-) i_mtrg_cfg (
-  .adc_clk_i          ( adc_clk_i[0]    ),
-  .adc_rstn_i         ( adc_rstn_i[0]   ),
-
-  // System bus del slot 3
-  .sys_addr           ( sys_mtrg_addr   ),
-  .sys_wdata          ( sys_mtrg_wdata  ),
-  .sys_wen            ( sys_mtrg_wen    ),
-  .sys_ren            ( sys_mtrg_ren    ),
-  .sys_rdata          ( sys_mtrg_rdata  ),
-  .sys_err            ( sys_mtrg_err    ),
-  .sys_ack            ( sys_mtrg_ack    ),
-
-  .trg_state_i        ( trg_state       ),
-  .adc_trg_dis_act_i  ( adc_trg_dis_act ),
-  .adc_we_keep_i      ( adc_we_keep     ),
-  .indep_mode_i       ( indep_mode      ),
-  .shield_cnt_i       ( shield_cnt      ),
-  .shield_active_i    ( shield_active   ),
-  .mca_veto_i         ( mca_veto_o      ),
-  .trig_snapshot_i    ( trig_snapshot   ),
-
-  .legacy_trig_sw_i      ( legacy_trig_sw      ),
-  .legacy_trig_dis_clr_i ( legacy_trig_dis_clr ),
-
-  .adc_trig_sw_o      ( adc_trig_sw     ),
-  .trig_dis_clr_o     ( trig_dis_clr    ),
-  .new_trg_src_o      ( new_trg_src     ),
-  .trg_src_o          ( trg_src         ),
-  .shield_src_o       ( shield_src      ),
-  .shield_dst_o       ( shield_dst      ),
-  .shield_dur_o       ( shield_dur      )
-);
-
 assign axi_clk    = adc_clk_i ;
 assign axi_rstn   = adc_rstn_i;
 
 assign axi_clk_o  = axi_clk ;
 assign axi_rstn_o = axi_rstn;
 
-// trig_ch_o y daisy_trig_o los maneja i_event_logic.
-assign trig_ext_asg_o = {asg_trig_n, asg_trig_p, ext_trig_n, ext_trig_p};
+// trig_ch_o, daisy_trig_o y trig_ext_asg_o los maneja i_mt.
 
 endmodule

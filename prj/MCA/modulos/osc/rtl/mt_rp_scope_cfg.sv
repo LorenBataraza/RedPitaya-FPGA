@@ -24,7 +24,7 @@ trigger_shield en 0x210. El resto del mapa es idéntico al rp_scope_cfg
 original.
  */
 
-module multitrigger_rp_scope_cfg #(
+module mt_rp_scope_cfg #(
   parameter CHN  = 0 ,
   parameter N_CH = 2 ,
   parameter DW   = 14,
@@ -146,7 +146,7 @@ reg  [    4-1: 0] set_axi_en    ;
 
 // Copia almacenada de la máscara de fuentes (1 reg por canal, 32 b cada uno).
 // Es lo que devuelve el readback en 0x240+4*GA: SIEMPRE refleja el último write
-// del SW, independientemente del lifecycle del set_trig_src en multitrigger_trig_src.
+// del SW, independientemente del lifecycle del set_trig_src en mt_trig_src.
 // Se almacena para 4 canales (independiente de N_CH) para que el test cubra ch0..ch3.
 reg  [ 4*32-1: 0] trg_src_stored ;
 

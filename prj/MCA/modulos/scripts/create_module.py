@@ -163,9 +163,10 @@ que hay que mirar ya pasó.
 
 ## Casos cubiertos
 
-| # | Caso | Testbench | Estado |
-|---|------|-----------|--------|
-| 1 | reset y valores iniciales | | |
+<!-- Esta sección la escribe `make -C modulos/<m>/work datasheet` leyendo los
+     testbenches: las escenas numeradas (`// N) ...`) y el nombre de cada
+     check(). No hace falta transcribir nada a mano; alcanza con nombrar bien
+     los check() en el TB. -->
 
 ## Casos borde conocidos
 

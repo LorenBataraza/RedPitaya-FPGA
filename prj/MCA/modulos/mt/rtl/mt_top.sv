@@ -11,11 +11,15 @@
 // puertos de docs/mt/register_map_mt.md.
 //
 //   tap MTRG ──→ rp_adc_trig ×N_CH  (nivel) ─┐
-//            └─→ mt_slope_trig ×N_CH (pend.) ─┤
+//            ├─→ mt_slope_trig ×N_CH (pend.) ─┤
+//            └─→ mt_pz_trig ×N_CH (polo-cero) ┤
 //   trig_ext ──→ rp_ext_trig ──→ (afuera y vuelve por trig_ext_asg_i)
 //            └─→ sync 2 FF (nivel, veto) ─────┼─→ mt_event_logic ──→ trigger_event
 //   trig_ch_i ────────────────────────────────┘          ↑
-//   sys_bus slot 3 ──→ mt_cfg ── máscaras, escudo, pendiente, pulsos
+//   sys_bus slot 3 ──→ mt_cfg ── máscaras, escudo, pendiente, polo-cero, pulsos
+//
+// mt_pz_trig (el disparo con polo-cero) se agregó después de la mudanza: es una
+// fuente nueva en los bits 25..28 de la máscara, no un cambio de las de antes.
 //
 // ES UNA MUDANZA, NO UN CAMBIO DE LÓGICA. Cada instancia es la que estaba en
 // rp_scope_mt_com, con los mismos parámetros y las mismas conexiones; los
@@ -110,11 +114,24 @@ wire [4*SLOPE_GW-1:0] slope_gap        ;
 wire [4*SLOPE_TW-1:0] slope_thr        ;
 wire [4*SLOPE_TW-1:0] slope_hyst       ;
 
+// multitrigger: config del disparo con polo-cero (desde mt_cfg), por canal.
+localparam integer PZ_KW  = 5;
+localparam integer PZ_MW  = 20;
+localparam integer PZ_TW  = 18;
+wire [       4-1: 0] pz_en             ;
+wire [4*PZ_KW-1: 0]  pz_k              ;
+wire [4*PZ_KW-1: 0]  pz_m              ;
+wire [   4*6-1: 0]   pz_sh             ;
+wire [4*PZ_MW-1: 0]  pz_mq             ;
+wire [4*PZ_TW-1: 0]  pz_thr            ;
+wire [4*PZ_TW-1: 0]  pz_hyst           ;
+
 // Fuentes de disparo por canal, rellenas con ceros hasta 4.
 wire [       4-1: 0] adc_trig_p        ; // flanco positivo de nivel
 wire [       4-1: 0] adc_trig_n        ; // flanco negativo de nivel
 wire [       4-1: 0] slope_p           ; // pendiente positiva (mt_slope_trig)
 wire [       4-1: 0] slope_n           ; // pendiente negativa
+wire [       4-1: 0] pz_p              ; // polo-cero (mt_pz_trig)
 wire [       4-1: 0] adc_trig_sw       ; // SW
 
 // estado de trigger del event_logic: solo la máscara activa set_trig_src[31:0]
@@ -126,7 +143,7 @@ wire [      4-1: 0]  ev_adc_trg_dis    ; // dis por canal (padded por el event_l
 // cfg-stored, no de aquí)
 wire [     16-1: 0]  shield_cnt        ;
 wire                 shield_active     ;
-wire [     25-1: 0]  trig_snapshot     ;
+wire [     29-1: 0]  trig_snapshot     ;
 
 // NIVEL de la entrada externa, sincronizado a adc_clk para usarlo como fuente
 // de veto. rp_ext_trig ya sincroniza y rebota la misma linea, pero solo saca
@@ -184,6 +201,29 @@ mt_slope_trig #(
   .slope_n_o      ( slope_n[GV]                             )
 );
 
+// Disparo con POLO-CERO: un trapecio corto (mca_trap) y un Schmitt, sobre el
+// mismo tap. Ver mt_pz_trig.sv.
+mt_pz_trig #(
+  .DW   ( DW    ),
+  .DAW  ( 5     ),
+  .KW   ( PZ_KW ),
+  .MW   ( PZ_MW ),
+  .TW   ( PZ_TW )
+) i_pz_trig (
+  .adc_clk_i      ( adc_clk_i[GV]                           ),
+  .adc_rstn_i     ( adc_rstn_i[GV]                          ),
+  .adc_dat_i      ( mtrg_dat_i[(GV+1)*DW-1:GV*DW]           ),
+  .adc_dv_i       ( mtrg_val_i[GV]                          ),
+  .cfg_en_i       ( pz_en[GV]                               ),
+  .cfg_k_i        ( pz_k   [GV*PZ_KW +: PZ_KW]              ),
+  .cfg_m_i        ( pz_m   [GV*PZ_KW +: PZ_KW]              ),
+  .cfg_mq_i       ( pz_mq  [GV*PZ_MW +: PZ_MW]              ),
+  .cfg_sh_i       ( pz_sh  [GV*6 +: 6]                      ),
+  .cfg_thr_i      ( pz_thr [GV*PZ_TW +: PZ_TW]              ),
+  .cfg_hyst_i     ( pz_hyst[GV*PZ_TW +: PZ_TW]              ),
+  .pz_p_o         ( pz_p[GV]                                )
+);
+
 // Empaqueta el estado por canal en el bus trg_state de 8 b/canal: los 8 bits
 // bajos de la máscara activa (set_trig_src). El bit adc_trg_dis sale por su
 // propia vía (ev_adc_trg_dis → DIS_FLAGS @0x01C de mt_cfg). La máscara completa
@@ -198,6 +238,7 @@ assign adc_trig_p[GV]               = 1'b0;
 assign adc_trig_n[GV]               = 1'b0;
 assign slope_p[GV]                  = 1'b0;
 assign slope_n[GV]                  = 1'b0;
+assign pz_p[GV]                     = 1'b0;
 assign trg_state_o[(GV+1)*8-1:GV*8] = 8'h0;
 end
 endgenerate
@@ -257,6 +298,7 @@ mt_event_logic #(
   .trig_ch_i        ( trig_ch_i           ),
   .slope_p_i        ( slope_p             ),
   .slope_n_i        ( slope_n             ),
+  .pz_p_i           ( pz_p                ),
 
   .shield_src_i     ( shield_src          ),
   .shield_dst_i     ( shield_dst          ),
@@ -277,7 +319,7 @@ mt_event_logic #(
 );
 
 // El event ring guarda 17 bits por slot: las fuentes de pendiente (bits
-// 17..24) solo se ven en el registro SNAPSHOT de mt_cfg.
+// 17..24) y de polo-cero (25..28) solo se ven en el registro SNAPSHOT de mt_cfg.
 assign event_snap_o = trig_snapshot[16:0];
 
 //---------------------------------------------------------------------------
@@ -289,7 +331,10 @@ mt_cfg #(
   .SHIELD_N ( 4        ),
   .SLOPE_LW ( SLOPE_LW ),
   .SLOPE_GW ( SLOPE_GW ),
-  .SLOPE_TW ( SLOPE_TW )
+  .SLOPE_TW ( SLOPE_TW ),
+  .PZ_KW    ( PZ_KW    ),
+  .PZ_MW    ( PZ_MW    ),
+  .PZ_TW    ( PZ_TW    )
 ) i_mtrg_cfg (
   .adc_clk_i          ( adc_clk_i[0]    ),
   .adc_rstn_i         ( adc_rstn_i[0]   ),
@@ -326,7 +371,15 @@ mt_cfg #(
   .slope_len_o        ( slope_len       ),
   .slope_gap_o        ( slope_gap       ),
   .slope_thr_o        ( slope_thr       ),
-  .slope_hyst_o       ( slope_hyst      )
+  .slope_hyst_o       ( slope_hyst      ),
+
+  .pz_en_o            ( pz_en           ),
+  .pz_k_o             ( pz_k            ),
+  .pz_m_o             ( pz_m            ),
+  .pz_sh_o            ( pz_sh           ),
+  .pz_mq_o            ( pz_mq           ),
+  .pz_thr_o           ( pz_thr          ),
+  .pz_hyst_o          ( pz_hyst         )
 );
 
 endmodule

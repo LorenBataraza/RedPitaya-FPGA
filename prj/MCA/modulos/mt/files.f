@@ -3,6 +3,7 @@
 # modulos/osc.
 rtl/mt_trig_src.sv
 rtl/mt_slope_trig.sv
+rtl/mt_pz_trig.sv
 rtl/trigger_shield.sv
 rtl/mt_event_logic.v
 rtl/mt_cfg.sv

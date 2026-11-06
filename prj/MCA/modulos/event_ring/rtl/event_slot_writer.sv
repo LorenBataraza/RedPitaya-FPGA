@@ -108,9 +108,8 @@ module event_slot_writer #(
   reg [16:0]       snap_r;
   reg [S_AW-1:0]   nsamp_r;
   reg [S_AW+2:0]   samp_left;     // muestras TOTALES que faltan leer del stage
-  reg [63:0]       acc;
-  reg [2:0]        pack_cnt;      // 0..4 muestras acumuladas en acc
-  reg              word_rdy;      // acc listo para emitir
+  reg [47:0]       acc;           // las tres primeras muestras de la palabra
+  reg [1:0]        pack_cnt;      // muestras recibidas de esta palabra, 0..3
   reg              rd_d;          // s_dat_rd_o retrasado 1 ciclo (latencia BRAM)
 
   assign busy_o      = (st != W_IDLE);
@@ -118,6 +117,22 @@ module event_slot_writer #(
 
   // Emision efectiva este ciclo
   wire fire = wr_val_o && wr_rdy_i;
+
+  // W_DATA pide una muestra por ciclo y arma una palabra cada 4. Entre pedir y recibir
+  // hay dos ciclos, asi que puede haber muestras en camino cuando la salida se frena.
+  // `pedidas` cuenta las recibidas mas las que vienen: si da 3, la proxima completa la
+  // palabra, y esa solo se pide con la salida libre. Hasta que llegue no puede salir
+  // otra palabra, asi que la salida sigue libre y no hace falta otro registro.
+  wire        salida_libre = !wr_val_o || fire;
+  wire [2:0]  pedidas = pack_cnt + s_dat_rd_o + rd_d;
+  wire        cierra  = (pedidas == 3'd3);
+  wire        en_camino = s_dat_rd_o || rd_d;
+  // Falta algo de este evento. Sin esto, una ventana que entra justa en el slot, con la
+  // ultima palabra ya emitida, pareceria una que no entra.
+  wire        hay_mas = (samp_left != 0) || en_camino || (pack_cnt != 2'd0);
+  // Ventana no multiplo de 4: lo que falta de la ultima palabra se completa con ceros.
+  wire        relleno = !en_camino && (samp_left == 0) && (pack_cnt != 2'd0);
+  wire [15:0] entra   = rd_d ? s_dat_i : 16'h0;
 
   // Contadores de slot: NO se tocan con flush_i (ver la nota del puerto).
   always @(posedge clk_i) begin
@@ -137,9 +152,8 @@ module event_slot_writer #(
       slot_words  <= '0;
       hdr_idx     <= 2'd0;
       samp_left   <= '0;
-      acc         <= 64'h0;
-      pack_cnt    <= 3'd0;
-      word_rdy    <= 1'b0;
+      acc         <= 48'h0;
+      pack_cnt    <= 2'd0;
       rd_d        <= 1'b0;
       s_dat_rd_o  <= 1'b0;
       s_meta_rd_o <= 1'b0;
@@ -153,7 +167,7 @@ module event_slot_writer #(
       // Guard de geometria: la cabecera + los datos nunca pueden pasarse de la
       // anteultima palabra (la ultima es del footer). Si se pasan, el slot
       // siguiente queda pisado -> se marca sticky y se corta el evento.
-      if ((st == W_HDR || st == W_DATA) && (word_idx >= slot_words - 1'b1))
+      if ((st == W_HDR || (st == W_DATA && hay_mas)) && (word_idx >= slot_words - 1'b1))
         err_slot_ovf_o <= 1'b1;
 
       s_meta_rd_o <= 1'b0;
@@ -169,8 +183,7 @@ module event_slot_writer #(
         W_IDLE: begin
           word_idx <= '0;
           hdr_idx  <= 2'd0;
-          pack_cnt <= 3'd0;
-          word_rdy <= 1'b0;
+          pack_cnt <= 2'd0;
           // !s_meta_rd_o: el pop del metadato anterior recien se refleja en
           // s_meta_val_i un ciclo DESPUES. Sin este guard, al volver de W_DONE
           // se vuelve a leer el MISMO evento y se escribe dos veces — el slot
@@ -206,35 +219,30 @@ module event_slot_writer #(
         // Empaquetado: 4 muestras de 16 b por palabra. La primera muestra queda
         // en [15:0] (little-endian, para que el PS haga un frombuffer directo).
         W_DATA: begin
-          if (word_idx >= slot_words - 1'b1) begin
+          if (hay_mas && (word_idx >= slot_words - 1'b1)) begin
             // Geometria mal configurada: se trunca el evento acá y se cierra el
             // slot con su footer. Preferible a pisar el slot siguiente; el bit
             // err_slot_ovf_o ya quedó levantado.
             st <= W_FOOT;
-          end else if (word_rdy) begin
-            if (!wr_val_o || fire) begin
-              wr_val_o <= 1'b1;
-              wr_dat_o <= acc;
-              word_idx <= word_idx + 1'b1;
-              word_rdy <= 1'b0;
-              pack_cnt <= 3'd0;
-              if (samp_left == 0) st <= W_PAD;
-            end
-          end else if (rd_d) begin
-            // dato valido del stage (1 ciclo despues del pop)
-            acc      <= {s_dat_i, acc[63:16]};
-            pack_cnt <= pack_cnt + 1'b1;
-            if (pack_cnt == 3'd3) word_rdy <= 1'b1;
-          end else if (samp_left != 0) begin
-            s_dat_rd_o <= 1'b1;
-            samp_left  <= samp_left - 1'b1;
-          end else if (pack_cnt != 3'd0) begin
-            // ventana no multiplo de 4: rellenar la palabra con ceros
-            acc      <= {16'h0, acc[63:16]};
-            pack_cnt <= pack_cnt + 1'b1;
-            if (pack_cnt == 3'd3) word_rdy <= 1'b1;
           end else begin
-            st <= W_PAD;
+            // Recibir: el dato del stage vale 1 ciclo despues del pop. La cuarta
+            // muestra sale directo, sin pasar por acc.
+            if (rd_d || (relleno && (pack_cnt != 2'd3 || salida_libre))) begin
+              if (pack_cnt == 2'd3) begin
+                wr_val_o <= 1'b1;
+                wr_dat_o <= {entra, acc};
+                word_idx <= word_idx + 1'b1;
+              end else begin
+                acc <= {entra, acc[47:16]};
+              end
+              pack_cnt <= pack_cnt + 1'b1;     // de 3 vuelve a 0
+            end
+            // Pedir, en el mismo ciclo.
+            if (samp_left != 0 && (!cierra || salida_libre)) begin
+              s_dat_rd_o <= 1'b1;
+              samp_left  <= samp_left - 1'b1;
+            end
+            if (!hay_mas) st <= W_PAD;
           end
         end
 

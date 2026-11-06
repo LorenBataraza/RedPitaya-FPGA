@@ -1,6 +1,7 @@
 MODULE := mca
 TOP    := mca_top
-DEPS   :=
+# mca_trap vive en comun: lo comparte con el multitrigger.
+DEPS   := comun
 
 # Los parametros con los que los tops instancian mca_top (ver el i_mca de
 # rtl/mine/tops/mca_red_pitaya_top.sv). Medir con los defaults del RTL daria
@@ -11,8 +12,12 @@ TBS    := tb_mca_div_restore \
           tb_mca_hist \
           tb_mca_zoom \
           tb_mca_discriminator \
-          tb_mca_pulse_feature \
-          tb_mca_pulse_feature_eq \
+          tb_mca_trap \
+          tb_mca_multi \
+          tb_mca_pulse_feature_evt \
           tb_mca_top
+
+# Los vectores del trapecio salen del modelo de Python: sim/vectores/gen_trap.py
+PLUS_tb_mca_trap = +VEC=$(MOD_DIR)/sim/vectores/trap_ref.txt
 
 include ../../mk/module.mk
