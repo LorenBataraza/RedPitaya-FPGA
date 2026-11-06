@@ -112,6 +112,17 @@ def test_un_handle_mca1_usa_su_referencia(monkeypatch):
     _correr_py(monkeypatch, 'API.ref_py.mca', h)
 
 
+def test_cada_referencia_importa_y_es_la_congelada():
+    # Se importa sólo al despachar: una ruta mal escrita no se vería hasta entonces.
+    import importlib
+    for destino in D._REFERENCIA.values():
+        importlib.import_module(destino)
+    osc2 = importlib.import_module('API.ref_py.osciloscope2')
+    mt2 = importlib.import_module('API.ref_py.multitrigger2')
+    # La referencia del osciloscopio usa el multitrigger congelado, no el vivo.
+    assert osc2.MultiTrigger is mt2.MultiTrigger
+
+
 def test_lo_que_no_esta_en_la_referencia_lo_dice():
     h = Handle('py')
     h._referencia = 'API.ref_py.mca'                # el MCA1 no tiene ranuras

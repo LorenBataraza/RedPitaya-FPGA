@@ -11,6 +11,13 @@ bitstream cargado).
 de libmca a ese mapa y congelada cuando ese port cerró. El despacho `'py'` va
 ahí por defecto; un handle del MCA1 lleva `_referencia` y va a `mca.py`.
 
+`multitrigger2.py` y `osciloscope2.py` son lo mismo para esos dos bloques: copias de
+`API/` en el commit 18c2056, antes de que pasen a libmca. Son la referencia del
+despacho `'py'` y de la equivalencia: las viejas hablan el mapa anterior (las máscaras
+en el slot 1, sin polo-cero) y no se tocan. La única edición es una línea de import de
+`osciloscope2.py`. `multitrigger_armar_banco` sigue importando las recetas de
+`API.mca`, que despachan por handle.
+
 Para qué existe:
 
   - **Benchmarks.** Es la columna `py` de `API/bench/bench_impl.py`: lo que se

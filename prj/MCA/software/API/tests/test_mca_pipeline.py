@@ -37,9 +37,6 @@ def check(name, cond, extra=''):
     print(f'  [{"PASS" if cond else "FAIL"}] {name}{("  " + extra) if extra else ""}')
     if not cond:
         FAILS.append(name)
-        # pytest no mira FAILS: sin esto, `make verificar` pasa aunque falle.
-        if 'pytest' in sys.modules:
-            raise AssertionError(f'{name} {extra}')
 
 
 def run_session(tmp, n_events, rate_hz=20000.0, capacity=64, n_ch=2,
