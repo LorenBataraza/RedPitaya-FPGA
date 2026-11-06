@@ -3,6 +3,11 @@
 
 Corre en la PC, sin placa, en ~1 min.
 
+QUEDA EN EL MCA1, A PROPÓSITO
+-----------------------------
+Usa la réplica del MCA1 de `pileup.py` y no la del MCA2 (`replica_mca2.py`): parte el ruido de la campaña del 2026-09-08 y lo proyecta sobre los estimadores tal como estaban en ese bitstream.
+Repetirlo sobre el MCA2 no explicaría esas mediciones.
+
 QUÉ CONTESTA
 ------------
 `fuentes_de_jitter.md` ordena los términos de TIEMPO y deja el de amplitud en

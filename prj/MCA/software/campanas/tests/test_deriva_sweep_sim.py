@@ -88,6 +88,12 @@ class GenFalso:
         return str(1.0 / self.period_s)
 
 
+def _atribucion(n, dur):
+    """Los contadores del MCA2 de un MCA sin pérdidas: todo disparo abrió."""
+    return dict(cross=n, open=n, lost_active=0, lost_veto=0,
+                t_ocup_s=[float(dur), 0.0, 0.0, 0.0, 0.0])
+
+
 class McaConDeriva:
     """Espectro gaussiano cuyo centroide sigue una ley `cen(rate_hz, t)` dada.
 
@@ -151,7 +157,7 @@ class McaConDeriva:
         n = int(round(rate * dur))
         cnt = dict(total=n, accepted=n, dropped=0, pileup=0, rej_amp=0,
                    rej_psd=0, realtime_s=float(dur), livetime_s=float(dur),
-                   deadtime_s=0.0)
+                   deadtime_s=0.0, **_atribucion(n, dur))
         return spec, cnt
 
     def acquire(self, seconds, clear_first=True):
@@ -171,7 +177,8 @@ class McaConDeriva:
         n = int(spec.sum())
         cnt = dict(total=n, accepted=n, dropped=0, pileup=0, rej_amp=0,
                    rej_psd=0, realtime_s=float(seconds),
-                   livetime_s=float(seconds), deadtime_s=0.0)
+                   livetime_s=float(seconds), deadtime_s=0.0,
+                   **_atribucion(n, seconds))
         # La guarda del barrido compara total/realtime contra la tasa pedida.
         cnt['total'] = int(round(rate * seconds))
         cnt['accepted'] = cnt['total']

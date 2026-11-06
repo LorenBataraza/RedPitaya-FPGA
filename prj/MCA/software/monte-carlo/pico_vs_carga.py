@@ -31,8 +31,18 @@ Ojo con una particularidad de la familia: pica en u=4, o sea que su tiempo de
 colección es LARGO —el pico cae en la muestra 210 de 1180— y eso cambia el
 régimen de apilamiento respecto de la semi-gaussiana del resto del estudio.
 
+UNA RANURA CONTRA CUATRO
+------------------------
+Es la réplica del MCA2 (`replica_mca2.py`), con el disparo por pendiente y la
+compuerta de 384. La compuerta no cambia entre las dos: la recta de limpios es la
+misma. Lo que cambia es qué pasa con el segundo pulso: con una ranura se pierde;
+con cuatro abre su propia ventana y da otro evento, y **el primer evento sigue
+sumando su carga igual**, porque las ranuras marcan el solape, no lo corrigen.
+`--mapa MCA1` compara los modos 0 (histéresis) y 1 (compuerta) del mapa viejo.
+
     python3 pico_vs_carga.py
     python3 pico_vs_carga.py --familia cr_rc --n 4000
+    python3 pico_vs_carga.py --mapa MCA1
     python3 pico_vs_carga.py --out DIR
 """
 import argparse
@@ -52,6 +62,7 @@ _RAIZ = _AQUI
 while _RAIZ != '/' and not os.path.isfile(os.path.join(_RAIZ, 'API', 'mca.py')):
     _RAIZ = os.path.dirname(_RAIZ)          # sube hasta software/
 import pileup as pu                                          # noqa: E402
+import replica_mca2 as r2                                    # noqa: E402
 
 # --- paleta (la misma del resto del estudio) ---------------------------------
 SUP    = '#fcfcfb'
@@ -111,11 +122,16 @@ def simular(forma, retardos, n, modo, rng, a_min=A_MIN, a_max=A_MAX):
 
     for a in amps:
         t = 400 + dt
-        dat, _ = pu.render(t, np.full(dt.size, a), forma, rng=rng)
+        # lead: con una forma lenta `pre_dly` es grande, y la ventana de un pulso
+        # alto, que dispara temprano, abre bastante antes de su pie.
+        dat, _ = pu.render(t, np.full(dt.size, a), forma, rng=rng, lead=256)
         if dat.max() >= pu.SAT_ADC:          # saturó: no informa sobre la forma
             continue
-        ev = (pu.segmentar_rapido(dat, **pu.CFG_MODO0) if modo == 0
-              else pu.compuertas_rapido(dat, **pu.CFG_MODO1))
+        if isinstance(modo, dict):           # el MCA2: una configuración de la réplica
+            ev, _ = r2.eventos_mc(dat, modo)
+        else:
+            ev = (pu.segmentar_rapido(dat, **pu.CFG_MODO0) if modo == 0
+                  else pu.compuertas_rapido(dat, **pu.CFG_MODO1))
         m = ev['cerrado']
         if not m.any():
             continue
@@ -138,6 +154,7 @@ def main():
     ap.add_argument('--familia', default='cr_rc4')
     ap.add_argument('--n', type=int, default=2500, help='realizaciones por caso')
     ap.add_argument('--semilla', type=int, default=0)
+    ap.add_argument('--mapa', default='MCA2', choices=['MCA2', 'MCA1'])
     ap.add_argument('--out', default=None)
     a = ap.parse_args()
 
@@ -159,10 +176,17 @@ def main():
     fig, axes = plt.subplots(1, 2, figsize=(13.5, 5.4))
     resultados = {}
 
-    for modo, ax in zip((0, 1), axes):
-        rng = np.random.default_rng(a.semilla + modo)
-        print(f'--- modo {modo} '
-              f'({"histéresis" if modo == 0 else "compuerta fija 384"}) ---')
+    if a.mapa == 'MCA1':
+        casos_mca = [(0, 'modo 0 — ventana por histéresis'),
+                     (1, 'modo 1 — compuerta fija de 384')]
+    else:
+        d = r2.disparo_para(forma, a_umbral=A_MIN)
+        casos_mca = [(r2.cfg(n_acc=n, **d), f'{n} ranura{"s" if n > 1 else ""} — '
+                      'compuerta de 384, disparo por pendiente') for n in (1, 4)]
+
+    for i_mca, ((modo, titulo), ax) in enumerate(zip(casos_mca, axes)):
+        rng = np.random.default_rng(a.semilla + i_mca)
+        print(f'--- {titulo} ---')
         print(f'  {"caso":<26} {"Q/pico [µs]":>12} {"pendiente":>10} '
               f'{"ventana":>9} {"ev/real":>8}')
 
@@ -198,7 +222,7 @@ def main():
             print(f'  {etiqueta:<26} {np.median(razon):12.3f} '
                   f'{pend/pend_limpio:9.3f}x {np.median(largo):8.0f} '
                   f'{ev_real:8.2f}')
-            resultados[(modo, etiqueta)] = (float(np.median(razon)), pend)
+            resultados[(i_mca, etiqueta)] = (float(np.median(razon)), pend)
 
         # la recta de eventos limpios, extendida sobre todo el rango
         xl = np.array([0, ax.get_xlim()[1]])
@@ -207,9 +231,7 @@ def main():
 
         ax.set_xlabel('pico [mV]')
         ax.set_ylabel('carga [mV·µs]')
-        ax.set_title(f'modo {modo} — '
-                     f'{"ventana por histéresis" if modo == 0 else "compuerta fija de 384"}',
-                     loc='left', color=TINTA2)
+        ax.set_title(titulo, loc='left', color=TINTA2)
         ax.set_xlim(left=0)
         ax.set_ylim(bottom=0)
         _limpiar(ax)
@@ -227,13 +249,19 @@ def main():
     p1 = resultados[(1, CASOS[0][0])][1]
     print(f'  techo teórico (integración completa) = factor_forma x FWHM = '
           f'{info["factor_forma"]:.4f} x {fwhm_us:.2f} µs = {techo:.3f} µs')
-    print(f'  pendiente medida, modo 0 (histéresis): {p0:.3f} µs  '
+    print(f'  pendiente medida, {casos_mca[0][1]}: {p0:.3f} µs  '
           f'({100*p0/techo:.1f} % del techo)')
-    print(f'  pendiente medida, modo 1 (compuerta 384 = '
-          f'{384e6/pu.FS_HZ:.2f} µs):   {p1:.3f} µs  ({100*p1/techo:.1f} %)')
-    ok = p1 < p0 <= techo * 1.001
-    print(f'  [{"PASS" if ok else "FAIL"}] compuerta fija < histéresis <= '
-          f'integración completa')
+    print(f'  pendiente medida, {casos_mca[1][1]}: {p1:.3f} µs  '
+          f'({100*p1/techo:.1f} %)')
+    if a.mapa == 'MCA1':
+        ok = p1 < p0 <= techo * 1.001
+        print(f'  [{"PASS" if ok else "FAIL"}] compuerta fija < histéresis <= '
+              f'integración completa')
+    else:
+        # La misma compuerta: un pulso limpio no sabe cuántas ranuras hay.
+        ok = abs(p1 / p0 - 1.0) < 0.005 and p0 <= techo * 1.001
+        print(f'  [{"PASS" if ok else "FAIL"}] la misma recta con 1 y 4 ranuras, '
+              f'y <= integración completa')
 
     fig.suptitle(f'Pico contra carga, familia {a.familia} — eventos dobles y '
                  f'triples.  La recta punteada son los eventos limpios.',

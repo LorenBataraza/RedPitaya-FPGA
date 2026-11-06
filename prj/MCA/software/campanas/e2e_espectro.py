@@ -17,6 +17,16 @@ Es la validacion cruzada que cierra el circulo: si el histograma del HW coincide
 con el que sale de analizar las formas crudas, el camino de datos del MCA esta
 bien de punta a punta.
 
+**En el MCA2 los dos caminos comparten el DISPARO.** La ventana del MCA la abre
+el `trigger_event` del multitrigger, y acá ese disparo lo arma `BramSource`
+(nivel en IN1, single-shot, re-armado por software): cada evento que captura el
+pipeline abre también una ventana del MCA, así que los dos ven LOS MISMOS
+pulsos y ahora sí se pueden comparar las cuentas, no sólo la forma. El
+disparo por nivel cruza a media subida, ~20 muestras después del pie del pulso
+de 2 us, así que la ventana necesita más retardo que con el disparo por
+pendiente: `--pre-dly` (28 por defecto, A CONFIRMAR EN PLACA: es la primera
+corrida de este script sobre el MCA2).
+
 Uso:
 
     # en la Pitaya: adquirir (bitstream mca_red_pitaya, Rigol en IN1)
@@ -40,6 +50,8 @@ while _RAIZ != '/' and not os.path.isfile(os.path.join(_RAIZ, 'API', 'mca.py')):
     _RAIZ = os.path.dirname(_RAIZ)          # sube hasta software/
 sys.path.insert(0, _RAIZ)
 
+import API.analisis as an                                       # noqa: E402
+
 ADC_CNT_PER_V = 8192
 FS            = 125e6
 N_TRAZAS      = 300           # formas crudas que se guardan para graficar
@@ -51,7 +63,7 @@ def acquire(args):
     """Corre el pipeline y el MCA a la vez y guarda todo en un .npz."""
     import rigol_dg4162 as rgmod
     import rp
-    import mca_utils as mu
+    import API.mca as A
     from multitrigger_utils import MultiTriggerScope
     from mca import AcquisitionSession, BramSource, load_chunk, scope_regs
 
@@ -77,18 +89,22 @@ def acquire(args):
         raise SystemExit('no se lee un scope multitrigger valido')
     rp.rp_Init()
 
-    mca = mu.MCA.open()
+    mca = A.mca_open()
+    if getattr(mca, 'mapa', 'MCA2') != 'MCA2':
+        raise SystemExit('e2e_espectro.py mide el MCA2: la placa tiene el MCA1')
     mca.identify(verbose=False)
     print(f'  MCA       : {1 << mca.h_aw} canales')
 
-    # Umbral COMUN a los dos, para que la poblacion aceptada sea la misma.
+    # El disparo es UNO SOLO para los dos caminos: el que arma BramSource.
     thr_cnt = int(round(args.thr * ADC_CNT_PER_V))
-    cfg = dict(thr=thr_cnt, hyst=int(round(args.hyst * ADC_CNT_PER_V)),
-               baseline=0, bl_auto=True, bl_k=12, bl_holdoff=64,
-               maxlen=4096, tail_dly=8, amp_src=0,   # 0 = muestra de pico
-               q_shift=0, h_shift=args.h_shift, h2_shift=7, dec=1, channel=0)
+    cfg = dict(baseline=0, bl_auto=True, bl_k=12, bl_holdoff=64,
+               amp_src=0,                            # 0 = muestra de pico
+               q_shift=0, dec=1, channel=0, gate_short=32,
+               gate_long=args.gate, n_acc=1, pre_dly=args.pre_dly,
+               zoom_1d=(0, 0))
     mca.configure(**cfg)
-    print(f'  umbral    : {args.thr} V = {thr_cnt} cuentas (los dos caminos)')
+    print(f'  disparo   : nivel {args.thr} V = {thr_cnt} cuentas, el de '
+          f'BramSource, compartido por los dos caminos; pre_dly {args.pre_dly}')
 
     stamp   = time.strftime('%Y%m%d_%H%M%S')
     run_dir = os.path.join(_RAIZ, 'datos', f'e2e_espectro_{stamp}')
@@ -150,7 +166,8 @@ def acquire(args):
         meta=np.array(dict(
             rate_hz=args.rate, amp_vpp=args.amp, altura_esperada_V=alt_esperada,
             width_s=args.width, thr_V=args.thr, pre=args.pre, post=args.post,
-            h_shift=args.h_shift, h_aw=mca.h_aw, duration_s=t_run,
+            mapa='MCA2', pre_dly=args.pre_dly, gate_long=args.gate,
+            h_aw=mca.h_aw, duration_s=t_run,
             adc_cnt_per_V=ADC_CNT_PER_V, run_dir=run_dir), dtype=object))
     print(f'\n  guardado: {out}')
     return out
@@ -279,7 +296,7 @@ def plot(path, out_png=None):
     # El eje ya NO es `amp >> h_shift`: la feature se normaliza y el canal toma
     # los h_aw bits altos, asi que la escala depende de h_aw y no de h_shift.
     # Se pasa por counts_to_volts para tener una sola definicion del eje.
-    v_hw = mu.counts_to_volts(ch, h_aw=meta.get('h_aw', 13)) \
+    v_hw = an.counts_to_volts(ch, h_aw=meta.get('h_aw', 13)) \
            * (ADC_CNT_PER_V / meta['adc_cnt_per_V'])
     mu_h, fw_h, res_h = gauss_stats(ch, spec)
     mu_hw_v, _, _     = gauss_stats(v_hw, spec)
@@ -465,8 +482,11 @@ def main():
     p.add_argument('--hyst', type=float, default=0.02)
     p.add_argument('--pre', type=int, default=32)
     p.add_argument('--post', type=int, default=480)
-    p.add_argument('--h-shift', type=int, default=0,
-                   help='canal = cuentas de ADC >> h_shift (0)')
+    p.add_argument('--pre-dly', type=int, default=28,
+                   help='retardo de la ventana del MCA para el disparo por nivel '
+                        '(28: a media subida del pulso de 2 us; confirmar en placa)')
+    p.add_argument('--gate', type=int, default=384,
+                   help='compuerta larga del MCA, en muestras (384)')
     args = p.parse_args()
 
     if args.acquire:

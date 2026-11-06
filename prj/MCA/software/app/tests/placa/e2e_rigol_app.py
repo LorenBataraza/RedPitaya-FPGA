@@ -38,17 +38,18 @@ sys.path.insert(0, _RAIZ)
 
 import API.rigol_dg4162 as rg                                      # noqa: E402
 from API.analisis import gauss_fit_peak                            # noqa: E402
-from API.mca import (mca_get_metadata, mca_read_counters,          # noqa: E402
-                     mca_read_histogram, mca_read_map2d,
+from API.mca import (AMP_W, mca_amplitud_de_canal, mca_get_metadata,   # noqa: E402
+                     mca_read_counters, mca_read_histogram, mca_read_map2d,
                      mca_save_file_binary, mca_write_file_histogram)
 from API.mca_remote import MCARemote                               # noqa: E402
 
 # El estímulo, con los mismos números que la campaña validada
 # (campanas/testbench_mca.py: PULSE_WIDTH_S y DEFAULT_CFG).
 ANCHO_PULSO_S = 2e-6
-CFG_MCA = dict(thr=100, hyst=40, baseline=0, bl_auto=True, bl_k=12,
-               bl_holdoff=64, maxlen=4096, tail_dly=8, amp_src=0,
-               q_shift=0, h_shift=0, h2_shift=7, dec=1, channel=0)
+CFG_MCA = dict(baseline=0, bl_auto=True, bl_k=12, bl_holdoff=64, gate_short=32,
+               gate_long=384, n_acc=1, pre_dly=16, amp_src=0, q_shift=0, dec=1, channel=0)
+# El disparo del MCA2, que lo abre todo: la pendiente validada con este pulso.
+DISPARO = dict(L=8, G=4, thr=600, hyst=300)
 
 _pass = _fail = 0
 
@@ -196,8 +197,11 @@ def _sesion(h, args, info_gen):
     malos = [k for k, v in cfg.items() if leido.get(k) != v]
     check('la config releída coincide con la escrita', not malos,
           'difieren: ' + ', '.join(malos) if malos else
-          f"thr={leido['thr']} hyst={leido['hyst']} bl_k={leido['bl_k']} "
+          f"compuerta={leido['gate_long']} ranuras={leido['n_acc']} bl_k={leido['bl_k']} "
           f"canal={leido['channel']}")
+    disparo = h.pedir('mca.disparo', ch=args.channel, armar=True, **DISPARO)
+    check('el disparo del MCA quedó armado', bool(disparo.get('armado')) and bool(disparo.get('we_keep')),
+          f"fuente {disparo.get('fuente')}, thr={DISPARO['thr']}")
 
     # --- adquisición temporizada, con poleo como el de la GUI ----------------
     print(f'\n=== 4. adquisición de {args.segundos} s (tiempo vivo) ===')
@@ -243,7 +247,7 @@ def _sesion(h, args, info_gen):
 
     if not check('llegaron eventos', total > 0, f'{total} cuentas',
                  pista='CERO cuentas: ¿el cable del Rigol está en IN1? '
-                       '¿el umbral es más alto que el pulso?'):
+                       '¿el umbral del disparo es más alto que el pulso?'):
         return 1
     check('el espectro coincide con el contador de aceptados',
           total == cnt['accepted'], f'{total} vs {cnt["accepted"]}')
@@ -272,12 +276,14 @@ def _sesion(h, args, info_gen):
     check('la resolución es razonable para un pulser',
           aj['resolution_pct'] < 15.0, f"{aj['resolution_pct']:.3f} %")
 
-    # La amplitud esperada: altura de pulso = amp/2 volts, y el eje son cuentas
-    # de ADC (ADC_CNT_PER_V = 8192 en LV) desplazadas por h_shift.
-    esperado = (args.amp / 2) * 8192 / (1 << cfg['h_shift'])
+    # La amplitud esperada: altura de pulso = amp/2 volts, en cuentas de ADC
+    # (ADC_CNT_PER_V = 8192 en LV). El canal da la feature, de AMP_W bits y con la
+    # muestra de 14 alineada a la izquierda (F_PEAK): de ahí a cuentas.
+    esperado = (args.amp / 2) * 8192
+    a_centroide = mca_amplitud_de_canal(aj['centroid'], h.h_aw) / (1 << (AMP_W - 14))
     check('el centroide cae donde lo pone el generador',
-          abs(aj['centroid'] - esperado) < 0.35 * esperado,
-          f"centroide {aj['centroid']:.0f}, esperado ~{esperado:.0f} "
+          abs(a_centroide - esperado) < 0.35 * esperado,
+          f"amplitud {a_centroide:.0f}, esperada ~{esperado:.0f} "
           f"para {args.amp / 2:g} V")
 
     # --- estabilidad durante la corrida --------------------------------------
@@ -290,7 +296,7 @@ def _sesion(h, args, info_gen):
     # --- lo que la GUI hace además -------------------------------------------
     print('\n=== 6. lo que ofrece la aplicación ===')
     check('metadata completa para el fichero', len(meta) >= 30,
-          f'{len(meta)} claves, thr={meta.get("thr")} '
+          f'{len(meta)} claves, compuerta={meta.get("gate_long")} '
           f'livetime={meta.get("livetime_s"):.3f}')
     if info.get('has_2d'):
         m2d = mca_read_map2d(h)
@@ -319,6 +325,8 @@ def _sesion(h, args, info_gen):
               os.path.getsize(csv) > 0 and os.path.getsize(npz) > 0,
               args.outdir)
 
+    desarmado = h.pedir('mca.disparo', ch=args.channel, armar=False)
+    check('el disparo quedó desarmado', not desarmado.get('armado'))
     return 0
 
 

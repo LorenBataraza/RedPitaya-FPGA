@@ -4,8 +4,8 @@ El refactor partió este fichero por concepto:
 
     API/osciloscope.py    osciloscopio clásico: umbral, decimación, delay,
                           histéresis, filtros, calibración, punteros, BRAM
-    API/multitrigger.py   lo que este proyecto AÑADIÓ: máscaras OR (0x240/0x244),
-                          trigger_shield (0x210), snapshot (0x218)
+    API/multitrigger.py   lo que este proyecto AÑADIÓ: máscaras OR, trigger_shield
+                          y snapshot, en su región propia (slot 3)
     API/fpga.py           bring-up de la PL: bitstream y puentes AXI, que no
                           tenían nada que ver con el osciloscopio
 
@@ -16,12 +16,11 @@ scripts que ya corren en la placa. Código nuevo::
     from API.multitrigger import MultiTrigger, multitrigger_arm, BIT_ADC_P0
 
     osc = Osciloscope.open()
-    mt  = MultiTrigger.open(osc=osc)
+    mt  = MultiTrigger.open()
     multitrigger_arm(osc, mt, mask_ch0=BIT_ADC_P0, thr=0.5)
 
 `MultiTriggerScope` sigue acá porque es una clase de COMPATIBILIDAD, no de la
-API nueva: compone un `Osciloscope` y un `MultiTrigger` sobre el mismo mapeo y
-delega. Se listan todos sus métodos explícitamente en vez de heredarlos para
+API nueva: compone un `Osciloscope` y un `MultiTrigger` y delega. Se listan todos sus métodos explícitamente en vez de heredarlos para
 que la superficie que este shim garantiza esté escrita, no implícita en un MRO.
 
 Sin DeprecationWarning a propósito: saltaría en cada corrida en la Pitaya.
@@ -53,29 +52,24 @@ from API.multitrigger import (                                  # noqa: F401
 class MultiTriggerScope(Osciloscope):
     """Clase de compatibilidad: el scope y el multitrigger en un solo objeto.
 
-    Compone un `MultiTrigger` sobre EL MISMO mapeo, así que las escrituras de
-    los dos módulos salen por el mismo mmap y en el mismo orden que antes del
-    refactor — que es justo lo que verifican las trazas de
-    `API/tests/test_compat_api.py`.
+    Compone un `MultiTrigger`, el de `Osciloscope.mt`, que tiene su propio mapeo
+    porque vive en otra región. Las trazas de `API/tests/test_compat_api.py`
+    verifican que las escrituras de los dos bloques salgan en el mismo orden que
+    antes del refactor.
 
     Código nuevo: usar `Osciloscope` + `MultiTrigger` por separado.
     """
 
-    def __init__(self, scope_mmap, fd):
-        super().__init__(scope_mmap, fd)
-        # fd=-1: el mmap es del Osciloscope, MultiTrigger.close() no lo toca.
-        self._mt = MultiTrigger(scope_mmap, -1)
-
     # ---------- delegado al bloque multitrigger ----------
 
     def set_or_mask(self, mask_ch0=OR_MASK_ALL, mask_ch1=None):
-        return self._mt.set_or_mask(mask_ch0, mask_ch1)
+        return self.mt.set_or_mask(mask_ch0, mask_ch1)
 
     def configure_shield_autorearm(self, channels=3, dur=0):
-        return self._mt.configure_shield_autorearm(channels, dur)
+        return self.mt.configure_shield_autorearm(channels, dur)
 
     def disable_shield(self):
-        return self._mt.disable_shield()
+        return self.mt.disable_shield()
 
     # ---------- secuencias que cruzan los dos bloques ----------
 
@@ -84,10 +78,10 @@ class MultiTriggerScope(Osciloscope):
                             auto_rearm=True):
         """Ver `API.multitrigger.multitrigger_arm`, incluido el ORDEN CRÍTICO
         de armar antes de habilitar la máscara."""
-        return multitrigger_arm(self, self._mt, mask_ch0=mask_ch0,
+        return multitrigger_arm(self, self.mt, mask_ch0=mask_ch0,
                                 mask_ch1=mask_ch1, thr=thr, hyst=hyst,
                                 delay=delay, we_keep_both=we_keep_both,
                                 auto_rearm=auto_rearm)
 
     def disarm(self):
-        return multitrigger_disarm(self, self._mt)
+        return multitrigger_disarm(self, self.mt)

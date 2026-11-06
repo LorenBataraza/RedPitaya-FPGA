@@ -27,7 +27,7 @@ Makefiles las mantienen separadas: `rtl*` es SystemVerilog en QuestaSim,
 | [`API/tests/placa/`](API/tests/placa/) | los mismos sujetos, pero **necesitan la Red Pitaya** |
 | [`API/bench/`](API/bench/) | benchmarks de lectura del buffer: miden, no aprueban ni fallan |
 | [`app/`](app/) | la GUI (`mcamon`) y el servidor, con sus tests — documentada en [`docs/APP/`](../docs/APP/) |
-| [`monte-carlo/`](monte-carlo/) | **simulaciones**: apilamiento, línea de base, pico-vs-carga |
+| [`monte-carlo/`](monte-carlo/) | **simulaciones**, sobre réplicas del RTL: apilamiento y banco de trapecios (MCA2, comparada bit a bit), línea de base, pico-vs-carga |
 | [`campanas/`](campanas/) | drivers de campaña: caracterización sobre hardware real, y el regraficado de lo ya medido |
 | [`release/`](release/) | el instalador y el LEEME que viajan **dentro** del paquete — ver [`docs/publicar_release.md`](../docs/publicar_release.md) |
 | `datos/` | corridas medidas (no versionado) |

@@ -3,6 +3,11 @@
 
 Corre en la PC, sin placa, sobre datos ya medidos.
 
+QUEDA EN EL MCA1, A PROPÓSITO
+-----------------------------
+Usa la réplica del MCA1 de `pileup.py` y no la del MCA2 (`replica_mca2.py`): pone a prueba la atribución de `resultados_validacion_hw.md` §19.3 sobre mediciones hechas con ese bitstream.
+Repetirlo sobre el MCA2 no explicaría esas mediciones.
+
 LA PREGUNTA
 -----------
 `resultados_validacion_hw.md` §19.3 atribuye el corrimiento de centroide con la

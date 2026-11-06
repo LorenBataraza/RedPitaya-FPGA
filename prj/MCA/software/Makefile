@@ -137,14 +137,15 @@ export PYTHONPATH := $(RAIZ):$(PYTHONPATH)
 
 .PHONY: help \
         verificar verificar-liviano verificar-api verificar-app verificar-gui \
-        verificar-montecarlo verificar-campanas verificar-modelo \
+        verificar-montecarlo verificar-campanas verificar-modelo verificar-libmca \
+        libmca libmca-arm \
         verificar-compat verificar-lint baseline-regenerar \
         verificar-placa verificar-placa-mem verificar-placa-buffer \
         verificar-placa-mca verificar-placa-diag verificar-placa-ring \
         verificar-placa-datapath verificar-placa-e2e verificar-placa-app \
         verificar-placa-bitstream \
         verificar-remoto verificar-placa-remoto verificar-placa-app-remoto \
-        montecarlo montecarlo-rapido montecarlo-apilamiento \
+        montecarlo montecarlo-rapido montecarlo-apilamiento montecarlo-apilamiento-mca1 \
         montecarlo-linea-base montecarlo-pico-carga montecarlo-conformado montecarlo-figuras \
         campana-lista campana-mca campana-campana campana-resto campana-formas \
         campana-e2e campana-poisson campana-politicas campana-politicas-remoto \
@@ -161,7 +162,7 @@ export PYTHONPATH := $(RAIZ):$(PYTHONPATH)
         placa-cargar-remoto \
         release release-verificar release-publicar release-instalar-remoto \
         release-limpiar \
-        bench bench-remoto exige-placa exige-gui \
+        bench bench-remoto bench-api bench-api-remoto exige-placa exige-gui \
         limpiar limpiar-pyc limpiar-cache limpiar-simulaciones limpiar-datos \
         limpiar-todo
 
@@ -190,32 +191,49 @@ help:              ## esta ayuda
 # verificar-*  ·  lo que aprueba o falla
 # =============================================================================
 
-verificar: verificar-api verificar-app verificar-montecarlo verificar-campanas  ## toda la suite offline (PC)
+verificar: verificar-libmca verificar-api verificar-app verificar-montecarlo verificar-campanas  ## toda la suite offline (PC)
 	@echo "OK: suite offline completa"
 
 # Lo mismo SIN las simulaciones Monte-Carlo. La Pitaya tiene 461 MB de RAM y el
 # motor de apilamiento llega a ~380 MB de RSS: el OOM killer se lleva el proceso
 # a mitad de la corrida. No es un fallo del código —son simulaciones, no tocan
 # hardware y su lugar es la PC— así que `verificar-remoto` corre esto.
-verificar-liviano: verificar-api verificar-app verificar-campanas  ## la suite offline sin Monte-Carlo
+verificar-liviano: verificar-libmca verificar-api verificar-app verificar-campanas  ## la suite offline sin Monte-Carlo
 	@echo "OK: suite offline (sin Monte-Carlo)"
 
-verificar-api:     ## tests offline de API/ (driver, red, pipeline, análisis)
+verificar-api: libmca  ## tests offline de API/ (driver, red, pipeline, análisis)
 	$(PYTEST) $(PFLAGS) API/tests
 
-verificar-app:     ## tests offline de app/ (servidor, cliente remoto, GUI headless)
+# libmca es la API en C (libmca/Makefile). Los tests de Python la cargan desde
+# libmca/build/<arch>/, así que se compila antes de correrlos. En la placa
+# `host` ya es ARM y usa el gcc nativo.
+libmca:            ## compila libmca para esta máquina (build/<arch>/libmca.so)
+	$(MAKE) -s -C libmca host
+
+libmca-arm:        ## compila libmca para la placa, con el cruzado (build/armv7l/)
+	$(MAKE) -s -C libmca arm
+
+# check-bus necesita las binutils de ARM: en la PC, el cruzado; en la placa,
+# las nativas. Sin ninguna de las dos se saltea y se dice.
+verificar-libmca:  ## libmca: tests de C y la regla del bus sobre el binario de ARM
+	$(MAKE) -s -C libmca test check-fuente
+	@if [ "$$(uname -m)" = armv7l ] || command -v arm-linux-gnueabihf-gcc >/dev/null 2>&1; \
+	 then $(MAKE) -s -C libmca check-bus; \
+	 else echo "(sin binutils de ARM: check-bus salteado)"; fi
+
+verificar-app: libmca  ## tests offline de app/ (servidor, cliente remoto, GUI headless)
 	$(PYTEST) $(PFLAGS) app/tests
 
-verificar-montecarlo:  ## tests del motor Monte-Carlo (réplica vectorizada vs RTL)
+verificar-montecarlo:  ## tests del motor Monte-Carlo (las réplicas del MCA1 y del MCA2 contra el RTL)
 	$(PYTEST) $(PFLAGS) monte-carlo
 
-verificar-campanas:    ## tests offline de los drivers de campaña (MCA simulado)
+verificar-campanas: libmca  ## tests offline de los drivers de campaña (MCA simulado)
 	$(PYTEST) $(PFLAGS) campanas/tests
 
 verificar-modelo:  ## sólo los modelos de referencia del RTL (estimadores, ring)
 	$(PYTEST) $(PFLAGS) API/tests/test_estimadores.py API/tests/test_ring_format.py
 
-verificar-gui: exige-gui  ## la GUI de punta a punta SIN pantalla (lo que corre en CI)
+verificar-gui: exige-gui libmca  ## la GUI de punta a punta SIN pantalla (lo que corre en CI)
 	$(PYTEST) $(PFLAGS) app/tests/test_mcamon_gui.py
 
 verificar-compat:  ## el baseline de compatibilidad sigue valiendo (no escribe)
@@ -288,19 +306,22 @@ verificar-placa-app-remoto: placa-sync  ## (R) el e2e de la app EN la Pitaya, y 
 # montecarlo-*  ·  simulaciones
 # =============================================================================
 
-montecarlo: montecarlo-apilamiento montecarlo-linea-base montecarlo-pico-carga montecarlo-conformado  ## todas las simulaciones (~15 min)
+montecarlo: montecarlo-apilamiento montecarlo-linea-base montecarlo-pico-carga montecarlo-conformado  ## todas las simulaciones (~35 min)
 	@echo "OK: simulaciones Monte-Carlo completas"
 
 montecarlo-rapido:       ## barrido de apilamiento corto, para ver que corre
 	$(PY) monte-carlo/montecarlo.py --n-eventos 5000
 
-montecarlo-apilamiento:  ## Monte-Carlo de apilamiento: barrido de tasa (~5 min)
+montecarlo-apilamiento:  ## Monte-Carlo de apilamiento sobre el MCA2: barrido de tasa (~30 min)
 	$(PY) monte-carlo/montecarlo.py
+
+montecarlo-apilamiento-mca1:  ## el barrido viejo, sobre la réplica del MCA1 (~5 min)
+	$(PY) monte-carlo/montecarlo.py --mapa MCA1
 
 montecarlo-linea-base:   ## Monte-Carlo del seguidor de línea de base
 	$(PY) monte-carlo/linea_base.py
 
-montecarlo-pico-carga:   ## Monte-Carlo pico-vs-carga para dobles y triples
+montecarlo-pico-carga:   ## Monte-Carlo pico-vs-carga para dobles y triples, con 1 y 4 ranuras
 	$(PY) monte-carlo/pico_vs_carga.py
 
 montecarlo-conformado:   ## Monte-Carlo: forma del pulso contra ruido (Nicholson vs ADC, ~30 s)
@@ -449,7 +470,7 @@ exige-gui:
 	  echo ""; \
 	  exit 1; }
 
-app-demo: exige-gui  ## PROBAR LA GUI sin placa: servidor falso + mcamon conectado
+app-demo: exige-gui libmca  ## PROBAR LA GUI sin placa: servidor falso + mcamon conectado
 	@echo "servidor falso en 127.0.0.1:$(PUERTO) + mcamon; Ctrl-C o cerrar la ventana para salir"
 	@LOG=$$(mktemp); \
 	 $(PY) app/mca_server.py --fake --host 127.0.0.1 --port $(PUERTO) >$$LOG 2>&1 & \
@@ -471,7 +492,7 @@ app-gui:           ## abre mcamon solo. SERVIDOR=host PUERTO=n
 app-servidor: exige-placa  ## (P) levanta mca_server en la placa
 	$(PY) app/mca_server.py
 
-app-servidor-falso:  ## sólo el servidor con MCA falso. PUERTO=n
+app-servidor-falso: libmca  ## sólo el servidor con MCA falso. PUERTO=n
 	$(PY) app/mca_server.py --fake --port $(PUERTO)
 
 # --- la app contra la placa --------------------------------------------------
@@ -729,7 +750,12 @@ placa-cargar-remoto: placa-bitstream placa-sync  ## copia bitstream+software, PR
 # La versión se edita a mano en prj/MCA/VERSION. El procedimiento completo,
 # incluida la parte de GitHub, está en docs/publicar_release.md.
 
-release: ## arma el paquete instalable en dist/. Versión en ../VERSION
+release: libmca-arm  ## arma el paquete instalable en dist/. Versión en ../VERSION
+	@# libmca va en el árbol (software/libmca/build/armv7l/), que es donde la busca
+	@# API/_libmca.py. Se chequea ANTES de empaquetar: un .so que hace una
+	@# ráfaga sobre la PL reinicia la placa, y uno que pide una glibc más nueva
+	@# que la de la placa no carga y deja la API cayendo a Python.
+	@$(MAKE) -s -C libmca check-bus
 	@test -f $(BIT_LOCAL) || { \
 	  echo "ERROR: no existe $(BIT_LOCAL)."; \
 	  echo "       un paquete sin bitstream no sirve para nada: es justo lo que"; \
@@ -927,6 +953,54 @@ bench: exige-placa  ## (P) benchmarks de lectura del buffer (no son pass/fail)
 
 bench-remoto: placa-sync  ## (P) los benchmarks, EN la Pitaya
 	ssh $(PITAYA) 'make -C $(REMOTO) bench'
+
+# El microbench de la API: cada operación en py (la referencia congelada), c
+# (libmca por ctypes) y c_puro. Ver API/bench/bench_impl.py. DESTRUCTIVO=1 mide
+# además clear/configure/acquire y BORRA el histograma.
+#
+# En la placa no hay .git: el commit se calcula acá y viaja en MCA_COMMIT, que
+# es lo que permite saber después qué código se midió.
+BENCH_OUT ?= datos/bench_impl_$(STAMP)
+COMMIT    := $(shell git -C $(RAIZ) rev-parse --short HEAD 2>/dev/null)$(shell \
+               git -C $(RAIZ) diff --quiet HEAD -- . 2>/dev/null || echo -sucio)
+
+bench-api: exige-placa libmca  ## (P) microbench de la API, py contra c. BENCH_OUT= DESTRUCTIVO=
+	$(PY) API/bench/bench_impl.py --out $(BENCH_OUT) $(if $(DESTRUCTIVO),--destructivo,)
+	$(PY) API/bench/comparar_bench.py $(BENCH_OUT)
+
+bench-api-remoto: libmca-arm placa-sync  ## (P) el microbench EN la Pitaya, y trae los datos
+	ssh $(PITAYA) 'MCA_COMMIT=$(COMMIT) make -C $(REMOTO) bench-api \
+	  BENCH_OUT=$(BENCH_OUT) DESTRUCTIVO=$(DESTRUCTIVO)'
+	@mkdir -p $(BENCH_OUT)
+	rsync -az $(PITAYA):$(REMOTO)/$(BENCH_OUT)/ $(BENCH_OUT)/
+	$(PY) API/bench/comparar_bench.py $(BENCH_OUT)
+
+# El mismo microbench SIN PL: el MCA es un fichero en /dev/shm y `c` usa el
+# backend devmem de libmca sobre él. Mide el binding sin el costo del bus, con
+# cualquier bitstream cargado (o ninguno). Es el que hay que correr al tocar
+# API/mca.py o API/_libmca.py: comparar con comparar_bench.py A B.
+BENCH_SHM ?= datos/bench_shm_$(STAMP)
+
+bench-api-shm: libmca  ## microbench del binding sin PL (fichero en /dev/shm). BENCH_SHM=
+	$(PY) API/bench/bench_impl.py --shm --out $(BENCH_SHM)
+	$(PY) API/bench/comparar_bench.py $(BENCH_SHM)
+
+bench-api-shm-remoto: libmca-arm placa-sync  ## el microbench sin PL EN la Pitaya (no toca la PL), y trae los datos
+	ssh $(PITAYA) 'MCA_COMMIT=$(COMMIT) make -C $(REMOTO) bench-api-shm \
+	  BENCH_SHM=$(BENCH_SHM)'
+	@mkdir -p $(BENCH_SHM)
+	rsync -az $(PITAYA):$(REMOTO)/$(BENCH_SHM)/ $(BENCH_SHM)/
+	$(PY) API/bench/comparar_bench.py $(BENCH_SHM)
+
+# La columna `remoto`: las funciones de la API desde la PC, por la op `call`,
+# contra el mca_server de la Pitaya (lo levanta app-servidor-remoto si no
+# estaba; queda corriendo). Es lo que ve la GUI por cada acción.
+BENCH_RED ?= datos/bench_remoto_$(STAMP)
+
+bench-api-red: app-servidor-remoto  ## (P) cuánto cuesta cada función por red (op call), medido desde la PC
+	$(PY) API/bench/bench_impl.py --remoto $(IP_PITAYA):$(PUERTO_PLACA) \
+	  --out $(BENCH_RED) $(if $(DESTRUCTIVO),--destructivo,)
+	$(PY) API/bench/comparar_bench.py $(BENCH_RED)
 
 # =============================================================================
 # limpiar-*  ·  borrado, por categoría

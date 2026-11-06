@@ -62,6 +62,7 @@ class Trabajador(QObject):
     integracion = pyqtSignal(dict)
     osc_info = pyqtSignal(dict)
     mtrg_info = pyqtSignal(dict)
+    disparo_info = pyqtSignal(dict)          # el estado de la op mca.disparo
     traza = pyqtSignal(dict, object)          # metadata, float32[n_ch, n]
     aviso = pyqtSignal(str)
     fallo = pyqtSignal(str)
@@ -101,6 +102,8 @@ class Trabajador(QObject):
                             str(info.get('error')))
             return
         self._leer_config()
+        if info.get('has_disparo'):
+            self.disparo({})                     # el estado, sin tocar nada
         self._tic_estado()
         self._tic_espectro()
         self._t_estado.start()
@@ -204,18 +207,30 @@ class Trabajador(QObject):
         """Escribe UN campo con su `mca_set_<campo>` de API/mca.py.
 
         No se usa `mca_configure`: el bloque entero escribe R_CTRL con run=0, o
-        sea que tocar un umbral pararía la medición en curso. Y se pasa por el
-        setter público, no por `_escribir_campo`, porque tres de ellos validan
-        (`bl_k`, `tail_dly`, `dec`).
+        sea que tocar un campo pararía la medición en curso. Y se pasa por el
+        setter público, no por `_escribir_campo`, porque varios validan
+        (`dec`, `n_acc`, `pre_dly`, el trapecio).
         """
         if self.h is None:
             return
         try:
             getattr(A, f'mca_set_{campo}')(self.h, valor)
             self.aviso.emit(f'{campo} = {valor}')
+            if campo == 'pre_dly':
+                self._aviso_pre_dly()
             self._leer_config()
         except Exception as e:                                   # noqa: BLE001
             self.fallo.emit(f'{campo}: {type(e).__name__}: {e}')
+
+    def _aviso_pre_dly(self):
+        """`pre_dly` mueve las ventanas del trapecio (off = c + pre_dly + 2), y
+        trap_ok no lo nota: mira que entren en la compuerta, no que caigan sobre
+        la meseta. Sólo importa si alguien está mirando el trapecio."""
+        cfg = A.mca_get_config(self.h)
+        trap = {A.FEATURES['trapecio'], A.FEATURES['forma']}
+        if cfg['n_formas'] > 1 or {cfg['sel_1d'], cfg['sel_2dx'], cfg['sel_2dy']} & trap:
+            self.aviso.emit('pre_dly movió las ventanas del trapecio: hay que volver '
+                            'a calcular trap_off (off = c + pre_dly + 2)')
 
     # ---------- integración (slot 6) ----------
     #
@@ -307,6 +322,19 @@ class Trabajador(QObject):
                         fields={f'or_mask_ch{int(canal)}': int(mascara)})
         self.aviso.emit(f'máscara ch{canal} = {mascara:#010x}')
 
+    @pyqtSlot(dict)
+    def disparo(self, args):
+        """El disparo del MCA2: arma, desarma o (armar=None) sólo informa."""
+        if self.h is None:
+            return
+        try:
+            self.disparo_info.emit(self.h.pedir('mca.disparo', **args))
+            if args.get('armar') is not None:
+                self.aviso.emit('disparo del MCA armado' if args['armar']
+                                else 'disparo del MCA desarmado')
+        except Exception as e:                                   # noqa: BLE001
+            self.fallo.emit(f'mca.disparo: {type(e).__name__}: {e}')
+
     @pyqtSlot(bool)
     def armar_mtrg(self, armar):
         self._pedir_osc('mtrg.arm' if armar else 'mtrg.disarm', self.mtrg_info)
@@ -363,6 +391,7 @@ class Mcamon(QMainWindow):
     sig_campo_mtrg = pyqtSignal(str, int)
     sig_mascara = pyqtSignal(int, int)
     sig_armar = pyqtSignal(bool)
+    sig_disparo = pyqtSignal(dict)
 
     def __init__(self, host='10.73.28.27', port=PORT_DEFAULT):
         super().__init__()
@@ -404,6 +433,7 @@ class Mcamon(QMainWindow):
         self.panel_espectro.pedir_stop.connect(self.sig_parar)
         self.panel_espectro.pedir_clear.connect(self.sig_borrar)
         self.panel_espectro.pedir_campo.connect(self.sig_campo)
+        self.panel_espectro.pedir_disparo.connect(self.sig_disparo)
         self.panel_espectro.log.connect(self.panel_log.info)
 
         self.panel_config.pedir_campo.connect(self.sig_campo)
@@ -501,6 +531,8 @@ class Mcamon(QMainWindow):
         self.sig_campo_mtrg.connect(self.trabajador.escribir_campo_mtrg)
         self.sig_mascara.connect(self.trabajador.set_mascara)
         self.sig_armar.connect(self.trabajador.armar_mtrg)
+        self.sig_disparo.connect(self.trabajador.disparo)
+        self.trabajador.disparo_info.connect(self.panel_espectro.actualizar_disparo)
 
         self.trabajador.integracion.connect(self._al_integracion)
         self.trabajador.osc_info.connect(self._al_osc)
@@ -545,11 +577,19 @@ class Mcamon(QMainWindow):
 
         n = info['n_channels']
         self.lbl_estado.setText(
-            f"MCA1 · {n} canales · {'simulado' if info.get('fake') else 'placa'}")
+            f"MCA2 · {n} canales · {info.get('n_acc_max', '?')} ranuras · "
+            + (f"banco de {info['n_formas_max']} formas · "
+               if info.get('n_formas_max') else '')
+            + ('disparo con polo-cero · ' if info.get('has_pz') else '')
+            + ('simulado' if info.get('fake') else 'placa'))
         self.panel_espectro.configurar_geometria(n)
         self.panel_espectro.set_conectado(True, running=info.get('running', False))
         self.panel_config.configurar_geometria(n, info.get('h_aw'))
+        self.panel_config.configurar_mca(info)
         self.panel_config.set_conectado(True)
+        if not info.get('has_disparo'):
+            self.panel_log.error('no está la región del multitrigger: sin el '
+                                 'disparo el MCA no abre ventanas')
         self.panel_log.info(
             f"conectado: {n} canales, mapa 2D {'sí' if info.get('has_2d') else 'no'}, "
             f"PL {info.get('fpga_state')}")

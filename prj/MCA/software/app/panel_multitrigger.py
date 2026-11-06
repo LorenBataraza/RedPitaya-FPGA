@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 """Pestaña del multitrigger: qué puede disparar, qué disparó, y el shield.
 
-Es el bloque que este proyecto **añadió** al scope original de RedPitaya, en los
-registros 0x210-0x24C. Comparte el slot físico con el osciloscopio, y sin
-embargo va en su propia pestaña: son dos APIs sobre la misma región y mezclarlas
-esconde justamente eso. El osciloscopio clásico —umbral, decimación, delay,
+Es el bloque que este proyecto **añadió** al scope original de RedPitaya, en su
+región propia (slot 3). El osciloscopio clásico —umbral, decimación, delay,
 calibración, BRAM— está en la pestaña de al lado.
 
 Tres cosas se hacen desde acá:
@@ -107,7 +105,7 @@ class PanelMultitrigger(PanelCampos):
         self.lbl_runtime = QLabel('—')
         f.addRow('runtime del shield', self.lbl_runtime)
         self.lbl_flags = QLabel('—')
-        self.lbl_flags.setToolTip('dis_act / we_keep, tal como los publica 0x21C.')
+        self.lbl_flags.setToolTip('dis_act / we_keep, tal como los publica DIS_FLAGS.')
         f.addRow('flags', self.lbl_flags)
 
         btn_armar = QPushButton('Armar disparo por ADC')

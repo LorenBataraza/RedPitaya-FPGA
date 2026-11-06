@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-"""Suite de caracterización del Analizador Multicanal (MCA).
+"""Suite de caracterización del Analizador Multicanal (MCA2, las ranuras).
 
-Se corre EN LA PITAYA, con el bitstream `mca_red_pitaya.bit` cargado y el Rigol
-DG4162 conectado por USB alimentando IN1 (o IN2).
+Se corre EN LA PITAYA, con el bitstream `mca_red_pitaya.bit` (mapa "MCA2")
+cargado y el Rigol DG4162 conectado por USB alimentando IN1 (o IN2).
+
+En el MCA2 la ventana la abre SÓLO el disparo del multitrigger: `connect()` lo
+arma con `multitrigger_armar_mca` (el disparo por pendiente de `DISPARO`) y
+`main()` lo desarma al terminar. El umbral ya no es del MCA sino de la
+pendiente, y la ventana la cierra la compuerta larga.
 
 Cada función cierra una fila de la tabla de parámetros a caracterizar de un MCA:
 
@@ -13,10 +18,15 @@ Cada función cierra una fila de la tabla de parámetros a caracterizar de un MC
     umbral            LLD / piso de ruido, curva S de eficiencia
     forma             FOM y su dependencia con la energía
 
-División de responsabilidades: el driver y los helpers de análisis puros están
-en mca_utils.py; acá va sólo lo que necesita hardware. Todas las funciones
+División de responsabilidades: el driver es `API/mca.py` y el análisis puro
+`API/analisis.py`; acá va sólo lo que necesita hardware. Todas las funciones
 devuelven los datos CRUDOS además del resultado, para poder re-graficar y
 re-analizar sin volver a medir.
+
+Los `.npz` de campañas del MCA1 (umbral interno, histéresis, `h_shift`) se
+siguen graficando y reanalizando: `plot_all` y `reanalizar_deriva` miran la
+clave `mapa` (las del MCA1 no la tienen). Para MEDIR sobre un MCA1 hay que
+volver a la versión de este archivo de antes del port.
 
 Uso:
     python3 campanas/testbench_mca.py --list
@@ -36,9 +46,9 @@ while _RAIZ != '/' and not os.path.isfile(os.path.join(_RAIZ, 'API', 'mca.py')):
     _RAIZ = os.path.dirname(_RAIZ)          # sube hasta software/
 sys.path.insert(0, _RAIZ)
 
-import mca_utils as mu
-from mca_utils import MCA
-import rigol_dg4162 as rg
+import API.analisis as an                                       # noqa: E402
+import API.mca as A                                             # noqa: E402
+import rigol_dg4162 as rg                                       # noqa: E402
 
 
 # =============================================================================
@@ -55,23 +65,201 @@ import rigol_dg4162 as rg
 # en segundos y devuelve la frecuencia a la que hay que aplicar la forma.
 PULSE_WIDTH_S = 2e-6
 
-# maxlen coherente con PULSE_WIDTH_S: un pulso de 2 us de FWHM ocupa ~1000
-# muestras a 125 MSPS contando la cola, asi que 4096 deja margen de sobra sin
-# tragarse apilamientos. OJO: si se cambia PULSE_WIDTH_S hay que recalibrar
-# esto y `bl_k` (ver sweep_baseline_k).
-DEFAULT_CFG = dict(thr=100, hyst=40, baseline=0, bl_auto=True, bl_k=12,
-                   bl_holdoff=64, maxlen=4096, tail_dly=8, amp_src=0,
-                   q_shift=0, h_shift=0, h2_shift=7, dec=1, channel=0)
+# La configuración del MCA2 para el pulso de PULSE_WIDTH_S. La ventana la abre el
+# disparo y la cierra la compuerta larga: 384 muestras (3.1 us) es la que dio la
+# mejor resolución de la integral offline (0.149 %, 7054 pulsos reales).
+# `pre_dly = 16` es lo medido en la placa con este pulso y DISPARO: la ventana
+# abre en el pie. Una ranura (`n_acc = 1`) es la ventana única de antes; los
+# barridos que miran la pérdida suman las demás. OJO: si se cambia
+# PULSE_WIDTH_S hay que recalibrar `gate_long`, `pre_dly` y `bl_k` (ver
+# sweep_gate y sweep_baseline_k).
+DEFAULT_CFG = dict(baseline=0, bl_auto=True, bl_k=12, bl_holdoff=64,
+                   amp_src=0, q_shift=0, dec=1, channel=0,
+                   gate_short=32, gate_long=384, n_acc=1, pre_dly=16,
+                   zoom_1d=(0, 0))
+
+# El disparo por pendiente del multitrigger (multitrigger_armar_mca), en
+# unidades de la pendiente s: para una rampa de m cuentas por muestra
+# s = L·(L+G)·m. Es lo validado en placa con el pulso de la campaña
+# (test_mca2_placa.py, call_red.py).
+DISPARO = dict(L=8, G=4, thr=600, hyst=300)
+
+# Los handles del disparo, abiertos por `connect()`: los barridos que cambian
+# el umbral re-arman con ellos.
+_HW = {'osc': None, 'mtr': None, 'ch': 0, 'disparo': dict(DISPARO)}
 
 
-def connect(channel=0):
-    """Abre el MCA y el generador. Falla temprano y con mensaje claro."""
-    mca = MCA.open()
+# Con qué implementación de la API se midió (--impl) y cuánto tardó cada
+# lectura. Va a CADA .npz: una campaña corrida con --impl py y otra con
+# --impl c tienen que dar el mismo resultado físico, y lo que las distingue es
+# justamente esto.
+_IMPL = {'api_impl': None, 'libmca_version': None}
+_TIEMPOS = {}
+_LECTURAS = ('spectrum', 'map2d', 'counters', 'acquire', 'acquire_chunks')
+
+
+def _cronometrar(mca):
+    """Envuelve los métodos de lectura del handle para registrar su duración.
+
+    Sólo cuenta la llamada más EXTERNA: el `acquire` de la implementación
+    Python llama a `spectrum()` y `counters()` del mismo handle y el de C no,
+    así que contar también las internas haría incomparables las dos columnas.
+    """
+    profundidad = [0]
+    for nombre in _LECTURAS:
+        fn = getattr(mca, nombre)
+
+        def envuelta(*a, _fn=fn, _n=nombre, **k):
+            if profundidad[0]:
+                return _fn(*a, **k)
+            profundidad[0] += 1
+            t0 = time.perf_counter()
+            try:
+                return _fn(*a, **k)
+            finally:
+                profundidad[0] -= 1
+                _TIEMPOS.setdefault(_n, []).append(time.perf_counter() - t0)
+        setattr(mca, nombre, envuelta)
+    return mca
+
+
+def connect(channel=0, impl=None):
+    """Abre el MCA, el disparo y el generador. Falla temprano y con mensaje claro.
+
+    El MCA2 no mide sin el disparo del multitrigger, así que también abre el
+    scope (slot 1: arm y `we_keep`) y la región del multitrigger (slot 3) y lo
+    arma sobre el canal `channel` con `DISPARO`. Las bases salen del registro
+    SLOTS del slot 6 si está, como hace el servidor. `desconectar()` lo desarma.
+
+    Contra un MCA1 sale enseguida: esta campaña ya no habla ese mapa.
+    """
+    from API.integration import slot_base
+    from API.multitrigger import MTRG_PHYS, MtRegion, multitrigger_armar_mca
+    from API.osciloscope import SCOPE_PHYS, osciloscope_open
+
+    mca = _cronometrar(A.mca_open(impl=impl))
+    if getattr(mca, 'mapa', 'MCA2') != 'MCA2':
+        mca.close()
+        raise SystemExit(
+            'testbench_mca.py mide el MCA2 (las ranuras) y la placa tiene el '
+            'MCA1. Cargar el bitstream MCA2, o usar la versión de esta campaña '
+            'de antes del port para el MCA1.')
+    _IMPL.update(api_impl=getattr(mca, 'impl', 'py'),
+                 libmca_version=getattr(mca, 'libmca_version', None))
+    print(f'API: {_IMPL["api_impl"]}'
+          + (f' (libmca {_IMPL["libmca_version"]})' if _IMPL['libmca_version'] else ''))
     info = mca.identify()
+    _HW['osc'] = osciloscope_open(phys=slot_base('osc', SCOPE_PHYS))
+    _HW['mtr'] = MtRegion.open(phys=slot_base('mtrg', MTRG_PHYS))
+    _HW['ch'] = int(channel)
+    _HW['disparo'] = dict(DISPARO)
+    multitrigger_armar_mca(_HW['osc'], _HW['mtr'], ch=_HW['ch'], **DISPARO)
+    print(f'disparo: pendiente L={DISPARO["L"]} G={DISPARO["G"]} '
+          f'thr={DISPARO["thr"]} hyst={DISPARO["hyst"]} en IN{channel + 1}')
     gen = rg.RigolDG4162.usb()
     print(f'generador: {gen.id}')
     gen.reset()
     return mca, gen, info
+
+
+def armar_disparo(**kw):
+    """Re-arma el disparo con lo que se pida cambiado (thr, hyst, L, G).
+
+    Lo usan los barridos que mueven el umbral; `restaurar_disparo()` vuelve a
+    `DISPARO`. Sin `connect()` previo (en los tests, con sustitutos) usa los
+    handles que se hayan puesto en `_HW`.
+    """
+    from API.multitrigger import multitrigger_armar_mca
+    d = {**DISPARO, **kw}
+    multitrigger_armar_mca(_HW['osc'], _HW['mtr'], ch=_HW['ch'], **d)
+    _HW['disparo'] = d
+    return d
+
+
+def restaurar_disparo():
+    return armar_disparo(**DISPARO)
+
+
+def desconectar(mca, gen, ch_gen=1):
+    """Apaga el generador, desarma el disparo y cierra todo, pase lo que pase."""
+    from API.multitrigger import multitrigger_desarmar_mca
+    try:
+        gen.output(ch_gen, False)
+    finally:
+        try:
+            if _HW['osc'] is not None and _HW['mtr'] is not None:
+                multitrigger_desarmar_mca(_HW['osc'], _HW['mtr'], ch=_HW['ch'])
+        finally:
+            for k in ('osc', 'mtr'):
+                if _HW[k] is not None:
+                    _HW[k].close()
+                    _HW[k] = None
+            gen.close()
+            mca.close()
+
+
+def _escala_1d(mca, cfg=None):
+    """El eje 1D del MCA2: qué feature cae en cada canal.
+
+    Con el zoom `(z, k)` el canal `c` es la feature
+    `k·2^(16−z) + c·2^(16−z−H_AW)` (register_map_mca.md, "El zoom"). Devuelve
+    `(feature por canal, feature del canal 0)`. El pico va al bus alineado a la
+    izquierda (`pico << 2`), así que una cuenta de ADC son 4 de feature; la
+    integral es `Q_total >> q_shift`.
+    """
+    z, k = (cfg or {}).get('zoom_1d', (0, 0))
+    paso = 2 ** (16 - int(z) - int(mca.h_aw))
+    return paso, int(k) * 2 ** (16 - int(z))
+
+
+def _meta_eje(mca, cfg):
+    """Lo que un .npz necesita para pasar de canales a cuentas: el mapa, el
+    ancho del eje y el zoom. Las campañas del MCA1 no lo traen."""
+    z, k = cfg.get('zoom_1d', (0, 0))
+    return {'mapa': np.array('MCA2'), 'h_aw': np.array(int(mca.h_aw)),
+            'zoom_1d': np.array([int(z), int(k)]),
+            'gate_long': np.array(int(cfg.get('gate_long', 384))),
+            'n_acc': np.array(int(cfg.get('n_acc', 1)))}
+
+
+def cuentas_por_canal(d, est, q_shift=0):
+    """Cuentas físicas por canal en un .npz de campaña, de cualquier mapa.
+
+    `est` es 'pico' o 'carga'. En el MCA1 el canal era la amplitud corrida
+    `h_shift` (pico) o `q_shift` (carga) bits. En el MCA2 es la feature corrida
+    `16 − z − H_AW` bits, y el pico está en la feature multiplicado por 4.
+    """
+    claves = d.files if hasattr(d, 'files') else d.keys()
+    if 'mapa' in claves and str(d['mapa']) == 'MCA2':
+        z = int(np.asarray(d['zoom_1d'])[0])
+        paso = 2.0 ** (16 - z - int(d['h_aw']))
+        return paso / 4.0 if est == 'pico' else paso * 2.0 ** float(q_shift)
+    return 2.0 ** float(d['h_shift'] if est == 'pico' else q_shift)
+
+
+def _zoom_para(mca, spec, cfg, aw):
+    """El zoom más grande (con k = 0) en el que entra todo lo que llegó a `spec`.
+
+    `spec` es un espectro 1D medido con `cfg`; su canal más alto con cuentas da
+    la feature máxima. Con zoom `z` la ventana es `[0, 2^(16−z))`, así que se
+    elige el mayor `z` (hasta `16 − aw`) que la deja adentro, con un 10 % de
+    margen. None si el espectro está vacío.
+    """
+    nz = np.flatnonzero(np.asarray(spec))
+    if nz.size == 0:
+        return None
+    paso, origen = _escala_1d(mca, cfg)
+    f_max = 1.1 * (origen + (int(nz[-1]) + 1) * paso)
+    z = 0
+    while z < 16 - int(aw) and f_max < 2 ** (16 - (z + 1)):
+        z += 1
+    return z
+
+
+def _objetivo_feature(mca, canal):
+    """`autoscale_q_shift` apunta en unidades de feature: el canal pedido,
+    pasado a feature con el eje sin zoom."""
+    return float(canal) * 2 ** (16 - int(mca.h_aw))
 
 
 def _save(outdir, name, **arrays):
@@ -79,7 +267,16 @@ def _save(outdir, name, **arrays):
         return None
     os.makedirs(outdir, exist_ok=True)
     path = os.path.join(outdir, f'{name}.npz')
-    np.savez_compressed(path, **arrays)
+    # La implementación y los tiempos de lectura desde el guardado anterior.
+    extra = {'api_impl': np.array(str(_IMPL['api_impl'])),
+             'libmca_version': np.array(str(_IMPL['libmca_version'])),
+             'mapa': np.array('MCA2'),
+             'disparo': np.array([_HW['disparo'][k] for k in ('L', 'G', 'thr', 'hyst')])}
+    for n, ts in _TIEMPOS.items():
+        extra[f't_lectura_{n}_s'] = np.asarray(ts, dtype=np.float64)
+    _TIEMPOS.clear()
+    np.savez_compressed(path, **arrays,
+                        **{k: v for k, v in extra.items() if k not in arrays})
     print(f'  guardado en {path}')
     return path
 
@@ -146,23 +343,35 @@ def _acquire_con_base(mca, seconds):
     return mca.spectrum(), m2d, cnt, bl
 
 
+def _perdidas(cnt):
+    """Los disparos que no encontraron ranura, partidos por causa.
+
+    `cross` cuenta TODO disparo, abra o no: es la tasa de entrada que vio el
+    instrumento. `lost_busy` no viene en los contadores: es lo que queda de la
+    atribución (cross = open + lost_active + lost_busy + lost_veto).
+    """
+    busy = (cnt['cross'] - cnt['open'] - cnt['lost_active']
+            - cnt.get('lost_veto', 0))
+    return {'cross': cnt['cross'], 'open': cnt['open'],
+            'lost_active': cnt['lost_active'], 'lost_busy': busy,
+            'p_loss': (cnt['cross'] - cnt['open']) / max(cnt['cross'], 1)}
+
+
 def _avisos(cnt):
-    """Los dos avisos de pérdida, compartidos por las dos formas de adquirir."""
-    # OJO con la normalizacion: `dropped` suma los eventos que llegaron con el
-    # extractor OCUPADO (que nunca entraron a `total`) mas los descartes del
-    # barrido de borrado (que si estan en `total`). Compararlo contra `total` da
-    # porcentajes de mas del 100% -- fue lo que invalido el test de par-pulso.
-    # El denominador correcto es total + dropped: todo lo que llego a la entrada.
-    llegados = max(cnt['total'] + cnt['dropped'], 1)
-    if cnt['dropped'] / llegados > 0.01:
-        print(f"  AVISO: {cnt['dropped']} de {llegados} eventos perdidos por "
-              f"extractor ocupado ({100*cnt['dropped']/llegados:.1f}% de los "
-              f"que llegaron)")
+    """Los avisos de pérdida y de solape, compartidos por las formas de adquirir."""
+    p = _perdidas(cnt)
+    if p['p_loss'] > 0.01:
+        print(f"  AVISO: {p['cross'] - p['open']} de {p['cross']} disparos sin "
+              f"ranura ({100 * p['p_loss']:.1f} %: {p['lost_active']} con todas "
+              f"midiendo, {p['lost_busy']} esperando al publicador). Más "
+              f"ranuras (n_acc) o menos tasa.")
     if cnt['pileup'] / max(cnt['total'], 1) > 0.05:
-        print(f"  AVISO: {cnt['pileup']} eventos "
-              f"({100*cnt['pileup']/max(cnt['total'],1):.0f}% de los contados) "
-              f"cerraron por maxlen y NO entraron al histograma. "
-              f"Subi cfg_maxlen o usa cfg_dec.")
+        print(f"  AVISO: {cnt['pileup']} ventanas "
+              f"({100 * cnt['pileup'] / max(cnt['total'], 1):.0f} % de las "
+              f"cerradas) midieron montadas sobre otro pulso (F_SOLAPE). "
+              f"Entraron al histograma igual: el RTL las marca, no las corrige.")
+    if cnt.get('full_1d'):
+        print('  AVISO: el espectro llegó al tope de un canal (full_1d).')
 
 
 def _acquire(mca, seconds):
@@ -179,7 +388,7 @@ def _pico(spec, frac=0.15, min_w=8):
     la cola a canal alto y se queda sin bins a canal bajo. El piso `min_w`
     cubre el caso de un pico cerca del canal 0.
 
-    Devuelve el dict de `mu.gauss_fit_peak` (con NaN y `empty=True` si el
+    Devuelve el dict de `an.gauss_fit_peak` (con NaN y `empty=True` si el
     espectro está vacío, que es un resultado legítimo: umbral mal puesto,
     generador apagado, todo rechazado).
     """
@@ -190,7 +399,7 @@ def _pico(spec, frac=0.15, min_w=8):
                 'resolution_pct': float('nan'), 'empty': True}
     pk = int(np.argmax(spec))
     w = max(min_w, int(frac * pk))
-    return mu.gauss_fit_peak(spec, max(0, pk - w), min(len(spec), pk + w))
+    return an.gauss_fit_peak(spec, max(0, pk - w), min(len(spec), pk + w))
 
 
 # =============================================================================
@@ -276,7 +485,7 @@ def sweep_amplitude(mca, gen, ch=1, amps=None, seconds=4.0, rate_hz=2e3,
         print(f'  {a:.3f} Vpp -> canal {cen:8.1f}  FWHM {fw:.2f}')
 
     centroids = np.array(centroids)
-    a_fit, b_fit, resid, inl = mu.energy_calibration(centroids, amps)
+    a_fit, b_fit, resid, inl = an.energy_calibration(centroids, amps)
 
     # Segunda pasada, en orden inverso: mismo estímulo, mismo instrumento.
     resid2 = None
@@ -287,7 +496,7 @@ def sweep_amplitude(mca, gen, ch=1, amps=None, seconds=4.0, rate_hz=2e3,
             c2, _ = _medir(a)
             cen2.append(c2)
         cen2 = np.array(cen2[::-1])
-        _, _, resid2, inl2 = mu.energy_calibration(cen2, amps)
+        _, _, resid2, inl2 = an.energy_calibration(cen2, amps)
     gen.output(ch, False)
 
     print(f'  ganancia {a_fit:.1f} canales/Vpp   offset de cero {b_fit:.1f} canales')
@@ -340,7 +549,7 @@ _AMP_SRC = {'pico': 0, 'carga': 1}
 
 def sweep_formas_inl(mca, gen, ch=1, familias=None, amps=None, seconds=3.0,
                      rate_hz=2e3, width_s=None, estimadores=('pico', 'carga'),
-                     ida_y_vuelta=True, target_channel=8000, outdir=None, **cfg):
+                     ida_y_vuelta=True, target_channel=4000, outdir=None, **cfg):
     """La curva de INL medida con VARIAS familias de forma de pulso.
 
     `sweep_amplitude` mide la INL con una sola forma, y su pasada de ida y
@@ -414,7 +623,9 @@ def sweep_formas_inl(mca, gen, ch=1, familias=None, amps=None, seconds=3.0,
         pulso, el seguidor se COME el pulso y no se detecta ningún evento. Con
         formas de cola larga (`cr`) o con el lóbulo negativo de la bipolar el
         riesgo es real, y una curva medida sobre un espectro casi vacío sale
-        como una INL enorme sin ninguna advertencia.
+        como una INL enorme sin ninguna advertencia. En el MCA2 hay una causa
+        más: una forma de subida lenta puede no llegar al umbral de la
+        PENDIENTE, y entonces no dispara.
         """
         mca.configure(**{**c, 'amp_src': 0, 'q_shift': 0})
         _set_amp(a_max)
@@ -430,11 +641,11 @@ def sweep_formas_inl(mca, gen, ch=1, familias=None, amps=None, seconds=3.0,
 
     guardar = {'amps': amps, 'familias': np.array(familias),
                'estimadores': np.array(estimadores),
-               'h_shift': np.array(c['h_shift']),
+               **_meta_eje(mca, c),
                'width_s': np.array(width_s), 'rate_hz': np.array(rate_hz),
                'seconds': np.array(seconds)}
     res = {'amps': amps, 'familias': familias, 'estimadores': estimadores,
-           'h_shift': c['h_shift'], 'por_forma': {}}
+           'zoom_1d': c['zoom_1d'], 'por_forma': {}}
 
     for fam in familias:
         print(f'\n--- familia {fam} ---')
@@ -473,8 +684,9 @@ def sweep_formas_inl(mca, gen, ch=1, familias=None, amps=None, seconds=3.0,
                 # y su FWHM cuantizado al bin. Se autoescala a la amplitud
                 # máxima para que el barrido entero entre en el eje.
                 _set_amp(a_max)
-                qs = mca.autoscale_q_shift(target_channel=target_channel,
-                                           **{**c, 'amp_src': 1, 'q_shift': 0})
+                qs = mca.autoscale_q_shift(
+                    target_channel=_objetivo_feature(mca, target_channel),
+                    **{**c, 'amp_src': 1, 'q_shift': 0})
                 if qs is None:
                     print(f'  [{est}] sin eventos al autoescalar; se saltea')
                     continue
@@ -486,12 +698,12 @@ def sweep_formas_inl(mca, gen, ch=1, familias=None, amps=None, seconds=3.0,
                 cen.append(x)
                 fw.append(y)
             cen = np.array(cen)
-            gain, off, resid, inl = mu.energy_calibration(cen, amps)
+            gain, off, resid, inl = an.energy_calibration(cen, amps)
 
             resid2 = None
             if ida_y_vuelta:
                 cen2 = np.array([_centroide(a)[0] for a in amps[::-1]])[::-1]
-                _, _, resid2, _ = mu.energy_calibration(cen2, amps)
+                _, _, resid2, _ = an.energy_calibration(cen2, amps)
 
             piso = (float(np.nanstd(resid - resid2)) if resid2 is not None
                     else float('nan'))
@@ -526,7 +738,7 @@ def sweep_formas_inl(mca, gen, ch=1, familias=None, amps=None, seconds=3.0,
         gen.load_arb(wave, ch=ch)
         mca.configure(**{**c, 'amp_src': 0, 'q_shift': 0})
         cen_r = np.array([_centroide(a)[0] for a in amps])
-        g_r, _, resid_r, inl_r = mu.energy_calibration(cen_r, amps)
+        g_r, _, resid_r, inl_r = an.energy_calibration(cen_r, amps)
         guardar['cen_replica'] = cen_r
         guardar['resid_replica'] = resid_r
         guardar['gain_replica'] = np.array(g_r)
@@ -595,8 +807,8 @@ def analizar_formas(d):
         # ganancias en canales/Vpp entre familias mide el autoescalado, no la
         # electrónica. Deshacer el desplazamiento deja cuentas de ADC por Vpp
         # (pico) o cuentas·muestra por Vpp (carga), que sí son comparables.
-        shift = {f: 2.0 ** float(d[f'qshift_{f}_{est}'] if _AMP_SRC[est] == 1
-                                 else d['h_shift']) for f in fams}
+        shift = {f: cuentas_por_canal(d, est, d[f'qshift_{f}_{est}'])
+                 for f in fams}
         g_fis = {f: gain[f] * shift[f] for f in fams}
         # Residuos en mV: canales / (canales por Vpp). El desplazamiento se
         # cancela solo acá (numerador y denominador están en la misma escala).
@@ -706,8 +918,9 @@ def analizar_formas(d):
     for f in familias:
         kp, kc = f'cen_{f}_pico', f'cen_{f}_carga'
         if kp in claves and kc in claves:
-            x = np.asarray(d[kp]) * 2.0 ** float(d['h_shift'])
-            y = np.asarray(d[kc]) * 2.0 ** float(d[f'qshift_{f}_carga'])
+            x = np.asarray(d[kp]) * cuentas_por_canal(d, 'pico')
+            y = np.asarray(d[kc]) * cuentas_por_canal(d, 'carga',
+                                                      d[f'qshift_{f}_carga'])
             m = np.isfinite(x) & np.isfinite(y)
             if m.sum() >= 2:
                 pend[f] = float(np.polyfit(x[m], y[m], 1)[0])
@@ -848,7 +1061,7 @@ def test_dnl(mca, gen, ch=1, seconds=60.0, amp_vpp=1.0, rate_hz=50e3,
               f'cuentas/canal hacen falta ~{t_10k:.0f} s a {tasa:.0f} cps')
 
     try:
-        d = mu.dnl(spec, lo, hi, smooth=smooth)
+        d = an.dnl(spec, lo, hi, smooth=smooth)
     except ValueError as e:
         print(f'  MEDICIÓN INVÁLIDA: {e}')
         _save(outdir, 'dnl', spec=spec, lo=lo, hi=hi)
@@ -891,9 +1104,17 @@ def test_dnl(mca, gen, ch=1, seconds=60.0, amp_vpp=1.0, rate_hz=50e3,
 # 4. Pico vs integral — jitter de muestreo
 # =============================================================================
 
+# El trapecio para el pulso de la campaña: k = 64 de subida, m = 32 de meseta,
+# Mq = M·16 con la M de una cola de 186 muestras (la medida sobre 7054 pulsos
+# reales), la ventana de 16 muestras sobre la meseta y sh = 13 para que el
+# pulso más alto del barrido entre en los 16 bits.
+TRAP_CFG = dict(trap_k=64, trap_m=32, trap_mq=int(round(16.0 / np.expm1(1 / 186.0))),
+                trap_off=72, trap_lw=4, trap_sh=13)
+
+
 def compare_estimators(mca, gen, ch=1, seconds=10.0, amp_vpp=0.5, rate_hz=2e3,
                        widths_s=(0.5e-6, 1e-6, 2e-6, 4e-6), q_shift=None,
-                       target_channel=8000, min_fwhm=3.0, outdir=None, **cfg):
+                       target_channel=4000, min_fwhm=3.0, outdir=None, **cfg):
     """FWHM con estimador de PICO vs de INTEGRAL, para varios tiempos de subida.
 
     Es EL experimento que justifica (o no) un eje de 16384 canales. Con la
@@ -910,10 +1131,17 @@ def compare_estimators(mca, gen, ch=1, seconds=10.0, amp_vpp=0.5, rate_hz=2e3,
     `target_channel`, o sea a la MISMA escala que el estimador de pico. Si aun
     así el FWHM queda por debajo de `min_fwhm` canales, el punto se marca como
     no comparable en vez de reportar una mejora que es un artefacto.
+
+    Si el bitstream trae el trapecio (CAPS bit 2) se mide también la altura de
+    su meseta (`F_TRAP`, con `TRAP_CFG`) como tercer estimador: es el que el
+    MCA2 tiene para los pulsos montados sobre la cola de otro.
     """
     print('\n=== pico vs integral (jitter de muestreo) ===')
+    con_trap = bool(mca.caps & A.CAP_TRAP)
     out = {'width_s': [], 'fwhm_peak': [], 'fwhm_int': [],
            'res_peak': [], 'res_int': [], 'q_shift': [], 'comparable': []}
+    if con_trap:
+        out.update(fwhm_trap=[], res_trap=[])
 
     for wid in widths_s:
         _pulse_train(gen, ch, rate_hz, amp_vpp, wid)
@@ -922,16 +1150,21 @@ def compare_estimators(mca, gen, ch=1, seconds=10.0, amp_vpp=0.5, rate_hz=2e3,
         # ancho del pulso, asi que hay que re-elegirlo en cada punto.
         qs = q_shift
         if qs is None:
-            qs = mca.autoscale_q_shift(target_channel=target_channel,
-                                       **{**DEFAULT_CFG, **cfg,
-                                          'amp_src': 1, 'q_shift': 0})
+            qs = mca.autoscale_q_shift(
+                target_channel=_objetivo_feature(mca, target_channel),
+                **{**DEFAULT_CFG, **cfg, 'amp_src': 1, 'q_shift': 0})
             if qs is None:
                 print(f'  w={wid*1e6:g} us: no se detectan eventos; se saltea')
                 continue
 
         res = {}
-        for label, src, q in (('peak', 0, 0), ('int', 1, qs)):
-            mca.configure(**{**DEFAULT_CFG, **cfg, 'amp_src': src, 'q_shift': q})
+        modos = [('peak', {'amp_src': 0, 'q_shift': 0}),
+                 ('int', {'amp_src': 1, 'q_shift': qs})]
+        if con_trap:
+            modos.append(('trap', {**TRAP_CFG, 'amp_src': 0, 'sel_1d': 'trapecio'}))
+        for label, extra in modos:
+            src = extra['amp_src']
+            mca.configure(**{**DEFAULT_CFG, **cfg, **extra})
             spec, _, _ = _acquire(mca, seconds)
             if not spec.any():
                 print(f'  w={wid*1e6:g} us: espectro VACIO con amp_src={src}; '
@@ -953,11 +1186,16 @@ def compare_estimators(mca, gen, ch=1, seconds=10.0, amp_vpp=0.5, rate_hz=2e3,
         out['res_int'].append(res['int']['resolution_pct'])
         out['q_shift'].append(qs)
         out['comparable'].append(comparable)
+        if con_trap:
+            out['fwhm_trap'].append(res['trap']['fwhm'])
+            out['res_trap'].append(res['trap']['resolution_pct'])
         aviso = '' if comparable else '   <-- FWHM cuantizado, NO comparable'
         print(f'  w={wid*1e6:5.2f} us  q_shift={qs:2d}   resolución pico '
               f'{res["peak"]["resolution_pct"]:6.2f}% (FWHM {res["peak"]["fwhm"]:.1f})'
               f'   integral {res["int"]["resolution_pct"]:6.2f}% '
-              f'(FWHM {res["int"]["fwhm"]:.1f}){aviso}')
+              f'(FWHM {res["int"]["fwhm"]:.1f})'
+              + (f'   trapecio {res["trap"]["resolution_pct"]:6.2f}%' if con_trap else '')
+              + aviso)
     gen.output(ch, False)
 
     out = {k: np.asarray(v) for k, v in out.items()}
@@ -1161,9 +1399,18 @@ def reanalizar_deriva(outdir, width_s=None):
 
 
 def sweep_rate(mca, gen, ch=1, rates=None, seconds=5.0, amp_vpp=0.5,
-               width_s=None, ida_y_vuelta=True, outdir=None, **cfg):
+               width_s=None, ida_y_vuelta=True, n_accs=(4,), outdir=None, **cfg):
     """Tasa registrada vs incidente: throughput, modelo de tiempo muerto,
     exactitud del live time y corrimiento del centroide con la tasa.
+
+    **En el MCA2 el tiempo muerto es de la ranura, y se conoce de antemano:**
+    una ventana aceptada la ocupa `gate_long + 1` ciclos midiendo más los 18 del
+    publicador (`tau_modelo`). Con `n_acc = 1` eso es un servidor no
+    paralizable; con más ranuras un disparo encuentra otra libre. La pasada
+    principal (ida y vuelta) se hace con el `n_acc` de la configuración, y
+    después se repite la ida con cada `n_accs` para ver cuánto sube el techo.
+    El instrumento cuenta además TODO disparo en `cross`, abra o no: la tasa de
+    entrada se lee del MCA, no se deduce.
 
     El barrido llega hasta ~800 kcps a propósito. La campaña anterior cortó en
     100 kcps y el MCA seguía al generador de forma EXACTA, o sea que 100 kcps no
@@ -1204,14 +1451,17 @@ def sweep_rate(mca, gen, ch=1, rates=None, seconds=5.0, amp_vpp=0.5,
     # PULSE da periodo y ancho independientes, que es lo que hace falta: ancho
     # fijo, periodo variable.
     c = {**DEFAULT_CFG, **cfg}
-    c['maxlen'] = min(c.get('maxlen', 4096), 4096)     # pulsos cortos de verdad
     width_s = PULSE_WIDTH_S if width_s is None else width_s
     rates = np.logspace(2, 5.9, 16) if rates is None else np.asarray(rates)
+    tau_modelo = (int(c['gate_long']) + 1 + 18) / 125e6
+    print(f'  n_acc = {c["n_acc"]}: cada ventana aceptada ocupa su ranura '
+          f'{tau_modelo * 1e6:.2f} us (compuerta + cierre + publicador)')
 
     t0 = time.time()
 
-    def _punto(r):
+    def _punto(r, cfg_punto=None):
         """Mide UNA tasa. Devuelve tambien el instante, que es el dato nuevo."""
+        cp = c if cfg_punto is None else cfg_punto
         period = 1.0 / float(r)
         # El ancho tiene que escalar con el periodo: set_pulse_periodic exige
         # width < period/2, y con un ancho fijo de 2 us el barrido reventaba con
@@ -1223,7 +1473,7 @@ def sweep_rate(mca, gen, ch=1, rates=None, seconds=5.0, amp_vpp=0.5,
         # Reconfigurar DENTRO del lazo. Con una sola configuracion previa el
         # barrido daba 100 cps constantes a cualquier tasa; reconfigurando en
         # cada punto sigue al generador de forma exacta hasta 100 kcps.
-        mca.configure(**c)
+        mca.configure(**cp)
         time.sleep(0.3)
         # El generador no valida nada: preguntarle que quedo puesto (misma
         # leccion que testbench_multitrigger.rigol_state).
@@ -1238,13 +1488,16 @@ def sweep_rate(mca, gen, ch=1, rates=None, seconds=5.0, amp_vpp=0.5,
         # LÍNEA DE BASE en vuelo. Es la medición que dirime el hallazgo de
         # §19.3: la histéresis de 10.8 canales no sigue ni a la tasa ni al
         # tiempo, y el sospechoso es el estado que el instrumento arrastra del
-        # punto anterior. Con ventana por histéresis el largo del evento depende
-        # de dónde cruza la cola el umbral, o sea de la base. Si `bl` sigue a la
-        # HISTORIA y no a la tasa, es el seguidor. Ver `_acquire_con_base` para
-        # por qué hay que leerla CORRIENDO y no después.
+        # punto anterior (en el MCA1). La base que se resta entra en todo
+        # estimador de amplitud, así que si `bl` sigue a la HISTORIA y no a la
+        # tasa, es el seguidor. Ver `_acquire_con_base` para por qué hay que
+        # leerla CORRIENDO y no después.
         spec, _, cnt, bl = _acquire_con_base(mca, seconds)
         rt = max(cnt['realtime_s'], 1e-9)
-        r_medida = cnt['total'] / rt
+        # `cross` cuenta cada disparo, haya abierto o no: es la tasa de entrada
+        # que vio el instrumento, con o sin pérdidas.
+        r_medida = cnt['cross'] / rt
+        perd = _perdidas(cnt)
 
         # GUARDA: si el MCA no perdio NI UN evento, entonces `total/realtime` ES
         # la tasa de entrada verdadera. Que difiera de la pedida sólo puede
@@ -1253,24 +1506,31 @@ def sweep_rate(mca, gen, ch=1, rates=None, seconds=5.0, amp_vpp=0.5,
         # barrido reporta una tabla entera de valores plausibles pero falsos
         # (la campaña anterior dio 100 cps constantes de 187 Hz a 100 kHz y se
         # leyó como "seguimiento exacto").
-        sin_perdidas = (cnt['dropped'] == 0 and cnt['pileup'] == 0)
+        # Con el MCA2 la guarda ya no depende de que no haya pérdidas: `cross`
+        # sigue a la entrada aunque las ranuras estén llenas. Lo que la rompe es
+        # un disparo que no se re-arma (pulsos que se pisan más rápido que la
+        # subida), y eso también dice que el punto no mide throughput.
         coincide = abs(r_medida - r) <= 0.05 * r
-        ok = coincide or not sin_perdidas
+        ok = coincide
         try:
             cen = _pico(spec)['centroid']
         except ValueError:
             cen = np.nan
         aviso = ''
         if not ok:
-            aviso = (f'   <-- INVÁLIDO: sin pérdidas pero entran {r_medida:.0f} Hz, '
+            aviso = (f'   <-- INVÁLIDO: el MCA ve {r_medida:.0f} disparos/s, '
                      f'no {r:.0f} (generador en {f_real:.0f} Hz)')
         print(f'  {r:9.0f} Hz in (w={w_real*1e9:6.0f} ns) -> '
               f'{cnt["accepted"]/rt:9.0f} cps out   '
               f'live {100*cnt["livetime_s"]/rt:5.1f}%   '
+              f'sin ranura {100 * perd["p_loss"]:5.1f}%   '
               f'centroide {cen:.1f}   base {bl:+5.0f}   t={t_med:6.1f}s{aviso}')
         return dict(r_in=float(r), r_out=cnt['accepted'] / rt,
                     lt=cnt['livetime_s'] / rt, cen=cen, t=t_med, ok=ok, bl=bl,
-                    w=w_real if np.isfinite(w_real) else w_s)
+                    w=w_real if np.isfinite(w_real) else w_s,
+                    r_cross=r_medida, p_loss=perd['p_loss'],
+                    lost_active=perd['lost_active'], lost_busy=perd['lost_busy'],
+                    pileup=cnt['pileup'] / max(cnt['total'], 1))
 
     puntos_ida = [_punto(r) for r in rates]
     puntos_vuelta = []
@@ -1280,9 +1540,19 @@ def sweep_rate(mca, gen, ch=1, rates=None, seconds=5.0, amp_vpp=0.5,
         # tasa en las dos listas y la histeresis se compare punto a punto.
         puntos_vuelta = [_punto(r) for r in rates[::-1]][::-1]
 
+    # Las otras cantidades de ranuras: sólo la ida, que es lo que hace falta
+    # para el throughput.
+    por_nacc = {}
+    for n in n_accs:
+        if int(n) == int(c['n_acc']):
+            continue
+        print(f'  --- n_acc = {int(n)} (sólo la ida) ---')
+        por_nacc[int(n)] = [_punto(r, {**c, 'n_acc': int(n)}) for r in rates]
+
     gen.output(ch, False)
     gen.disable_burst(ch)
 
+    p_loss_ida = np.array([p['p_loss'] for p in puntos_ida])
     r_in     = np.array([p['r_in'] for p in puntos_ida])
     r_out    = np.array([p['r_out'] for p in puntos_ida])
     lt_frac  = [p['lt'] for p in puntos_ida]
@@ -1331,10 +1601,13 @@ def sweep_rate(mca, gen, ch=1, rates=None, seconds=5.0, amp_vpp=0.5,
               f'alcanzó el techo, extendé `rates`. No se ajusta tiempo muerto.')
     else:
         try:
-            dt = mu.deadtime_fit(r_in, r_out)
+            dt = an.deadtime_fit(r_in, r_out)
             print(f"  tau no paralizable {dt['tau_nonparalyzable_s']*1e6:.2f} us")
             print(f"  tau paralizable    {dt['tau_paralyzable_s']*1e6:.2f} us")
             print(f"  mejor ajuste: {dt['best']}")
+            if int(c['n_acc']) == 1:
+                print(f"  tau del modelo de la ranura {tau_modelo * 1e6:.2f} us: "
+                      f"el ajuste no paralizable tiene que coincidir")
         except ValueError as e:
             print(f'  no se pudo ajustar el tiempo muerto: {e}')
 
@@ -1406,15 +1679,26 @@ def sweep_rate(mca, gen, ch=1, rates=None, seconds=5.0, amp_vpp=0.5,
                  'baseline_vuelta': np.array([p['bl'] for p in puntos_vuelta]),
                  'livetime_ida': np.array([p['lt'] for p in puntos_ida]),
                  'livetime_vuelta': np.array([p['lt'] for p in puntos_vuelta])}
+    for n, pts in por_nacc.items():
+        extra[f'r_out_nacc{n}'] = np.array([p['r_out'] for p in pts])
+        extra[f'p_loss_nacc{n}'] = np.array([p['p_loss'] for p in pts])
+        extra[f'pileup_nacc{n}'] = np.array([p['pileup'] for p in pts])
+        print(f'  n_acc = {n}: techo {max(p["r_out"] for p in pts):.0f} cps '
+              f'(con {int(c["n_acc"])}: {techo:.0f})')
     _save(outdir, 'sweep_rate', r_in=r_in, r_out=r_out, centroids=cen,
           livetime_frac=np.array(lt_frac), widths=np.array(anchos),
-          t_s=t_ida, **extra)
+          t_s=t_ida, rates_todas=np.asarray(rates, dtype=float),
+          p_loss_todas=p_loss_ida, n_acc=np.array(int(c['n_acc'])),
+          n_accs_extra=np.array(sorted(por_nacc), dtype=int),
+          tau_modelo_s=np.array(tau_modelo), **extra)
     return {'r_in': r_in, 'r_out': r_out, 'centroids': cen, 't_s': t_ida,
             'livetime_frac': np.array(lt_frac), 'deadtime': dt,
             'techo_cps': techo, 'rate_techo_hz': r_techo, 'saturo': saturo,
             'centroid_shift_pct': shift,
             'centroid_shift_pct_sin_deriva': shift_corr,
-            'deriva': deriva, 'widths': anc}
+            'deriva': deriva, 'widths': anc, 'tau_modelo_s': tau_modelo,
+            'por_nacc': {n: np.array([p['r_out'] for p in pts])
+                         for n, pts in por_nacc.items()}}
 
 
 # =============================================================================
@@ -1433,45 +1717,45 @@ def _n_events_factible(rate_hz, width_s, n_events, t_rise_frac=0.25,
     return max(0, min(int(n_events), n_max))
 
 
-def sweep_rate_poisson(mca, gen, ch=1, rates=None, rhos=None, tau_s=2.3e-6,
+def sweep_rate_poisson(mca, gen, ch=1, rates=None, rhos=None, tau_s=3.2e-6,
                        seconds=6.0, chunk_s=0.5, amp_vpp=0.5, width_s=None,
-                       n_events=64, seed0=0, outdir=None, **cfg):
-    """Pérdidas vs ρ con arribos de POISSON — la medición que el tren periódico
-    no puede dar.
+                       n_events=64, seed0=0, n_accs=(1, 2, 4), outdir=None, **cfg):
+    """Pérdidas vs ρ con arribos de POISSON, con 1, 2 y 4 ranuras — la medición
+    que el tren periódico no puede dar.
 
     `sweep_rate` usa el modo PULSE, que es un tren **periódico**, y eso adula a
-    la arquitectura: con arribos deterministas y un solo servidor sin cola (K=1)
-    no se pierde NADA mientras el período supere el tiempo de servicio, y recién
-    después cae en escalones (`P_loss = 1 − 1/⌈ρ⌉`). Una fuente radiactiva
-    entrega Poisson, y ahí `P_loss = ρ/(1+ρ)`: se pierde algo a **cualquier**
-    tasa, incluso 9 % con ρ=0.1. Los 99 % de eficiencia medidos a 2 kHz son una
-    propiedad del estímulo, no del equipo.
+    la arquitectura: con arribos deterministas y una sola ranura no se pierde
+    NADA mientras el período supere el tiempo de servicio, y recién después cae
+    en escalones (`P_loss = 1 − 1/⌈ρ⌉`). Una fuente radiactiva entrega Poisson,
+    y ahí una ranura pierde `ρ/(1+ρ)` a **cualquier** tasa. Con `n` ranuras el
+    modelo es Erlang B, `B(n, ρ)`, que baja la pérdida de primer orden en ρ a
+    ~ρⁿ/n!: es lo que el MCA2 vino a comprar.
 
-    Cómo se mide, y por qué no depende del generador: el MCA cuenta por HW los
-    eventos que llegaron con el extractor ocupado (`cnt_dropped`), así que
+    Cómo se mide, y por qué no depende del generador: el MCA2 cuenta TODO
+    disparo (`cross`) y los que abrieron ranura (`open`), así que
 
-        P_loss = dropped / (total + dropped)
+        P_loss = (cross − open) / cross
 
-    sale directo. Y como el FPGA también mide el tiempo muerto,
-    `tau = deadtime_s/total` da el tiempo de servicio **medido**, con lo cual el
-    modelo se contrasta sin asumirlo. El `N` emitido que se deriva del estímulo
-    se usa sólo como control cruzado de la cadena entera.
+    sale directo. Y como también mide la ocupación por cantidad de ranuras
+    (`t_ocup_s[j]`), `tau = Σ j·t_ocup_s[j] / open` da el tiempo de servicio
+    **medido** y el modelo se contrasta sin asumirlo. El `N` emitido que se
+    deriva del estímulo se usa sólo como control cruzado de la cadena entera.
 
     Cada trozo de la adquisición recarga una **realización nueva** (semilla
     distinta) vía `acquire_chunks(on_chunk=...)`, así ninguna realización
     particular domina el resultado. El MCA queda parado durante la recarga, así
     que el tiempo del ARB no cuenta como tiempo vivo.
 
-    `rates` en Hz, o `rhos` + `tau_s` para elegir los puntos por ocupación.
+    `rates` en Hz, o `rhos` + `tau_s` para elegir los puntos por ocupación
+    (`tau_s` por defecto: la compuerta de 384 + el cierre + el publicador).
     """
     print('\n=== barrido de tasa con arribos POISSON ===')
     c = {**DEFAULT_CFG, **cfg}
     width_s = PULSE_WIDTH_S if width_s is None else width_s
     if rates is None:
-        # Grilla DENSA y log-espaciada: la curva rho/(1+rho) no tiene rasgos
-        # que se pierdan con pocos puntos, pero la comparacion contra el modelo
-        # periodico (que es cero hasta rho=1) se juega justamente en la decada
-        # rho = 0.01..1, y con 8 puntos ahi no se ve la forma.
+        # Grilla DENSA y log-espaciada: la curva no tiene rasgos que se pierdan
+        # con pocos puntos, pero la comparación contra el modelo periódico (que
+        # es cero hasta rho=1) se juega justamente en la década rho = 0.01..1.
         rhos = np.asarray(np.logspace(np.log10(0.005), np.log10(2.0), 20)
                           if rhos is None else rhos, dtype=float)
         rates = rhos / float(tau_s)
@@ -1485,84 +1769,91 @@ def sweep_rate_poisson(mca, gen, ch=1, rates=None, rhos=None, tau_s=2.3e-6,
                   f'entran {n_ev} eventos por ciclo en los {rg.ARB_MAX_POINTS} '
                   f'puntos del ARB. Subí width_s o la tasa.')
             continue
+        for n in n_accs:
+            infos = []
 
-        infos = []
+            def _cargar(k):
+                infos.append(rg.apply_poisson_train(
+                    gen, rate_hz=r, width_s=width_s, ch=ch, amp_vpp=amp_vpp,
+                    n_events=n_ev, seed=seed0 + k))
 
-        def _cargar(k):
-            infos.append(rg.apply_poisson_train(
-                gen, rate_hz=r, width_s=width_s, ch=ch, amp_vpp=amp_vpp,
-                n_events=n_ev, seed=seed0 + k))
+            _cargar(0)
+            gen.output(ch, True)
+            mca.configure(**{**c, 'n_acc': int(n)})
+            time.sleep(0.3)
+            spec, _, cnt = mca.acquire_chunks(seconds, chunk_s,
+                                              on_chunk=lambda k: _cargar(k + 1))
 
-        _cargar(0)
-        gen.output(ch, True)
-        mca.configure(**c)
-        time.sleep(0.3)
-        spec, _, cnt = mca.acquire_chunks(seconds, chunk_s,
-                                          on_chunk=lambda k: _cargar(k + 1))
-
-        rt       = max(cnt['realtime_s'], 1e-9)
-        llegados = cnt['total'] + cnt['dropped']
-        p_loss   = cnt['dropped'] / max(llegados, 1)
-        tau_med  = cnt['deadtime_s'] / max(cnt['total'], 1)
-        # rho con el tau MEDIDO: el modelo se contrasta sin asumir el servicio
-        rho_med  = r * tau_med
-        # control cruzado: lo que el estimulo dice que emitio en el tiempo vivo
-        n_emit = sum(i['n_events'] * i['freq_hz'] for i in infos) / len(infos) * rt
-        filas.append(dict(
-            rate_hz=float(r), n_events=n_ev, n_realizaciones=len(infos),
-            total=int(cnt['total']), dropped=int(cnt['dropped']),
-            pileup=int(cnt['pileup']), accepted=int(cnt['accepted']),
-            realtime_s=rt, livetime_s=cnt['livetime_s'],
-            deadtime_s=cnt['deadtime_s'],
-            p_loss=float(p_loss), tau_med_s=float(tau_med), rho=float(rho_med),
-            p_loss_poisson=float(rho_med / (1.0 + rho_med)),
-            p_loss_periodico=float(1.0 - 1.0 / max(np.ceil(rho_med), 1.0)),
-            r_out=cnt['accepted'] / rt,
-            n_emit_estimulo=float(n_emit), n_llegados_hw=int(llegados),
-            frac_pileup_gen=float(np.mean([i['frac_pileup'] for i in infos])),
-            rate_real_gen=float(np.mean([i['rate_real'] for i in infos])),
-            dt_s=float(infos[0]['dt_s']),
-        ))
-        f = filas[-1]
-        # Si el estimulo y el HW no coinciden en cuantos eventos llegaron, el
-        # punto no mide perdidas: mide que el generador entrego otra cosa.
-        coincide = abs(n_emit - llegados) <= 0.15 * max(llegados, 1)
-        f['valido'] = bool(coincide)
-        print(f'  {r:9.0f} Hz (n_ev={n_ev:3d}, dt={f["dt_s"]*1e9:6.1f} ns) -> '
-              f'rho={f["rho"]:5.3f}  P_loss={100*p_loss:5.1f}%  '
-              f'(Poisson {100*f["p_loss_poisson"]:5.1f}%, '
-              f'periodico {100*f["p_loss_periodico"]:5.1f}%)  '
-              f'tau={tau_med*1e6:6.2f} us  pileup={100*cnt["pileup"]/max(cnt["total"],1):4.1f}%'
-              + ('' if coincide else
-                 f'   <-- INVALIDO: el estimulo dice {n_emit:.0f} y el HW '
-                 f'vio {llegados}'))
+            rt = max(cnt['realtime_s'], 1e-9)
+            perd = _perdidas(cnt)
+            llegados = int(cnt['cross'])
+            t_ocup = np.asarray(cnt['t_ocup_s'], dtype=float)
+            tau_med = float(np.dot(np.arange(t_ocup.size), t_ocup)) / max(cnt['open'], 1)
+            # rho con el tau MEDIDO: el modelo se contrasta sin asumir el servicio
+            rho_med = llegados / rt * tau_med
+            p_erl = an.erlang_b(int(n), rho_med)
+            p_per = max(0.0, 1.0 - int(n) / max(np.ceil(rho_med), 1.0))
+            n_emit = sum(i['n_events'] * i['freq_hz'] for i in infos) / len(infos) * rt
+            filas.append(dict(
+                rate_hz=float(r), n_acc=int(n), n_events=n_ev,
+                n_realizaciones=len(infos), cross=llegados, open=int(cnt['open']),
+                lost_active=int(perd['lost_active']), lost_busy=int(perd['lost_busy']),
+                total=int(cnt['total']), pileup=int(cnt['pileup']),
+                accepted=int(cnt['accepted']),
+                realtime_s=rt, livetime_s=cnt['livetime_s'],
+                deadtime_s=cnt['deadtime_s'],
+                p_loss=float(perd['p_loss']), tau_med_s=tau_med, rho=float(rho_med),
+                p_loss_poisson=float(p_erl), p_loss_periodico=float(p_per),
+                r_out=cnt['accepted'] / rt,
+                n_emit_estimulo=float(n_emit), n_llegados_hw=llegados,
+                frac_pileup_gen=float(np.mean([i['frac_pileup'] for i in infos])),
+                rate_real_gen=float(np.mean([i['rate_real'] for i in infos])),
+                dt_s=float(infos[0]['dt_s']),
+            ))
+            f = filas[-1]
+            # Si el estímulo y el HW no coinciden en cuántos eventos llegaron,
+            # el punto no mide pérdidas: mide que el generador entregó otra
+            # cosa (o que el disparo fundió pulsos que se pisaban).
+            coincide = abs(n_emit - llegados) <= 0.15 * max(llegados, 1)
+            f['valido'] = bool(coincide)
+            print(f'  {r:9.0f} Hz n_acc={int(n)} (n_ev={n_ev:3d}) -> '
+                  f'rho={rho_med:5.3f}  P_loss={100 * f["p_loss"]:5.1f}%  '
+                  f'(Erlang {100 * p_erl:5.1f}%, periódico {100 * p_per:5.1f}%)  '
+                  f'tau={tau_med * 1e6:5.2f} us  '
+                  f'solapadas={100 * cnt["pileup"] / max(cnt["total"], 1):4.1f}%'
+                  + ('' if coincide else
+                     f'   <-- INVÁLIDO: el estímulo dice {n_emit:.0f} y el HW '
+                     f'vio {llegados}'))
 
     gen.output(ch, False)
     if not filas:
-        print('  no quedo ningun punto medible.')
+        print('  no quedó ningún punto medible.')
         return {'filas': [], 'validos': 0}
 
     col = lambda k: np.array([f[k] for f in filas], dtype=float)
     val = np.array([f['valido'] for f in filas], dtype=bool)
     if not val.all():
-        print(f'  {int((~val).sum())} de {len(val)} puntos INVALIDOS '
-              '(estimulo != lo que vio el HW): se excluyen del analisis.')
+        print(f'  {int((~val).sum())} de {len(val)} puntos INVÁLIDOS '
+              '(estímulo != lo que vio el HW): se excluyen del análisis.')
 
-    rho, pl = col('rho')[val], col('p_loss')[val]
-    if rho.size >= 2:
-        err_p = np.abs(pl - rho / (1 + rho))
-        err_d = np.abs(pl - (1 - 1 / np.maximum(np.ceil(rho), 1)))
-        print(f'  |medido - Poisson|   medio = {100*err_p.mean():.2f} pp')
-        print(f'  |medido - periodico| medio = {100*err_d.mean():.2f} pp')
-        print(f'  => los datos se parecen mas al modelo '
-              f'{"POISSON" if err_p.mean() < err_d.mean() else "PERIODICO"}')
+    nacc = col('n_acc').astype(int)
+    for n in sorted(set(nacc)):
+        m = val & (nacc == n)
+        if m.sum() < 2:
+            continue
+        pl, pp, pd = col('p_loss')[m], col('p_loss_poisson')[m], col('p_loss_periodico')[m]
+        err_p, err_d = np.abs(pl - pp).mean(), np.abs(pl - pd).mean()
+        print(f'  n_acc={n}: |medido - Erlang| medio = {100 * err_p:.2f} pp, '
+              f'|medido - periódico| = {100 * err_d:.2f} pp  => se parece más al '
+              f'{"POISSON" if err_p < err_d else "PERIÓDICO"}')
 
     _save(outdir, 'sweep_rate_poisson',
-          rate_hz=col('rate_hz'), rho=col('rho'), p_loss=col('p_loss'),
+          rate_hz=col('rate_hz'), n_acc=nacc, rho=col('rho'), p_loss=col('p_loss'),
           p_loss_poisson=col('p_loss_poisson'),
           p_loss_periodico=col('p_loss_periodico'),
           tau_med_s=col('tau_med_s'), r_out=col('r_out'),
-          total=col('total'), dropped=col('dropped'), pileup=col('pileup'),
+          cross=col('cross'), open=col('open'), lost_active=col('lost_active'),
+          lost_busy=col('lost_busy'), total=col('total'), pileup=col('pileup'),
           livetime_s=col('livetime_s'), realtime_s=col('realtime_s'),
           n_emit_estimulo=col('n_emit_estimulo'),
           n_llegados_hw=col('n_llegados_hw'),
@@ -1575,86 +1866,86 @@ def sweep_rate_poisson(mca, gen, ch=1, rates=None, rhos=None, tau_s=2.3e-6,
 # =============================================================================
 
 def test_pulse_pair(mca, gen, ch=1, gaps_s=None, seconds=4.0, amp_vpp=0.5,
-                    width_s=200e-9, burst_period_s=1e-3, outdir=None, **cfg):
-    """Dos pulsos separados por `gap`: mínimo para contarlos como dos.
+                    width_s=200e-9, burst_period_s=1e-3, n_accs=(1, 4),
+                    outdir=None, **cfg):
+    """Dos pulsos separados por `gap`: cuándo se cuentan como dos, con 1 y N ranuras.
 
-    Reutiliza set_pulse_pair_burst, que ya existía para el scope.
+    En el MCA2 la resolución par-pulso tiene DOS límites, y este barrido los
+    separa:
 
-    Tres cosas cambiaron respecto de la versión que dio un resultado inválido:
+    1. **El disparo.** El segundo pulso dispara si la pendiente del primero ya
+       bajó de `thr − hyst` (el Schmitt se re-armó). Se lee en `cross`: dos
+       disparos por par. Es independiente de las ranuras.
+    2. **Las ranuras.** Con una sola, el segundo disparo encuentra la ventana del
+       primero abierta (`gate_long + 1` ciclos más el publicador) y se pierde en
+       `lost_active`. Con más, abre otra: se mide, pero CONTAMINADO por la cola
+       del primero, y el RTL lo marca en `F_SOLAPE` (el `pileup` de los
+       contadores cuenta esas ventanas).
 
-    1. **El ancho del pulso y el período del burst son FIJOS.** Antes eran
-       `width=gap/4` y `burst_period=max(10*gap, 1ms)`, o sea que se movían
-       junto con el gap y la curva mezclaba tres variables.
-    2. **La normalización es contra la medición a gap MÁXIMO**, no contra un
-       número de bursts estimado a partir de `realtime/burst_period`. Ese
-       estimador era el que producía fracciones de 1.00 por debajo del tiempo
-       muerto de 2.3 µs, que es imposible. Con la referencia medida:
-       1.0 = se contaron los dos pulsos, 0.5 = se fusionaron en uno.
-    3. **`dropped` se informa como número absoluto**, no como porcentaje de
-       `cnt_total`: son eventos que nunca entraron en `total`, así que el
-       cociente puede pasar de 100 % (fue el "101 % de descartes" del informe).
+    Por eso se guardan tres fracciones por gap y por `n_acc`: disparos por par
+    (`ratio_cross`, 1.0 = los dos dispararon, 0.5 = se fundieron), ventanas
+    abiertas por par (`ratio_open`) y ventanas marcadas como solapadas
+    (`frac_solape`). Se normaliza contra el número de pares, que es
+    `realtime / burst_period`: el estímulo es determinista.
+
+    Ancho y período del burst FIJOS: si se movieran con el gap, la curva
+    mezclaría tres variables (lo que invalidó la primera versión, en el MCA1).
     """
-    print('\n=== par de pulsos (resolución par-pulso) ===')
+    print('\n=== par de pulsos (resolución par-pulso, por ranuras) ===')
     c = {**DEFAULT_CFG, **cfg}
-    mca.configure(**c)
-    # Desde 0.5 us: por debajo del tiempo muerto (~2.3 us) no hay nada que ver,
-    # y el generador tampoco puede con gaps mucho menores que el ancho.
     gaps_s = np.logspace(np.log10(5e-7), -4, 12) if gaps_s is None else np.asarray(gaps_s)
     gaps_s = np.sort(np.asarray(gaps_s, dtype=float))
 
     if width_s >= gaps_s[0]:
         width_s = gaps_s[0] / 3.0
         print(f'  ancho reducido a {width_s*1e9:.0f} ns para que entre en el gap mínimo')
+    tau_ranura = (int(c['gate_long']) + 1 + 18) / 125e6
+    print(f'  una ranura queda ocupada {tau_ranura * 1e6:.2f} us por ventana: con '
+          f'n_acc=1 el segundo pulso se pierde por debajo de ese gap')
 
-    def _punto(g):
+    def _punto(g, n):
         gen.set_pulse_pair_burst(ch=ch, gap_s=float(g), width_s=float(width_s),
                                  amp_vpp=amp_vpp, offset_v=amp_vpp / 2,
                                  burst_period_s=burst_period_s)
         gen.output(ch, True)
+        mca.configure(**{**c, 'n_acc': int(n)})
         time.sleep(0.3)
         _, _, cnt = _acquire(mca, seconds)
         return cnt
 
-    # Referencia: el gap mas grande, donde los dos pulsos son inequivocamente
-    # dos eventos. Todo lo demas se normaliza contra esta MEDICION.
-    cnt_ref = _punto(gaps_s[-1])
-    n_ref = cnt_ref['total'] / max(cnt_ref['realtime_s'], 1e-9)
-    print(f'  referencia a gap {gaps_s[-1]*1e6:.1f} us: {n_ref:.0f} eventos/s '
-          f'(= 2 por burst de {burst_period_s*1e3:.1f} ms)')
-    if n_ref <= 0:
-        print('  la referencia no cuenta eventos: revisá umbral y amplitud')
-        gen.output(ch, False)
-        gen.disable_burst(ch)
-        return None
-
-    gaps, ratio, pileup, dropped = [], [], [], []
-    for g in gaps_s:
-        cnt = cnt_ref if g == gaps_s[-1] else _punto(g)
-        tasa = cnt['total'] / max(cnt['realtime_s'], 1e-9)
-        gaps.append(g)
-        ratio.append(tasa / n_ref)
-        pileup.append(cnt['pileup'])
-        dropped.append(cnt['dropped'])
-        print(f'  gap {g*1e6:8.3f} us -> {tasa:8.0f} ev/s   fracción '
-              f'{ratio[-1]:.2f}   apilamientos {cnt["pileup"]}   '
-              f'perdidos {cnt["dropped"]}')
+    out = {'gaps': gaps_s, 'n_accs': np.array(n_accs, dtype=int)}
+    tau_pp = {}
+    for n in n_accs:
+        print(f'  --- n_acc = {int(n)} ---')
+        rc, ro, rs = [], [], []
+        for g in gaps_s:
+            cnt = _punto(g, n)
+            pares = max(cnt['realtime_s'] / burst_period_s, 1e-9)
+            rc.append(cnt['cross'] / (2 * pares))
+            ro.append(cnt['open'] / (2 * pares))
+            rs.append(cnt['pileup'] / max(cnt['total'], 1))
+            print(f'  gap {g*1e6:8.3f} us -> disparos/par {2 * rc[-1]:.2f}   '
+                  f'ventanas/par {2 * ro[-1]:.2f}   solapadas {100 * rs[-1]:5.1f} %   '
+                  f'lost_active {cnt["lost_active"]}')
+        rc, ro = np.array(rc), np.array(ro)
+        out[f'ratio_cross_nacc{int(n)}'] = rc
+        out[f'ratio_open_nacc{int(n)}'] = ro
+        out[f'frac_solape_nacc{int(n)}'] = np.array(rs)
+        # Cruce del 75 % entre "los dos" (1.0) y "uno solo" (0.5)
+        k = np.flatnonzero(ro >= 0.75)
+        tau_pp[int(n)] = float(gaps_s[k[0]]) if k.size else float('nan')
+        print(f'  n_acc={int(n)}: se miden los dos desde {tau_pp[int(n)] * 1e6:.2f} us')
     gen.output(ch, False)
     gen.disable_burst(ch)
 
-    gaps = np.array(gaps); ratio = np.array(ratio)
-    # Cruce del 75%: entre "los dos" (1.0) y "uno solo" (0.5), el punto medio.
-    resueltos = np.where(ratio >= 0.75)[0]
-    tau_pp = gaps[resueltos[0]] if len(resueltos) else np.nan
-    print(f'  resolución par-pulso (cruce del 75% entre 1.0 y 0.5): '
-          f'{tau_pp*1e6:.2f} us')
-    if np.isfinite(tau_pp) and tau_pp < 1e-6:
-        print('  AVISO: sale por debajo de 1 us, menos que el tiempo muerto '
-              'medido (~2.3 us). Revisá que el generador esté entregando los '
-              'dos pulsos (miralos con el scope) antes de creerle.')
-    _save(outdir, 'pulse_pair', gaps=gaps, ratio=ratio, pileup=np.array(pileup),
-          dropped=np.array(dropped), n_ref=n_ref)
-    return {'gaps': gaps, 'ratio': ratio, 'pileup': np.array(pileup),
-            'dropped': np.array(dropped), 'tau_pair_s': tau_pp, 'n_ref': n_ref}
+    k = np.flatnonzero(out[f'ratio_cross_nacc{int(n_accs[0])}'] >= 0.75)
+    tau_disparo = float(gaps_s[k[0]]) if k.size else float('nan')
+    print(f'  resolución del DISPARO (dos disparos por par): {tau_disparo * 1e6:.2f} us')
+    _save(outdir, 'pulse_pair', **out, tau_disparo_s=np.array(tau_disparo),
+          tau_pair_s=np.array([tau_pp[int(n)] for n in n_accs]),
+          tau_ranura_s=np.array(tau_ranura), burst_period_s=np.array(burst_period_s))
+    return {**out, 'tau_disparo_s': tau_disparo, 'tau_pair_s': tau_pp,
+            'tau_ranura_s': tau_ranura}
 
 
 # =============================================================================
@@ -1662,69 +1953,87 @@ def test_pulse_pair(mca, gen, ch=1, gaps_s=None, seconds=4.0, amp_vpp=0.5,
 # =============================================================================
 
 def sweep_threshold(mca, gen, ch=1, thrs=None, seconds=3.0, amp_vpp=0.2,
-                    rate_hz=2e3, width_s=None, outdir=None, **cfg):
-    """Fracción de pulsos detectados vs umbral (curva S). El 50% define el LLD
-    efectivo. Con la entrada terminada da además el piso de ruido."""
-    print('\n=== barrido de umbral (curva S / LLD) ===')
+                    rate_hz=2e3, width_s=None, hyst_frac=0.5, seconds_ruido=1.0,
+                    outdir=None, **cfg):
+    """Fracción de pulsos que DISPARAN vs umbral de la pendiente (curva S).
+
+    En el MCA2 el umbral no es del MCA: es el del disparo por pendiente del
+    multitrigger (`DISPARO`, en unidades de s = Σ_L x − Σ_L x desplazado). El
+    50 % de la curva es el umbral efectivo para este pulso; con la entrada
+    apagada da el piso de ruido (disparos por ruido contra umbral). La tasa
+    que se mira es `cross`, todos los disparos, y no `total`: lo que se quiere
+    es la eficiencia del disparo, sin las pérdidas por ranuras. `amp_min` queda
+    como LLD digital sobre la amplitud, y no se toca acá.
+
+    La histéresis acompaña al umbral (`hyst = hyst_frac·thr`, la proporción de
+    `DISPARO`). Al terminar se restaura `DISPARO`.
+    """
+    print('\n=== barrido del umbral de la pendiente (curva S / piso) ===')
+    c = {**DEFAULT_CFG, **cfg}
+    mca.configure(**c)
     _pulse_train(gen, ch, rate_hz, amp_vpp, width_s)
 
-    if thrs is None:
-        # El rango se deriva de la amplitud MEDIDA. Con un rango fijo bajo, la
-        # curva S sale plana (todo por encima del umbral) y no dice nada: hay
-        # que barrer HASTA pasar la amplitud del pulso.
-        mca.configure(**{**DEFAULT_CFG, **cfg, 'thr': 100, 'hyst': 40})
-        _acquire(mca, 0.5)
-        amp = mca.last_event()['amp']
-        if amp <= 0:
-            print('  no se detecta señal; revisá el generador')
-            return None
-        thrs = np.linspace(20, 1.25 * amp, 26).astype(int)
-        print(f'  amplitud medida {amp} cuentas -> umbrales de '
-              f'{thrs[0]} a {thrs[-1]}')
-    else:
-        thrs = np.asarray(thrs)
+    def _tasa(t, segs):
+        armar_disparo(thr=int(t), hyst=max(4, int(hyst_frac * t)))
+        _, _, cnt = _acquire(mca, segs)
+        return cnt['cross'] / max(cnt['realtime_s'], 1e-9)
 
-    det = []
-    for t in thrs:
-        mca.configure(**{**DEFAULT_CFG, **cfg, 'thr': int(t),
-                         'hyst': max(4, int(t) // 3)})
-        _, _, cnt = _acquire(mca, seconds)
-        det.append(cnt['total'] / max(cnt['realtime_s'], 1e-9))
-        print(f'  umbral {t:5d} -> {det[-1]:9.0f} cps')
-    gen.output(ch, False)
+    try:
+        if thrs is None:
+            # El rango sale de MEDIR dónde se apaga el disparo: se duplica el
+            # umbral hasta que la tasa cae por debajo del 1 % de la del umbral
+            # de la campaña. Con un rango fijo la curva sale plana (todo arriba
+            # del umbral) y no dice nada.
+            base = _tasa(DISPARO['thr'], 0.5)
+            if base <= 0:
+                print('  no dispara con el umbral de la campaña; revisá el generador')
+                return None
+            tope = DISPARO['thr']
+            for _ in range(16):
+                tope *= 2
+                if _tasa(tope, 0.5) < 0.01 * base:
+                    break
+            thrs = np.unique(np.linspace(20, tope, 26).astype(int))
+            print(f'  el disparo se apaga cerca de s = {tope} -> umbrales de '
+                  f'{thrs[0]} a {thrs[-1]}')
+        else:
+            thrs = np.asarray(thrs, dtype=int)
 
-    det = np.array(det, dtype=float)
-    # La MESETA es la referencia, no el máximo: a umbral muy bajo el sistema
-    # dispara con ruido y la tasa se dispara (se midieron 262 kcps a thr=20 con
-    # una señal de 2 kHz). Tomar el máximo haría que el "50 %" cayera en la
-    # zona de ruido en vez de en el flanco de la curva S.
-    plateau = float(np.median(det[det > 0])) if np.any(det > 0) else 0.0
-    ruido = det > 5 * plateau if plateau > 0 else np.zeros_like(det, bool)
-    lld = np.nan
-    if plateau > 0:
-        util = np.where(~ruido)[0]
-        below = [i for i in util if det[i] < 0.5 * plateau]
-        if below:
-            lld = thrs[below[0]]
-    print(f'  meseta {plateau:.0f} cps   umbrales con ruido: '
-          f'{int(ruido.sum())} de {len(thrs)}')
-    print(f'  LLD efectivo (50% de la meseta): {lld}')
+        det = []
+        for t in thrs:
+            det.append(_tasa(t, seconds))
+            print(f'  umbral {t:6d} -> {det[-1]:9.0f} disparos/s')
+        gen.output(ch, False)
 
-    print('  midiendo el piso de ruido: DESCONECTÁ o terminá la entrada...')
-    gen.output(ch, False)
-    time.sleep(1.0)
-    noise = []
-    for t in thrs:
-        mca.configure(**{**DEFAULT_CFG, **cfg, 'thr': int(t),
-                         'hyst': max(4, int(t) // 3)})
-        _, _, cnt = _acquire(mca, 1.0)
-        noise.append(cnt['total'] / max(cnt['realtime_s'], 1e-9))
-    noise = np.array(noise, dtype=float)
-    quiet = np.where(noise < 1.0)[0]
-    print(f'  umbral mínimo sin disparos de ruido: '
-          f'{thrs[quiet[0]] if len(quiet) else "ninguno del barrido"}')
-    _save(outdir, 'sweep_threshold', thrs=thrs, detected=det, noise=noise)
-    return {'thrs': thrs, 'detected': det, 'noise': noise, 'lld': lld}
+        det = np.array(det, dtype=float)
+        # La MESETA es la referencia, no el máximo: a umbral muy bajo dispara
+        # el ruido y la tasa se dispara. Tomar el máximo haría que el "50 %"
+        # cayera en la zona de ruido en vez de en el flanco de la curva S.
+        plateau = float(np.median(det[det > 0])) if np.any(det > 0) else 0.0
+        ruido = det > 5 * plateau if plateau > 0 else np.zeros_like(det, bool)
+        efectivo = np.nan
+        if plateau > 0:
+            util = np.where(~ruido)[0]
+            below = [i for i in util if det[i] < 0.5 * plateau]
+            if below:
+                efectivo = thrs[below[0]]
+        print(f'  meseta {plateau:.0f} disparos/s   umbrales con ruido: '
+              f'{int(ruido.sum())} de {len(thrs)}')
+        print(f'  umbral efectivo (50% de la meseta): s = {efectivo}')
+
+        print('  midiendo el piso de ruido: DESCONECTÁ o terminá la entrada...')
+        time.sleep(1.0)
+        noise = np.array([_tasa(t, seconds_ruido) for t in thrs], dtype=float)
+        quiet = np.where(noise < 1.0)[0]
+        print(f'  umbral mínimo sin disparos de ruido: '
+              f'{thrs[quiet[0]] if len(quiet) else "ninguno del barrido"}')
+    finally:
+        restaurar_disparo()
+    _save(outdir, 'sweep_threshold', thrs=thrs, detected=det, noise=noise,
+          hyst_frac=np.array(hyst_frac), L=np.array(DISPARO['L']),
+          G=np.array(DISPARO['G']))
+    return {'thrs': thrs, 'detected': det, 'noise': noise, 'umbral_efectivo': efectivo,
+            'lld': efectivo}
 
 
 # =============================================================================
@@ -1748,11 +2057,13 @@ def test_psd_fom(mca, gen, ch=1, seconds=30.0, amp_vpp=0.5, rate_hz=50e3,
       estímulo de amplitud fija, TODOS los eventos caen en una sola rebanada y
       las demás dan `nan` — que es lo que pasó en la campaña anterior.
 
-    `h2_shift` se auto-escala para que el rango de amplitudes entre en las
-    2^H2_AW rebanadas; sin eso la señal ocupa una sola aunque el estímulo varíe.
+    El zoom del eje de amplitud del mapa (`zoom_2dx`) se elige para que el
+    rango de amplitudes ocupe las 2^H2_AW rebanadas (`_zoom_para`, el MCA2 no
+    tiene `h2_shift`); sin eso la señal ocupa unas pocas aunque el estímulo
+    varíe.
     """
     print('\n=== dos poblaciones (FOM de PSD) ===')
-    if not mca.caps & mu.CAP_HIST_H_PSD:
+    if not mca.caps & A.CAP_HIST_H_PSD:
         print('  este bitstream no trae el motor 2D; salteando')
         return None
     c = {**DEFAULT_CFG, **cfg}
@@ -1764,11 +2075,11 @@ def test_psd_fom(mca, gen, ch=1, seconds=30.0, amp_vpp=0.5, rate_hz=50e3,
                  tau_choices=(1.0, float(tau_ratio)), seed=0)
     spec, m2d, cnt = _acquire(mca, seconds)
 
-    res = mu.fom(m2d)
+    res = an.fom(m2d)
     print(f"  FOM global: {res.get('fom', float('nan')):.3f}")
     if cnt['rej_psd']:
         print(f"  {cnt['rej_psd']} eventos sin factor de forma válido "
-              "(Q_total=0 o Q_cola>=Q_total): revisá cfg_tail_dly y el umbral")
+              "(Q_total=0 o Q_cola>=Q_total): revisá gate_short y el disparo")
 
     # --- 2) FOM vs energía: amplitud repartida sobre el eje del mapa ---
     per_slice, m2d_e = [], None
@@ -1777,13 +2088,14 @@ def test_psd_fom(mca, gen, ch=1, seconds=30.0, amp_vpp=0.5, rate_hz=50e3,
         _pulse_train(gen, ch, rate_hz, amp_vpp, width_s,
                      tau_choices=(1.0, float(tau_ratio)),
                      amp_range=amp_range, seed=1)
-        h2 = mca.autoscale_h2_shift(**{**c, 'h2_shift': 0})
-        if h2 is None:
+        mca.configure(**c)
+        spec_e, _, _ = _acquire(mca, 1.0)
+        zx = _zoom_para(mca, spec_e, c, aw=mca.h2_aw)
+        if zx is None:
             print('  no se detectan eventos; se saltea la FOM vs energía')
         else:
-            print(f'  h2_shift auto-escalado a {h2} '
-                  f'(antes {c.get("h2_shift")})')
-            mca.configure(**{**c, 'h2_shift': h2})
+            print(f'  zoom del eje de amplitud del mapa: z = {zx}')
+            mca.configure(**{**c, 'zoom_2dx': (zx, 0)})
             _, m2d_e, cnt_e = _acquire(mca, seconds)
 
             n_amp = m2d_e.shape[0]
@@ -1799,7 +2111,7 @@ def test_psd_fom(mca, gen, ch=1, seconds=30.0, amp_vpp=0.5, rate_hz=50e3,
                           f'({n:.0f} cuentas < {min_cuentas})')
                     continue
                 try:
-                    f = mu.fom(m2d_e, lo, hi)['fom']
+                    f = an.fom(m2d_e, lo, hi)['fom']
                 except (ValueError, KeyError):
                     f = np.nan
                 per_slice.append((lo, hi, f, n))
@@ -1871,7 +2183,12 @@ def sweep_baseline_k(mca, gen, ch=1, ks=(3, 6, 9, 12, 15), seconds=1.0,
 
 def cross_check_counts(mca, gen, ch=1, seconds=5.0, amp_vpp=0.5, rate_hz=1e3,
                        width_s=None, outdir=None, **cfg):
-    """`cnt_total` del MCA contra la tasa conocida del generador.
+    """Los disparos y las ventanas del MCA contra la tasa conocida del generador.
+
+    En el MCA2 hay dos números que comparar: `cross` (cada disparo, abra o no)
+    tiene que dar la tasa del generador si el disparo no pierde ni duplica
+    pulsos, y `total` (las ventanas que cerraron) además descuenta las que no
+    encontraron ranura.
 
     La comparación directa con capture_n_events() del scope no es posible en el
     bitstream del MCA (los dos coexisten en el diseño, pero el scope necesita su
@@ -1887,11 +2204,15 @@ def cross_check_counts(mca, gen, ch=1, seconds=5.0, amp_vpp=0.5, rate_hz=1e3,
 
     esperado = rate_hz * cnt['realtime_s']
     err = 100.0 * (cnt['total'] - esperado) / max(esperado, 1e-9)
-    print(f"  esperado {esperado:.0f}, contado {cnt['total']} ({err:+.2f}%)")
-    print(f"  descartados {cnt['dropped']}, apilamientos {cnt['pileup']}, "
-          f"rechazados por amplitud {cnt['rej_amp']}")
+    err_d = 100.0 * (cnt['cross'] - esperado) / max(esperado, 1e-9)
+    perd = _perdidas(cnt)
+    print(f"  esperado {esperado:.0f}: disparos {cnt['cross']} ({err_d:+.2f}%), "
+          f"ventanas {cnt['total']} ({err:+.2f}%)")
+    print(f"  sin ranura {perd['lost_active']} + {perd['lost_busy']}, "
+          f"solapadas {cnt['pileup']}, rechazadas por amplitud {cnt['rej_amp']}")
     _save(outdir, 'cross_check', expected=np.array([esperado]),
-          error_pct=np.array([err]), rate_hz=np.array([rate_hz]),
+          error_pct=np.array([err]), error_disparos_pct=np.array([err_d]),
+          rate_hz=np.array([rate_hz]),
           **{f'cnt_{k}': np.array([v]) for k, v in cnt.items()})
     return {'expected': esperado, 'counters': cnt, 'error_pct': err}
 
@@ -2020,8 +2341,9 @@ def plot_all(outdir):
                 # binning, porque `q_shift` se autoescala POR FAMILIA y sin esto
                 # la pendiente de cada una estaría contaminada por su propio
                 # desplazamiento en vez de por su geometría.
-                x = np.asarray(d[f'cen_{f}_pico']) * 2.0 ** float(d['h_shift'])
-                y = np.asarray(d[f'cen_{f}_carga']) * 2.0 ** float(d[f'qshift_{f}_carga'])
+                x = np.asarray(d[f'cen_{f}_pico']) * cuentas_por_canal(d, 'pico')
+                y = (np.asarray(d[f'cen_{f}_carga'])
+                     * cuentas_por_canal(d, 'carga', d[f'qshift_{f}_carga']))
                 ax.plot(x, y / 1e3, marker=marca[f], ls='none', ms=7,
                         color=color[f], mec='white', mew=.8, alpha=.85,
                         label=f'{f}  (factor {float(d[f"factor_forma_{f}"]):.3f})')
@@ -2033,7 +2355,9 @@ def plot_all(outdir):
                         bbox_inches='tight'); plt.close(fig)
 
     d = _load('sweep_rate')
-    if d is not None:
+    if d is not None and d['r_out'].size == 0:
+        print('  sweep_rate sin puntos válidos: no hay throughput que graficar')
+    elif d is not None:
         fig, ax = plt.subplots(figsize=(8, 4))
         ax.loglog(d['r_in'], d['r_out'], 'o-', label='medido')
         ax.loglog(d['r_in'], d['r_in'], 'k--', lw=.8, label='ideal')
@@ -2041,6 +2365,12 @@ def plot_all(outdir):
         i = int(np.argmax(d['r_out']))
         ax.plot(d['r_in'][i], d['r_out'][i], 'r*', ms=14,
                 label=f'techo {d["r_out"][i]:.0f} cps')
+        if 'n_accs_extra' in d.files:
+            for n in np.atleast_1d(d['n_accs_extra']):
+                k = f'r_out_nacc{int(n)}'
+                if k in d.files:
+                    ax.loglog(d['rates_todas'], d[k], 's--', ms=5,
+                              label=f'n_acc = {int(n)}')
         ax.set_xlabel('tasa incidente [Hz]'); ax.set_ylabel('tasa registrada [cps]')
         ax.legend(); ax.set_title('Throughput')
         fig.savefig(os.path.join(outdir, 'throughput.png'), dpi=120,
@@ -2103,15 +2433,23 @@ def plot_all(outdir):
                            np.log10(max(rho_s.max(), 1e-2)), 200)
         val = d['valido'].astype(bool) if 'valido' in d.files else np.ones_like(rho, bool)
         fig, ax = plt.subplots(figsize=(8, 4.5))
-        ax.plot(fino, 100 * fino / (1 + fino), '-', color='tab:blue',
-                label=r'Poisson  $\rho/(1+\rho)$')
-        ax.plot(fino, 100 * (1 - 1 / np.ceil(fino)), '-', color='tab:gray',
-                label=r'periodico  $1-1/\lceil\rho\rceil$')
-        ax.plot(rho[val], 100 * d['p_loss'][val], 'o', color='tab:red',
-                ms=7, label='medido (dropped/llegados)')
+        # MCA2: una curva de Erlang B y una nube de puntos por cantidad de
+        # ranuras. MCA1 (sin n_acc): el servidor único de siempre.
+        nacc = (d['n_acc'].astype(int) if 'n_acc' in d.files and d['n_acc'].ndim
+                else np.ones_like(rho, int))
+        for j, n in enumerate(sorted(set(nacc))):
+            col = plt.cm.tab10(j)
+            ax.plot(fino, 100 * np.array([an.erlang_b(n, x) for x in fino]), '-',
+                    color=col, label=f'Erlang B, n = {n}' if n > 1
+                    else r'Poisson  $\rho/(1+\rho)$')
+            m = val & (nacc == n)
+            ax.plot(rho[m], 100 * d['p_loss'][m], 'o', color=col, ms=7,
+                    label=f'medido, n_acc = {n}')
+        ax.plot(fino, 100 * (1 - 1 / np.ceil(fino)), ':', color='tab:gray',
+                label=r'periódico, n = 1  $1-1/\lceil\rho\rceil$')
         if (~val).any():
             ax.plot(rho[~val], 100 * d['p_loss'][~val], 'x', color='k',
-                    ms=9, label='invalido')
+                    ms=9, label='inválido')
         ax.set_xscale('log')
         ax.set_xlabel(r'$\rho = \lambda\tau$  ($\tau$ medido por el FPGA)')
         ax.set_ylabel('eventos perdidos [%]')
@@ -2123,12 +2461,22 @@ def plot_all(outdir):
     d = _load('pulse_pair')
     if d is not None:
         fig, ax = plt.subplots(figsize=(8, 4))
-        ax.semilogx(d['gaps'] * 1e6, d['ratio'], 'o-')
+        if 'n_accs' in d.files:              # MCA2: el disparo y las ranuras
+            n0 = int(np.atleast_1d(d['n_accs'])[0])
+            ax.semilogx(d['gaps'] * 1e6, d[f'ratio_cross_nacc{n0}'], 'k.-',
+                        label='disparos por par')
+            for n in np.atleast_1d(d['n_accs']):
+                ax.semilogx(d['gaps'] * 1e6, d[f'ratio_open_nacc{int(n)}'], 'o-',
+                            label=f'ventanas por par, n_acc = {int(n)}')
+            ax.axvline(float(d['tau_ranura_s']) * 1e6, color=MUTED, ls=':', lw=1)
+            ax.legend(fontsize=8)
+        else:
+            ax.semilogx(d['gaps'] * 1e6, d['ratio'], 'o-')
         ax.axhline(1.0, color='k', lw=.5, ls='--')
         # 0.5 = los dos pulsos se fusionaron en un solo evento.
         ax.axhline(0.5, color='r', lw=.5, ls='--')
         ax.set_xlabel('separación [µs]')
-        ax.set_ylabel('eventos / referencia (1 = los dos, 0.5 = fusionados)')
+        ax.set_ylabel('por par / 2  (1 = los dos, 0.5 = uno)')
         ax.set_title('Resolución par-pulso')
         fig.savefig(os.path.join(outdir, 'pulse_pair.png'), dpi=120,
                     bbox_inches='tight'); plt.close(fig)
@@ -2162,9 +2510,11 @@ def plot_all(outdir):
         fig, ax = plt.subplots(figsize=(8, 4.5))
         ax.plot(d['largas'], d['res'], 'o-', color=C_GATE, lw=2, ms=8,
                 mec='white', mew=1.5, label='compuerta fija')
-        rh = float(d['res_hyst'][0])
+        ref_k, ref_lab = (('res_pico', 'muestra de pico') if 'res_pico' in d.files
+                          else ('res_hyst', 'histéresis'))
+        rh = float(d[ref_k][0])
         ax.axhline(rh, color=C_HYST, ls='--', lw=2)
-        ax.annotate(f'histéresis  {rh:.3f} %',
+        ax.annotate(f'{ref_lab}  {rh:.3f} %',
                     xy=(d['largas'][-1], rh), xytext=(-4, 6),
                     textcoords='offset points', ha='right',
                     color=INK, fontsize=9)
@@ -2189,10 +2539,16 @@ def plot_all(outdir):
         # la entrada dividiendo por la ganancia (canales/V) de CADA modo, sacada
         # del ajuste lineal de su propio eje. Ahí sí las dos curvas están en la
         # misma unidad física y se pueden superponer.
-        amps, larga = d['amps'], int(d['larga'][0])
+        amps = d['amps']
+        if 'modos' in d.files:               # MCA2: un largo de compuerta por curva
+            series = [(str(n), plt.cm.viridis(j / max(len(d['modos']) - 1, 1)),
+                       f'compuerta {str(n)[1:]}')
+                      for j, n in enumerate(d['modos'])]
+        else:                                # MCA1: histéresis contra compuerta
+            series = [('hist', C_HYST, 'histéresis'),
+                      ('gate', C_GATE, f'compuerta fija ({int(d["larga"][0])})')]
         fig, (a1, a2) = plt.subplots(2, 1, figsize=(8, 7.5), sharex=True)
-        for n, col, lab in (('hist', C_HYST, 'histéresis'),
-                            ('gate', C_GATE, f'compuerta fija ({larga})')):
+        for n, col, lab in series:
             cen, fw = d[f'cen_{n}'], d[f'fwhm_{n}']
             m = np.isfinite(cen) & np.isfinite(fw)
             gan = np.polyfit(amps[m], cen[m], 1)[0] if m.sum() >= 2 else np.nan
@@ -2221,24 +2577,23 @@ def plot_all(outdir):
 # =============================================================================
 
 # =============================================================================
-# 10. Compuertas fijas contra ventana por histéresis
+# 10. El largo de la compuerta
 # =============================================================================
 
 def sweep_gate(mca, gen, ch=1, largas=None, corta=32, seconds=4.0,
-               amp_vpp=0.5, rate_hz=2e3, width_s=None, outdir=None, **cfg):
-    """Resolución de la integral: ventana por histéresis vs compuerta fija.
+               amp_vpp=0.5, rate_hz=2e3, width_s=None, target_channel=4000,
+               outdir=None, **cfg):
+    """Resolución de la integral contra el largo de la compuerta.
 
-    Es la medición en placa del resultado que salió offline sobre 7054 pulsos
-    (`API/modelo_rtl/estimadores.py`): con la ventana cerrada por histéresis el largo lo
-    decide dónde la cola cruza `thr − hyst`, que es la parte más chata del
-    pulso, así que lo decide el ruido. Con compuerta fija no.
-
-    Offline dio 0.528 % (histéresis) contra 0.149 % (compuerta de 384). Acá se
-    mide lo mismo con el hardware, barriendo el largo de la compuerta: la curva
-    tiene un mínimo y hay que encontrarlo, porque una compuerta muy corta pierde
-    carga y una muy larga integra ruido y arrastra el error de línea de base.
+    En el MCA2 la ventana es SIEMPRE una compuerta fija desde el disparo (ya no
+    hay ventana por histéresis). Lo que queda por elegir es su largo, y la
+    curva tiene un mínimo: una compuerta corta pierde carga de la cola, una
+    larga integra ruido, arrastra el error de línea de base y ocupa más la
+    ranura (más pérdida a tasa alta). Offline, sobre 7054 pulsos reales, la de
+    384 dio 0.149 % contra 0.272 % de la muestra de pico: esa es la referencia
+    que se mide primero (`res_pico`).
     """
-    print('\n=== compuerta fija vs ventana por histéresis ===')
+    print('\n=== largo de la compuerta (resolución de la integral) ===')
     largas = np.array([128, 192, 256, 320, 384, 448, 512]) if largas is None \
         else np.asarray(largas)
     c = {**DEFAULT_CFG, **cfg, 'amp_src': 1}      # integral de carga
@@ -2247,30 +2602,33 @@ def sweep_gate(mca, gen, ch=1, largas=None, corta=32, seconds=4.0,
 
     def _res(cfg_extra):
         """Resolución del pico del espectro con una configuración dada."""
-        qs = mca.autoscale_q_shift(target_channel=8000, **{**c, **cfg_extra,
-                                                           'q_shift': 0})
-        if qs is None:
-            return None, None
-        mca.configure(**{**c, **cfg_extra, 'q_shift': qs})
+        cc = {**c, **cfg_extra}
+        if cc['amp_src'] == 1:
+            qs = mca.autoscale_q_shift(
+                target_channel=_objetivo_feature(mca, target_channel),
+                **{**cc, 'q_shift': 0})
+            if qs is None:
+                return None, None
+            cc['q_shift'] = qs
+        mca.configure(**cc)
         spec, _, cnt = _acquire(mca, seconds)
         if not spec.any():
             return None, cnt
         return _pico(spec), cnt
 
-    # --- referencia: el modo de siempre ---
-    f_h, cnt_h = _res({'gate_mode': 0})
-    if f_h is None:
-        print('  no se detectan eventos; revisá umbral y amplitud')
+    # --- referencia: la muestra de pico ---
+    f_p, _ = _res({'amp_src': 0, 'q_shift': 0})
+    if f_p is None:
+        print('  no se detectan eventos; revisá el disparo y la amplitud')
         gen.output(ch, False)
         return None
-    print(f'  histéresis      -> resolución {f_h["resolution_pct"]:6.3f} %  '
-          f'(FWHM {f_h["fwhm"]:.1f} sobre {f_h["centroid"]:.0f})')
+    print(f'  pico            -> resolución {f_p["resolution_pct"]:6.3f} %  '
+          f'(FWHM {f_p["fwhm"]:.1f} sobre {f_p["centroid"]:.0f})')
 
     # --- barrido de compuerta ---
     res, pileup = [], []
     for L in largas:
-        f, cnt = _res({'gate_mode': 1, 'gate_short': int(corta),
-                       'gate_long': int(L)})
+        f, cnt = _res({'gate_short': int(corta), 'gate_long': int(L)})
         if f is None:
             res.append(np.nan); pileup.append(np.nan)
             print(f'  compuerta {L:4d}  -> sin eventos')
@@ -2279,7 +2637,7 @@ def sweep_gate(mca, gen, ch=1, largas=None, corta=32, seconds=4.0,
         pileup.append(100.0 * cnt['pileup'] / max(cnt['total'], 1))
         print(f'  compuerta {L:4d}  -> resolución {res[-1]:6.3f} %  '
               f'(FWHM {f["fwhm"]:.1f} sobre {f["centroid"]:.0f})   '
-              f'apilamiento {pileup[-1]:.1f} %')
+              f'solapadas {pileup[-1]:.1f} %')
     gen.output(ch, False)
 
     res = np.array(res, dtype=float)
@@ -2288,56 +2646,41 @@ def sweep_gate(mca, gen, ch=1, largas=None, corta=32, seconds=4.0,
     if ok.any():
         i = int(np.nanargmin(res))
         mejor = (int(largas[i]), float(res[i]))
-        gan = f_h['resolution_pct'] / res[i]
+        gan = f_p['resolution_pct'] / res[i]
         print(f'  mejor compuerta: {mejor[0]} muestras -> {mejor[1]:.3f} %, '
-              f'x{gan:.2f} sobre la histéresis')
-        if gan < 1.2:
-            print('  AVISO: la mejora es marginal. Con este estímulo la ventana '
-                  'por histéresis\n  no está limitando: revisá que la cola sea '
-                  'larga (es donde el cruce tiembla).')
+              f'x{gan:.2f} sobre la muestra de pico')
     _save(outdir, 'sweep_gate', largas=largas, res=res,
           pileup=np.array(pileup, dtype=float),
-          res_hyst=np.array([f_h['resolution_pct']]))
-    return {'largas': largas, 'res': res, 'res_hyst': f_h['resolution_pct'],
+          res_pico=np.array([f_p['resolution_pct']]))
+    return {'largas': largas, 'res': res, 'res_pico': f_p['resolution_pct'],
             'mejor': mejor}
 
 
-def sweep_gate_espectro(mca, gen, ch=1, amps=None, corta=32, larga=384,
+def sweep_gate_espectro(mca, gen, ch=1, amps=None, corta=32, largas=(256, 384, 512),
                         seconds=4.0, rate_hz=2e3, width_s=None,
-                        target_channel=12000, outdir=None, **cfg):
-    """FWHM de los dos modos de ventana A LO LARGO DEL ESPECTRO.
+                        target_channel=6000, outdir=None, **cfg):
+    """FWHM de la integral A LO LARGO DEL ESPECTRO, para varios largos de compuerta.
 
-    `sweep_gate` compara histéresis contra compuerta fija en UN punto del
-    espectro (la amplitud del estímulo). Acá se barre la amplitud y se mide el
-    FWHM de los dos modos en CADA punto, para ver si la mejora es pareja o si
-    depende de la energía.
+    `sweep_gate` elige el largo en UN punto del espectro (la amplitud del
+    estímulo). Acá se barre la amplitud con cada largo, para ver si el óptimo
+    depende de la energía y si la ganancia es lineal: con compuerta fija el
+    largo de integración no depende de la amplitud por construcción, así que se
+    espera ganancia lineal y un FWHM que crezca sólo como el ruido integrado.
+    Una compuerta que corta la cola de los pulsos grandes lo rompe.
 
-    Por qué importa: los dos modos no fallan igual en función de la amplitud.
+    Metodología: los largos se miden **intercalados en cada amplitud**, con el
+    mismo estímulo cargado una sola vez, así una deriva del generador o de la
+    línea de base afecta a todos por igual.
 
-      - Con histéresis el largo de la ventana lo decide dónde la cola cruza
-        `thr − hyst`, y ese punto se corre con la amplitud (un pulso más grande
-        tarda más en bajar). O sea que el largo de integración **crece con la
-        energía**: la ganancia no es lineal y la varianza del cruce entra en
-        todos los canales.
-      - Con compuerta fija el largo no depende de la amplitud por construcción,
-        así que se espera ganancia lineal y un FWHM que crezca sólo como el
-        ruido integrado.
-
-    Metodología: los dos modos se miden **intercalados en cada amplitud**, con
-    el mismo estímulo cargado una sola vez. Así cualquier deriva del generador
-    o de la línea de base afecta a los dos por igual y la comparación se
-    sostiene aunque la corrida dure varios minutos.
-
-    `q_shift` se calibra UNA vez por modo, en la amplitud máxima, y queda fijo
+    `q_shift` se calibra UNA vez por largo, en la amplitud máxima, y queda fijo
     durante todo el barrido: si se re-escalara en cada punto, el eje de canales
     dejaría de ser un eje de energía y el FWHM no sería comparable entre puntos.
     """
-    print('\n=== FWHM vs energía: histéresis vs compuerta fija ===')
+    print('\n=== FWHM vs energía, por largo de compuerta ===')
     amps = np.linspace(0.1, 1.0, 12) if amps is None else np.asarray(amps)
     c = {**DEFAULT_CFG, **cfg, 'amp_src': 1}      # integral de carga
-    modos = {'hist': {'gate_mode': 0},
-             'gate': {'gate_mode': 1, 'gate_short': int(corta),
-                      'gate_long': int(larga)}}
+    modos = {f'g{int(L)}': {'gate_short': int(corta), 'gate_long': int(L)}
+             for L in largas}
 
     width_s = PULSE_WIDTH_S if width_s is None else width_s
     wave, freq, info = rg.pulse_train_wave(width_s, rate_hz)
@@ -2351,15 +2694,15 @@ def sweep_gate_espectro(mca, gen, ch=1, amps=None, corta=32, larga=384,
         gen.output(ch, True)
         time.sleep(0.3)
 
-    # --- calibración de q_shift: una vez por modo, en la amplitud máxima ---
+    # --- calibración de q_shift: una vez por largo, en la amplitud máxima ---
     _amplitud(amps.max())
     qs = {}
     for nombre, extra in modos.items():
-        qs[nombre] = mca.autoscale_q_shift(target_channel=target_channel,
-                                           **{**c, **extra, 'q_shift': 0})
+        qs[nombre] = mca.autoscale_q_shift(
+            target_channel=_objetivo_feature(mca, target_channel),
+            **{**c, **extra, 'q_shift': 0})
         if qs[nombre] is None:
-            print(f'  no se detectan eventos en modo {nombre}; '
-                  'revisá umbral y amplitud')
+            print(f'  no se detectan eventos con {nombre}; revisá el disparo y la amplitud')
             gen.output(ch, False)
             return None
         print(f'  q_shift {nombre} = {qs[nombre]} '
@@ -2371,12 +2714,9 @@ def sweep_gate_espectro(mca, gen, ch=1, amps=None, corta=32, larga=384,
         if not spec.any():
             return None, cnt
         f = _pico(spec)
-        # El pico tiene que ENTRAR ENTERO en el histograma. Si la cola derecha
-        # se pasa del último canal, el ajuste ve una gaussiana cortada y devuelve
-        # un FWHM MENOR que el real: el punto aparece como el mejor de todo el
-        # barrido justo donde el instrumento se está quedando sin escala. Pasó
-        # en la primera corrida (centroide 16376 + 2 FWHM = 16412 > 16383), y
-        # rompía la tendencia hacia abajo. Se descarta, no se promedia.
+        # El pico tiene que ENTRAR ENTERO en el histograma: con la cola derecha
+        # cortada por el último canal el ajuste ve una gaussiana truncada y da
+        # un FWHM MENOR que el real (pasó en la primera corrida, en el MCA1).
         if f['centroid'] + 2 * f['fwhm'] > len(spec) - 1:
             print(f'    [{nombre}] pico truncado por el tope del histograma '
                   f'(centroide {f["centroid"]:.0f} + 2·FWHM > {len(spec)-1}): '
@@ -2401,7 +2741,7 @@ def sweep_gate_espectro(mca, gen, ch=1, amps=None, corta=32, larga=384,
             out[nombre]['pileup'].append(100.0 * cnt['pileup']
                                          / max(cnt['total'], 1))
             linea += (f'   {nombre}: canal {f["centroid"]:7.0f} '
-                      f'FWHM {f["fwhm"]:6.2f} ({f["resolution_pct"]:5.3f} %)')
+                      f'({f["resolution_pct"]:5.3f} %)')
         print(linea)
     gen.output(ch, False)
 
@@ -2409,37 +2749,22 @@ def sweep_gate_espectro(mca, gen, ch=1, amps=None, corta=32, larga=384,
         for k in out[n]:
             out[n][k] = np.array(out[n][k], dtype=float)
 
-    # --- veredicto: mejora punto a punto y linealidad de cada eje ---
-    gan = out['hist']['res'] / out['gate']['res']
-    ok = np.isfinite(gan)
     inl = {}
     for n in modos:
         cen = out[n]['cen']
         m = np.isfinite(cen)
         if m.sum() >= 3:
-            _, _, _, inl[n] = mu.energy_calibration(cen[m], amps[m])
+            _, _, _, inl[n] = an.energy_calibration(cen[m], amps[m])
         else:
             inl[n] = float('nan')
-    if ok.any():
-        print(f'  mejora en resolución: x{np.nanmin(gan):.2f} a '
-              f'x{np.nanmax(gan):.2f} (mediana x{np.nanmedian(gan):.2f})')
-        print(f'  INL del eje: histéresis {inl["hist"]:.3f} % FS   '
-              f'compuerta {inl["gate"]:.3f} % FS')
-        if np.nanmin(gan) < 1.0:
-            print('  AVISO: hay puntos donde la compuerta NO mejora. Con esta '
-                  'compuerta\n  parte del espectro pierde carga: revisá `larga` '
-                  'contra la cola del pulso.')
-    if np.nanmax([out[n]['pileup'].max() if out[n]['pileup'].size else 0
-                  for n in modos]) > 5.0:
-        print('  AVISO: apilamiento > 5 % en algún punto; los FWHM de esos '
-              'puntos no son confiables.')
+        print(f'  {n}: INL del eje {inl[n]:.3f} % FS, resolución mediana '
+              f'{np.nanmedian(out[n]["res"]):.3f} %')
 
     _save(outdir, 'sweep_gate_espectro', amps=amps, corta=np.array([corta]),
-          larga=np.array([larga]),
-          q_shift=np.array([qs['hist'], qs['gate']]),
+          largas=np.array(largas, dtype=int), modos=np.array(list(modos)),
+          q_shift=np.array([qs[n] for n in modos]),
           **{f'{k}_{n}': out[n][k] for n in modos for k in out[n]})
-    return {'amps': amps, 'hist': out['hist'], 'gate': out['gate'],
-            'ganancia': gan, 'inl_pct_fs': inl}
+    return {'amps': amps, 'modos': out, 'inl_pct_fs': inl}
 
 
 TESTS = {
@@ -2471,6 +2796,10 @@ def main(argv=None):
                     help='sólo graficar un --outdir ya medido (no usa hardware)')
     ap.add_argument('--reanalizar', action='store_true',
                     help='rehacer el análisis de deriva de un --outdir medido')
+    ap.add_argument('--impl', choices=('c', 'py'), default=None,
+                    help="implementación de la API: c (libmca) o py (la "
+                         "referencia Python, para comparar). Default: $MCA_IMPL, "
+                         "o c")
     args = ap.parse_args(argv)
 
     if args.reanalizar:
@@ -2492,21 +2821,18 @@ def main(argv=None):
         plot_all(args.outdir)
         return 0
 
-    mca, gen, _ = connect(args.channel)
+    names = list(TESTS) if args.test == 'all' else [args.test]
+    malos = [n for n in names if n not in TESTS]
+    if malos:
+        print(f'test desconocido: {malos[0]}', file=sys.stderr)
+        return 2
+    mca, gen, _ = connect(args.channel, impl=args.impl)
     try:
-        names = list(TESTS) if args.test == 'all' else [args.test]
         for n in names:
-            if n not in TESTS:
-                print(f'test desconocido: {n}', file=sys.stderr)
-                return 2
             TESTS[n](mca, gen, ch=args.gen_ch, outdir=args.outdir,
                      channel=args.channel)
     finally:
-        try:
-            gen.output(args.gen_ch, False)
-        finally:
-            gen.close()
-            mca.close()
+        desconectar(mca, gen, args.gen_ch)
     if args.outdir:
         plot_all(args.outdir)
     return 0

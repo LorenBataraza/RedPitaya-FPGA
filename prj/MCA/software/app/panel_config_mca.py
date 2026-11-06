@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""Pestaña de configuración del MCA: los registros del slot 7, agrupados.
+"""Pestaña de configuración del MCA2: los registros del slot 7, agrupados.
 
 Es la vista completa de lo que `mca_configure()` sabe escribir, pero campo por
 campo: escribir el bloque entero pone `run=0` en `R_CTRL`, o sea que tocar un
-umbral pararía la medición en curso. Cada control escribe SOLO su campo, con
+campo pararía la medición en curso. Cada control escribe SOLO su campo, con
 read-modify-write.
 
-El umbral y la ventana de amplitud siguen estando también en la pestaña del
-espectro, a propósito: son los dos que se tocan mirando el histograma. Acá están
-otra vez porque ésta es la vista completa, y los dos controles se mantienen
-sincronizados solos — los dos reciben `actualizar_config` del mismo hardware.
+En el MCA2 la ventana la abre el disparo del multitrigger: el umbral es de él,
+no del MCA, y se arma desde la pestaña del espectro. Acá están las ranuras, el
+retardo de la muestra respecto del disparo, las compuertas y el trapecio.
 """
 
 from PyQt5.QtCore import Qt, pyqtSignal
@@ -22,7 +21,8 @@ from app.widgets_config import CALIENTE, CORTA, INVALIDA, RIESGO, PanelCampos
 # Las features que pueden alimentar un eje, en el orden en que conviene verlas.
 # Sale de FEATURES de API/mca.py para no tener una segunda lista que se
 # desincronice; el orden se fija acá.
-_ORDEN_FEATURES = ('pico', 'integral', 'psd', 'ancho_inv', 'largo', 't_subida')
+_ORDEN_FEATURES = ('pico', 'integral', 'trapecio', 'psd', 'ancho_inv', 'largo',
+                   't_subida', 'dt_anterior', 'dt_siguiente', 'solape')
 
 
 def _opciones_features():
@@ -42,7 +42,9 @@ class PanelConfigMCA(PanelCampos):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.h_aw = 13
+        self._hay_trapecio = False
         self._construir()
+        self.grp_trapecio.setVisible(False)
         self.set_conectado(False)
 
     # =========================================================================
@@ -52,10 +54,11 @@ class PanelConfigMCA(PanelCampos):
     def _construir(self):
         interior = QWidget()
         v = QVBoxLayout(interior)
-        v.addWidget(self._grupo_disparo())
+        v.addWidget(self._grupo_ranuras())
         v.addWidget(self._grupo_linea_base())
         v.addWidget(self._grupo_ventana_temporal())
         v.addWidget(self._grupo_estimador())
+        v.addWidget(self._grupo_trapecio())
         v.addWidget(self._grupo_eje())
         v.addWidget(self._grupo_discriminador())
         v.addWidget(self._grupo_entrada())
@@ -84,16 +87,25 @@ class PanelConfigMCA(PanelCampos):
         f.setLabelAlignment(Qt.AlignRight)
         return f
 
-    def _grupo_disparo(self):
-        g = QGroupBox('Disparo')
+    def _grupo_ranuras(self):
+        g = QGroupBox('Ranuras')
         f = self._forma(g)
-        f.addRow('umbral (cuentas)', self._spin(
-            'thr', 0, 0x3FFF, CALIENTE,
-            'Umbral sobre la línea de base. 14 bits con signo.'))
-        f.addRow('histéresis', self._spin(
-            'hyst', 0, 0x3FFF, CALIENTE,
-            'La ventana cierra al bajar de thr − hyst. Evita que el ruido '
-            'alrededor del umbral parta un pulso en varios.'))
+        f.addRow('ranuras habilitadas', self._spin(
+            'n_acc', 1, 4, CALIENTE,
+            'Juegos de acumuladores que miden a la vez. Con 1 es la ventana '
+            'única de antes; con más, un disparo que llega con una ventana '
+            'abierta abre otra, y la pérdida pasa de ~ρ a ~ρ^N/N!.\n'
+            'Lo medido sobre la cola de otro pulso viene contaminado: se marca '
+            'en las features dt_anterior, dt_siguiente y solape, y lo corrige '
+            'el trapecio.'))
+        f.addRow('pre_dly (ciclos)', self._spin(
+            'pre_dly', 0, 127, CORTA,
+            'Retardo de la muestra respecto del disparo, para que la ventana '
+            'abra en el pie del pulso: el disparo por pendiente llega tarde.\n'
+            'Medido en placa con el pulso de la campaña y L=8, G=4: 16.\n'
+            'Mueve también las ventanas del trapecio: trap_off = c + pre_dly + 2.\n'
+            'La tabla y la regla: docs/mca/register_map_mca.md, "La línea de '
+            'retardo".'))
         return g
 
     def _grupo_linea_base(self):
@@ -125,24 +137,38 @@ class PanelConfigMCA(PanelCampos):
     def _grupo_ventana_temporal(self):
         g = QGroupBox('Ventana temporal')
         f = self._forma(g)
-        f.addRow('maxlen (muestras)', self._spin(
-            'maxlen', 1, 0xFFFF, CORTA,
-            'Largo máximo de la ventana de un evento. Al llegar, el evento se '
-            'cierra y cuenta como APILAMIENTO: no entra al histograma.\n'
-            'Si ves todo en cnt_pileup y nada en accepted, el pulso es más '
-            'largo que esto.'))
-        f.addRow('tail_dly (muestras)', self._spin(
-            'tail_dly', 1, 0xFFFF, CORTA,
-            'Muestras desde el pico hasta que arranca la integral de cola. '
-            'Tiene que ser >= 1: con 0, Q_cola == Q_total y el RTL lo rechaza.'))
-        f.addRow(self._check(
-            'gate_mode', 'compuertas de largo fijo', CORTA,
-            'Apagado: la ventana la define la histéresis. Encendido: dos '
-            'compuertas de largo fijo (las de abajo).'))
         f.addRow('compuerta corta', self._spin(
-            'gate_short', 0, 0xFFFF, CORTA, 'Sólo con compuertas fijas.'))
+            'gate_short', 0, 0xFFFF, CORTA,
+            'Muestras desde el disparo hasta que arranca la integral de cola. '
+            'Con 0, Q_cola == Q_total y el evento entra al 1D pero no al 2D.'))
         f.addRow('compuerta larga', self._spin(
-            'gate_long', 0, 0xFFFF, CORTA, 'Sólo con compuertas fijas.'))
+            'gate_long', 0, 0xFFFF, CORTA,
+            'Muestras desde el disparo hasta que la ventana cierra, pase lo que '
+            'pase con la señal. Cada ranura la retiene al abrir.'))
+        return g
+
+    def _grupo_trapecio(self):
+        self.grp_trapecio = g = QGroupBox('Conformado trapezoidal (F_TRAP)')
+        f = self._forma(g)
+        f.addRow('subida k (muestras)', self._spin(
+            'trap_k', 1, 1023, INVALIDA,
+            'Escribirlo reinicia el estado del trapecio. k largo promedia más '
+            'ruido pero alarga la separación mínima entre pulsos, k + m.'))
+        f.addRow('meseta m (muestras)', self._spin(
+            'trap_m', 0, 1023, INVALIDA,
+            'Tiene que ser más larga que el tiempo de subida del pulso, o no '
+            'hay meseta y F_TRAP promedia el flanco.'))
+        f.addRow('M·16 (polo-cero)', self._spin(
+            'trap_mq', 0, 0xFFFFF, INVALIDA,
+            'M ~ τ − 0.5 de la cola que llega al ADC, y se ajusta en la placa '
+            '(en la campaña quedó en 242.8: Mq = 3885).'))
+        f.addRow('ventana desde (off)', self._spin(
+            'trap_off', 0, 0xFFFF, INVALIDA,
+            'Muestras desde la apertura hasta el promedio sobre la meseta.'))
+        f.addRow('ventana 2^lw', self._spin('trap_lw', 0, 7, INVALIDA))
+        f.addRow('escala >> sh', self._spin('trap_sh', 0, 63, INVALIDA))
+        g.setToolTip('Sólo si el bitstream trae el trapecio (CAPS bit 2). Cómo '
+                     'elegir los parámetros: docs/mca/register_map_mca.md.')
         return g
 
     def _grupo_estimador(self):
@@ -248,6 +274,19 @@ class PanelConfigMCA(PanelCampos):
     # =========================================================================
     # Estado
     # =========================================================================
+
+    def configurar_mca(self, info):
+        """Lo que depende del bitstream: cuántas ranuras y si hay trapecio."""
+        n_max = int(info.get('n_acc_max') or 1)
+        self._controles['n_acc'][0].setMaximum(max(1, n_max))
+        self._hay_trapecio = bool(info.get('trap'))
+        self.grp_trapecio.setVisible(self._hay_trapecio)
+
+    def set_conectado(self, conectado, running=False):
+        super().set_conectado(conectado, running)
+        for campo in ('trap_k', 'trap_m', 'trap_mq', 'trap_off', 'trap_lw',
+                      'trap_sh'):
+            self._controles[campo][0].setEnabled(conectado and self._hay_trapecio)
 
     def configurar_geometria(self, n_canales, h_aw=None):
         self.h_aw = int(h_aw) if h_aw is not None else \

@@ -3,6 +3,11 @@
 
 Corre en la PC, sin placa.
 
+QUEDA EN EL MCA1, A PROPÓSITO
+-----------------------------
+Usa la réplica del MCA1 de `pileup.py` y no la del MCA2 (`replica_mca2.py`): explica la deriva con la tasa medida sobre ese bitstream (+1.28 %%, `limites_resolucion_y_deriva.md`), con su ventana y su seguidor.
+Repetirlo sobre el MCA2 no explicaría esas mediciones.
+
 LA PREGUNTA
 -----------
 El Monte-Carlo de apilamiento corre con base FIJA en 0 (`cfg_bl_auto = 0`): el

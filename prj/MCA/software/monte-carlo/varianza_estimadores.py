@@ -24,13 +24,16 @@ QUÉ SE CALCULA
    del pico. Son los tres números que deciden, respectivamente, la integral, la
    cota de Cramér-Rao y el estimador de pico.
 
-3. **Monte Carlo de los cuatro estimadores** sobre cada familia, con los mismos
-   segmentadores que usa el estudio de apilamiento (`pileup.segmentar_rapido`
-   y `pileup.compuertas_rapido`, que son réplicas del RTL):
+3. **Monte Carlo de los cuatro estimadores** sobre cada familia, con la misma
+   réplica del RTL que usa el estudio de apilamiento (`replica_mca2.py`, con una
+   ranura, la compuerta y el disparo por pendiente):
      - `pico`        muestra de pico             (`cfg_amp_src = 0`)
      - `pico_par`    pico interpolado a 3 puntos (NO está en el RTL)
-     - `q_hist`      integral, ventana por histéresis (`gate_mode = 0`)
-     - `q_fija`      integral, compuerta fija        (`gate_mode = 1`)
+     - `q_fija`      integral de la compuerta    (`cfg_amp_src = 1`)
+     - `trapecio`    la meseta de `F_TRAP`, con k = FWHM/4, m = FWHM y el polo-cero
+                     de la cola de la forma (si la tiene)
+   `--mapa MCA1` corre el estudio viejo, con `q_hist` (la integral de la ventana
+   por histéresis, que el MCA2 ya no tiene) en vez del trapecio.
    La fase de muestreo se barre ESTRATIFICADA (una grilla uniforme de sub-
    muestra), así que la descomposición de la varianza es exacta por ANOVA:
 
@@ -56,6 +59,7 @@ las predicciones por familia valen; si no, lo que falla es el modelo de ruido.
     python3 varianza_estimadores.py --n 32000       # más estadística
     python3 varianza_estimadores.py --amp 800       # otra amplitud
     python3 varianza_estimadores.py --sin-figura
+    python3 varianza_estimadores.py --mapa MCA1     # el estudio con el mapa viejo
 """
 
 import argparse
@@ -74,6 +78,7 @@ _AQUI = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _AQUI)
 
 import pileup as pu                                               # noqa: E402
+import replica_mca2 as r2                                    # noqa: E402
 import ruido as ru                                                # noqa: E402
 
 _RAIZ = os.path.dirname(_AQUI)                                    # software/
@@ -88,9 +93,11 @@ ETIQUETA = {'cr': 'CR', 'cr_rc': 'CR-RC', 'cr_rc4': 'CR-RC⁴',
             'triangular': 'triangular', 'trapezoidal': 'trapezoidal',
             'bipolar': 'bipolar', 'referencia': 'referencia (ARB real)'}
 
-ESTIMADORES = ('pico', 'pico_par', 'q_hist', 'q_fija')
+ESTIMADORES = ('pico', 'pico_par', 'q_fija', 'trapecio')    # MCA1: ver main()
+ESTIMADORES_MCA1 = ('pico', 'pico_par', 'q_hist', 'q_fija')
 NOMBRE_EST = {'pico': 'pico', 'pico_par': 'pico interp.',
-              'q_hist': 'Q histéresis', 'q_fija': 'Q fija 384'}
+              'q_hist': 'Q histéresis', 'q_fija': 'Q fija 384',
+              'trapecio': 'trapecio'}
 
 # Resolución (FWHM/centroide) medida, en %. Es contra esto que se valida la
 # fila `referencia`. Dos columnas, y la distinción importa:
@@ -327,6 +334,79 @@ def _lote(tpl, amp, n_ev, sigma_n, sigma_bl, tau_c, rng, guarda=512, lead=64):
     return np.rint(x.ravel()).astype(np.int64), paso, lead
 
 
+AMP_PRE = 1920.0       # la línea del estudio de apilamiento
+
+
+def _sufijo():
+    """Las figuras del MCA1 siguen en docs/mca/fuentes_de_jitter.md §5: no se pisan."""
+    return '_mca2' if 'trapecio' in ESTIMADORES else ''
+
+
+def _mq_cola(tpl):
+    """M*16 para la cola de la forma, si tiene una cola exponencial. Si no (el
+    triangular, el trapezoidal, el bipolar) es 0: el trapecio de un impulso."""
+    i = int(np.argmax(tpl))
+    y = np.asarray(tpl, dtype=float)[i:]
+    m = (y < 0.3) & (y > 0.03)
+    if m.sum() < 8:
+        return 0
+    x = np.flatnonzero(m).astype(float)
+    a, b = np.polyfit(x, np.log(y[m]), 1)
+    if a >= 0 or np.std(np.log(y[m]) - (a * x + b)) > 0.02:
+        return 0
+    return int(round(16.0 / np.expm1(-a)))
+
+
+def _cfg_mca2(tpl, fwhm_s, cfg1, sigma_n):
+    """La réplica de una ranura para esta forma: el disparo, la compuerta y el
+    trapecio. `pre_dly` se ajusta a la línea del estudio (`AMP_PRE`), para que la
+    ventana abra en el pie, como se configuraría; al barrer la amplitud no se toca,
+    así que la INL incluye el corrimiento del disparo. Sin lugar para la meseta en
+    la compuerta (pulsos muy cortos con k y m que no escalan bien), sin trapecio."""
+    fwhm = float(fwhm_s) * pu.FS_HZ
+    c = r2.cfg(n_acc=1, gate_short=cfg1['corta'], gate_long=cfg1['larga'],
+               trap_k=max(int(round(fwhm / 4)), 1), trap_m=max(int(round(fwhm)), 1),
+               trap_mq=_mq_cola(tpl), **r2.disparo_para(tpl, a_pre=AMP_PRE, sigma=sigma_n))
+    t = r2.trap_para(tpl, c)
+    return {**c, **t} if t else {**c, 'trap': False}
+
+
+def _corrida_mca2(familia, fwhm_s, amp, ruido, rng, n_fase, por_fase, cfg1, con_base):
+    """`corrida` sobre la réplica del MCA2: todos los estimadores salen de la misma
+    ventana, así que un evento es una fila con su primer disparo."""
+    sal = {e: [] for e in ESTIMADORES}
+    fases, largos = [], []
+    perdidos = 0
+    tpl0 = (plantilla_ref(fwhm_s, 0.0) if familia == 'referencia'
+            else plantilla(familia, fwhm_s, 0.0))
+    c = _cfg_mca2(tpl0, fwhm_s, cfg1, ruido['sigma_n'])
+    for i_f, fase in enumerate(np.arange(n_fase) / n_fase):
+        tpl = (plantilla_ref(fwhm_s, fase) if familia == 'referencia'
+               else plantilla(familia, fwhm_s, fase))
+        dat, paso, _ = _lote(tpl, amp, por_fase, ruido['sigma_n'],
+                             ruido['sigma_bl'] if con_base else 0.0,
+                             ruido['tau_c'], rng)
+        ev, _ = r2.eventos_mc(dat, c)
+        fila = ev['i_par'] // paso
+        ok = np.diff(np.concatenate(([-1], fila))) > 0
+        perdidos += por_fase - int(ok.sum())
+        if not ok.any():
+            continue
+        i0, t_pico = ev['i0'][ok], ev['t_pico'][ok]
+        sal['pico'].append(ev['pico'][ok].astype(float))
+        sal['pico_par'].append(_parabolico(dat, i0 + t_pico))
+        sal['q_fija'].append(ev['q_tot'][ok].astype(float))
+        sal['trapecio'].append(ev['trap'][ok].astype(float))
+        fases.append(np.full(int(ok.sum()), i_f))
+        largos.append(ev['largo'][ok].astype(float))
+    if not fases:
+        return None
+    return {e: np.concatenate(v) for e, v in sal.items()} | \
+           {'_fase': np.concatenate(fases), '_perdidos': perdidos,
+            '_largo': np.concatenate(largos),
+            '_n': int(np.concatenate(fases).size)}
+
+
 def corrida(familia, fwhm_s, amp, n_ev, ruido, rng, n_fase=32,
             cfg0=None, cfg1=None, con_base=True):
     """Devuelve, por estimador, el array de estimaciones y su bin de fase.
@@ -339,6 +419,9 @@ def corrida(familia, fwhm_s, amp, n_ev, ruido, rng, n_fase=32,
     cfg0 = cfg0 or pu.CFG_MODO0
     cfg1 = cfg1 or pu.CFG_MODO1
     por_fase = max(int(n_ev // n_fase), 1)
+    if 'trapecio' in ESTIMADORES:
+        return _corrida_mca2(familia, fwhm_s, amp, ruido, rng, n_fase, por_fase,
+                             cfg1, con_base)
     sal = {e: [] for e in ESTIMADORES}
     fases, largos = [], []
     perdidos = 0
@@ -437,6 +520,8 @@ def analizar(familia, fwhm_s, amp, n_ev, ruido, rng, n_fase=32, cfg1=None):
 
     est = {}
     for e in ESTIMADORES:
+        if not np.any(base[e]):              # el trapecio que no entró en la compuerta
+            continue
         s_tot, s_rui, s_fas, med = anova(base[e], base['_fase'])
         _, s_blanco, _, _ = anova(sin_bl[e], sin_bl['_fase'])
         s_base = float(np.sqrt(max(s_rui ** 2 - s_blanco ** 2, 0.0)))
@@ -446,10 +531,12 @@ def analizar(familia, fwhm_s, amp, n_ev, ruido, rng, n_fase=32, cfg1=None):
         # Los anchos van relativos al CENTROIDE medido, que es la definición de
         # laboratorio de la resolución; el sesgo, en cambio, va contra la
         # ganancia teórica, que es la única forma de que signifique algo.
-        g = ganancia_teorica(e, geo)
+        # El trapecio no tiene una ganancia de geometría: sale de k, M y sh, y la
+        # meseta de las formas sin cola no es plana. Sin sesgo que informar.
+        sesgo = float('nan') if e == 'trapecio' else (med / ganancia_teorica(e, geo) - amp) / amp
         est[e] = dict(sigma=s_tot / med, ruido=s_rui / med,
                       blanco=s_blanco / med, base=s_base / med,
-                      fase=s_fas / med, sesgo=(med / g - amp) / amp,
+                      fase=s_fas / med, sesgo=sesgo,
                       fwhm=fw / med, sigma_cuentas=s_tot / (med / amp),
                       ganancia=med / amp)
     return dict(geo=geo, est=est, crb=crb,
@@ -522,7 +609,7 @@ def tablas(res, ruido, amp, fwhm_s):
     print('\n### Geometría de cada familia\n')
     print(f'FWHM = {fwhm_pts:.0f} muestras, amplitud {amp:.0f} cuentas\n')
     print('| familia | Σf [muestras] | Σf/FWHM | √Σf² | Σf²/FWHM | M_ef | '
-          'caída máx. [cuentas] | largo | ventana histéresis |')
+          'caída máx. [cuentas] | largo | ventana |')
     print('|---|---|---|---|---|---|---|---|---|')
     for f, r in res.items():
         g = r['geo']
@@ -684,7 +771,8 @@ def barrido_ancho(familias, anchos_s, amp, n_ev, ruido, rng, n_fase=32):
 
 def figura_barrido(bar, familias, anchos_s, out):
     """σ contra ancho de pulso, un panel por familia."""
-    col = {'pico': AZUL, 'pico_par': VERDE, 'q_hist': ROJO, 'q_fija': NARAN}
+    col = {'pico': AZUL, 'pico_par': VERDE, 'q_hist': ROJO, 'q_fija': NARAN,
+           'trapecio': '#7a5bbd'}
     us = np.array(anchos_s) * 1e6
     fig, axes = plt.subplots(1, len(familias), figsize=(4.4 * len(familias), 4.0),
                              sharey=True)
@@ -706,7 +794,7 @@ def figura_barrido(bar, familias, anchos_s, out):
     axes[0].set_ylabel('σ del estimador  [% de la amplitud]')
     axes[-1].legend(loc='upper right', fontsize=8.5)
     fig.tight_layout()
-    p = os.path.join(out, '13_estimadores_vs_ancho.png')
+    p = os.path.join(out, f'13_estimadores_vs_ancho{_sufijo()}.png')
     fig.savefig(p, bbox_inches='tight')
     plt.close(fig)
     print(f'figura: {os.path.relpath(p)}')
@@ -743,9 +831,10 @@ def figura(res, out, amp, ruido):
     total, que es el otro dato, va escrito arriba de cada barra.
     """
     fams = [f for f in res if res[f]['est']]
-    col = {'pico': AZUL, 'pico_par': VERDE, 'q_hist': ROJO, 'q_fija': NARAN}
-    mk = {'pico': 'o', 'pico_par': '.', 'q_hist': 'v', 'q_fija': 'D'}
-    ms = {'pico': 11, 'pico_par': 7, 'q_hist': 8, 'q_fija': 7}
+    col = {'pico': AZUL, 'pico_par': VERDE, 'q_hist': ROJO, 'q_fija': NARAN,
+           'trapecio': '#7a5bbd'}
+    mk = {'pico': 'o', 'pico_par': '.', 'q_hist': 'v', 'q_fija': 'D', 'trapecio': 's'}
+    ms = {'pico': 11, 'pico_par': 7, 'q_hist': 8, 'q_fija': 7, 'trapecio': 7}
 
     fig, (a1, a2) = plt.subplots(1, 2, figsize=(13.2, 4.8),
                                  gridspec_kw=dict(width_ratios=(1.15, 1)))
@@ -753,7 +842,8 @@ def figura(res, out, amp, ruido):
     y = np.arange(len(fams))
     for e in ESTIMADORES:
         relleno = 'none' if e == 'pico' else col[e]
-        a1.plot([100 * res[f]['est'][e]['sigma'] for f in fams], y,
+        a1.plot([100 * res[f]['est'][e]['sigma'] if e in res[f]['est'] else np.nan
+                 for f in fams], y,
                 mk[e], mfc=relleno, mec=col[e], mew=1.6, ms=ms[e],
                 label=NOMBRE_EST[e], ls='none')
     a1.plot([100 * res[f]['crb'] for f in fams], y, '|', color=TINTA2, ms=16,
@@ -772,6 +862,8 @@ def figura(res, out, amp, ruido):
     ancho = 0.78 / max(len(muestra), 1)
     for i, f in enumerate(muestra):
         for j, e in enumerate(ESTIMADORES):
+            if e not in res[f]['est']:       # el trapecio que no entró en la compuerta
+                continue
             d = res[f]['est'][e]
             v = np.array([d['blanco'], d['base'], d['fase']]) ** 2
             v = v / v.sum() if v.sum() > 0 else v
@@ -801,7 +893,7 @@ def figura(res, out, amp, ruido):
         for lado in ('top', 'right'):
             ax.spines[lado].set_visible(False)
     fig.tight_layout()
-    p = os.path.join(out, '12_varianza_estimadores.png')
+    p = os.path.join(out, f'12_varianza_estimadores{_sufijo()}.png')
     fig.savefig(p, bbox_inches='tight')
     plt.close(fig)
     print(f'\nfigura: {os.path.relpath(p)}')
@@ -821,8 +913,12 @@ def main():
     ap.add_argument('--sin-figura', action='store_true')
     ap.add_argument('--sin-barrido', action='store_true')
     ap.add_argument('--semilla', type=int, default=11)
+    ap.add_argument('--mapa', default='MCA2', choices=['MCA2', 'MCA1'])
     a = ap.parse_args()
 
+    if a.mapa == 'MCA1':
+        global ESTIMADORES
+        ESTIMADORES = ESTIMADORES_MCA1
     ruido = modelo_ruido()
     rng = np.random.default_rng(a.semilla)
     print(f'=== varianza de los estimadores ===')

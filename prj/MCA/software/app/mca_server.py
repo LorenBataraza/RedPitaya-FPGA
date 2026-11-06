@@ -34,9 +34,13 @@ from API.mca import (CAP_HIST_H_PSD, MCA_PHYS, MCANotPresent,
                      mca_get_baseline_now, mca_get_metadata, mca_open,
                      mca_read_counters, mca_read_last_event, mca_read_map2d,
                      mca_read_histogram, mca_start, mca_stop)
-from API.mca_net import PORT_DEFAULT, PROTOCOL_VERSION, Channel, ProtocolError
-from API.mca_remote import FakeMCA, FakeMultiTrigger, FakeOsc
-from API.multitrigger import (multitrigger_configure, multitrigger_get_config,
+from API._despacho import API_REGISTRADA, NoRemota
+from API.mca_net import (PORT_DEFAULT, PROTOCOL_VERSION, Channel, ProtocolError,
+                         a_json, de_json)
+from API.mca_remote import FakeMCA, FakeMtRegion, FakeMultiTrigger, FakeOsc
+from API.multitrigger import (MTRG_PHYS, multitrigger_armar_mca,
+                              multitrigger_configure, multitrigger_desarmar_mca,
+                              multitrigger_disparo_mca, multitrigger_get_config,
                               multitrigger_get_status)
 from API.osciloscope import (ADC_CNT_PER_V, N_BUF, SCOPE_PHYS,
                              FS as FS_OSC,
@@ -59,15 +63,17 @@ def log(*a):
 class ServidorMCA:
 
     def __init__(self, fake=False, bitstream=BITSTREAM_MCA, fake_h_aw=14,
-                 fake_rsz=14):
+                 fake_rsz=14, impl=None):
         self.fake = fake
+        self.impl = impl                # 'c' | 'py' | None: el de mca_open()
         self.fake_h_aw = fake_h_aw
         self.fake_rsz = fake_rsz
         self.bitstream = bitstream
         self.h = None
         self.ig = None                  # slot 6: opcional, puede no estar
         self.osc = None                 # slot del OSC, descubierto por SLOTS
-        self.mt = None                  # multitrigger: mismo bloque físico
+        self.mt = None                  # multitrigger: máscaras, shield, snapshot
+        self.mtr = None                 # su región propia: el disparo del MCA2
         self.bases = {}                 # módulo -> dirección resuelta
         self.notas_bases = []           # cómo se resolvió cada una, para el log
         self._rp_listo = False          # rp_Init() se hace en la 1ª captura
@@ -110,7 +116,7 @@ class ServidorMCA:
             ok, detalle = pl_probe(MCA_PHYS, 0)
             if not ok:
                 raise MCANotPresent(f'el bus no contesta en {MCA_PHYS:#x}: {detalle}')
-            self.h = mca_open()
+            self.h = mca_open(impl=self.impl)
             self.motivo_ausente = None
             info = self.h.identify(verbose=False)
             log(f"MCA abierto: {info['n_channels']} canales, "
@@ -177,7 +183,7 @@ class ServidorMCA:
         """El osciloscopio y el multitrigger. Que falten NO es un error.
 
         Comparten el bloque físico —son dos APIs sobre la misma región— así que
-        el multitrigger reusa el mapeo del osciloscopio y se abre o no con él.
+        el multitrigger tiene su región propia, y se abre o no por su cuenta.
         Mismo criterio que el slot 6: sin ellos el MCA anda igual y lo único que
         se pierde son las dos pestañas.
         """
@@ -185,22 +191,41 @@ class ServidorMCA:
         if self.fake:
             self.osc = FakeOsc(n_buf=1 << self.fake_rsz, rate_hz=1000.0)
             self.mt = FakeMultiTrigger()
-            self.bases = {'osc': SCOPE_PHYS, 'mtrg': SCOPE_PHYS}
+            self.mtr = FakeMtRegion(osc=self.osc)
+            self.bases = {'osc': SCOPE_PHYS, 'mtrg': MTRG_PHYS}
             self.notas_bases = ['osc/mtrg simulados (--fake)']
             return
         base, nota = self._base_de('osc', SCOPE_PHYS)
         self.notas_bases.append(nota)
         try:
-            from API.multitrigger import MultiTrigger
             from API.osciloscope import osciloscope_open
             self.osc = osciloscope_open(phys=base)
-            self.mt = MultiTrigger.open(osc=self.osc)
-            self.bases = {'osc': base, 'mtrg': base}
-            log(f'osciloscopio + multitrigger abiertos en {base:#x}')
+            self.bases = {'osc': base}
+            log(f'osciloscopio abierto en {base:#x}')
             log('  ' + nota)
         except Exception as e:                                  # noqa: BLE001
-            self.osc = self.mt = None
+            self.osc = None
             log(f'sin osciloscopio: {type(e).__name__}: {e}')
+        self._abrir_mtr()
+
+    def _abrir_mtr(self):
+        """La región propia del multitrigger: la que arma el disparo del MCA2.
+
+        En el MCA2 la ventana la abre sólo ese disparo, así que sin esta región
+        el MCA no mide. Que falte igual no es un error de arranque: el cliente
+        lo ve en `identify` (`has_disparo`) y lo dice.
+        """
+        base, nota = self._base_de('mtrg', MTRG_PHYS)
+        self.notas_bases.append(nota)
+        try:
+            from API.multitrigger import MtRegion, MultiTrigger
+            self.mtr = MtRegion.open(phys=base)
+            self.mt = MultiTrigger.open(phys=base)
+            self.bases['mtrg'] = base
+            log(f'región del multitrigger abierta en {base:#x}')
+        except Exception as e:                                  # noqa: BLE001
+            self.mtr = self.mt = None
+            log(f'sin la región del multitrigger: {type(e).__name__}: {e}')
 
     def _asegurar_rp(self):
         """`rp_Init()`, una sola vez y recién cuando hace falta.
@@ -229,7 +254,7 @@ class ServidorMCA:
                 self.h = None
             # El multitrigger comparte el mapeo del osciloscopio, así que se
             # cierra primero: el dueño del fd es el que libera.
-            for atributo in ('mt', 'osc', 'ig'):
+            for atributo in ('mtr', 'mt', 'osc', 'ig'):
                 bloque = getattr(self, atributo)
                 if bloque is not None:
                     try:
@@ -291,6 +316,8 @@ class ServidorMCA:
         return {'has_integracion': self.ig is not None,
                 'has_osc':  self.osc is not None,
                 'has_mtrg': self.mt is not None,
+                'has_disparo': self.mtr is not None and self.osc is not None,
+                'has_pz': self.mtr is not None and self.mtr.has_pz(),
                 'bases': {k: int(v) for k, v in self.bases.items()},
                 'bases_notas': list(self.notas_bases),
                 'n_buf': self._n_buf(), 'fs_hz': FS_OSC,
@@ -315,7 +342,11 @@ class ServidorMCA:
                      'running': self.h.running,
                      'protocol': PROTOCOL_VERSION, 'fake': self.fake,
                      'fpga_state': self._fpga_state(),
-                     'bitstream': self.bitstream})
+                     'bitstream': self.bitstream,
+                     # Con qué implementación corre la API del lado de la
+                     # placa: lo que miden las funciones que llegan por `call`.
+                     'impl': getattr(self.h, 'impl', 'py'),
+                     'libmca_version': getattr(self.h, 'libmca_version', None)})
         info.update(self._bloques())
         return info
 
@@ -427,7 +458,7 @@ class ServidorMCA:
             self.h = None
         # El multitrigger comparte el mapeo del osciloscopio: primero el que no
         # es dueño del fd.
-        for atributo in ('mt', 'osc', 'ig'):
+        for atributo in ('mtr', 'mt', 'osc', 'ig'):
             bloque = getattr(self, atributo)
             if bloque is not None:
                 try:
@@ -622,6 +653,59 @@ class ServidorMCA:
         multitrigger_disarm(self._osc(), self._mt())
         return self.op_mtrg_get()
 
+    def op_call(self, fn, a=None, k=None):
+        """Una función de API/mca.py, entera, sobre el handle de la placa.
+
+        Es la forma de un comando SCPI en Red Pitaya: el cliente no corre la
+        lógica, la pide. Sólo se acepta lo que `@_api` registró en el módulo
+        del MCA con `remoto=True` (la lista blanca es ese registro); lo que
+        espera (`mca_read_acquire*`) no, porque tendría tomado el lock y
+        congelaría la exposición y el `status`. Corre la envoltura que despacha,
+        así sirve igual con `--impl py`.
+
+        Un arreglo vuelve como payload binario; lo demás, en JSON como
+        `{"valor": ...}` con las tuplas marcadas (`a_json`). Una excepción
+        vuelve con su tipo.
+        """
+        entrada = API_REGISTRADA.get(fn)
+        if entrada is None or entrada.modulo != 'API.mca':
+            raise ValueError(f'call: {fn!r} no es una función de hardware de '
+                             'API/mca.py')
+        if not entrada.remoto:
+            raise NoRemota(f'{fn} no se llama por red: bloquearía el servidor. '
+                           'Usar ctrl.start(seconds=...) y status.')
+        h = self._handle()
+        r = entrada.fn(h, *de_json(list(a or [])), **de_json(dict(k or {})))
+        # Los efectos que ctrl.stop y ctrl.clear tienen sobre el estado del
+        # servidor, también cuando llegan como funciones.
+        if fn == 'mca_stop':
+            self._exp_objetivo = None
+        elif fn == 'mca_clear':
+            self._ultimo = None
+            self._exp_hecha = False
+        if isinstance(r, np.ndarray):
+            return {}, r
+        # Envuelto: un None suelto viajaría como {} (send_result).
+        return {'valor': a_json(r)}
+
+    def op_mca_disparo(self, ch=0, armar=None, L=8, G=4, thr=600, hyst=300,
+                       fuente='pendiente', mq=3992):
+        """El disparo del MCA2: armar=True lo arma, False lo apaga, None sólo
+        informa. Sin él la ventana no abre (ver `multitrigger_armar_mca`).
+        fuente='pz' arma el disparo con polo-cero (el del banco de trapecios),
+        con `mq` el M·16 del MCA; 'pendiente' el de siempre, con L, G, thr, hyst."""
+        if self.mtr is None or self.osc is None:
+            raise RuntimeError('no está la región del multitrigger o el '
+                               'osciloscopio: no se puede armar el disparo')
+        ch = int(ch)
+        if armar:
+            multitrigger_armar_mca(self.osc, self.mtr, ch=ch, L=int(L),
+                                   G=int(G), thr=int(thr), hyst=int(hyst),
+                                   fuente=str(fuente), mq=int(mq))
+        elif armar is not None:
+            multitrigger_desarmar_mca(self.osc, self.mtr, ch=ch)
+        return multitrigger_disparo_mca(self.mtr, ch)
+
     # ---------- despacho ----------
 
     _OPS = {
@@ -654,6 +738,9 @@ class ServidorMCA:
         'mtrg.arm':         ('op_mtrg_arm', ('mask_ch0', 'mask_ch1', 'thr',
                                              'hyst', 'delay', 'auto_rearm')),
         'mtrg.disarm':      ('op_mtrg_disarm', ()),
+        'mca.disparo':      ('op_mca_disparo', ('ch', 'armar', 'L', 'G', 'thr',
+                                                'hyst', 'fuente', 'mq')),
+        'call':             ('op_call', ('fn', 'a', 'k')),
     }
 
     def despachar(self, op, args):
@@ -797,6 +884,10 @@ def main():
                    help='MCA simulado, para desarrollar sin placa')
     p.add_argument('--bitstream', default=BITSTREAM_MCA)
     p.add_argument('--selftest', action='store_true')
+    p.add_argument('--impl', choices=('c', 'py'), default=None,
+                   help="la implementación de la API en la placa: 'c' (libmca) "
+                        "o 'py' (la referencia Python). Sin pedirla, la de "
+                        "mca_open() ($MCA_IMPL, o C)")
     # Sólo con --fake. Existe para poder ejercitar al cliente contra las dos
     # geometrías reales: 14 es el bitstream viejo (16384 canales) y 13 el nuevo
     # (8192). El cliente no debería notar la diferencia, y hasta que esto se
@@ -813,7 +904,7 @@ def main():
     a = p.parse_args()
 
     srv = ServidorMCA(fake=a.fake, bitstream=a.bitstream, fake_h_aw=a.fake_h_aw,
-                      fake_rsz=a.fake_rsz)
+                      fake_rsz=a.fake_rsz, impl=a.impl)
     if a.selftest:
         try:
             return selftest(srv)

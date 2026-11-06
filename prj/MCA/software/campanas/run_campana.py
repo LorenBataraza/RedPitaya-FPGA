@@ -12,7 +12,6 @@ while _RAIZ != '/' and not os.path.isfile(os.path.join(_RAIZ, 'API', 'mca.py')):
 sys.path.insert(0, _RAIZ)
 import numpy as np
 import testbench_mca as tb
-import mca_utils as mu
 
 outdir = sys.argv[1]
 os.makedirs(outdir, exist_ok=True)
@@ -52,12 +51,13 @@ try:
                               outdir=outdir)
     res['compare_estimators'] = {k: [float(x) for x in v] for k, v in r.items()}
 finally:
-    gen.output(1, False); gen.close(); mca.close()
+    tb.desconectar(mca, gen)
 
 res['meta'] = {'fecha': time.strftime('%Y-%m-%d %H:%M:%S'),
                'placa': '10.73.28.27',
                'generador': 'Rigol DG4162 ARB -> IN1',
-               'bitstream': 'mca_red_pitaya.bit.bin',
+               'bitstream': 'mca_red_pitaya.bit.bin (MCA2)',
+               'disparo': dict(tb.DISPARO),
                'pulse_width_s': tb.PULSE_WIDTH_S,
                'cfg': dict(tb.DEFAULT_CFG)}
 with open(os.path.join(outdir, 'resumen.json'), 'w') as f:

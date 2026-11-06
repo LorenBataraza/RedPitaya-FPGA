@@ -49,6 +49,58 @@ plt.rcParams.update({
 MODO = {0: 'histéresis', 1: 'compuertas fijas'}
 RAZON = {'q_pico': 'Q/pico', 'psd': 'Q_cola/Q_tot (en HW)'}
 
+# Una configuración tiene su color y su marcador en TODAS las figuras, en este
+# orden fijo. El orden pasa las pruebas de color entre vecinos (ΔE CVD >= 8), pero
+# con seis líneas que se cruzan cualquiera puede quedar al lado de cualquiera: el
+# marcador y el nombre al final de la línea son los que aseguran que se distingan.
+PALETA = ('#2a78d6', '#eb6834', '#c2417e', '#a5820f', '#7a5bbd', '#2e8b57')
+MARCAS = ('o', 's', '^', 'D', 'v', 'P')
+
+
+def _es_mca2(res):
+    return res.get('mapa') == 'MCA2'
+
+
+def _indice(res, c):
+    """La posición fija de la configuración: el color sigue a la configuración."""
+    if _es_mca2(res):
+        return list(res['configs']).index(c['modo'])
+    return next(i for i, x in enumerate(res['combinaciones']) if x is c)
+
+
+def _color(res, c):
+    return PALETA[_indice(res, c) % len(PALETA)]
+
+
+def _marca(res, c):
+    return MARCAS[_indice(res, c) % len(MARCAS)]
+
+
+def _corta(res, c):
+    """La etiqueta corta de una combinación, para las leyendas."""
+    return f'{c["espectro"]} {c["modo"]}' if _es_mca2(res) else f'{c["espectro"]} m{c["modo"]}'
+
+
+def _titulo(res, c):
+    if _es_mca2(res):
+        return f'{c["espectro"]} — {res["configs"][c["modo"]]["etiqueta"]}'
+    return f'{c["espectro"]} — modo {c["modo"]} ({MODO[c["modo"]]})'
+
+
+def _para_superponer(res):
+    """Las combinaciones que entran en una misma figura de líneas: en el MCA2 son
+    doce, así que se dibuja un espectro solo (el otro cuenta la misma historia)."""
+    combos = res['combinaciones']
+    if not _es_mca2(res):
+        return combos
+    esp = 'linea' if any(c['espectro'] == 'linea' for c in combos) else combos[0]['espectro']
+    return [c for c in combos if c['espectro'] == esp]
+
+
+def _grilla(n):
+    filas = max(1, (n + 1) // 2)
+    return plt.subplots(filas, 2 if n > 1 else 1, figsize=(11, 3.6 * filas), squeeze=False)
+
 
 def _limpiar(ax):
     for lado in ('top', 'right'):
@@ -71,10 +123,7 @@ def _suavizar(h, f=8):
 def fig_espectros(d, res, out):
     """Los tres espectros superpuestos: qué le hace el apilamiento al histograma."""
     combos = res['combinaciones']
-    fig, axes = plt.subplots(len(combos) // 2 if len(combos) > 2 else 1,
-                             2 if len(combos) > 1 else 1,
-                             figsize=(11, 3.6 * max(1, len(combos) // 2)),
-                             squeeze=False)
+    fig, axes = _grilla(len(combos))
     axes = axes.ravel()
 
     for ax, c in zip(axes, combos):
@@ -103,8 +152,7 @@ def fig_espectros(d, res, out):
         ax.set_ylim(1e-6, None)
         ax.set_xlabel('canal (= cuentas de amplitud verdadera)')
         ax.set_ylabel('fracción por canal')
-        ax.set_title(f'{c["espectro"]} — modo {c["modo"]} ({MODO[c["modo"]]})',
-                     loc='left', color=TINTA2)
+        ax.set_title(_titulo(res, c), loc='left', color=TINTA2)
         _limpiar(ax)
         ax.legend(loc='upper right', fontsize=8)
 
@@ -114,16 +162,15 @@ def fig_espectros(d, res, out):
 
 def fig_distorsion(d, res, out):
     """Las métricas de distorsión contra la tasa, con el modelo de tiempo muerto."""
-    combos = res['combinaciones']
+    combos = _para_superponer(res)
     fig, axes = plt.subplots(1, 3, figsize=(13, 3.8))
 
     for i, c in enumerate(combos):
         roi = res['espectros'][c['espectro']]
         p = roi['picos'][0]
         tasas = np.array([f['tasa'] for f in c['filas']])
-        col = RAMPA[i % len(RAMPA)] if c['modo'] == 0 else None
-        col = [AZUL, NARAN, '#7a5bbd', '#2e8b57'][i % 4]
-        et = f'{c["espectro"]} m{c["modo"]}'
+        col, mk = _color(res, c), _marca(res, c)
+        et = _corta(res, c)
 
         area = np.array([f[f'm{p}']['area_rel'] for f in c['filas']])
         cont = np.array([f[f'm{p}']['continuo'] for f in c['filas']])
@@ -137,13 +184,14 @@ def fig_distorsion(d, res, out):
         #     apilamiento se llevó fuera del pico. Comparar el fotopico contra el
         #     modelo de tiempo muerto sería mezclar las dos cosas.
         axes[0].plot(tasas / 1e3, thru, '-', color=col, lw=0.9, alpha=.55)
-        axes[0].plot(tasas / 1e3, area, 'o-', color=col, ms=3.5, lw=1.6, label=et)
-        axes[1].plot(tasas / 1e3, 100 * cont, 'o-', color=col, ms=3.5, lw=1.3,
+        axes[0].plot(tasas / 1e3, area, '-', marker=mk, color=col, ms=3.5, lw=1.6, label=et)
+        axes[1].plot(tasas / 1e3, 100 * cont, '-', marker=mk, color=col, ms=3.5, lw=1.3,
                      label=et)
-        axes[2].plot(tasas / 1e3, l1, 'o-', color=col, ms=3.5, lw=1.3, label=et)
+        axes[2].plot(tasas / 1e3, l1, '-', marker=mk, color=col, ms=3.5, lw=1.3, label=et)
 
-        # modelo paralizable con la ventana medida: m/n = exp(-lambda*L0)
-        if i < 2:
+        # modelo paralizable con la ventana medida: m/n = exp(-lambda*L0). El MCA2
+        # no paraliza: la pérdida por ranuras va aparte, en perdida_y_buenos.png.
+        if i < 2 and not _es_mca2(res):
             L0 = c['L0'] / pu.FS_HZ
             axes[0].plot(tasas / 1e3, np.exp(-tasas * L0), ls='--', lw=1.0,
                          color=MUDO,
@@ -166,6 +214,8 @@ def fig_distorsion(d, res, out):
 def fig_mapa(d, res, out):
     """Amplitud contra factor de forma: dónde se separan limpios y apilados."""
     combos = res['combinaciones']
+    if _es_mca2(res):                  # doce filas no se leen: lo que hay para decir
+        combos = [c for c in _para_superponer(res) if c['modo'] in ('r1', 'r4', 'banco')]
     fig, axes = plt.subplots(len(combos), 2, figsize=(10.5, 3.3 * len(combos)),
                              squeeze=False)
 
@@ -199,7 +249,7 @@ def fig_mapa(d, res, out):
             ax.set_xlim(0, np.percentile(a_true, 99.8))
             ax.set_xlabel('amplitud verdadera equivalente [cuentas]')
             ax.set_ylabel(RAZON[rz])
-            ax.set_title(f'{c["espectro"]} m{c["modo"]} — {RAZON[rz]}',
+            ax.set_title(f'{_corta(res, c)} — {RAZON[rz]}',
                          loc='left', color=TINTA2, fontsize=9)
             _limpiar(ax)
     axes[0][0].legend(fontsize=7, loc='upper left', markerscale=6)
@@ -212,10 +262,7 @@ def fig_corte(d, res, out):
     combos = res['combinaciones']
     ks = res['ks']
     ik = int(np.argmin(np.abs(np.array(ks) - 3.0)))
-    fig, axes = plt.subplots(len(combos) // 2 if len(combos) > 2 else 1,
-                             2 if len(combos) > 1 else 1,
-                             figsize=(11, 3.6 * max(1, len(combos) // 2)),
-                             squeeze=False)
+    fig, axes = _grilla(len(combos))
     axes = axes.ravel()
 
     for ax, c in zip(axes, combos):
@@ -240,8 +287,7 @@ def fig_corte(d, res, out):
         ax.set_ylim(1e-6, None)
         ax.set_xlabel('canal')
         ax.set_ylabel('fracción por canal')
-        ax.set_title(f'{c["espectro"]} — modo {c["modo"]} ({MODO[c["modo"]]})',
-                     loc='left', color=TINTA2)
+        ax.set_title(_titulo(res, c), loc='left', color=TINTA2)
         _limpiar(ax)
         ax.legend(loc='upper right', fontsize=8)
     fig.tight_layout()
@@ -250,7 +296,7 @@ def fig_corte(d, res, out):
 
 def fig_compromiso(d, res, out):
     """Eficiencia contra rechazo: lo que cuesta cada punto de corrección."""
-    combos = res['combinaciones']
+    combos = _para_superponer(res)
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.0))
 
     for i, c in enumerate(combos):
@@ -259,14 +305,14 @@ def fig_compromiso(d, res, out):
         tasas = np.array([f['tasa'] for f in c['filas']])
         it = int(np.argmin(np.abs(tasas - 1e5)))
         fila = c['filas'][it]
-        col = [AZUL, NARAN, '#7a5bbd', '#2e8b57'][i % 4]
+        col = _color(res, c)
 
         for rz, ls, mk in (('q_pico', '-', 'o'), ('psd', '--', 's')):
             sub = [x for x in fila['cortes'] if x['razon'] == rz]
             ef = np.array([x['eficiencia'] for x in sub])
             re = np.array([x['rechazo'] for x in sub])
             l1 = np.array([x[f'm{p}']['l1'] for x in sub])
-            et = f'{c["espectro"]} m{c["modo"]} {RAZON[rz]}'
+            et = f'{_corta(res, c)} {RAZON[rz]}'
             axes[0].plot(100 * re, 100 * ef, ls, marker=mk, color=col, ms=3.5,
                          lw=1.2, label=et)
             axes[1].plot([x['k'] for x in sub], l1, ls, marker=mk, color=col,
@@ -287,8 +333,68 @@ def fig_compromiso(d, res, out):
     _guardar(fig, out, 'compromiso.png')
 
 
+def fig_perdida_y_buenos(d, res, out):
+    """Lo que sólo tiene el MCA2: cuánto se pierde por ranuras y cuánto sirve.
+
+    La izquierda es la pérdida de disparos contra Erlang B, con la carga de disparos
+    medida. Es un modelo de arribos de Poisson, y por eso se aparta hacia arriba: el
+    disparo funde los pulsos cercanos, y los que quedan llegan más separados.
+
+    La derecha es la pregunta de fondo: por segundo, cuántos eventos miden bien la
+    amplitud del pulso que los disparó. Más ranuras dan más eventos, no más eventos
+    buenos, si lo que se publica es la integral.
+    """
+    if not _es_mca2(res):
+        return
+    combos = _para_superponer(res)
+    fig, axes = plt.subplots(1, 2, figsize=(12.5, 4.4))
+    rotulados = []
+    for c in combos:
+        col, mk = _color(res, c), _marca(res, c)
+        tasas = np.array([f['tasa'] for f in c['filas']])
+        perd = np.array([f['frac_perdidos'] for f in c['filas']])
+        erl = np.array([f['erlang'] for f in c['filas']])
+        buenos = np.array([f['tasa_buenos'] for f in c['filas']])
+        et = f'{c["modo"]}: {res["configs"][c["modo"]]["etiqueta"]}'
+        # Sin ceros en el eje log: lo que no pierde nada, simplemente no se dibuja.
+        v = perd > 0
+        axes[0].plot(tasas[v] / 1e3, 100 * perd[v], '-', marker=mk, color=col, ms=4.5,
+                     lw=1.5, label=et)
+        v = erl > 1e-4
+        axes[0].plot(tasas[v] / 1e3, 100 * erl[v], ':', color=col, lw=1.1)
+        v = buenos > 0
+        axes[1].plot(tasas[v] / 1e3, buenos[v] / 1e3, '-', marker=mk, color=col, ms=4.5,
+                     lw=1.5, label=et)
+        # El nombre al final de la línea, salvo que pise al de otra: la leyenda está.
+        y_fin = buenos[v][-1] / 1e3
+        if all(abs(np.log10(y_fin / y)) > 0.08 for y in rotulados):
+            rotulados.append(y_fin)
+            axes[1].annotate(c['modo'], (tasas[v][-1] / 1e3, y_fin), xytext=(6, 0),
+                             textcoords='offset points', va='center', fontsize=8,
+                             color=TINTA2)
+    xs = np.array([f['tasa'] for f in combos[0]['filas']]) / 1e3
+    axes[1].plot(xs, xs, '--', color=MUDO, lw=1.0, label='todos los pulsos')
+    axes[0].set_yscale('log')
+    axes[0].set_ylabel('disparos perdidos [%]')
+    axes[0].set_title('pérdida por ranuras (punteado: Erlang B)', loc='left', color=TINTA2)
+    axes[1].set_yscale('log')
+    axes[1].set_ylabel('eventos buenos [kcps]')
+    axes[1].set_title('eventos con error < 1 % contra la amplitud verdadera',
+                      loc='left', color=TINTA2)
+    for ax in axes:
+        ax.set_xscale('log')
+        ax.set_xlabel('tasa incidente [kcps]')
+        _limpiar(ax)
+    axes[1].legend(fontsize=7.5, loc='upper left')
+    fig.tight_layout()
+    _guardar(fig, out, 'perdida_y_buenos.png')
+
+
 def fig_familias_evento(d, res, out):
     """Lo que el MCA registra COMO UN SOLO EVENTO, en volts contra µs.
+
+    Es de la réplica del MCA1, con su ventana por histéresis: es donde la familia
+    de eventos se ve; con la compuerta del MCA2 todas las ventanas miden lo mismo.
 
     Es la figura que hace visible lo que el resto del estudio cuenta con
     números: por qué Q/pico separa las poblaciones de `mapa_forma.png`, y por
@@ -367,8 +473,8 @@ def fig_familias_evento(d, res, out):
         ax.set_ylabel('tensión [V]')
         _limpiar(ax)
 
-    fig.suptitle('Familias de evento del apilamiento — sombreado: la ventana '
-                 'del MCA.  Punteados: thr y thr−hyst.',
+    fig.suptitle('Familias de evento del apilamiento (réplica del MCA1) — sombreado: '
+                 'la ventana del MCA.  Punteados: thr y thr−hyst.',
                  x=0.008, ha='left', fontsize=10, color=TINTA2)
     fig.tight_layout(rect=(0, 0, 1, 0.965))
     _guardar(fig, out, 'familias_evento.png')
@@ -391,7 +497,7 @@ def main():
           f'{len(res["tasas"])} tasas, {len(res["combinaciones"])} combinaciones')
 
     for fn in (fig_familias_evento, fig_espectros, fig_distorsion,
-               fig_mapa, fig_corte, fig_compromiso):
+               fig_mapa, fig_corte, fig_compromiso, fig_perdida_y_buenos):
         try:
             fn(d, res, d)
         except Exception as e:                      # una figura mala no tira el resto

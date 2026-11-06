@@ -50,7 +50,7 @@ TS_NS      = 1e9 / FS             # 8 ns por sample @ decim=1
 BIT_ADC_P0 = 1 << 1               # bits de la OR_MASK (trg_src_bits)
 BIT_ADC_N0 = 1 << 2
 
-# OJO: el snapshot @0x218 NO usa el mismo layout que la máscara. La máscara
+# OJO: el snapshot NO usa el mismo layout que la máscara. La máscara
 # alterna posedge/negedge por canal (bit1=p0, bit2=n0, bit3=p1, ...), mientras
 # que el snapshot agrupa: {trig_ch[3:0], asg_n, asg_p, ext_n, ext_p,
 # adc_n[3:0], adc_p[3:0], sw_any} -> bits 1..4 = adc_p0..p3, bits 5..8 =
@@ -63,9 +63,10 @@ OFF_ADC_STATE = 0x000
 OFF_WP_TRIG   = (0x01C, 0x11C)
 OFF_WP_CUR    = (0x018, 0x118)
 OFF_WE_CNT    = (0x02C, 0x12C)
-OFF_SNAPSHOT  = 0x218
-OFF_DIS_WE    = 0x21C
-OFF_MASK      = (0x240, 0x244)
+# Estos tres son del multitrigger, en su region (sc.mt), no del osciloscopio.
+OFF_SNAPSHOT  = 0x018
+OFF_DIS_WE    = 0x01C
+OFF_MASK      = (0x040, 0x044)
 
 
 # ---------- análisis de tiempos con reloj de FPGA ----------
@@ -191,7 +192,7 @@ def trigger_alive(sc, dwell_s=0.05, ch=0, dec=1, fs=FS, n_buf=N_BUF):
             deltas.append((wp - wp_prev) % n_buf)
             wp_prev = wp
     d = np.asarray(deltas, dtype=float) * ts_us              # µs
-    dis_we = r32(OFF_DIS_WE)
+    dis_we = sc.mt.r32(OFF_DIS_WE)
     return dict(
         alive        = bool(d.size),
         n_cambios    = int(d.size),
@@ -201,9 +202,9 @@ def trigger_alive(sc, dwell_s=0.05, ch=0, dec=1, fs=FS, n_buf=N_BUF):
         dwell_s      = dwell_s,
         dis_act      = dis_we & 0xF,
         we_keep      = (dis_we >> 4) & 0xF,
-        mask_ch0     = r32(OFF_MASK[0]),
+        mask_ch0     = sc.mt.r32(OFF_MASK[0]),
         adc_state    = r32(OFF_ADC_STATE),
-        snapshot     = r32(OFF_SNAPSHOT),
+        snapshot     = sc.mt.r32(OFF_SNAPSHOT),
         we_cnt_us    = we_time_since_arm_us(sc, ch, dec, fs),
     )
 
@@ -607,7 +608,7 @@ def sweep_pulse_width(sc, rg, widths_s, ch=1, period_s=1e-3, thr=0.3,
 
     Un pulso de ancho W genera un flanco de subida y uno de bajada separados
     *exactamente* por W. Armando con `OR_MASK = BIT_ADC_P0 | BIT_ADC_N0`, el
-    `trig_snapshot` (@0x218) guarda cuál fue el ÚLTIMO evento aceptado:
+    `trig_snapshot` guarda cuál fue el ÚLTIMO evento aceptado:
 
       snapshot con adc_n0  ->  se aceptaron los dos flancos separados por W
       snapshot con adc_p0  ->  el de bajada cayó dentro del dead-time
@@ -672,7 +673,7 @@ def sweep_pulse_width(sc, rg, widths_s, ch=1, period_s=1e-3, thr=0.3,
         votos = []
         for _ in range(n_votos):
             time.sleep(max(0.005, 3 * period_s))
-            votos.append(sc.r32(OFF_SNAPSHOT))
+            votos.append(sc.mt.r32(OFF_SNAPSHOT))
         n_si = sum(1 for v in votos if v & SNAP_ADC_N0)
         snap = votos[-1]
         events, dur_s = sc.capture_n_events(n=n_events, timeout_ms=timeout_ms,

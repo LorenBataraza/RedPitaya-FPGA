@@ -83,9 +83,7 @@ def main(argv=None):
                 ida_y_vuelta=not args.sin_vuelta, outdir=args.outdir,
                 channel=args.channel)
         finally:
-            gen.output(args.gen_ch, False)
-            gen.close()
-            mca.close()
+            tb.desconectar(mca, gen, args.gen_ch)
 
     if not os.path.exists(npz):
         print(f'no hay {npz}: no se puede analizar', file=sys.stderr)

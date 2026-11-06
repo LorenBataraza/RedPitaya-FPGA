@@ -66,6 +66,7 @@ _RAIZ = _AQUI
 while _RAIZ != '/' and not os.path.isfile(os.path.join(_RAIZ, 'API', 'mca.py')):
     _RAIZ = os.path.dirname(_RAIZ)          # sube hasta software/
 import pileup as pu                                          # noqa: E402
+import replica_mca2 as r2                                    # noqa: E402
 import rigol_dg4162 as rg                                    # noqa: E402
 
 # --- paleta (la misma del resto del estudio) ---------------------------------
@@ -286,11 +287,11 @@ def _adaptado(m, s0, lags=range(-3, 4)):
     return mejor
 
 
-def simular_adc(g, n, rng, amplitud, sigma, fase=True, lead=64, trail=256):
-    """n pulsos aislados, cada uno con su fase, por el segmentador del RTL.
+def simular_adc(g, n, rng, amplitud, sigma, fase=True, lead=256, trail=512):
+    """n pulsos aislados, cada uno con su fase, por la réplica del MCA2.
 
     Devuelve dict estimador -> array de n amplitudes estimadas. `pico` es el
-    del RTL (`segmentar_rapido`); `boxcar` y `adaptado` se calculan sobre la
+    del RTL (`replica_mca2`); `boxcar` y `adaptado` se calculan sobre la
     misma matriz de muestras, así que los tres ven el MISMO ruido.
     """
     n = int(n)
@@ -310,15 +311,21 @@ def simular_adc(g, n, rng, amplitud, sigma, fase=True, lead=64, trail=256):
     loc = lead + paso * np.arange(n, dtype=np.int64)
     for k in range(n):
         dat[loc[k]:loc[k] + largo] = M[k]
-    ev = pu.segmentar_rapido(dat.astype(np.int64), **pu.CFG_MODO0)
+    # El MCA2: una ranura y el disparo por pendiente de la forma. La compuerta
+    # tiene que alcanzar el ápice (el de la cúspide está en la muestra 1442: la
+    # ventana por histéresis del MCA1 lo seguía, una compuerta de 384 no), y la
+    # ventana abre antes del pulso, así que el apareo es por el disparo.
+    s0 = plantilla_fase(g, 0.0)
+    c = r2.cfg(n_acc=1, gate_long=max(384, int(np.argmax(s0)) + 144),
+               **r2.disparo_para(s0))
+    ev, _ = r2.eventos_mc(dat.astype(np.int64), c)
     ok = ev['cerrado']
-    slot = np.searchsorted(loc, ev['i0'][ok], side='right') - 1
+    slot = np.searchsorted(loc, ev['i_par'][ok], side='right') - 1
     pico = np.full(n, np.nan)
     # primer evento de cada ranura (con A >> thr hay exactamente uno)
     _, primero = np.unique(slot, return_index=True)
     pico[slot[primero]] = ev['pico'][ok][primero]
 
-    s0 = plantilla_fase(g, 0.0)
     return dict(pico=pico, boxcar=_boxcar_max(M), adaptado=_adaptado(M, s0))
 
 

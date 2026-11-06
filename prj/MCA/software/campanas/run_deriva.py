@@ -63,13 +63,11 @@ def main(argv=None):
         res = tb.sweep_rate(mca, gen, ch=1, seconds=SEGUNDOS,
                             ida_y_vuelta=True, outdir=outdir)
     finally:
-        gen.output(1, False)
         try:
             gen.disable_burst(1)
         except Exception:
             pass
-        gen.close()
-        mca.close()
+        tb.desconectar(mca, gen)
 
     d = res['deriva'] or {}
     resumen = {

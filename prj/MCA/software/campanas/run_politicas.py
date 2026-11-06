@@ -1,5 +1,12 @@
 """Validación EN PLACA de las fases 1 y 2: el teselado, y qué compra cada política.
 
+> **HISTÓRICA: es del MCA1.** Las políticas que compara (`rearm_mode`,
+> `pub_mode`, `trig_src`) y el `pub_k` no existen en el MCA2: la ventana la abre
+> el multitrigger y la publicación son las ranuras. Queda para releer sus datos
+> y como documento de lo que se midió; `main()` sale si se la corre. Lo que el
+> MCA2 mide en su lugar está en `testbench_mca.py` (`sweep_rate`,
+> `sweep_rate_poisson`, `test_pulse_pair`) y en `API/tests/placa/test_mca2_placa.py`.
+
 Las fases 1 y 2 se verificaron en simulación con assertions (17 propiedades,
 `modulos/mca/sim/VERIFICACION.md`). Esto es lo que la simulación no puede dar:
 
@@ -443,6 +450,10 @@ SECCIONES = {
 
 
 def main(argv=None):
+    raise SystemExit(
+        'run_politicas.py es una campaña del MCA1: sus políticas de re-armado y '
+        'de publicación no existen en el MCA2 (ver el encabezado). Para medir la '
+        'pérdida por ranuras: testbench_mca.py sweep_rate / sweep_rate_poisson.')
     p = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)

@@ -10,7 +10,9 @@ outdir = sys.argv[1]; res = {}
 mca, gen, _ = tb.connect()
 try:
     r = tb.sweep_threshold(mca, gen, ch=1, seconds=2.0, amp_vpp=0.5, outdir=outdir)
-    res['sweep_threshold'] = {'lld': float(r['lld']) if np.isfinite(r['lld']) else None}
+    if r:
+        res['sweep_threshold'] = {'umbral_pendiente': float(r['umbral_efectivo'])
+                                  if np.isfinite(r['umbral_efectivo']) else None}
 
     # PSD: primero misma amplitud (FOM global limpia) y despues amplitud
     # variable (FOM vs energia), que es la que antes daba nan en 3 de 4 rebanadas.
@@ -23,10 +25,13 @@ try:
                                             float(n)]
                                            for lo, hi, f, n in r['per_slice']]}
 
-    # DNL: h_shift=4 comprime a ~125 canales -> ~10^4 cuentas/canal en 60 s.
+    # DNL: en el MCA1 h_shift=4 comprimía a ~125 canales para juntar ~10^4
+    # cuentas/canal en 60 s. El MCA2 no tiene h_shift (el zoom sólo amplía),
+    # así que la DNL se mide sobre los 8192 canales y hace falta más tiempo
+    # para la misma estadística: test_dnl avisa cuánto.
     # mode='auto' intenta modulacion AM y cae a recargar el ARB si el firmware
     # la rechaza; sin una de las dos el espectro son lineas discretas.
-    r = tb.test_dnl(mca, gen, ch=1, seconds=60.0, rate_hz=50e3, h_shift=4,
+    r = tb.test_dnl(mca, gen, ch=1, seconds=60.0, rate_hz=50e3,
                     mode='auto', outdir=outdir)
     if 'dnl' in r:
         res['dnl'] = {'modo': r['modo'],
@@ -36,7 +41,7 @@ try:
     elif 'error' in r:
         res['dnl'] = {'modo': r['modo'], 'invalida': r['error']}
 finally:
-    gen.output(1, False); gen.close(); mca.close()
+    tb.desconectar(mca, gen)
 with open(os.path.join(outdir, 'resumen_resto2.json'), 'w') as f:
     json.dump(res, f, indent=2, ensure_ascii=False)
 print(f"\n=== guardado en {outdir}/resumen_resto2.json ===")

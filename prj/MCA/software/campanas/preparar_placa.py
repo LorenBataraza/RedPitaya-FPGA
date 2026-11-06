@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """Deja la placa lista para medir, y VERIFICA que lo esté. Corre en la Pitaya.
 
-El problema que resuelve: el bitstream del bus de features conserva el magic
-"MCA1" del anterior, y `mca_top.sv` **ignora en silencio las escrituras a
-direcciones no mapeadas**. Contra el bitstream viejo, entonces, `configure(
-sel_1d=..., zoom_1d=..., discr=...)` no falla — escribe al vacío. La campaña
-sale entera, con números plausibles, sin relación con lo que se pidió. No hay
-forma de darse cuenta después mirando los datos.
+El problema que resuelve: `mca_top.sv` **ignora en silencio las escrituras a
+direcciones no mapeadas** y las lee en cero. Contra un bitstream que no es el
+que se cree, `configure(...)` no falla — escribe al vacío, y la campaña sale
+entera, con números plausibles, sin relación con lo que se pidió.
 
-Así que antes de gastar una sesión de laboratorio hay que contestar tres cosas,
-y esta herramienta las contesta en un segundo:
+Así que antes de gastar una sesión de laboratorio hay que contestar cuatro
+cosas, y esta herramienta las contesta en un segundo:
 
-  1. ¿está cargado el bitstream que creo que está cargado?
-  2. ¿el eje tiene los 8192 canales nuevos (y no los 16384 viejos)?
-  3. ¿los registros nuevos retienen lo que se les escribe, uno por uno?
+  1. ¿está cargado el MCA2 (las ranuras), y no el MCA1?
+  2. ¿el eje tiene los 8192 canales?
+  3. ¿los registros del MCA2 retienen lo que se les escribe, uno por uno?
+  4. ¿los offsets que el MCA2 dejó reservados (el umbral, la histéresis,
+     maxlen, ...) leen cero? En el MCA1 retienen: es la diferencia que se ve.
 
 Uso, en la Pitaya::
 
@@ -34,17 +34,20 @@ while _RAIZ != '/' and not os.path.isfile(os.path.join(_RAIZ, 'API', 'mca.py')):
 sys.path.insert(0, _RAIZ)
 
 from API.mca import (                                            # noqa: E402
-    MCA, R_HIST_SEL, R_ZOOM_1D, R_ZOOM_2DX, R_ZOOM_2DY,
+    MAGIC, MAGIC_MCA1, MCA, R_HIST_SEL, R_ZOOM_1D, R_ZOOM_2DX, R_ZOOM_2DY,
     R_DISCR_CTRL, R_DISCR_MIN, R_DISCR_MAX, R_HIST_CTRL,
     R_HIST_STATUS, R_CNT_REJ_DISCR, R_CNT_FULL_SUPP,
+    R_N_ACC, R_PRE_DLY, R_TRAP_KM, R_TRAP_MQ, R_TRAP_MED, R_N_ACC_MAX,
+    R_PUB_STATE,
 )
 
 BITSTREAM = '/root/mca_red_pitaya.bit.bin'
 
-# Registros nuevos que tienen que retener lo escrito, con una máscara: el RTL
-# devuelve sólo los bits que implementa, así que comparar la palabra entera
-# daría un falso negativo. La máscara es el contrato publicado en
-# docs/mca/register_map_mca.md.
+# Registros que tienen que retener lo escrito, con una máscara: el RTL devuelve
+# sólo los bits que implementa, así que comparar la palabra entera daría un
+# falso negativo. La máscara es el contrato publicado en
+# docs/mca/register_map_mca.md. Escribir el trapecio reinicia su estado, que es
+# inofensivo con el MCA parado; todo se restaura.
 ESCRIBIBLES = [
     ('R_HIST_SEL',   R_HIST_SEL,   0x00000FFF),   # {sel_2dy, sel_2dx, sel_1d}
     ('R_ZOOM_1D',    R_ZOOM_1D,    0x0000FF0F),   # {k[15:8], z[3:0]}
@@ -54,17 +57,33 @@ ESCRIBIBLES = [
     ('R_DISCR_MIN',  R_DISCR_MIN,  0x0000FFFF),
     ('R_DISCR_MAX',  R_DISCR_MAX,  0x0000FFFF),
     ('R_HIST_CTRL',  R_HIST_CTRL,  0x00000001),   # keep_counter_if_full
+    ('R_N_ACC',      R_N_ACC,      0x00000007),   # ranuras habilitadas
+    ('R_PRE_DLY',    R_PRE_DLY,    0x0000007F),   # retardo de la muestra
+    ('R_TRAP_KM',    R_TRAP_KM,    0x03FF03FF),   # {m[25:16], k[9:0]}
+    ('R_TRAP_MQ',    R_TRAP_MQ,    0x000FFFFF),   # M*16
+    ('R_TRAP_MED',   R_TRAP_MED,   0x3F07FFFF),   # {sh, lw, off}
 ]
 
-# Registros nuevos de sólo lectura: no se verifica su valor (depende de lo
-# medido), sí que la dirección esté decodificada y no sea basura.
+# Los offsets que el MCA2 dejó reservados: se escriben sin efecto y leen cero.
+# En el MCA1 eran el umbral, la histéresis, maxlen, tail_dly, el modo de
+# compuerta y las políticas, y retenían lo escrito.
+RESERVADOS = [
+    ('0x014 (era thr)',      0x014), ('0x018 (era hyst)',     0x018),
+    ('0x028 (era maxlen)',   0x028), ('0x02C (era tail_dly)', 0x02C),
+    ('0x048 (era gate_mode)', 0x048), ('0x104 (era win_pol)', 0x104),
+    ('0x108 (era rearm_dly)', 0x108),
+]
+
+# Registros de sólo lectura: no se verifica su valor (depende de lo medido),
+# sí que la dirección esté decodificada y no sea basura.
 SOLO_LECTURA = [
     ('R_HIST_STATUS',   R_HIST_STATUS,   0x00000003),
     ('R_CNT_REJ_DISCR', R_CNT_REJ_DISCR, 0xFFFFFFFF),
     ('R_CNT_FULL_SUPP', R_CNT_FULL_SUPP, 0xFFFFFFFF),
+    ('R_PUB_STATE',     R_PUB_STATE,     0xFFFF0F0F),
 ]
 
-H_AW_ESPERADO = 13          # 8192 canales: el eje nuevo
+H_AW_ESPERADO = 13          # 8192 canales
 
 
 def verificar(mca, h_aw_esperado=H_AW_ESPERADO):
@@ -78,11 +97,12 @@ def verificar(mca, h_aw_esperado=H_AW_ESPERADO):
     r = []
     info = mca.identify(verbose=False)
 
-    r.append(('magic MCA1', info['magic'] == 0x4D434131,
-              f"{info['magic']:#010x}"))
-    r.append(('bus de features presente', bool(info['features']),
-              'sí' if info['features'] else
-              'NO: el bitstream es el viejo, cargá mca_red_pitaya.bit.bin'))
+    magic = info['magic']
+    r.append(('magic MCA2', magic == MAGIC,
+              f'{magic:#010x}' + ('  <- es el MCA1: cargá el bitstream de las '
+                                  'ranuras' if magic == MAGIC_MCA1 else '')))
+    n_max = mca.r32(R_N_ACC_MAX)
+    r.append(('ranuras (N_ACC)', 1 <= n_max <= 7, f'{n_max}'))
     r.append((f'eje de {1 << h_aw_esperado} canales',
               info['h_aw'] == h_aw_esperado,
               f"h_aw = {info['h_aw']} ({info['n_channels']} canales)"))
@@ -90,10 +110,14 @@ def verificar(mca, h_aw_esperado=H_AW_ESPERADO):
     r.append(('mapa 2D habilitado', info['hist_h_psd'],
               f"{info['map2d_shape'][0]} x {info['map2d_shape'][1]}"))
 
-    # Cada registro nuevo, uno por uno. El patrón se enmascara con lo que el
-    # RTL implementa; se prueban dos complementarios para que un bus que
-    # devuelve siempre el mismo valor no pase.
+    # Cada registro, uno por uno. El patrón se enmascara con lo que el RTL
+    # implementa; se prueban dos complementarios para que un bus que devuelve
+    # siempre el mismo valor no pase.
     for nombre, off, mascara in ESCRIBIBLES:
+        if nombre.startswith('R_TRAP') and not info.get('trap'):
+            # Sin el trapecio (CAPS bit 2) sus registros no existen: leen cero.
+            r.append((f'{nombre} escribible', True, 'sin trapecio: no aplica'))
+            continue
         previo = mca.r32(off)
         ok, detalle = True, 'retiene'
         try:
@@ -109,6 +133,17 @@ def verificar(mca, h_aw_esperado=H_AW_ESPERADO):
         finally:
             mca.w32(off, previo)
         r.append((f'{nombre} escribible', ok, detalle))
+
+    for nombre, off in RESERVADOS:
+        previo = mca.r32(off)
+        try:
+            mca.w32(off, 0x5A5A)
+            leido = mca.r32(off)
+        finally:
+            mca.w32(off, previo)
+        r.append((f'reservado {nombre}', leido == 0,
+                  'lee 0' if leido == 0 else
+                  f'retiene {leido:#x}: el mapa no es el MCA2'))
 
     for nombre, off, mascara in SOLO_LECTURA:
         v = mca.r32(off)
@@ -179,10 +214,13 @@ def main(argv=None):
         print('  ' + ', '.join(malas))
         return 1
 
-    print(f'\nPLACA LISTA. Eje de {info["n_channels"]} canales, bus de features '
-          f'presente, {len(ESCRIBIBLES)} registros nuevos verificados.')
-    print('\nsiguiente paso — el experimento de deriva (tasa vs tiempo):')
-    print('  make campana-deriva OUT=datos/deriva_$(date +%Y%m%d_%H%M%S)')
+    print(f'\nPLACA LISTA. MCA2 con {info["n_acc_max"]} ranuras, eje de '
+          f'{info["n_channels"]} canales, trapecio '
+          f'{"sí" if info.get("trap") else "no"}, {len(ESCRIBIBLES)} registros '
+          f'y {len(RESERVADOS)} reservados verificados.')
+    print('\nsiguiente paso — armar el disparo, sin el cual el MCA2 no mide:')
+    print('  la pestaña Espectro de mcamon, o API.multitrigger.multitrigger_armar_mca')
+    print('  (las campañas de caracterización hablan todavía el MCA1)')
     return 0
 
 

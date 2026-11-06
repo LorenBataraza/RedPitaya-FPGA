@@ -30,6 +30,7 @@ os.environ.setdefault('MPLBACKEND', 'Qt5Agg')
 import numpy as np                                                 # noqa: E402
 
 from test_mca_remote import ServidorDePrueba                       # noqa: E402
+from API.mca import mca_amplitud_de_canal                          # noqa: E402
 
 try:
     from PyQt5.QtWidgets import QApplication
@@ -93,7 +94,7 @@ def test_conecta_y_toma_la_geometria_del_hardware():
             assert v.info['n_channels'] == n, f'h_aw={h_aw}'
             assert v.panel_espectro.n_canales == n, f'h_aw={h_aw}'
             assert v.panel_espectro.h_aw == h_aw
-            assert 'MCA1' in v.lbl_estado.text()
+            assert 'MCA2' in v.lbl_estado.text()
             assert v.btn_conectar.text() == 'Desconectar'
         _con_gui(cuerpo, h_aw=h_aw)
 
@@ -194,10 +195,70 @@ def test_la_exposicion_para_sola():
     _con_gui(cuerpo)
 
 
-def test_el_umbral_de_la_gui_llega_al_hardware():
+def test_el_disparo_de_la_gui_se_arma_y_vuelve():
+    """El grupo «disparo» arma el disparo por pendiente del multitrigger (op
+    `mca.disparo`) y el estado releído vuelve a la etiqueta y a los spins."""
     def cuerpo(app, v):
-        v.sig_campo.emit('thr', 317)
-        assert _esperar(app, lambda: v.panel_espectro.spn_thr.value() == 317), \
+        p = v.panel_espectro
+        assert _esperar(app, lambda: 'SIN DISPARO' in p.lbl_disparo.text()), \
+            'al conectar no se leyó el estado del disparo'
+        p.spn_thr.setValue(900)
+        p.spn_hyst.setValue(200)
+        p.btn_armar.click()
+        assert _esperar(app, lambda: p.lbl_disparo.text().startswith('armado')
+                        and 'thr=900' in p.lbl_disparo.text()), \
+            'el disparo armado no volvió del servidor'
+        p.btn_desarmar.click()
+        assert _esperar(app, lambda: 'SIN DISPARO' in p.lbl_disparo.text())
+    _con_gui(cuerpo)
+
+
+def test_el_disparo_con_polo_cero_no_se_muestra_como_pendiente():
+    """Si lo armó un script con polo-cero, la etiqueta lo dice y los spins (que
+    son de la pendiente) quedan como estaban."""
+    def cuerpo(app, v):
+        p = v.panel_espectro
+        p.spn_thr.setValue(777)
+        p.actualizar_disparo({
+            'armado': True, 'fuente': 'pz', 'we_keep': True,
+            'pendiente': {'L': 8, 'G': 4, 'thr': 600, 'hyst': 300},
+            'polo_cero': {'k': 2, 'm': 1, 'thr': 353, 'mq': 3885}})
+        texto = p.lbl_disparo.text()
+        assert 'polo-cero' in texto and 'mq=3885' in texto and 'thr=353' in texto
+        assert 'L=8' not in texto
+        assert p.spn_thr.value() == 777
+    _con_gui(cuerpo)
+
+
+def test_cambiar_pre_dly_avisa_si_se_mira_el_trapecio():
+    from API import mca as A
+    from API.mca_remote import FakeMCA
+    from app.mcamon import Trabajador
+
+    class Quieto:                     # sólo lo que usa escribir_campo
+        aviso = type('S', (), {'emit': lambda self, t: mensajes.append(t)})()
+        fallo = type('S', (), {'emit': lambda self, t: mensajes.append('FALLO ' + t)})()
+        _leer_config = staticmethod(lambda: None)
+        _aviso_pre_dly = Trabajador._aviso_pre_dly
+
+    mensajes = []
+    t = Quieto()
+    t.h = FakeMCA(trap=True)
+    A.mca_configure(t.h)
+    Trabajador.escribir_campo(t, 'pre_dly', 20)
+    assert mensajes == ['pre_dly = 20']
+    A.mca_configure(t.h, sel_1d='trapecio')
+    mensajes.clear()
+    Trabajador.escribir_campo(t, 'pre_dly', 24)
+    assert len(mensajes) == 2 and 'ventanas del trapecio' in mensajes[1]
+    t.h.close()
+
+
+def test_un_campo_del_mca2_llega_al_hardware():
+    def cuerpo(app, v):
+        v.sig_campo.emit('n_acc', 3)
+        assert _esperar(app, lambda:
+                        v.panel_config._controles['n_acc'][1]() == 3), \
             'el valor releído del hardware no volvió al spinbox'
     _con_gui(cuerpo)
 
@@ -205,8 +266,11 @@ def test_el_umbral_de_la_gui_llega_al_hardware():
 def test_la_ventana_de_amplitud_recorta_y_se_dibuja():
     def cuerpo(app, v):
         pe = v.panel_espectro
-        v.sig_campo.emit('amp_min', 12000)   # el pico simulado está en ~8000
-        assert _esperar(app, lambda: pe.spn_amp_min.value() == 12000)
+        # La ventana es sobre la feature de 16 b: el pico simulado está en el
+        # canal ~8000 de 16384, y el corte va en el 12000 (= 48000).
+        corte = mca_amplitud_de_canal(12000, 14)
+        v.sig_campo.emit('amp_min', corte)
+        assert _esperar(app, lambda: pe.spn_amp_min.value() == corte)
         v.sig_borrar.emit()
         v.sig_start.emit(0.0, False)
         assert _esperar(app, lambda:
@@ -426,7 +490,7 @@ def test_la_pestana_del_mca_escribe_y_relee():
     """
     def cuerpo(app, v):
         pc = v.panel_config
-        for campo, valor in (('thr', 271), ('bl_k', 11), ('maxlen', 2048),
+        for campo, valor in (('pre_dly', 27), ('bl_k', 11), ('gate_long', 300),
                              ('zoom_1d_z', 2), ('zoom_1d_k', 1),
                              ('discr_min', 1234), ('sel_1d', 1)):
             w, leer, escribir = pc._controles[campo]
@@ -435,7 +499,7 @@ def test_la_pestana_del_mca_escribe_y_relee():
             assert _esperar(app, lambda c=campo, x=valor: leer() == x), (
                 f'{campo}: no volvio del hardware')
         # y la config releida coincide con lo que muestran los controles
-        assert _esperar(app, lambda: pc._controles['thr'][1]() == 271)
+        assert _esperar(app, lambda: pc._controles['pre_dly'][1]() == 27)
     _con_gui(cuerpo)
 
 
@@ -627,20 +691,20 @@ def test_la_marca_de_captura_cae_en_la_curva_de_tasa():
 def test_escribir_un_campo_del_osc_va_al_bloque_del_osc():
     """El campo se rutea por `BLOQUE`, no por el nombre.
 
-    `thr_ch0` existe en el OSC y `thr` en el MCA: si el ruteo fuera por nombre,
-    un umbral del osciloscopio terminaría escrito en el MCA.
+    El OSC y el MCA tienen campos de nombres parecidos: si el ruteo fuera por
+    nombre, un campo del osciloscopio terminaría escrito en el MCA.
     """
     def cuerpo(app, v):
         p = v.panel_osc
         assert p.BLOQUE == 'osc'
-        thr_mca_antes = v.panel_config._controles['thr'][1]()
+        pre_mca_antes = v.panel_config._controles['pre_dly'][1]()
 
         v.sig_campo_osc.emit('thr_ch0', -250)
         assert _esperar(app, lambda:
                         p._controles['thr_ch0'][1]() == -250), \
             'el umbral del OSC no volvió releído del hardware'
         # Y el del MCA no se movió.
-        assert v.panel_config._controles['thr'][1]() == thr_mca_antes
+        assert v.panel_config._controles['pre_dly'][1]() == pre_mca_antes
     _con_gui(cuerpo)
 
 

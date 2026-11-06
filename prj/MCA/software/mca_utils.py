@@ -8,7 +8,7 @@ Se mantiene el shim para no tocar los ~40 importadores, los notebooks ni los
 scripts que ya corren en la placa: `import mca_utils as mu` y todo `mu.loquesea`
 siguen resolviendo igual. Código nuevo::
 
-    from API.mca import mca_open, mca_set_thr, mca_read_histogram
+    from API.mca import mca_open, mca_set_n_acc, mca_read_histogram
     from API.analisis import gauss_fit_peak
 
 Retirar el shim y migrar los call sites es un paso posterior, después de que
@@ -24,9 +24,11 @@ from API.mca import (                                          # noqa: F401
     MCA_PHYS, MCA_SIZE, MAGIC, APERTURE_H, APERTURE_2D,
     CAP_HIST_H, CAP_HIST_H_PSD, FS_HZ, ADC_CNT_PER_V,
     R_MAGIC, R_CAPS, R_WIDTHS, R_CTRL, R_STATUS,
-    R_THR, R_HYST, R_BASELINE, R_BL_CTRL, R_BASELINE_NOW,
-    R_MAXLEN, R_TAIL_DLY, R_AMP_MIN, R_AMP_MAX, R_AMP_SRC,
-    R_H_SHIFT, R_H2_SHIFT, R_DEC, R_GATE_MODE, R_GATE_LEN,
+    # MCA2: se fueron R_THR, R_HYST, R_MAXLEN, R_TAIL_DLY y R_GATE_MODE (ver
+    # DESVIACIONES en API/tests/test_compat_api.py).
+    R_BASELINE, R_BL_CTRL, R_BASELINE_NOW,
+    R_AMP_MIN, R_AMP_MAX, R_AMP_SRC,
+    R_H_SHIFT, R_H2_SHIFT, R_DEC, R_GATE_LEN,
     R_CNT_TOTAL, R_CNT_ACCEPTED, R_CNT_REJ_AMP, R_CNT_REJ_PSD,
     R_CNT_PILEUP, R_CNT_DROPPED,
     R_REALTIME_LO, R_REALTIME_HI, R_LIVETIME_LO, R_LIVETIME_HI,

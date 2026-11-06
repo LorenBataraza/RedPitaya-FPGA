@@ -118,10 +118,10 @@ def test_accesores_por_campo_por_red():
     with ServidorDePrueba() as s:
         h = s.conectar()
         for setter, getter, valor in (
-                (A.mca_set_thr,        A.mca_get_thr,        317),
-                (A.mca_set_hyst,       A.mca_get_hyst,        80),
-                (A.mca_set_maxlen,     A.mca_get_maxlen,     512),
-                (A.mca_set_tail_dly,   A.mca_get_tail_dly,     8),
+                (A.mca_set_n_acc,      A.mca_get_n_acc,        3),
+                (A.mca_set_pre_dly,    A.mca_get_pre_dly,     42),
+                (A.mca_set_trap_k,     A.mca_get_trap_k,      32),
+                (A.mca_set_trap_mq,    A.mca_get_trap_mq,   3885),
                 (A.mca_set_amp_min,    A.mca_get_amp_min,    100),
                 (A.mca_set_amp_max,    A.mca_get_amp_max,  16300),
                 (A.mca_set_q_shift,    A.mca_get_q_shift,      5),
@@ -155,33 +155,34 @@ def test_read_modify_write_sobrevive_a_la_red():
 def test_configure_en_bloque():
     with ServidorDePrueba() as s:
         h = s.conectar()
-        A.mca_configure(h, thr=200, hyst=80, maxlen=1024, tail_dly=8,
-                        amp_src=1, q_shift=6, h_shift=2, dec=1)
+        A.mca_configure(h, n_acc=4, pre_dly=20, gate_long=300,
+                        amp_src=1, q_shift=6, dec=1)
         cfg = A.mca_get_config(h)
-        assert cfg['thr'] == 200 and cfg['amp_src'] == 1
-        assert cfg['q_shift'] == 6 and cfg['h_shift'] == 2
+        assert cfg['n_acc'] == 4 and cfg['amp_src'] == 1
+        assert cfg['q_shift'] == 6 and cfg['pre_dly'] == 20
         h.close()
 
 
 def test_configure_valida_del_lado_de_la_placa():
-    """tail_dly=0 lo rechaza `MCA.configure`, que corre en el servidor: el
-    error tiene que volver con su tipo, no como un fallo de socket."""
+    """n_acc fuera de rango lo rechaza `mca_configure`, que corre en el
+    servidor: el error tiene que volver con su tipo, no como un fallo de
+    socket."""
     with ServidorDePrueba() as s:
         h = s.conectar()
         try:
-            A.mca_configure(h, tail_dly=0)
+            A.mca_configure(h, n_acc=9)
         except RemoteError as e:
             assert e.error == 'ValueError'
-            assert 'tail_dly' in e.msg
+            assert 'n_acc' in e.msg
         else:
-            raise AssertionError('tail_dly=0 pasó')
+            raise AssertionError('n_acc=9 pasó')
         h.close()
 
 
 def test_adquisicion_y_espectro():
     with ServidorDePrueba() as s:
         h = s.conectar()
-        A.mca_configure(h, thr=100, hyst=50, maxlen=1024, tail_dly=8)
+        A.mca_configure(h, n_acc=2)
         A.mca_clear(h)
         A.mca_start(h)
         assert A.mca_get_running(h) is True
@@ -195,7 +196,10 @@ def test_adquisicion_y_espectro():
 
         cnt = A.mca_read_counters(h)
         assert cnt['accepted'] == int(hist.sum())
-        assert cnt['total'] == cnt['accepted'] + cnt['rej_amp'] + cnt['pileup']
+        # MCA2: las ventanas con solape (`pileup`) se marcan y se histogramean
+        # igual; el corte lo hace el discriminador.
+        assert cnt['total'] == cnt['accepted'] + cnt['rej_amp']
+        assert cnt['pileup'] <= cnt['total']
         assert cnt['livetime_s'] > 0
         assert abs(cnt['realtime_s'] - cnt['livetime_s'] - cnt['deadtime_s']) < 1e-6
         h.close()
@@ -219,14 +223,16 @@ def test_ventana_de_amplitud_recorta_el_pico():
     GUI tiene que verse en el espectro y en rej_amp."""
     with ServidorDePrueba() as s:
         h = s.conectar()
-        A.mca_configure(h, amp_min=0, amp_max=0xFFFF, tail_dly=8)
+        A.mca_configure(h, amp_min=0, amp_max=0xFFFF)
         A.mca_clear(h)
         A.mca_start(h)
         time.sleep(0.4)
         A.mca_stop(h)
         assert A.mca_read_counters(h)['rej_amp'] == 0
 
-        A.mca_set_amp_min(h, 12000)          # el pico está en ~8000
+        # La ventana es sobre la feature de 16 b, no sobre el canal: el pico
+        # está en el canal ~8000 y el corte va en el 12000.
+        A.mca_set_amp_min(h, A.mca_amplitud_de_canal(12000, h.h_aw))
         A.mca_clear(h)
         A.mca_start(h)
         time.sleep(0.4)
@@ -256,14 +262,15 @@ def test_metadata_completa_y_guardado():
     import tempfile
     with ServidorDePrueba() as s:
         h = s.conectar()
-        A.mca_configure(h, thr=317, gate_long=400, tail_dly=8)
+        A.mca_configure(h, n_acc=3, gate_long=400)
         A.mca_start(h)
         time.sleep(0.3)
         A.mca_stop(h)
 
         hist = A.mca_read_histogram(h)
         meta = A.mca_get_metadata(h)
-        assert meta['thr'] == 317 and meta['n_channels'] == 16384
+        assert meta['n_acc'] == 3 and meta['n_channels'] == 16384
+        assert meta['mapa'] == 'MCA2' and len(meta['t_ocup_s']) == 5
         assert meta['schema_version'] == A.SCHEMA_VERSION_MCA
         assert 'livetime_s' in meta and 'fs_hz' in meta
 
@@ -275,7 +282,7 @@ def test_metadata_completa_y_guardado():
                 guardar(hist, ruta, meta=meta)
                 h2, m2 = A.mca_load_file(ruta)
                 assert np.array_equal(h2, hist), nombre
-                assert m2['thr'] == 317, nombre
+                assert m2['n_acc'] == 3, nombre
         h.close()
 
 
@@ -331,7 +338,7 @@ def test_operacion_desconocida():
         else:
             raise AssertionError('el servidor aceptó una operación inventada')
         # y el canal sigue usable después del error
-        assert A.mca_get_thr(h) >= 0
+        assert A.mca_get_n_acc(h) >= 1
         h.close()
 
 

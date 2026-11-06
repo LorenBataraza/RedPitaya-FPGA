@@ -1,4 +1,4 @@
-"""Resto de la campana: amplitud, umbral, par-pulso, tasa."""
+"""Resto de la campaña (MCA2): amplitud, par de pulsos por ranuras, tasa."""
 import json, os, sys, time
 _RAIZ = os.path.dirname(os.path.abspath(__file__))
 while _RAIZ != '/' and not os.path.isfile(os.path.join(_RAIZ, 'API', 'mca.py')):
@@ -17,9 +17,11 @@ try:
 
     r = tb.test_pulse_pair(mca, gen, ch=1, seconds=3.0, outdir=outdir)
     if r:
-        res['pulse_pair'] = {'tau_pair_us': float(r['tau_pair_s'])*1e6
-                             if np.isfinite(r['tau_pair_s']) else None,
-                             'n_ref_cps': float(r['n_ref'])}
+        us = lambda x: float(x) * 1e6 if np.isfinite(x) else None
+        res['pulse_pair'] = {'tau_disparo_us': us(r['tau_disparo_s']),
+                             'tau_ranura_us': us(r['tau_ranura_s']),
+                             'tau_pair_us_por_nacc': {str(n): us(v) for n, v
+                                                      in r['tau_pair_s'].items()}}
 
     # Hasta ~800 kcps: con 100 kcps el MCA seguia al generador exacto, o sea que
     # el techo estaba mas arriba y no se habia alcanzado.
@@ -32,10 +34,9 @@ try:
                                   if isinstance(v, (int, float))})
         res['sweep_rate']['best'] = r['deadtime']['best']
 finally:
-    gen.output(1, False)
     try: gen.disable_burst(1)
     except Exception: pass
-    gen.close(); mca.close()
+    tb.desconectar(mca, gen)
 
 with open(os.path.join(outdir, 'resumen_resto.json'), 'w') as f:
     json.dump(res, f, indent=2, ensure_ascii=False)

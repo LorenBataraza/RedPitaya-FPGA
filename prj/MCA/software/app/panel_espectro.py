@@ -5,9 +5,13 @@ El dibujo va sobre `NavigationToolbar2QT`, que ya trae home / desplazar / zoom
 / guardar imagen: es la misma barra que se ve en la aplicación de referencia y
 no hay razón para reimplementarla.
 
-Los controles de umbral escriben por campo (`mca_set_thr`, read-modify-write),
-NO con `mca_configure`: el bloque entero escribe R_CTRL con run=0, o sea que
-tocar un umbral pararía la adquisición en curso.
+La ventana de amplitud se escribe por campo (`mca_set_amp_min`, read-modify-
+write), NO con `mca_configure`: el bloque entero escribe R_CTRL con run=0, o sea
+que tocarla pararía la adquisición en curso.
+
+En el MCA2 la ventana la abre el disparo del multitrigger, no un umbral del
+MCA: el grupo «disparo» arma el disparo por pendiente en modo continuo
+(`multitrigger_armar_mca`, op `mca.disparo` del servidor). Sin él no se mide.
 """
 
 import os
@@ -38,6 +42,7 @@ class PanelEspectro(QWidget):
 
     pedir_start = pyqtSignal(float, bool)    # segundos (0 = sin límite), borrar antes
     pedir_stop = pyqtSignal()
+    pedir_disparo = pyqtSignal(dict)         # args de la op mca.disparo
     pedir_clear = pyqtSignal()
     pedir_campo = pyqtSignal(str, int)       # campo de _CAMPOS, valor
     log = pyqtSignal(str)
@@ -55,6 +60,7 @@ class PanelEspectro(QWidget):
         self.h_aw = 13                       # 8192 canales
         self.n_canales = 1 << self.h_aw
         self.h_shift = 0                     # DEPRECADO: no gobierna el eje
+        self._canal = 0                      # el del MCA: el disparo va ahí
         self.zoom_z = 0                      # ventana = 2^-z del fondo de escala
         self.zoom_k = 0                      # cuál de las 2^z ventanas
         self._cargando = False               # evita el eco de los spinbox
@@ -153,13 +159,42 @@ class PanelEspectro(QWidget):
         return g
 
     def _grupo_umbral(self):
-        g = QGroupBox('umbral y ventana')
+        g = QGroupBox('disparo y ventana')
         f = QFormLayout(g)
 
-        self.spn_thr = self._spin(0, 0x3FFF, 'thr')
-        self.spn_hyst = self._spin(0, 0x3FFF, 'hyst')
-        f.addRow('umbral (cuentas)', self.spn_thr)
-        f.addRow('histéresis', self.spn_hyst)
+        # El disparo por pendiente del multitrigger: s = suma de L muestras
+        # menos la de L muestras G antes. Para un escalón de alto A, s = L·A.
+        self.spn_l = QSpinBox(minimum=1, maximum=16, value=8)
+        self.spn_g = QSpinBox(minimum=0, maximum=31, value=4)
+        self.spn_thr = QSpinBox(minimum=0, maximum=(1 << 18) - 1, value=600)
+        self.spn_hyst = QSpinBox(minimum=0, maximum=(1 << 18) - 1, value=300)
+        for spn, ayuda in (
+                (self.spn_l, 'Muestras de cada suma de la pendiente.'),
+                (self.spn_g, 'Separación entre las dos sumas.'),
+                (self.spn_thr, 'Umbral sobre la pendiente s (un escalón de alto '
+                               'A da s = L·A). Lo medido en placa con el pulso '
+                               'de la campaña: 600.'),
+                (self.spn_hyst, 'Re-arma cuando s baja de thr − hyst: es lo que '
+                                'deja disparar sobre la cola de otro pulso.')):
+            spn.setToolTip(ayuda)
+        fila = QHBoxLayout()
+        fila.addWidget(QLabel('L'))
+        fila.addWidget(self.spn_l)
+        fila.addWidget(QLabel('G'))
+        fila.addWidget(self.spn_g)
+        f.addRow('pendiente', fila)
+        f.addRow('umbral (s)', self.spn_thr)
+        f.addRow('histéresis (s)', self.spn_hyst)
+        self.btn_armar = QPushButton('Armar disparo')
+        self.btn_desarmar = QPushButton('Desarmar')
+        self.btn_armar.clicked.connect(lambda: self._disparo(True))
+        self.btn_desarmar.clicked.connect(lambda: self._disparo(False))
+        fila = QHBoxLayout()
+        fila.addWidget(self.btn_armar)
+        fila.addWidget(self.btn_desarmar)
+        f.addRow(fila)
+        self.lbl_disparo = QLabel('—')
+        f.addRow('estado', self.lbl_disparo)
 
         self.chk_ventana = QCheckBox('ventana de amplitud')
         self.chk_ventana.toggled.connect(self._cambio_ventana)
@@ -352,10 +387,40 @@ class PanelEspectro(QWidget):
     # Estado
     # =========================================================================
 
+    def _disparo(self, armar):
+        self.pedir_disparo.emit({
+            'ch': self._canal, 'armar': bool(armar),
+            'L': self.spn_l.value(), 'G': self.spn_g.value(),
+            'thr': self.spn_thr.value(), 'hyst': self.spn_hyst.value()})
+
+    def actualizar_disparo(self, est):
+        """El estado que devuelve la op `mca.disparo`."""
+        p = est.get('pendiente') or {}
+        if est.get('armado') and est.get('fuente') == 'pz':
+            # Lo armó un script: esta pestaña sólo arma por pendiente. Los spins
+            # son de la pendiente, así que no se tocan.
+            z = est.get('polo_cero') or {}
+            self.lbl_disparo.setText(
+                f"armado con polo-cero: k={z.get('k')} m={z.get('m')} "
+                f"thr={z.get('thr')} mq={z.get('mq')}"
+                + ('' if est.get('we_keep') else ' (sin we_keep!)')
+                + '. «Armar disparo» lo cambia a pendiente')
+        elif est.get('armado'):
+            self.lbl_disparo.setText(
+                f"armado: L={p.get('L')} G={p.get('G')} thr={p.get('thr')} "
+                f"hyst={p.get('hyst')}" + ('' if est.get('we_keep')
+                                            else ' (sin we_keep!)'))
+            self.spn_l.setValue(int(p.get('L', 8)))
+            self.spn_g.setValue(int(p.get('G', 4)))
+            self.spn_thr.setValue(int(p.get('thr', 600)))
+            self.spn_hyst.setValue(int(p.get('hyst', 300)))
+        else:
+            self.lbl_disparo.setText('SIN DISPARO: el MCA no abre ventanas')
+
     def set_conectado(self, conectado, running=False):
-        for w in (self.btn_clear, self.spn_thr,
-                  self.spn_hyst, self.spn_amp_min, self.spn_amp_max,
-                  self.chk_ventana):
+        for w in (self.btn_clear, self.spn_thr, self.spn_hyst, self.spn_l,
+                  self.spn_g, self.btn_armar, self.btn_desarmar,
+                  self.spn_amp_min, self.spn_amp_max, self.chk_ventana):
             w.setEnabled(conectado)
         self.btn_start.setEnabled(conectado and not running)
         self.btn_stop.setEnabled(conectado and running)
@@ -381,14 +446,12 @@ class PanelEspectro(QWidget):
         """Refleja lo que hay en el hardware, sin reenviarlo."""
         self._cargando = True
         try:
-            self.spn_thr.setValue(int(cfg.get('thr', 0)))
-            self.spn_hyst.setValue(int(cfg.get('hyst', 0)))
+            self._canal = int(cfg.get('channel', 0))
             self.spn_amp_min.setValue(int(cfg.get('amp_min', 0)))
             self.spn_amp_max.setValue(int(cfg.get('amp_max', 0xFFFF)))
             abierta = (int(cfg.get('amp_min', 0)) == 0 and
                        int(cfg.get('amp_max', 0xFFFF)) == 0xFFFF)
             self.chk_ventana.setChecked(not abierta)
-            self.h_shift = int(cfg.get('h_shift', 0))
             if cfg.get('h_aw') is not None:
                 self.h_aw = int(cfg['h_aw'])
             # Contra el bitstream viejo estas claves no existen o leen 0, que es
