@@ -16,7 +16,7 @@
 | Módulo RTL | `mt_trig_src` |
 | Archivo | [`mt_trig_src.sv`](../../modulos/mt/rtl/mt_trig_src.sv) |
 | Parámetros | 2 |
-| Puertos | 22 (19 in / 3 out) |
+| Puertos | 23 (20 in / 3 out) |
 | Parte | `xc7z010clg400-1` |
 
 
@@ -138,6 +138,7 @@ escritura de registro dispare en un momento en que la cadena no está lista.
 | `trig_ch_i` | in | 4 | adc_clk_i | Triggers de la cadena (otro par) |
 | `slope_p_i` | in | 4 | adc_clk_i | pendiente positiva por canal (mt_slope_trig) |
 | `slope_n_i` | in | 4 | adc_clk_i | pendiente negativa por canal |
+| `pz_p_i` | in | 4 | adc_clk_i | polo-cero por canal (mt_pz_trig) |
 
 
 ##### Salidas
@@ -177,7 +178,7 @@ Contrato del bus: [`bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) 
 ### 1.5 Frecuencia máxima de trabajo
 
 <!-- AUTO:timing -->
-El `metrics.txt` del módulo es de `mt_slope_trig`, no de `mt_trig_src`: la síntesis OOC del módulo apunta a otro top, así que acá no hay números propios de este bloque.
+El `metrics.txt` del módulo es de `mt_top`, no de `mt_trig_src`: la síntesis OOC del módulo apunta a otro top, así que acá no hay números propios de este bloque.
 <!-- /AUTO:timing -->
 
 <!-- A mano: qué hay en el camino crítico y qué se haría para romperlo si
@@ -279,24 +280,25 @@ python3 docs/mt/figuras/ondas/ondas_mt.py    # regenerar
 Todo corre en batch y se chequea el `RESULT: PASS` del testbench; las ondas quedan en `work/waves/<tb>.wlf`.
 
 ```bash
-make -C modulos/mt/work            # los 6 testbenches
+make -C modulos/mt/work            # los 7 testbenches
 make -C modulos/mt/work cov        # + cobertura
 make -C modulos/mt/work lint
 ```
 
 | Testbench | DUT | Escenas | Casos | Contra qué compara | Es el de este módulo |
 |---|---|---|---|---|---|
-| [`tb_mt_cfg`](../../modulos/mt/sim/tb_mt_cfg.sv) | `mt_cfg` | 13 | 41 | vectores a mano |  |
+| [`tb_mt_cfg`](../../modulos/mt/sim/tb_mt_cfg.sv) | `mt_cfg` | 14 | 59 | vectores a mano |  |
 | [`tb_mt_slope_trig`](../../modulos/mt/sim/tb_mt_slope_trig.sv) | `mt_slope_trig` | 8 | 15 | vectores a mano |  |
-| [`tb_mt_trig_src`](../../modulos/mt/sim/tb_mt_trig_src.sv) | `mt_trig_src` | 6 | 12 | vectores a mano | **sí** |
-| [`tb_mt_event_logic`](../../modulos/mt/sim/tb_mt_event_logic.sv) | `mt_event_logic` | 5 | 9 | vectores a mano |  |
+| [`tb_mt_pz_trig`](../../modulos/mt/sim/tb_mt_pz_trig.sv) | `mt_pz_trig` | 8 | 1 | vectores a mano |  |
+| [`tb_mt_trig_src`](../../modulos/mt/sim/tb_mt_trig_src.sv) | `mt_trig_src` | 7 | 14 | vectores a mano | **sí** |
+| [`tb_mt_event_logic`](../../modulos/mt/sim/tb_mt_event_logic.sv) | `mt_event_logic` | 8 | 11 | vectores a mano |  |
 | [`tb_trigger_shield`](../../modulos/mt/sim/tb_trigger_shield.sv) | `trigger_shield` | 8 | 19 | vectores a mano |  |
-| [`tb_mt_top`](../../modulos/mt/sim/tb_mt_top.sv) | `mt_top` | 20 | 46 | vectores a mano |  |
+| [`tb_mt_top`](../../modulos/mt/sim/tb_mt_top.sv) | `mt_top` | 20 | 51 | vectores a mano |  |
 
 
-**142 casos con nombre** en 6 testbenches (60 escenas). La lista completa, caso por caso, está en el plan de verificación.
+**170 casos con nombre** en 7 testbenches (73 escenas). La lista completa, caso por caso, está en el plan de verificación.
 
-Las escenas de [`tb_mt_trig_src`](../../modulos/mt/sim/tb_mt_trig_src.sv): 1) flanco habilitado dispara adc_trig, engancha dis, 2) trig_dis_clr limpia el disable, 3) fuente NO habilitada no dispara (mascara solo P1, 4) modo continuo, 5) SW trigger gateado por dly_valp, 6) pendiente.
+Las escenas de [`tb_mt_trig_src`](../../modulos/mt/sim/tb_mt_trig_src.sv): 1) flanco habilitado dispara adc_trig, engancha dis, 2) trig_dis_clr limpia el disable, 3) fuente NO habilitada no dispara (mascara solo P1, 4) modo continuo, 5) SW trigger gateado por dly_valp, 6) pendiente, 7) polo-cero.
 
 **Assertions** — en `sim/sva/`, enganchadas por `bind` (no tocan el RTL sintetizable).
 

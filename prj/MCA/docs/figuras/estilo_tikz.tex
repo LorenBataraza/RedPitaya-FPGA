@@ -83,6 +83,24 @@
   decision/.style = {circle, fill=black, text=white, font=\small\bfseries,
                      inner sep=0pt, minimum size=7mm},
   %
+  % LÓGICA (docs/mca/figuras/contabilidad/ y los detalles de las decisiones)
+  % registro: caja gris con el triángulo de reloj en el borde de abajo
+  registro/.style = {draw=black, line width=0.6pt, fill=grisr, align=center,
+                     font=\scriptsize, inner sep=2pt, minimum width=#1,
+                     minimum height=0.85cm,
+                     path picture={\draw[line width=0.5pt]
+                       ([xshift=-1.1mm]path picture bounding box.south) --
+                       ([yshift=1.6mm]path picture bounding box.south) --
+                       ([xshift=1.1mm]path picture bounding box.south);}},
+  registro/.default = 0.8cm,
+  % condición de una cadena if / else-if: "sí" sale a la derecha, "no" abajo
+  pregunta/.style = {draw=black, line width=0.5pt, rounded corners=7pt,
+                     fill=white, font=\scriptsize\ttfamily, align=center,
+                     inner sep=2.5pt, minimum height=0.62cm, text width=#1},
+  pregunta/.default = 1.9cm,
+  si/.style      = {font=\tiny, inner sep=1pt, above, pos=0.12},
+  no/.style      = {font=\tiny, inner sep=1pt, left, pos=0.45},
+  %
   titulo/.style  = {anchor=north west, font=\small, inner sep=4pt, align=left},
   rotulo/.style  = {anchor=north west, font=\scriptsize\itshape, black!70,
                     inner sep=2pt, align=left},
@@ -116,6 +134,19 @@
   \coordinate (#1-in)  at ($(#1)+(-0.45,0)$);
   \coordinate (#1-out) at ($(#1)+(0.45,0)$);
   \coordinate (#1-sel) at ($(#1)+(0,{-#3/2+0.175})$);}
+
+% El mismo mux rotado 90 grados, para un flujo de arriba hacia abajo: entradas
+% por el lado ancho de arriba, salida abajo y el registro que elige por la
+% izquierda. #1 = nombre, #2 = centro, #3 = ancho en cm. Deja (#1-in) centro del
+% lado de entradas, (#1-out) la salida y (#1-sel) mitad del lado izquierdo.
+\newcommand{\muxdecv}[3]{%
+  \path #2 coordinate (#1);
+  \draw[line width=0.6pt, fill=grisr]
+    ($(#1)+({-#3/2},0.45)$) -- ($(#1)+({#3/2},0.45)$) --
+    ($(#1)+({#3/2-0.35},-0.45)$) -- ($(#1)+({-#3/2+0.35},-0.45)$) -- cycle;
+  \coordinate (#1-in)  at ($(#1)+(0,0.45)$);
+  \coordinate (#1-out) at ($(#1)+(0,-0.45)$);
+  \coordinate (#1-sel) at ($(#1)+({-#3/2+0.175},0)$);}
 
 % Leyenda de colores + nota. #1 = posición, #2 = color/texto, #3 = nota.
 \newcommand{\leyenda}[3]{%

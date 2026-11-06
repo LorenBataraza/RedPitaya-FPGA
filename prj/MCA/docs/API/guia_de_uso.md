@@ -78,8 +78,8 @@ print(mca_get_config(h))   # los 19 campos, releídos del hardware
 
 ## 3. Capturar eventos con el osciloscopio
 
-**En la Pitaya.** El osciloscopio y el multitrigger son dos handles sobre el
-mismo bloque; `MultiTrigger.open(osc=...)` comparte el mapeo.
+**En la Pitaya.** El osciloscopio y el multitrigger son dos handles, cada uno sobre
+su región: el slot 1 y el slot 3.
 
 ```python
 from API.osciloscope import (Osciloscope, osciloscope_set_decim,
@@ -88,7 +88,7 @@ from API.multitrigger import (MultiTrigger, multitrigger_arm,
                               multitrigger_disarm, BIT_ADC_P0)
 
 osc = Osciloscope.open()
-mt  = MultiTrigger.open(osc=osc)
+mt  = MultiTrigger.open()
 
 osciloscope_set_decim(osc, 1)
 multitrigger_arm(osc, mt, mask_ch0=BIT_ADC_P0, mask_ch1=BIT_ADC_P0,
@@ -102,7 +102,7 @@ osc.close()
 ```
 
 > **No reordenar el armado.** `multitrigger_arm` arma la máquina (`0x00`) y
-> **recién después** habilita la máscara OR (`0x240`/`0x244`). Al revés, con
+> **recién después** habilita la máscara OR. Al revés, con
 > señal viva, un flanco puede disparar en la ventana pre-arm y dejar la máquina
 > esperando un trigger que ya pasó. Si necesitás la secuencia a mano, copiala de
 > ahí, no la reinventes.
@@ -158,18 +158,19 @@ arrays, meta = load_chunk('chunk_000000.npz')
 
 ## 5. Guardar y releer un espectro
 
-**En la PC o en la placa.** Los tres formatos llevan el mismo par
+**En la PC o en la placa.** Los cuatro formatos llevan el mismo par
 (histograma, metadata), y `mca_load_file` los relee por extensión.
 
 ```python
 from API.mca import (mca_write_file_histogram, mca_save_file_binary,
-                     mca_save_file_json, mca_load_file)
+                     mca_save_file_json, mca_save_file_n42, mca_load_file)
 
 mca_write_file_histogram(hist, 'esp.csv',  meta=meta)   # texto, por defecto
 mca_save_file_binary    (hist, 'esp.npz',  meta=meta)   # compacto
 mca_save_file_json      (hist, 'esp.json', meta=meta)   # sin numpy
+mca_save_file_n42       (hist, 'esp.n42',  meta=meta)   # ANSI N42.42, para otros programas
 
-hist2, meta2 = mca_load_file('esp.csv')   # y da lo mismo cuál de los tres
+hist2, meta2 = mca_load_file('esp.csv')   # y da lo mismo cuál de los cuatro
 ```
 
 El csv lleva la metadata como comentarios de cabecera y sigue siendo un csv
@@ -185,7 +186,38 @@ canal,cuentas
 ```
 
 Elegí csv cuando el fichero lo va a abrir una persona, `.npz` cuando lo va a
-leer el resto del árbol, y `.json` cuando lo va a leer algo que no tiene numpy.
+leer el resto del árbol, `.json` cuando lo va a leer algo que no tiene numpy, y
+`.n42` cuando lo va a abrir otro programa de espectroscopía.
+
+### N42.42
+
+Guarda sólo el espectro 1D: el mapa 2D no entra en el formato. El MCA cuenta canales y
+no sabe qué detector tiene a la entrada, así que eso lo decís vos:
+
+```python
+mca_save_file_n42(hist, 'esp.n42', meta=meta,
+                  calibracion=(-21.8, 12.1),   # E = T0 + T1·C (+ T2·C²), en keV
+                  detector={'categoria': 'Gamma', 'tipo': 'NaI'},
+                  clase='Foreground')
+```
+
+- **Sin `calibracion`:** el archivo dice `0 1 0`, con un `Remark` que aclara que son
+  canales y no keV. Un programa que no lea el `Remark` lo va a mostrar como keV.
+- **`energy_calibration` va al revés:** devuelve `canal = a·E + b`, y el formato pide
+  `E = T0 + T1·C`. Hay que invertirla: `calibracion=(-b / a, 1 / a)`.
+- **Sin `detector`:** va `Other`, con una descripción que dice que no se declaró. Con
+  `Other` el estándar exige `descripcion`, y sin ella falla.
+- **Exige tiempo medido:** `realtime_s` mayor que cero, `livetime_s` y `t_wall`. Si
+  falta uno, da `ValueError` y no escribe nada.
+- **El inicio de la medición** sale de `t_wall − realtime_s`, con el reloj de quien
+  armó la metadata. Con el servidor es el de la placa: si la placa atrasa, la fecha del
+  archivo atrasa igual.
+- **`mca_load_file` también lee archivos ajenos,** incluida la compresión
+  `CountedZeroes`, y deja en `meta` lo que dice el estándar (`n42_calibracion`,
+  `n42_detector`, `n42_clase`). Con varios espectros devuelve el primero, y avisa.
+
+Se valida contra el esquema de NIST: ver
+[`datos_ref/n42/`](../../software/API/tests/datos_ref/n42/README.md).
 
 ---
 

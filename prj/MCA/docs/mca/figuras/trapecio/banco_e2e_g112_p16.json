@@ -1,0 +1,141 @@
+{
+ "pre_dly": 16,
+ "gate": 112,
+ "n_acc": 4,
+ "off_menos_c": 18,
+ "tasas": {
+  "300": {
+   "pulsos": 9592,
+   "disparos_rtl": 9406,
+   "ventanas": 9405,
+   "eventos": 9405,
+   "disparo_distintos": {
+    "solo_rtl": [
+     763628,
+     1373532,
+     1607726
+    ],
+    "solo_modelo": [
+     763629,
+     1373533,
+     1607727
+    ]
+   },
+   "disparo": {
+    "modelo": 9406,
+    "rtl": 9406,
+    "corrimiento": 0,
+    "iguales": 0.9996810546459707,
+    "mismo_conjunto": false
+   },
+   "abre_con_su_disparo": true,
+   "dt_prev_iguales": 1.0,
+   "dt_next_iguales": 1.0,
+   "eleccion_igual": 1.0,
+   "formas": {
+    "0": 6198,
+    "1": 1597,
+    "2": 883,
+    "3": 433,
+    "marcado": 294
+   },
+   "f_trap_distintos_por_forma": {
+    "0": 0,
+    "1": 0,
+    "2": 0,
+    "3": 0
+   },
+   "f_trap": {
+    "iguales_bit_a_bit": 9111,
+    "comparados": 9111,
+    "eps": 0,
+    "ventana_menos_modelo": 0
+   },
+   "rtl": {
+    "bueno": 8942,
+    "malo": 169,
+    "marcado": 294,
+    "perdido": 187,
+    "error_rtl": 0,
+    "buenos_kcps": 279.4375
+   },
+   "modelo": {
+    "bueno": 8942,
+    "malo": 169,
+    "marcado": 294,
+    "perdido": 187,
+    "error_rtl": 0,
+    "buenos_kcps": 279.4375
+   },
+   "misma_clase": 1.0,
+   "saturadas": 12647
+  },
+  "1000": {
+   "pulsos": 16089,
+   "disparos_rtl": 14285,
+   "ventanas": 14210,
+   "eventos": 14210,
+   "disparo_distintos": {
+    "solo_rtl": [
+     95798,
+     117122,
+     165130
+    ],
+    "solo_modelo": [
+     95799,
+     117123,
+     165131,
+     1993815
+    ]
+   },
+   "disparo": {
+    "modelo": 14286,
+    "rtl": 14285,
+    "corrimiento": 0,
+    "iguales": 0.999789989499475,
+    "mismo_conjunto": false
+   },
+   "abre_con_su_disparo": true,
+   "dt_prev_iguales": 1.0,
+   "dt_next_iguales": 1.0,
+   "eleccion_igual": 1.0,
+   "formas": {
+    "0": 3725,
+    "1": 3984,
+    "2": 3313,
+    "3": 1833,
+    "marcado": 1355
+   },
+   "f_trap_distintos_por_forma": {
+    "0": 0,
+    "1": 0,
+    "2": 0,
+    "3": 0
+   },
+   "f_trap": {
+    "iguales_bit_a_bit": 12855,
+    "comparados": 12855,
+    "eps": 0,
+    "ventana_menos_modelo": 0
+   },
+   "rtl": {
+    "bueno": 11901,
+    "malo": 954,
+    "marcado": 1355,
+    "perdido": 1879,
+    "error_rtl": 0,
+    "buenos_kcps": 743.8125
+   },
+   "modelo": {
+    "bueno": 11907,
+    "malo": 952,
+    "marcado": 1357,
+    "perdido": 1873,
+    "error_rtl": 0,
+    "buenos_kcps": 744.1875
+   },
+   "misma_clase": 0.9995027658648766,
+   "saturadas": 138288
+  }
+ }
+}

@@ -1,15 +1,15 @@
 % Los handles del resto del bus: osciloscopio, multitrigger y región de TOP.
 % Columna izquierda, el osciloscopio y el shim MultiTriggerScope, que hereda de
-% él y compone un MultiTrigger sobre el MISMO mapeo; es la clase que reciben
-% BramSource y RingSource. Columna del medio, el multitrigger del slot 1 (lo
-% que este proyecto agregó al scope). Derecha, las dos regiones con magic
-% propio: MtRegion (slot 3) e Integration (slot 6). Abajo, los dos sustitutos
-% que usa ServidorMCA sin placa.
+% él y compone un MultiTrigger; es la clase que reciben BramSource y RingSource.
+% Columna del medio, el multitrigger (lo que este proyecto agregó al scope), en
+% su región del slot 3. Derecha, MtRegion, sobre la misma región, e Integration
+% (slot 6). Los sustitutos sin placa
+% (FakeOsc, FakeMultiTrigger, FakeMtRegion) no se dibujan: están en
+% docs/API/diseno_de_clases.md §9.1.
 % Fuentes: software/API/osciloscope.py, software/API/multitrigger.py
 % (MultiTrigger, MtRegion), software/API/integration.py,
-% software/multitrigger_utils.py (MultiTriggerScope), software/API/mca_remote.py
-% (FakeOsc, FakeMultiTrigger), software/app/mca_server.py:186-197. El texto que
-% acompaña está en docs/API/arquitectura_software.md §1. Estilo:
+% software/multitrigger_utils.py (MultiTriggerScope). El texto que acompaña
+% está en docs/API/diseno_de_clases.md §5. Estilo:
 % docs/figuras/estilo_tikz.tex y clases_estilo.tex.
 %
 % Compilar:   pdflatex clases_scope.tex
@@ -31,7 +31,7 @@
 \node[clase=5.6cm, anchor=north] (osc) at (0,0) {
   \clase{Osciloscope}{API/osciloscope.py · 0x4010_0000 · slot 1 · "OSC1"}
   \nodepart{two}
-  _mmap · _fd · _geo
+  _mmap · _fd · _geo · _mt
   \nodepart{three}
   \gr{ciclo de vida}
   open(phys, size, check_pl) \es{classmethod}\\
@@ -53,7 +53,7 @@
 };
 
 \node[shim=5.6cm, anchor=north] (mts) at (0,-7.2) {
-  \clase{MultiTriggerScope(Osciloscope)}{multitrigger_utils.py · shim de compatibilidad}
+  \clase{MultiTriggerScope}{multitrigger_utils.py · shim de compatibilidad}
   \nodepart{two}
   _mt : MultiTrigger
   \nodepart{three}
@@ -69,11 +69,11 @@
 
 % ========================================================== multitrigger ===
 \node[clase=5.0cm, anchor=north] (mt) at (6.5,0) {
-  \clase{MultiTrigger}{API/multitrigger.py · slot 1, 0x210–0x24C}
+  \clase{MultiTrigger}{API/multitrigger.py · slot 3, 0x010–0x04C}
   \nodepart{two}
   _mmap · _fd · _propio
   \nodepart{three}
-  open(osc=None) \es{classmethod}\\
+  open(osc=None, phys, size, check_magic) \es{classmethod}\\
   close() · w32(off, v) · r32(off)\\
   \gr{máscaras OR}
   set_or_mask(mask_ch0, mask_ch1)\\
@@ -86,12 +86,12 @@
   get_flags()
 };
 
-% el shim compone un MultiTrigger sobre su propio mapeo
+% el shim hereda ese handle
 \draw[compone] (mts.east) -- ++(0.55,0) |- ([yshift=-1.3cm]mt.west)
   node[rol, pos=0.75, below] {_mt};
-% open(osc=...) toma prestado el mapeo del osciloscopio
-\draw[usa] ([yshift=0.6cm]mt.west) -- ([yshift=0.6cm]mt.west -| osc.east)
-  node[rol, midway, above] {osc._mmap};
+% el osciloscopio abre el multitrigger para lo que lo cruza: snapshot, máscara
+\draw[usa] ([yshift=0.6cm]mt.west -| osc.east) -- ([yshift=0.6cm]mt.west)
+  node[rol, midway, above] {mt};
 
 % ======================================================= regiones con magic ===
 \node[clase=5.4cm, anchor=north] (mtr) at (12.3,0) {
@@ -105,11 +105,14 @@
   has_slope()\\
   set_slope(ch, L, G, thr, hyst)\\
   get_slope(ch) · disable_slope(ch)\\
+  \gr{máscaras OR y trigger_shield}
+  set_or_mask(ch, mascara) · get_or_mask(ch)\\
+  set_shield(src, dst, dur) · get_shield()\\
   \gr{estado}
-  read_snapshot()
+  read_snapshot() · get_flags()
 };
 
-\node[clase=5.4cm, anchor=north] (itg) at (12.3,-4.0) {
+\node[clase=5.4cm, anchor=north] (itg) at (12.3,-5.0) {
   \clase{Integration}{API/integration.py · 0x4060_0000 · slot 6 · "INTG"}
   \nodepart{two}
   _mmap · _fd
@@ -129,35 +132,8 @@
   status() · dump()
 };
 
-% ============================================================ sustitutos ===
-\node[falsa=4.2cm, anchor=north] (fosc) at (6.5,-6.6) {
-  \clase{FakeOsc}{API/mca_remote.py · simulado}
-  \nodepart{two}
-  _reg · _rng · n_buf · _rate\\
-  _altura · _ancho · _ruido · _we_cnt · _t0
-  \nodepart{three}
-  w32(off, v) · r32(off) · close()\\
-  capturar(pre, post, n_ch)
-};
-
-\node[falsa=4.2cm, anchor=north] (fmt) at (6.5,-9.3) {
-  \clase{FakeMultiTrigger}{API/mca_remote.py · simulado}
-  \nodepart{two}
-  _reg
-  \nodepart{three}
-  w32(off, v) · r32(off) · close()\\
-  read_snapshot_raw() · get_flags()
-};
-
-% sustituyen al real en ServidorMCA (h.osc, h.mt), sin heredar de él
-\draw[usa] (fosc.north) -- (fosc.north |- mt.south)
-  node[rol, pos=0.45, fill=white] {sustituye};
-\draw[usa] (fmt.east) -| ([xshift=-0.3cm]mt.south east)
-  node[rol, pos=0.75, sloped, fill=white] {sustituye};
-
 % ============================================================== leyenda ===
-\leyendac{-2.8,-11.35}{17.8cm}{azul!30/{handle sobre /dev/mem}, amarillo/{shim de compatibilidad},
-                              grisr/{sustituto sin placa}}
+\leyendac{-2.8,-11.35}{17.8cm}{azul!30/{handle sobre /dev/mem}, amarillo/{shim de compatibilidad}}
   {Triángulo hueco: hereda. Rombo: compone. Flecha punteada: usa.
    \texttt{MultiTriggerScope} es lo que reciben \texttt{BramSource} y \texttt{RingSource}
    como \texttt{sc}.}

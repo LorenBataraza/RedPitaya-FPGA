@@ -15,8 +15,8 @@
 |---|---|
 | Módulo RTL | `mt_cfg` |
 | Archivo | [`mt_cfg.sv`](../../modulos/mt/rtl/mt_cfg.sv) |
-| Parámetros | 9 |
-| Puertos | 31 (16 in / 15 out) |
+| Parámetros | 12 |
+| Puertos | 38 (16 in / 22 out) |
 | Parte | `xc7z010clg400-1` |
 
 
@@ -49,12 +49,10 @@
 > osc_cfg sigue decodificando 0x004 y 0x094 en el slot 1 y manda acá el pulso
 > ya decodificado por canal. Las dos vías se OR-ean.
 >
-> SEMÁNTICA PRESERVADA TAL CUAL, INCLUIDA UNA VERRUGA. sys_bus_cdc sostiene
-> wen hasta el ack, así que los pulsos de abajo (adc_trig_sw, trig_dis_clr,
-> new_trg_src) duran ~5 ciclos, no uno. Es el comportamiento que tenía el
-> módulo original y del que depende la lógica aguas abajo; convertirlos en
-> estrobos de un ciclo es un cambio deliberado y aparte, no algo que deba
-> colarse en una mudanza de registros.
+> LOS PULSOS DE ABAJO NO DURAN UN CICLO. sys_bus_cdc sostiene wen hasta el ack, y
+> este módulo y osc_cfg dan el ack a los 5 ciclos, así que adc_trig_sw, trig_dis_clr
+> y new_trg_src duran 6. En el módulo original los registros daban el ack al ciclo
+> siguiente y duraban 2. Por eso mt_trig_src toma adc_trig_sw por flanco.
 >
 > DISPARO POR PENDIENTE (mt_slope_trig). Tres registros por canal, sin espejo
 > en el slot 1 ni fan-out por indep_mode: son procesamiento de la señal de
@@ -65,6 +63,16 @@
 >   0x080 + 4·ch  SLOPE_HYST  histéresis        [TW-1:0]
 >
 > CAPS[16] = 1 anuncia que el bitstream los tiene.
+>
+> DISPARO CON POLO-CERO (mt_pz_trig). Cuatro registros por canal, mismo
+> criterio que los de la pendiente:
+>
+>   0x090 + 4·ch  PZ_CFG   {en[31], sh[29:24], m[KW+7:8], k[KW-1:0]}
+>   0x0A0 + 4·ch  PZ_MQ    constante polo-cero, M * 16   [MW-1:0]
+>   0x0B0 + 4·ch  PZ_THR   umbral sobre la salida        [TW-1:0]
+>   0x0C0 + 4·ch  PZ_HYST  histéresis                    [TW-1:0]
+>
+> CAPS[17] = 1 anuncia que el bitstream los tiene.
 <!-- /AUTO:resumen -->
 
 <!-- AUTO:prosa -->
@@ -127,6 +135,9 @@ el lazo completo, medido, en [§1.6](#16-transacciones).
 | `SLOPE_LW` | `integer` | `5` |  |
 | `SLOPE_GW` | `integer` | `5` |  |
 | `SLOPE_TW` | `integer` | `18` |  |
+| `PZ_KW` | `integer` | `5` |  |
+| `PZ_MW` | `integer` | `20` |  |
+| `PZ_TW` | `integer` | `18` |  |
 
 
 #### Puertos
@@ -150,7 +161,7 @@ el lazo completo, medido, en [§1.6](#16-transacciones).
 | `shield_cnt_i` | in | 16 | adc_clk_i |  |
 | `shield_active_i` | in | 1 | adc_clk_i |  |
 | `mca_veto_i` | in | 1 | adc_clk_i | nivel de veto hacia el MCA |
-| `trig_snapshot_i` | in | 25 | adc_clk_i |  |
+| `trig_snapshot_i` | in | 29 | adc_clk_i |  |
 
 
 ##### Puente legacy desde osc_cfg (offsets 0x004 y 0x094 del slot 1)
@@ -183,6 +194,19 @@ el lazo completo, medido, en [§1.6](#16-transacciones).
 | `slope_gap_o` | out | 20 `[4*SLOPE_GW-1:0]` | adc_clk_i |
 | `slope_thr_o` | out | 72 `[4*SLOPE_TW-1:0]` | adc_clk_i |
 | `slope_hyst_o` | out | 72 `[4*SLOPE_TW-1:0]` | adc_clk_i |
+
+
+##### Salidas hacia mt_pz_trig (una rebanada por canal)
+
+| Puerto | Dir | Bits | Dominio |
+|---|---|---|---|
+| `pz_en_o` | out | 4 | adc_clk_i |
+| `pz_k_o` | out | 20 `[4*PZ_KW-1:0]` | adc_clk_i |
+| `pz_m_o` | out | 20 `[4*PZ_KW-1:0]` | adc_clk_i |
+| `pz_sh_o` | out | 24 | adc_clk_i |
+| `pz_mq_o` | out | 80 `[4*PZ_MW-1:0]` | adc_clk_i |
+| `pz_thr_o` | out | 72 `[4*PZ_TW-1:0]` | adc_clk_i |
+| `pz_hyst_o` | out | 72 `[4*PZ_TW-1:0]` | adc_clk_i |
 
 
 ##### Bus de sistema
@@ -226,7 +250,7 @@ Contrato del bus: [`bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) 
 ### 1.5 Frecuencia máxima de trabajo
 
 <!-- AUTO:timing -->
-El `metrics.txt` del módulo es de `mt_slope_trig`, no de `mt_cfg`: la síntesis OOC del módulo apunta a otro top, así que acá no hay números propios de este bloque.
+El `metrics.txt` del módulo es de `mt_top`, no de `mt_cfg`: la síntesis OOC del módulo apunta a otro top, así que acá no hay números propios de este bloque.
 <!-- /AUTO:timing -->
 
 <!-- A mano: qué hay en el camino crítico y qué se haría para romperlo si
@@ -329,24 +353,25 @@ python3 docs/mt/figuras/ondas/ondas_mt.py    # regenerar
 Todo corre en batch y se chequea el `RESULT: PASS` del testbench; las ondas quedan en `work/waves/<tb>.wlf`.
 
 ```bash
-make -C modulos/mt/work            # los 6 testbenches
+make -C modulos/mt/work            # los 7 testbenches
 make -C modulos/mt/work cov        # + cobertura
 make -C modulos/mt/work lint
 ```
 
 | Testbench | DUT | Escenas | Casos | Contra qué compara | Es el de este módulo |
 |---|---|---|---|---|---|
-| [`tb_mt_cfg`](../../modulos/mt/sim/tb_mt_cfg.sv) | `mt_cfg` | 13 | 41 | vectores a mano | **sí** |
+| [`tb_mt_cfg`](../../modulos/mt/sim/tb_mt_cfg.sv) | `mt_cfg` | 14 | 59 | vectores a mano | **sí** |
 | [`tb_mt_slope_trig`](../../modulos/mt/sim/tb_mt_slope_trig.sv) | `mt_slope_trig` | 8 | 15 | vectores a mano |  |
-| [`tb_mt_trig_src`](../../modulos/mt/sim/tb_mt_trig_src.sv) | `mt_trig_src` | 6 | 12 | vectores a mano |  |
-| [`tb_mt_event_logic`](../../modulos/mt/sim/tb_mt_event_logic.sv) | `mt_event_logic` | 5 | 9 | vectores a mano |  |
+| [`tb_mt_pz_trig`](../../modulos/mt/sim/tb_mt_pz_trig.sv) | `mt_pz_trig` | 8 | 1 | vectores a mano |  |
+| [`tb_mt_trig_src`](../../modulos/mt/sim/tb_mt_trig_src.sv) | `mt_trig_src` | 7 | 14 | vectores a mano |  |
+| [`tb_mt_event_logic`](../../modulos/mt/sim/tb_mt_event_logic.sv) | `mt_event_logic` | 8 | 11 | vectores a mano |  |
 | [`tb_trigger_shield`](../../modulos/mt/sim/tb_trigger_shield.sv) | `trigger_shield` | 8 | 19 | vectores a mano |  |
-| [`tb_mt_top`](../../modulos/mt/sim/tb_mt_top.sv) | `mt_top` | 20 | 46 | vectores a mano |  |
+| [`tb_mt_top`](../../modulos/mt/sim/tb_mt_top.sv) | `mt_top` | 20 | 51 | vectores a mano |  |
 
 
-**142 casos con nombre** en 6 testbenches (60 escenas). La lista completa, caso por caso, está en el plan de verificación.
+**170 casos con nombre** en 7 testbenches (73 escenas). La lista completa, caso por caso, está en el plan de verificación.
 
-Las escenas de [`tb_mt_cfg`](../../modulos/mt/sim/tb_mt_cfg.sv): 1) CONTRATO DE BUS, 2) Los registros mudados conservan valor y layout d, 3) EL PUENTE LEGACY. librp escribe el SW-trigger en, 4) EL FAN-OUT POR indep_mode, 5) DISPARO POR PENDIENTE (nuevo, 0x060/0x070/0x080 , 1) IDENTIFICACIÓN, 2) SHIELD, 3) SNAPSHOT y FLAGS (eran 0x218 y 0x21C), 4) MÁSCARAS OR, 5) SW-TRIGGER, 6) FAN-OUT POR indep_mode, 7) DISPARO POR PENDIENTE, 8) BARRIDO DE ACK.
+Las escenas de [`tb_mt_cfg`](../../modulos/mt/sim/tb_mt_cfg.sv): 1) CONTRATO DE BUS, 2) Los registros mudados conservan valor y layout d, 3) EL PUENTE LEGACY. librp escribe el SW-trigger en, 4) EL FAN-OUT POR indep_mode, 5) DISPARO POR PENDIENTE (nuevo, 0x060/0x070/0x080 , 6) DISPARO CON POLO-CERO (0x090/0x0A0/0x0B0/0x0C0 +, 1) IDENTIFICACIÓN, 2) SHIELD, 3) SNAPSHOT y FLAGS (eran 0x218 y 0x21C), 4) MÁSCARAS OR, 5) SW-TRIGGER, 6) FAN-OUT POR indep_mode, 7) DISPARO POR PENDIENTE, 8) BARRIDO DE ACK.
 
 **Assertions** — en `sim/sva/`, enganchadas por `bind` (no tocan el RTL sintetizable).
 

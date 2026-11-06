@@ -15,8 +15,8 @@
 |---|---|
 | Módulo RTL | `mca_window` |
 | Archivo | [`mca_window.sv`](../../modulos/mca/rtl/mca_window.sv) |
-| Parámetros | 8 |
-| Puertos | 58 (26 in / 32 out) |
+| Parámetros | 16 |
+| Puertos | 61 (24 in / 37 out) |
 | Parte | `xc7z010clg400-1` |
 
 
@@ -24,117 +24,74 @@
 
 **Cabecera del RTL** (se copia tal cual de [`mca_window.sv`](../../modulos/mca/rtl/mca_window.sv)):
 
-> mca_window — el nucleo de la ventana: segmentacion, acumuladores y
-> contabilidad del tiempo muerto
+> mca_window — el nucleo: la muestra relativa a la base, el disparo, el
+> asignador de ranuras y la contabilidad del tiempo muerto
 >
-> Es la parte de mca_pulse_feature que NO se puede partir mas. El camino
-> critico de todo el bitstream nace aca y muere aca:
+> QUIEN ABRE: solo el TRIGGER EXTERNO (trig_i, el trigger_event del
+> multitrigger, con su disparo por pendiente). El Schmitt interno se saco: no
+> puede ver un pulso montado sobre la cola de otro, porque la senal nunca baja
+> del umbral entre los dos, y ver esos pulsos es para lo que estan las ranuras.
+> La latencia del trigger la compensa la linea de retardo de mca_top
+> (mca_delay): la muestra que llega aca ya esta retrasada, y la ventana abre en
+> el pie del pulso.
 >
->     dat_i -> x = dat - base -> umbrales -> abrir/cerrar -> q_tot, q_tail,
->     peak, t_peak, d_min/d_max  (y la WE de la FIFO de mca_publish)
+> N_ACC RANURAS (mca_slot), cada una un juego entero de acumuladores. Un disparo
+> abre la ranura libre de menor indice; si no hay, el pulso se pierde y se
+> cuenta. Con cfg_n_acc = 1 es la arquitectura de una sola ventana con
+> publicacion bloqueante; con mas, el modulo mide pulsos que se solapan, y la
+> perdida pasa de ser de primer orden en la tasa (~rho) a ~rho^N/N!, el modelo
+> M/D/N/N de Erlang. Lo que una ranura mide sobre otro pulso viene contaminado:
+> no se corrige aca, se MARCA (ver mca_slot, "marcas de solape").
 >
-> El build cerro con +0.006 ns en q_tot_reg/R, y el sintetizador corre con
-> -flatten_hierarchy none: cada frontera de modulo es una barrera de
-> optimizacion. Una frontera en medio de ese cono le agrega un nivel de LUT y
-> el timing no cierra. Por eso segmentacion y acumuladores viven juntos, y lo
-> que sale de aca hacia los vecinos sale de registros o va directo a pines de
-> primitiva.
+> QUIEN CIERRA: solo la compuerta fija, cfg_gate_long muestras desde el disparo,
+> con la cola desde cfg_gate_short. La histeresis no tiene sentido con ventanas
+> solapadas: el cruce de bajada es de la senal sumada y las cerraria juntas.
 >
-> Decisiones de la vista general (docs/mca/vista_general_mca.md) que viven aca:
->   D4 quien abre   (cfg_trig_src)
->   D5 quien cierra (cfg_gate_mode)
->   D6 como se re-arma (cfg_rearm_mode): se probo como modulo propio y volvio
->      aca, porque necesita el flanco de apertura como puerto y eso le agrega
->      un nivel de LUT a todo el cono (ver la cabecera de mca_pulse_feature)
->   D7 el estimador de la ventana de amplitud (cfg_amp_src)
+> LA MUESTRA SE REGISTRA ANTES DE REPARTIRSE. x = dat - base es el comienzo del
+> camino de datos, y el sintetizador no aplana jerarquia: una frontera es
+> gratis solo si lo que cruza sale de un registro. Por eso xc_q es un flop, y
+> todo lo que el asignador decide para la muestra n (abrir, que ranura, las
+> marcas) se registra junto con ella y llega a las ranuras en el mismo ciclo.
+> Ese ciclo de latencia lo absorbe la linea de retardo.
 >
-> SEGMENTACIÓN. Schmitt igual que rp_adc_trig.v, para que los umbrales del
-> MCA y del scope sean comparables. Abre al cruzar cfg_thr hacia arriba, con
-> re-armado previo por debajo de cfg_thr-cfg_hyst. Para CERRAR hay dos modos,
-> seleccionables por cfg_gate_mode:
+> RESERVA. La ranura elegida para la muestra n recien pasa a ABIERTA en el
+> flanco de n+1, asi que en el ciclo n+1 todavia figura libre. `reserva_q` la
+> marca ocupada ese ciclo; sin eso un disparo en la muestra siguiente elegiria
+> la misma ranura.
 >
->   0 = HISTÉRESIS: cierra al bajar de cfg_thr-cfg_hyst, o al llegar a
->       cfg_maxlen (esto último cuenta como APILAMIENTO).
->   1 = COMPUERTAS FIJAS: cierra a cfg_gate_long muestras del disparo, y la
->       cola arranca en cfg_gate_short. Es el método de comparación de carga.
->
-> El motivo del modo 1: con histéresis el largo de la ventana lo decide dónde
-> la cola cruza el umbral, que es la parte más chata del pulso, así que lo
-> decide el ruido. Medido offline sobre 7054 pulsos reales, la resolución de la
-> integral pasa de 0.528 % (histéresis) a 0.149 % (compuerta fija). Ver
-> software/API/modelo_rtl/estimadores.py.
->
-> Los eventos marcados como apilamiento se cuentan pero NO se histogramean,
-> porque su integral y su pico están contaminados por el segundo pulso.
->
-> AMPLITUD. Seleccionable por cfg_amp_src:
->   0 = muestra de pico   -> ruido de UNA muestra, y el muestreo casi nunca
->                            cae en el máximo real: ensancha el fotopico.
->   1 = integral de carga -> el ruido blanco promedia como sigma/sqrt(N) y
->                            es inmune al jitter de muestreo. Es lo que hace
->                            cualquier MCA digital serio, y lo que justifica
->                            un eje de 16384 canales.
-> Poder alternar entre ambos en el mismo bitstream ES el experimento que mide
-> la contribución de jitter de muestreo.
->
-> PICO con comparación ESTRICTA (>): en un techo plano con ruido gana la
-> PRIMERA ocurrencia del máximo. Con >= el instante de pico se correría hasta
-> el final de la meseta y el tiempo de subida saldría arbitrariamente largo.
->
-> CARGA. Cada muestra se satura a >= 0 antes de acumular. Sin eso, una cola
-> con undershoot resta de q_tot mientras q_tail (en la parte plana) sigue
-> sumando, y se llega a q_tail > q_total, que rompe la premisa del divisor.
->
-> TIEMPO MUERTO. `busy_o` NO es la condicion de bloqueo del modulo, y usarlo
-> como tal es lo que hacia que el reloj de tiempo muerto de mca_top mintiera.
-> La condicion real es el complemento de `open_pulse`, que exige `armed` -- una
-> condicion de NIVEL: no se re-arma hasta que la senal baja de thr_lo. Mientras
-> la cola del ultimo pulso siga arriba, st == S_IDLE (asi que `busy_o` esta
-> bajo) pero el modulo NO PUEDE ABRIR. Ese tiempo no entraba en ningun
-> contador. Por eso ademas de `busy_o` salen los cuatro casilleros dt_* y los
-> contadores de atribucion de arribos; ver las dos secciones del cuerpo.
->
-> QUIEN ABRE: cfg_trig_src. 0 = el Schmitt interno (como siempre),
-> 1 = un TRIGGER EXTERNO (el trigger_event del multitrigger), 2 = cualquiera
-> de los dos. El trigger se toma por FLANCO y nunca por nivel: un trigger
-> por software dura ~5 ciclos de bus y por nivel abriria varias ventanas
-> (es el bug que event_window_capture.sv:58-64 ya documenta en la placa).
->
-> ADVERTENCIA QUE NO SE PUEDE TAPAR: el trigger externo llega con latencia
-> respecto de la muestra que lo causo, asi que la ventana arranca unas
-> muestras TARDE y se pierde el flanco de subida -- la integral y el pico
-> salen truncados. Para que el modo 1 sirva para medir energia hace falta la
-> linea de retardo de muestras de la Fase 3 (muestreo doble correlacionado),
-> que es justamente donde el plan la puso. Sin ella, el modo 1 sirve para
-> coincidencia y para tener una base de tiempo comun, NO para espectrometria.
+> EL BANCO DE TRAPECIOS: N_FORMAS mca_trap corren sobre la misma muestra
+> registrada, CON signo, cada uno con su forma (k, l) y su escala (sh), y el M
+> y el clr en comun. Su salida es comun a todas las ranuras: cada una la suma
+> sobre su propia ventana, una por forma, y el publicador elige despues cual
+> publica (ver mca_publish). Como el trapecio llega TRAP_LAT muestras tarde, la
+> ventana que se le pasa a las ranuras ya esta corrida por esa latencia: el off
+> de cada forma se cuenta en muestras del trapecio desde la apertura, como si
+> no hubiera latencia.
 <!-- /AUTO:resumen -->
 
 <!-- AUTO:prosa -->
 <!-- Prosa a mano: se edita en prosa/mca_window.md, no aca. -->
 
-**Qué hace.** Es el núcleo del extractor: resta la base, abre y cierra la
-ventana, re-arma el detector, corre los acumuladores (pico, $Q_\mathrm{tot}$,
-$Q_\mathrm{cola}$, largo, tiempo de subida), evalúa la ventana de amplitud y
-reparte cada ciclo y cada cruce de umbral en los casilleros de tiempo muerto.
-Viven acá cuatro decisiones de la
-[vista general](../mca/vista_general_mca.md): quién abre (**D4**), quién
-cierra (**D5**), cómo se re-arma (**D6**) y qué amplitud mira la ventana (**D7**).
+**Qué hace.** Es el núcleo del extractor: resta la base de la muestra, la
+registra y la reparte a las `N_ACC` ranuras (`mca_slot`); toma el disparo
+(`trig_i`, por flanco, sostenido hasta la muestra válida siguiente) y le asigna
+la ranura libre de menor índice entre las `cfg_n_acc` habilitadas; y reparte cada
+ciclo y cada disparo en los casilleros de tiempo muerto y de atribución. Es la
+decisión **D8** de la [vista general](../mca/vista_general_mca.md), cuántas
+ranuras miden a la vez.
 
-**Por qué es un módulo tan grande.** Por acá pasa el camino crítico de todo el
-bitstream, `dat → x → umbrales → abrir/cerrar → acumuladores`, y el
-sintetizador corre con `-flatten_hierarchy none`. Una frontera en medio de ese
-cono le suma un nivel de LUT. El re-armado se probó como módulo aparte y
-volvió: abrir consume el armado en el mismo flanco, el flanco de apertura tenía
-que salir como puerto, y eso solo costó 576 ps en todo el cono. Lo que sale hacia
-[`mca_publish`](datasheet_mca_publish.md) sale de registros, o va directo a la
-WE de la FIFO.
+**Por qué la muestra se registra antes de repartirse.** El sintetizador corre con
+`-flatten_hierarchy none`, así que una frontera es gratis solo si lo que cruza
+sale de un registro. `xc_q` es ese registro, y lo que el asignador decide para
+cada muestra (abrir, qué ranura, las marcas de solape) viaja registrado con ella.
+La ranura elegida queda **reservada** el ciclo siguiente, porque recién abre en
+ese flanco: sin la reserva, un disparo en la muestra siguiente elegiría la misma.
 
-**Dos ajustes de mapeo, documentados en el RTL.** Las sumas de $Q_\mathrm{tot}$ y
-$Q_\mathrm{cola}$ llevan `keep`, y $Q_\mathrm{cola}$ se escribe como valor
-siguiente en todos los ciclos. Sin eso, al separar la publicación Vivado plegó la
-apertura dentro del sumador y `q_tot` cayó a −0.148 ns en la OOC. La lógica es la
-misma: lo verifica `tb_mca_pulse_feature_eq` contra la copia congelada del
-módulo original.
+**Por qué ya no hay Schmitt.** La ventana la abría un Schmitt interno, que no
+puede ver un pulso montado sobre la cola de otro (la señal nunca baja del umbral
+entre los dos), y esos son los pulsos para los que existen las ranuras. Abre
+solo el disparo por pendiente del multitrigger; `mca_delay` compensa que llega
+tarde.
 <!-- /AUTO:prosa -->
 
 ### 1.2 Interfaces
@@ -148,10 +105,18 @@ módulo original.
 | `QW` | `integer` | `32` | ancho de los acumuladores de carga |
 | `AMP_W` | `integer` | `16` | ancho de la amplitud emitida |
 | `LEN_W` | `integer` | `16` | ancho de los contadores de longitud |
-| `EN_PSD` | `integer` | `1` | 0: sin divisores, el evento sale al cerrar |
-| `PUB_K` | `integer` | `2` | lugares de la FIFO de publicacion |
+| `N_ACC` | `integer` | `4` | ranuras de medicion |
 | `PUB_IDW` | `integer` | `16` | bits del id de ventana |
-| `PUB_AW` | `integer` | `(PUB_K <= 2) ? 1 : $clog2(PUB_K)` |  |
+| `NW` | `integer` | `4` | bits de la marca `otras` |
+| `NA_W` | `integer` | `3` | bits de cfg_n_acc |
+| `N_FORMAS` | `integer` | `4` | trapecios del banco; 0: sin trapecio (F_TRAP vale cero) |
+| `TDAW` | `integer` | `10` | log2 de la profundidad de sus lineas de retardo |
+| `TMW` | `integer` | `20` | bits de su constante polo-cero |
+| `TW` | `integer` | `18` | salida del trapecio |
+| `TNW` | `integer` | `8` | bits de la cuenta de la meseta |
+| `OC_W` | `integer` | `$clog2(N_ACC + 1)` = `3` |  |
+| `TSW` | `integer` | `TW + TNW - 1` = `25` |  |
+| `NF` | `integer` | `(N_FORMAS < 1) ? 1 : N_FORMAS` | ancho de los puertos |
 
 
 #### Puertos
@@ -164,7 +129,7 @@ módulo original.
 | `rstn_i` | in | 1 | — |
 
 
-##### Muestras de entrada (ya calibradas/filtradas/decimadas)
+##### La muestra, ya retrasada por mca_delay
 
 | Puerto | Dir | Bits | Signo | Dominio |
 |---|---|---|---|---|
@@ -172,98 +137,103 @@ módulo original.
 | `val_i` | in | 1 |  | clk_i |
 
 
-##### Configuración (ver mca_pulse_feature)
-
-| Puerto | Dir | Bits | Signo | Dominio |
-|---|---|---|---|---|
-| `cfg_run_i` | in | 1 |  | clk_i |
-| `veto_i` | in | 1 |  | clk_i |
-| `cnt_clr_i` | in | 1 |  | clk_i |
-| `cfg_thr_i` | in | 14 `[DW-1:0]` | signed | clk_i |
-| `cfg_hyst_i` | in | 14 `[DW-1:0]` |  | clk_i |
-| `cfg_maxlen_i` | in | 16 `[LEN_W-1:0]` |  | clk_i |
-| `cfg_tail_dly_i` | in | 16 `[LEN_W-1:0]` |  | clk_i |
-| `cfg_gate_mode_i` | in | 1 |  | clk_i |
-| `cfg_gate_short_i` | in | 16 `[LEN_W-1:0]` |  | clk_i |
-| `cfg_gate_long_i` | in | 16 `[LEN_W-1:0]` |  | clk_i |
-| `cfg_amp_min_i` | in | 16 `[AMP_W-1:0]` |  | clk_i |
-| `cfg_amp_max_i` | in | 16 `[AMP_W-1:0]` |  | clk_i |
-| `cfg_amp_src_i` | in | 1 |  | clk_i |
-| `cfg_q_shift_i` | in | 5 |  | clk_i |
-| `trig_i` | in | 1 |  | clk_i |
-| `cfg_trig_src_i` | in | 2 |  | clk_i |
-| `cfg_rearm_mode_i` | in | 1 |  | clk_i |
-| `cfg_rearm_dly_i` | in | 16 `[LEN_W-1:0]` |  | clk_i |
-| `cfg_pub_mode_i` | in | 1 |  | clk_i |
-
-
-##### Hacia mca_publish: la ventana que cierra ACEPTADA y sus valores
-
-Todos salen de registros (o de logica sobre registros), en el ciclo de cierre: son los que la FIFO guarda.
-
-| Puerto | Dir | Bits | Dominio |
-|---|---|---|---|
-| `acepta_o` | out | 1 | clk_i |
-| `amp_sel_o` | out | 16 `[AMP_W-1:0]` | clk_i |
-| `amp_int_o` | out | 16 `[AMP_W-1:0]` | clk_i |
-| `peak_o` | out | 14 `[DW-1:0]` | clk_i |
-| `len_o` | out | 16 `[LEN_W-1:0]` | clk_i |
-| `t_peak_o` | out | 16 `[LEN_W-1:0]` | clk_i |
-| `q_tot_o` | out | 32 `[QW-1:0]` | clk_i |
-| `q_tail_o` | out | 32 `[QW-1:0]` | clk_i |
-| `win_id_o` | out | 16 `[PUB_IDW-1:0]` | clk_i |
-
-
-##### Desde mca_publish
+##### Configuracion
 
 | Puerto | Dir | Bits | Dominio | Descripción |
 |---|---|---|---|---|
-| `pub_occ_i` | in | `[PUB_AW:0]` | clk_i | ocupacion de la FIFO (registro) |
-| `pub_done_i` | in | 1 | clk_i | el publicador termina en este ciclo |
+| `cfg_run_i` | in | 1 | clk_i |  |
+| `veto_i` | in | 1 | clk_i |  |
+| `cnt_clr_i` | in | 1 | clk_i |  |
+| `cfg_gate_short_i` | in | 16 `[LEN_W-1:0]` | clk_i |  |
+| `cfg_gate_long_i` | in | 16 `[LEN_W-1:0]` | clk_i |  |
+| `cfg_amp_min_i` | in | 16 `[AMP_W-1:0]` | clk_i |  |
+| `cfg_amp_max_i` | in | 16 `[AMP_W-1:0]` | clk_i |  |
+| `cfg_amp_src_i` | in | 1 | clk_i |  |
+| `cfg_q_shift_i` | in | 5 | clk_i |  |
+| `cfg_n_acc_i` | in | 3 `[NA_W-1:0]` | clk_i | ranuras habilitadas (0 = 1) |
+| `trig_i` | in | 1 | clk_i |  |
 
 
-##### Estado y contadores
+##### El banco de trapecios: NF formas, aplanadas
 
---- linea de base (mca_baseline): la base entra registrada, y la ventana le dice cuando seguir ---
+| Puerto | Dir | Bits | Dominio | Descripción |
+|---|---|---|---|---|
+| `trap_clr_i` | in | 1 | clk_i | reinicia su estado (pulso) |
+| `cfg_trap_k_i` | in | `[NF*TDAW-1:0]` | clk_i | subida, >= 1 |
+| `cfg_trap_l_i` | in | `[NF*TDAW-1:0]` | clk_i | subida + meseta |
+| `cfg_trap_mq_i` | in | 20 `[TMW-1:0]` | clk_i | polo-cero, M * 16 (comun) |
+| `cfg_trap_sh_i` | in | `[NF*6-1:0]` | clk_i |  |
+| `cfg_trap_off_i` | in | `[NF*LEN_W-1:0]` | clk_i | inicio de la ventana de la meseta |
+| `cfg_trap_lw_i` | in | `[NF*3-1:0]` | clk_i | su largo: 2^lw muestras |
+
+
+##### Linea de base (mca_baseline): entra registrada
 
 | Puerto | Dir | Bits | Signo | Dominio | Descripción |
 |---|---|---|---|---|---|
 | `baseline_i` | in | 14 `[DW-1:0]` | signed | clk_i |  |
-| `bl_track_o` | out | 1 |  | clk_i | reposo y sin abrir en este flanco |
-| `cierra_o` | out | 1 |  | clk_i | la ventana cierra en este flanco |
-| `bl_stale_set_o` | out | 1 |  | clk_i | pulso abierto sin muestras |
-| `cnt_total_o` | out | 32 |  | clk_i | pulsos cerrados |
-| `cnt_rej_amp_o` | out | 32 |  | clk_i | fuera de [min,max] |
-| `cnt_pileup_o` | out | 32 |  | clk_i | cerrado por maxlen |
-| `cnt_lost_busy_o` | out | 32 |  | clk_i | pulso perdido con el divisor ocupado |
-| `last_qtot_o` | out | 32 `[QW-1:0]` |  | clk_i |  |
-| `last_qtail_o` | out | 32 `[QW-1:0]` |  | clk_i |  |
-| `busy_o` | out | 1 |  | clk_i | pulso activo o divisor ocupado |
+| `bl_track_o` | out | 1 |  | clk_i | ninguna ventana sobre esta muestra |
+| `cierra_o` | out | 1 |  | clk_i | alguna ranura cierra: holdoff |
+| `bl_stale_set_o` | out | 1 |  | clk_i | ventana vencida sin muestras |
+
+
+##### Hacia mca_publish: las N ranuras, aplanadas
+
+| Puerto | Dir | Bits | Dominio | Descripción |
+|---|---|---|---|---|
+| `acepta_o` | out | 4 `[N_ACC-1:0]` | clk_i | cierra aceptada en este ciclo |
+| `amp_sel_o` | out | 64 `[N_ACC*AMP_W-1:0]` | clk_i |  |
+| `amp_int_o` | out | 64 `[N_ACC*AMP_W-1:0]` | clk_i |  |
+| `peak_o` | out | 56 `[N_ACC*DW-1:0]` | clk_i |  |
+| `len_o` | out | 64 `[N_ACC*LEN_W-1:0]` | clk_i |  |
+| `t_peak_o` | out | 64 `[N_ACC*LEN_W-1:0]` | clk_i |  |
+| `q_tot_o` | out | 128 `[N_ACC*QW-1:0]` | clk_i |  |
+| `q_tail_o` | out | 128 `[N_ACC*QW-1:0]` | clk_i |  |
+| `win_id_o` | out | 64 `[N_ACC*PUB_IDW-1:0]` | clk_i |  |
+| `dt_prev_o` | out | 64 `[N_ACC*LEN_W-1:0]` | clk_i |  |
+| `dt_next_o` | out | 64 `[N_ACC*LEN_W-1:0]` | clk_i |  |
+| `otras_o` | out | 16 `[N_ACC*NW-1:0]` | clk_i |  |
+| `adentro_o` | out | 4 `[N_ACC-1:0]` | clk_i |  |
+| `perdido_o` | out | 4 `[N_ACC-1:0]` | clk_i |  |
+| `libera_i` | in | 4 `[N_ACC-1:0]` | clk_i | el publicador termino con estas |
+| `trap_sum_o` | out | `[N_ACC*NF*TSW-1:0]` | clk_i | ranura k, forma f: (k*NF + f) |
+| `trap_n_o` | out | `[N_ACC*NF*TNW-1:0]` | clk_i |  |
+
+
+##### Contadores
+
+| Puerto | Dir | Bits | Dominio | Descripción |
+|---|---|---|---|---|
+| `cnt_total_o` | out | 32 | clk_i | ventanas cerradas |
+| `cnt_rej_amp_o` | out | 32 | clk_i | ...fuera de [min,max] |
+| `cnt_pileup_o` | out | 32 | clk_i | ...con marca de solape |
+| `last_qtot_o` | out | 32 `[QW-1:0]` | clk_i |  |
+| `last_qtail_o` | out | 32 `[QW-1:0]` | clk_i |  |
+| `busy_o` | out | 1 | clk_i | alguna ranura ocupada |
 
 
 ##### Casilleros de tiempo muerto
 
 | Puerto | Dir | Bits | Dominio | Descripción |
 |---|---|---|---|---|
-| `dt_win_o` | out | 1 | clk_i | ventana abierta |
-| `dt_div_o` | out | 1 | clk_i | bloqueado por la publicacion |
-| `dt_rearm_o` | out | 1 | clk_i | libre pero sin re-armar |
+| `dt_win_o` | out | 1 | clk_i | sin ranura libre, todas abiertas |
+| `dt_div_o` | out | 1 | clk_i | sin ranura libre, alguna esperando publicar |
 | `puede_abrir_o` | out | 1 | clk_i |  |
+| `n_ocup_o` | out | 3 `[OC_W-1:0]` | clk_i | ranuras ocupadas ahora |
 
 
-##### Atribucion de arribos: cada cruce de thr_hi va a UN casillero
+##### Atribucion de arribos: cada disparo va a UN casillero
 
 | Puerto | Dir | Bits | Dominio | Descripción |
 |---|---|---|---|---|
-| `arribo_o` | out | 1 | clk_i | flanco de thr_hi, 1 ciclo |
-| `cnt_cross_o` | out | 32 | clk_i |  |
-| `cnt_open_o` | out | 32 | clk_i |  |
-| `cnt_lost_rearm_o` | out | 32 | clk_i |  |
-| `cnt_lost_active_o` | out | 32 | clk_i |  |
-| `cnt_lost_veto_o` | out | 32 | clk_i |  |
-| `cnt_lost_notrig_o` | out | 32 | clk_i |  |
-| `cnt_win_o` | out | 32 | clk_i |  |
-| `cnt_trig_o` | out | 32 | clk_i | flancos de trigger externo |
+| `arribo_o` | out | 1 | clk_i | disparo en esta muestra, con run |
+| `cnt_cross_o` | out | 32 | clk_i | todos los arribos |
+| `cnt_open_o` | out | 32 | clk_i | ...que abrieron ranura |
+| `cnt_lost_active_o` | out | 32 | clk_i | ...sin ranura libre, todas abiertas |
+| `cnt_lost_busy_o` | out | 32 | clk_i | ...sin ranura libre, alguna esperando publicar |
+| `cnt_lost_veto_o` | out | 32 | clk_i | ...bajo veto |
+| `cnt_win_o` | out | 32 | clk_i | ventanas abiertas |
+| `cnt_trig_o` | out | 32 | clk_i | flancos crudos de trig_i |
 <!-- /AUTO:interfaces -->
 
 ### 1.3 Mapa de registros
@@ -404,7 +374,7 @@ python3 docs/mca/figuras/ondas/ondas_mca.py    # regenerar
 Todo corre en batch y se chequea el `RESULT: PASS` del testbench; las ondas quedan en `work/waves/<tb>.wlf`.
 
 ```bash
-make -C modulos/mca/work            # los 7 testbenches
+make -C modulos/mca/work            # los 8 testbenches
 make -C modulos/mca/work cov        # + cobertura
 make -C modulos/mca/work lint
 ```
@@ -415,18 +385,19 @@ make -C modulos/mca/work lint
 | [`tb_mca_hist`](../../modulos/mca/sim/tb_mca_hist.sv) | `mca_hist` | 8 | 31 | vectores a mano |  |
 | [`tb_mca_zoom`](../../modulos/mca/sim/tb_mca_zoom.sv) | `mca_zoom` | 5 | 11 | vectores a mano |  |
 | [`tb_mca_discriminator`](../../modulos/mca/sim/tb_mca_discriminator.sv) | `mca_discriminator` | 7 | 21 | vectores a mano |  |
-| [`tb_mca_pulse_feature`](../../modulos/mca/sim/tb_mca_pulse_feature.sv) | `mca_pulse_feature` | 17 | 161 | vectores a mano |  |
-| [`tb_mca_pulse_feature_eq`](../../modulos/mca/sim/tb_mca_pulse_feature_eq.sv) | `mca_pulse_feature_eq` | — | — | RTL de referencia `mca_pulse_feature_ref.v` instanciado al lado del DUT |  |
-| [`tb_mca_top`](../../modulos/mca/sim/tb_mca_top.sv) | `mca_top` | 9 | 82 | vectores a mano |  |
+| [`tb_mca_trap`](../../modulos/mca/sim/tb_mca_trap.sv) | `mca_trap` | — | — | vectores a mano |  |
+| [`tb_mca_multi`](../../modulos/mca/sim/tb_mca_multi.sv) | `mca_multi` | — | — | vectores a mano |  |
+| [`tb_mca_pulse_feature_evt`](../../modulos/mca/sim/tb_mca_pulse_feature_evt.sv) | `mca_pulse_feature_evt` | — | — | RTL de referencia `mca_pulse_feature_ref.v` instanciado al lado del DUT |  |
+| [`tb_mca_top`](../../modulos/mca/sim/tb_mca_top.sv) | `mca_top` | 11 | 121 | vectores a mano |  |
 
 
-**328 casos con nombre** en 7 testbenches (52 escenas). La lista completa, caso por caso, está en el plan de verificación.
+**206 casos con nombre** en 8 testbenches (37 escenas). La lista completa, caso por caso, está en el plan de verificación.
 
 > **`mca_window` no tiene testbench propio.** Ningún `TBS` del `work/Makefile` lo instancia como DUT: lo que se verifica de este módulo es lo que arrastre el TB de otro. Es deuda de verificación, no una omisión de esta página.
 
 **Assertions** — en `sim/sva/`, enganchadas por `bind` (no tocan el RTL sintetizable).
 
-- [`mca_top_sva.sv`](../../modulos/mca/sim/sva/mca_top_sva.sv) — 64 propiedades
+- [`mca_top_sva.sv`](../../modulos/mca/sim/sva/mca_top_sva.sv) — 68 propiedades
 
 Plan de verificación, casos cubiertos y deuda: [`mca/sim/VERIFICACION.md`](../../modulos/mca/sim/VERIFICACION.md).
 <!-- /AUTO:verificacion -->

@@ -1,0 +1,6 @@
+pre=32 post=992 pre+ventana=1056 ev=5 saltos_en_rampa=0
+pre=511 post=513 pre+ventana=1535 ev=5 saltos_en_rampa=0
+pre=512 post=512 pre+ventana=1536 ev=5 saltos_en_rampa=0
+pre=512 post=1023 pre+ventana=2047 ev=5 saltos_en_rampa=0
+pre=512 post=1024 pre+ventana=2048 ev=5 saltos_en_rampa=0
+pre=0 post=2047 pre+ventana=2047 ev=5 saltos_en_rampa=0

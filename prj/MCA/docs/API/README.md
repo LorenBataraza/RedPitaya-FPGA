@@ -17,13 +17,14 @@ nombre de la función dice las dos cosas.
 
 ## Documentos
 
-| Documento                                                        | Qué contiene                                                                                               |
-| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| [`referencia_api.md`](referencia_api.md)                         | Todas las funciones por módulo, con el registro al que pega cada una                                       |
-| [`guia_de_uso.md`](guia_de_uso.md)                               | Recetas completas: espectro, captura de eventos, guardado, armado                                          |
-| [`arquitectura_software.md`](arquitectura_software.md)           | Cómo está construida: los siete niveles, los hilos, el filesystem, los tipos, los tests y las responsabilidades en ejecución |
-| [`decisiones_del_refactor.md`](decisiones_del_refactor.md)       | Por qué dos clases sobre el mismo bloque, por qué el import perezoso, por qué el análisis no lleva prefijo |
-| [`compatibilidad_y_migracion.md`](compatibilidad_y_migracion.md) | Los shims, cómo se verifica que nada se rompió y cómo retirarlos                                           |
+| Documento                                                        | Qué contiene                                                                                                                                         |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`referencia_api.md`](referencia_api.md)                         | Todas las funciones por módulo, con el registro al que pega cada una                                                                                 |
+| [`guia_de_uso.md`](guia_de_uso.md)                               | Recetas completas: espectro, captura de eventos, guardado, armado                                                                                    |
+| [`arquitectura_software.md`](arquitectura_software.md)           | Cómo está construida: los seis niveles, los hilos, el filesystem, los tipos, los tests y las responsabilidades en ejecución                          |
+| [`decisiones_del_refactor.md`](decisiones_del_refactor.md)       | Por qué dos clases sobre el mismo bloque, por qué el import perezoso, por qué el análisis no lleva prefijo                                           |
+| [`diseno_de_clases.md`](diseno_de_clases.md)                     | La API por niveles y por qué cada clase tiene la forma que tiene: libmca en C, el binding, los otros handles, el pipeline del osciloscopio, la red; los sustitutos y las pruebas; las simulaciones Monte Carlo |
+| [`compatibilidad_y_migracion.md`](compatibilidad_y_migracion.md) | Los shims, cómo se verifica que nada se rompió y cómo retirarlos                                                                                     |
 
 ---
 
@@ -53,7 +54,7 @@ hist = mca_read_histogram(h)
 formatos estructurados (`save_file_`).
 
 > Ojo con la palabra: **estas tres capas son los tres segmentos del nombre**, no
-> niveles de abstracción. Los niveles —de los registros de la PL a los
+> niveles de abstracción. Los niveles —del mapeo crudo de `/dev/mem` a los
 > notebooks— están en
 > [`arquitectura_software.md`](arquitectura_software.md#1-los-niveles).
 
@@ -65,12 +66,13 @@ formatos estructurados (`save_file_`).
 |---|---|---|---|
 | [`API.mca`](../../software/API/mca.py) | analizador multicanal | `0x4070_0000` (slot 7) | [mapa](../mca/register_map_mca.md) |
 | [`API.osciloscope`](../../software/API/osciloscope.py) | osciloscopio clásico | `0x4010_0000` (slot 1) | [mapa](../osc/register_map_osc.md) |
-| [`API.multitrigger`](../../software/API/multitrigger.py) | máscaras OR, shield, snapshot | `0x4010_0000` (slot 1, `0x210`–`0x24C`) — **desactualizado**, ver aviso | [mapa](../mt/register_map_mt.md) |
+| [`API.multitrigger`](../../software/API/multitrigger.py) | máscaras OR, shield, snapshot, pendiente y polo-cero | `0x4030_0000` (slot 3) | [mapa](../mt/register_map_mt.md) |
 | [`API.osciloscope_ring`](../../software/API/osciloscope_ring.py) | event_ring en DDR | `0x4020_0000` (slot 2) | [mapa](../event_ring/diseno_y_register_map.md) |
 | [`API.osciloscope_store`](../../software/API/osciloscope_store/) | guardado continuo del flujo de eventos | — | [arquitectura](arquitectura_adquisicion_software.md) |
 | [`API.mca_net`](../../software/API/mca_net.py) | protocolo de red del MCA (JSON + binario) | — | — |
 | [`API.mca_remote`](../../software/API/mca_remote.py) | el MCA por socket, y un MCA simulado | `0x4070_0000` remoto | [mapa](../mca/register_map_mca.md) |
 | [`API.analisis`](../../software/API/analisis.py) | helpers puros, sin hardware | — | — |
+| [`API.n42`](../../software/API/n42.py) | el espectro en ANSI N42.42-2011 | — | — |
 | [`API.fpga`](../../software/API/fpga.py) | bring-up de la PL | — | — |
 | [`API.rigol_dg4162`](../../software/API/rigol_dg4162.py) | generador externo | — | — |
 
@@ -81,11 +83,6 @@ formatos estructurados (`save_file_`).
 > slot 1; `multitrigger_` cubre lo que **añadió este proyecto** y se mudó al
 > slot 3 (`0x4030_0000`).
 >
-> ⚠️ **El hardware ya se mudó, el Python todavía no.** `API/multitrigger.py`
-> sigue escribiendo los offsets `0x210`–`0x24C` sobre el slot 1, donde ya no
-> los decodifica nadie. **No lanza excepción**: el esclavo hace `ack` de todo su
-> slot, así que las escrituras se aceptan y no hacen nada. El osciloscopio sí
-> sigue funcionando, por la ventana de compatibilidad legacy del slot 1.
 > Mapas nuevos: [OSC](../osc/register_map_osc.md) ·
 > [multitrigger](../mt/register_map_mt.md) ·
 > [TOP](../TOP/register_map_top.md).
@@ -105,6 +102,7 @@ software/
 │   ├── osciloscope_store/  ← el antiguo paquete mca/
 │   ├── multitrigger.py
 │   ├── analisis.py
+│   ├── n42.py
 │   ├── fpga.py
 │   └── rigol_dg4162.py
 │

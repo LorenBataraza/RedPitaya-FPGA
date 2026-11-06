@@ -41,23 +41,40 @@ sin una vista única. Este reúne la vista y **delega el detalle por enlace**:
 
 ## 1. Los niveles
 
-![los siete niveles de la API, de los registros de la PL a la aplicación, y la máquina donde corre cada uno](figuras/niveles.svg)
+![los seis niveles de software de la API, del mapeo crudo a la aplicación, sobre los registros de la PL, y la máquina donde corre cada uno, con los niveles 1 a 4 del MCA en C](figuras/niveles.svg)
 
-Siete niveles. Lo que los ordena no es la elegancia sino **dónde está la
-frontera física**: entre el nivel 1 y el 3 hay un bus AXI con reglas propias, y
-entre el 7 y el resto puede haber una red. En la figura cada fila es un nivel y
-cada contenedor una máquina (PL, PS, PC); lo único que cruza entre máquinas son
-esas dos fronteras. El camino remoto, en azul, es el de la sección siguiente.
+Seis niveles de software, apoyados sobre los registros de la PL. **Los niveles
+no son más que una jerarquía de dependencias**: cada uno puede usar cualquiera
+de los de abajo y ninguno de los de arriba. No dicen que cada nivel hable sólo
+con el inmediato inferior —`RingSource`, en el 5, lee la DDR por su propio
+mapeo, y `mcamon` llama métodos del handle—, sino que **nada de abajo importa
+nada de arriba**. Esa es la propiedad que permite sustituir un nivel sin tocar
+los que lo usan.
 
-| #   | Nivel            | Qué es                                                                                                          | Corre en | Sustituible por                                       |
-| --- | ---------------- | --------------------------------------------------------------------------------------------------------------- | -------- | ----------------------------------------------------- |
-| 7   | aplicación       | [`campanas/`](../../software/campanas/), `_pitaya_run.ipynb`, [`app/mcamon.py`](../../software/app/mcamon.py)   | PS · PC  | —                                                     |
-| 6   | fuentes y sesión | [`osciloscope_store/`](../../software/API/osciloscope_store/): `EventSource`, `AcquisitionSession`, `Annotator` | PS       | `FakeSource`                                          |
-| 5   | funciones        | `mca_*`, `osciloscope_*`, `multitrigger_*`, `osciloscope_ring_*`                                                | PS       | —                                                     |
-| 4   | handles          | `MCA`, `Osciloscope`, `MultiTrigger`, `RingSource`, `Integration`                                               | PS       | `MCARemote`, `FakeMCA`, `FakeOsc`, `FakeMultiTrigger` |
-| 3   | acceso de 32 b   | `w32` / `r32` / `_read_words`                                                                                   | PS       | el lazo caliente en C vía `ctypes`                    |
-| 2   | mapeo crudo      | `/dev/mem` + `mmap`, una región por slot                                                                        | PS       | —                                                     |
-| 1   | registros        | los cinco bloques del bus de sistema                                                                            | PL       | —                                                     |
+Los registros van debajo y sin número porque **no son software**: son el
+contrato que expone el hardware, y la pila empieza donde el software los
+alcanza, en el mapeo. Lo que ordena los niveles tampoco es la elegancia sino
+**dónde está la frontera física**: entre los registros y el nivel 2 hay un bus
+AXI con reglas propias, y entre el 6 y el resto puede haber una red. En la
+figura cada fila es un nivel y cada contenedor una máquina (PL, PS, PC); lo
+único que cruza entre máquinas son esas dos fronteras. El camino remoto, en
+azul, es el de la sección siguiente. La columna en rojo es el MCA en C
+(`libmca/`), y a su lado está el binding de Python, que la llama por `ctypes`.
+Los otros bloques tienen todavía sus niveles 1 a 4 en Python.
+
+| #   | Nivel            | Qué es                                                                                                                        | Corre en | Sustituible por                                       |
+| --- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------- | ----------------------------------------------------- |
+| 6   | aplicación       | [`campanas/`](../../software/campanas/), `_pitaya_run.ipynb`, [`app/mcamon.py`](../../software/app/mcamon.py)                 | PS · PC  | —                                                     |
+| 5   | fuentes y sesión | [`osciloscope_store/`](../../software/API/osciloscope_store/): `EventSource` (`BramSource`, `RingSource`), `AcquisitionSession`, `Annotator` | PS       | `FakeSource`                                          |
+| 4   | funciones        | `mca_*`, `osciloscope_*`, `multitrigger_*`, `integration_*`. Las `mca_*` son, desde la fase 1 de libmca, una llamada por ctypes a la función de C del mismo nombre ([`libmca/`](../../software/libmca/)) | PS       | la referencia Python `API/ref_py/` (`impl='py'`)       |
+| 3   | handles          | `MCA` (sobre un `mca_h*` de libmca), `Osciloscope`, `MultiTrigger`, `MtRegion`, `Integration`                                  | PS       | `MCARemote`, `FakeMCA`, `FakeOsc`, `FakeMultiTrigger` |
+| 2   | acceso de 32 b   | MCA: `mca_bus` de libmca ([`bus_devmem.c`](../../software/libmca/src/bus_devmem.c)). Los demás bloques: `w32` / `r32` en Python | PS       | el backend por callbacks de libmca (`FakeMCA`, tests) |
+| 1   | mapeo crudo      | `/dev/mem` + `mmap`, una región por slot (el del MCA lo abre libmca)                                                          | PS       | —                                                     |
+| —   | registros        | los bloques del bus de sistema: la base, no un nivel de software                                                              | PL       | —                                                     |
+
+El `event_ring` no tiene handle: `RingSource` mapea sus registros y la región
+de DDR por su cuenta. Por qué cada clase quedó como quedó está en
+[`diseno_de_clases.md`](diseno_de_clases.md).
 
 Y, fuera de la pila, tres módulos a los que no les importa en qué máquina
 corren: [`analisis.py`](../../software/API/analisis.py) (picos, FWHM, DNL, FOM,
@@ -72,7 +89,7 @@ slot. De esa ausencia salen dos consecuencias que atraviesan todo el resto del
 documento: **un solo proceso puede tocar la PL a la vez**, y **los errores del
 bus llegan como señales, no como excepciones**.
 
-### El nivel 3 es una frontera, no una capa de conveniencia
+### El nivel 2 es una frontera, no una capa de conveniencia
 
 Las dos reglas de [`mca.py`](../../software/API/mca.py#L238-L276) no son
 preferencias de estilo:
@@ -88,30 +105,36 @@ preferencias de estilo:
 > [`axi4_slave.sv:101`](../../../../rtl/axi4_slave.sv#L101) los rechaza, y en esta
 > placa el *external abort* de lectura no da SIGBUS: **reinicia el sistema**.
 
-El precio es conocido y está acotado: ~6.7 µs por palabra, o sea ~110 ms por un
-espectro de 16384 canales. Para un MCA es irrelevante, porque se lee una vez por
-adquisición y no una vez por evento. Para el camino de formas de onda **sí**
-importa, y por eso ahí se usa `rp_AcqGetDataPosV` y no un acceso directo.
+Desde Python el precio era ~6.7 µs por palabra, o sea ~110 ms por un espectro
+de 16384 canales. El 96 % de eso era el intérprete, y por eso el MCA pasó a
+**libmca**. Ahí las dos reglas dejaron de ser una disciplina de Python y son una
+propiedad del binario: todo acceso a la PL está en
+[`libmca/src/bus_devmem.c`](../../software/libmca/src/bus_devmem.c), un
+`ldr`/`str` de 32 b por transacción (0.235 µs medidos desde C, ~4 ms un espectro
+estimado), y `make -C libmca check-bus` desensambla el `.so` de ARM y falla si
+encuentra una ráfaga, un acceso de 64 b o uno de 1-2 bytes. Ver
+[`diseno_de_clases.md`](diseno_de_clases.md) §3.2.
+
+Para el camino de formas de onda el costo **sí** importa, porque es por evento.
+Ahí se usa `rp_AcqGetDataPosV` y no un acceso directo, hasta la fase de libmca
+que porte el lazo del lector.
 
 ### El camino remoto se inserta, no se apila
 
 Es la parte que más se malinterpreta.
-[`MCARemote`](../../software/API/mca_remote.py) **es una subclase de `MCA`** en
-la que sólo `r32` y `w32` salen por el socket. Todo lo que está arriba del nivel
-4 no se entera de que hay red abajo, y el servidor vuelve a entrar en la pila
-local exactamente por el nivel 4. El protocolo
+[`MCARemote`](../../software/API/mca_remote.py) **es un handle del MCA cuyas
+funciones corren del otro lado del socket**: desde la fase 2 de libmca es un
+proxy, y cada `mca_*` viaja entera por la op `call` y corre en la placa, bajo
+el lock del servidor, como un comando SCPI en Red Pitaya. Todo lo que está
+arriba del nivel 4 no se entera de que hay red abajo, y el servidor vuelve a
+entrar en la pila local por el binding. El protocolo
 ([`mca_net.py`](../../software/API/mca_net.py), una línea JSON de control más un
-bloque binario opcional) tiene 27 operaciones, pero **las únicas que sostienen
-la API son `r32` y `w32`**: las otras 25 existen sólo para ahorrar idas y
-vueltas, o para que una secuencia sea atómica del lado de la placa.
+bloque binario opcional) tiene 29 operaciones, pero **la que sostiene la API es
+`call`**: las otras existen para el acceso crudo (`r32`/`w32`), para lo que no
+es una función de la API (el estado de la exposición, el disparo del MCA2) y
+para los otros bloques. El cliente no necesita libmca.
 
 La interfaz la fija el consumidor, no el transporte.
-
-> ⚠️ **Un desfase vigente.** El hardware del multitrigger se mudó al slot 3
-> (`0x4030_0000`) y [`../../software/API/multitrigger.py`](../../software/API/multitrigger.py#L28)
-> todavía escribe los offsets `0x210`–`0x24C` sobre el slot 1. **No lanza
-> excepción**: el esclavo hace `ack` de todo su slot, así que las escrituras se
-> aceptan y no hacen nada. Ver el aviso de [`README.md`](README.md).
 
 ---
 
@@ -128,8 +151,8 @@ socket.
 
 | Hilo | Fichero | Nombre | De qué es dueño |
 |---|---|---|---|
-| lector | [`reader.py`](../../software/API/osciloscope_store/reader.py) | `mca-reader` | el scope: es el único que lo toca |
-| escritor | [`storage.py`](../../software/API/osciloscope_store/storage.py) | `mca-writer` | el directorio de la corrida |
+| lector | [`reader.py`](../../software/API/osciloscope_store/reader.py) | `osc-reader` | el scope: es el único que lo toca |
+| escritor | [`storage.py`](../../software/API/osciloscope_store/storage.py) | `osc-writer` | el directorio de la corrida |
 | annotator | [`annotators.py`](../../software/API/osciloscope_store/annotators.py#L107) | `annot-<prefijo>` | su sensor lento (GPS, temperatura) |
 | principal | [`session.py`](../../software/API/osciloscope_store/session.py#L142) | — | la condición de corte |
 | exposición | [`mca_server.py`](../../software/app/mca_server.py#L85) | `mca-exposicion` | el tiempo de exposición, que el HW no tiene |
@@ -271,6 +294,7 @@ no son rutas, son procedimientos:
 | `run_summary.json` | los totales de la corrida                                                                           | `AcquisitionSession`       |
 | `.csv`             | el espectro con la metadata en cabecera `#` — **el formato por defecto**, se abre en Excel u Origin | `mca_write_file_histogram` |
 | `.npz` / `.json`   | el espectro estructurado                                                                            | `mca_save_file_*`          |
+| `.n42`             | el espectro en ANSI N42.42-2011, para otros programas de espectroscopía                             | `mca_save_file_n42`        |
 
 La propiedad central es la **atomicidad**. Los dos escritores van a un `.tmp` y
 hacen `os.replace`, así que todo archivo visible en el directorio está completo:
@@ -389,7 +413,7 @@ saca la tasa de eventos del cuello de botella del bus.**
 
 Las dos trampas de orden cuestan una sesión de laboratorio cada una:
 
-> **Armar (`0x00`) y recién después habilitar la máscara (`0x240`/`0x244`).** Al
+> **Armar (`0x00`) y recién después habilitar la máscara (`R_OR_MASK_CH*`).** Al
 > revés, un flanco que llegue en el hueco gasta la máscara con la FSM todavía
 > sin armar, y queda esperando un trigger imposible.
 >
@@ -405,29 +429,29 @@ puede responder por unos niveles y por otros no**.
 
 | Clase | Qué es | Qué alcanza |
 |---|---|---|
-| offline, en la PC | 249 tests de `pytest`, con un mmap falso y el servidor en `--fake` | del nivel 4 para arriba, denso |
-| en la placa | **scripts, no `pytest`**: necesitan el módulo `rp` y el bitstream cargado | los niveles 1 a 3 |
-| bench | [`API/bench/`](../../software/API/bench/) — **miden, no aprueban**: no tienen asserts | el costo de cruzar el nivel 3 |
-| RTL | QuestaSim + asserciones SVA ligadas por `bind`, en `modulos/*/sim/` | el nivel 1, del otro lado |
+| offline, en la PC | 249 tests de `pytest`, con un mmap falso y el servidor en `--fake` | del nivel 3 para arriba, denso |
+| en la placa | **scripts, no `pytest`**: necesitan el módulo `rp` y el bitstream cargado | los niveles 1 y 2, y los registros |
+| bench | [`API/bench/`](../../software/API/bench/) — **miden, no aprueban**: no tienen asserts | el costo de cruzar el nivel 2 |
+| RTL | QuestaSim + asserciones SVA ligadas por `bind`, en `modulos/*/sim/` | los registros, del otro lado |
 
 ### La matriz: qué suite toca qué nivel
 
-Las filas son los siete niveles de §1, en el mismo orden. Los conteos salen de
+Las filas son los seis niveles de §1 y los registros, en el mismo orden. Los conteos salen de
 `pytest --collect-only`.
 
 | Nivel | offline, en la PC | en la placa | bench | RTL |
 |---|---|---|---|---|
-| **7** aplicación | `test_mcamon_gui.py` 27 · `test_mca_remote.py` 24 | `app/tests/placa/` · `e2e_rigol_app.py` | — | — |
-| **6** fuentes y sesión | `test_mca_pipeline.py` 4 · `test_ring_source.py` 10 | `test_mca_e2e.py` | `bench_reader_budget.py` | — |
-| **5** funciones | `test_api_mca.py` 23 · `test_api_osc.py` 15 · `test_compat_api.py` 5 | — | — | — |
-| **4** handles | `test_guarda_bitstream.py` 19 · `test_geometria_scope.py` 23 | `test_mca_hw.py` · `diag_mca_hw.py` | — | — |
-| **3** acceso de 32 b | *no se puede verificar acá: el mmap es falso* | `test_rw_dev_mem.py` | `bench_buffer_read.py` · `bench_read_vs_length.py` | — |
-| **2** mapeo crudo | — | `hw_ring_plumbing.py` · `hw_ring_swtrig.py` | — | — |
-| **1** registros | `test_ring_format.py` 7, contra el volcado del TB | `test_mca_datapath.py` | — | `tb_mca_*` · `tb_event_*` · `tb_multitrigger_*` + SVA por `bind` |
+| **6** aplicación | `test_mcamon_gui.py` 27 · `test_mca_remote.py` 24 | `app/tests/placa/` · `e2e_rigol_app.py` | — | — |
+| **5** fuentes y sesión | `test_mca_pipeline.py` 4 · `test_ring_source.py` 10 | `test_mca_e2e.py` | `bench_reader_budget.py` | — |
+| **4** funciones | `test_api_mca.py` 23 · `test_api_osc.py` 15 · `test_compat_api.py` 5 | — | — | — |
+| **3** handles | `test_guarda_bitstream.py` 19 · `test_geometria_scope.py` 23 | `test_mca_hw.py` · `diag_mca_hw.py` | — | — |
+| **2** acceso de 32 b | *no se puede verificar acá: el mmap es falso* | `test_rw_dev_mem.py` | `bench_buffer_read.py` · `bench_read_vs_length.py` | — |
+| **1** mapeo crudo | — | `hw_ring_plumbing.py` · `hw_ring_swtrig.py` | — | — |
+| — registros | `test_ring_format.py` 7, contra el volcado del TB | `test_mca_datapath.py` | — | `tb_mca_*` · `tb_event_*` · `tb_multitrigger_*` + SVA por `bind` |
 
-Dos huecos que la matriz hace visibles: el **nivel 3 no tiene test offline** —y
+Dos huecos que la matriz hace visibles: el **nivel 2 no tiene test offline** —y
 no es un olvido, es que el mmap de la PC es falso y aceptaría cualquier
-offset—, y el **nivel 2 sólo se toca desde la placa**.
+offset—, y el **nivel 1 sólo se toca desde la placa**.
 
 > `norecursedirs = ["placa", "bench", …]`: los ficheros de esos dos
 > directorios hacen `import rp` al importarse, así que sin eso un `pytest`
@@ -488,8 +512,8 @@ garantías en vez de desde quién arranca:
 | Responsable | De qué responde | Qué pasa si no cumple |
 |---|---|---|
 | la PL | detectar el flanco y **congelar** el buffer hasta el próximo arm | con `we_keep=1` el buffer da la vuelta cada 131 µs y la ventana ya fue sobrescrita cuando el lector llega: 0.001 V en vez de 0.600 V |
-| `mca-reader` | ser el único que toca el scope, y re-armar **siempre**, también al descartar | `wait_event` vuelve a disparar con el mismo buffer y el contador se llena de fantasmas |
-| `mca-writer` | que todo archivo visible esté completo, y convertir fuera del camino crítico | un consumidor del directorio lee un `.npz` a medias |
+| `osc-reader` | ser el único que toca el scope, y re-armar **siempre**, también al descartar | `wait_event` vuelve a disparar con el mismo buffer y el contador se llena de fantasmas |
+| `osc-writer` | que todo archivo visible esté completo, y convertir fuera del camino crítico | un consumidor del directorio lee un `.npz` a medias |
 | el pool | acotar la RAM de antemano y hacer que descartar cueste O(1) | con una lista que crece, un corte se lleva toda la corrida — el problema de `guardado_mariana.py` |
 | `AcquisitionSession` | cortar limpio por duración, eventos, disco o error, y dejar el resumen | una corrida que termina en una ráfaga de descartes no cierra las cuentas |
 | el servidor | ser el único proceso sobre `/dev/mem`, y seguir adquiriendo aunque el cliente se vaya | dos procesos sobre `/dev/mem` pelean y sale SIGBUS |
@@ -550,6 +574,7 @@ figuras por ellas. Ver [`figuras/README.md`](figuras/README.md).
 - [`referencia_api.md`](referencia_api.md) — todas las funciones, con el registro al que pega cada una
 - [`guia_de_uso.md`](guia_de_uso.md) — recetas completas, con la marca de si van en la Pitaya o en la PC
 - [`decisiones_del_refactor.md`](decisiones_del_refactor.md) — por qué el árbol quedó así
+- [`diseno_de_clases.md`](diseno_de_clases.md) — el rol de cada módulo y por qué cada clase tiene la forma que tiene
 - [`arquitectura_adquisicion_software.md`](arquitectura_adquisicion_software.md) — el pipeline con todos sus números
 - [`movimiento_de_datos.md`](../movimiento_de_datos.md) — los caminos del dato de ADC a PC
 - [`APP/README.md`](../APP/README.md) — la aplicación cliente/servidor

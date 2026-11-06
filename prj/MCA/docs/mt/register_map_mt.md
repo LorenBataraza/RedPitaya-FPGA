@@ -79,7 +79,7 @@ Red Pitaya conectan los que salen de él):
 | `sys_*` | ambas | — | slot 3, `0x4030_0000` |
 | `trigger_event_o` | sale | 1 | `rp_bram_sm` y `rp_axi_sm` de cada canal; sale de `rp_scope_mt_com` como `event_trig_o` (→ `event_ring`) |
 | `daisy_trig_o` | sale | 1 | la misma señal; → DIO0 y `trig_i` del `mca_top` |
-| `event_snap_o` | sale | 17 | los 17 bits bajos del snapshot (→ `event_ring`); los 25 completos se leen en `SNAPSHOT` |
+| `event_snap_o` | sale | 17 | los 17 bits bajos del snapshot (→ `event_ring`); los 29 completos se leen en `SNAPSHOT` |
 | `mca_veto_o` | sale | 1 | `veto_i` del `mca_top` |
 | `trig_dis_clr_o` | sale | 4 | `rp_bram_sm`: el re-arm también limpia su estado de captura |
 | `trg_src_o`, `new_trg_src_o` | sale | 32 y 1 por canal | `rp_delay`: la categoría de la fuente elige el retardo |
@@ -112,13 +112,13 @@ misma paleta; está en la §1.1 de su datasheet:
 
 ## Registros
 
-| Offset | R/W | Campo | Reset | Antes vivía en |
+| Offset | R/W | Campo | Reset | Antes vivía en (ya no existe) |
 |---|---|---|---|---|
 | `0x000` | R | `MAGIC` = `0x4D545247` (`"MTRG"`) | constante | — |
-| `0x004` | R | `CAPS` `{HAS_SLOPE[16], SHIELD_N[15:12], SRC_W[11:4], N_CH[3:0]}` | constante | — |
+| `0x004` | R | `CAPS` `{HAS_PZ[17], HAS_SLOPE[16], SHIELD_N[15:12], SRC_W[11:4], N_CH[3:0]}` | constante | — |
 | `0x010` | RW | `SHIELD_CFG` | `0` — escudo apagado | `0x4010_0210` |
 | `0x014` | R | `SHIELD_STAT` `{mca_veto[17], active[16], cnt[15:0]}` | `0` | `0x4010_0214` |
-| `0x018` | R | `SNAPSHOT` (25 b, sticky; el espejo viejo tiene sólo los 17 bajos) | `0` | `0x4010_0218` |
+| `0x018` | R | `SNAPSHOT` (29 b, sticky) | `0` | `0x4010_0218` |
 | `0x01C` | R | `DIS_FLAGS` `{we_keep[7:4], dis_act[3:0]}` | `0` | `0x4010_021C` |
 | `0x020` | W | `TRIG_SW` — **bit por canal** | lee `0` | `0x4010_0004` bits `[3:0]` |
 | `0x024` | W | `TRIG_DIS_CLR` — bit por canal | lee `0` | `0x4010_0094` |
@@ -127,6 +127,10 @@ misma paleta; está en la §1.1 de su datasheet:
 | `0x060`+4·ch | RW | `SLOPE_CFG` ch0..ch3 `{en[31], G[12:8], L[4:0]}` | `0` — apagado | — (nuevo) |
 | `0x070`+4·ch | RW | `SLOPE_THR` ch0..ch3 `[17:0]` | `0` | — (nuevo) |
 | `0x080`+4·ch | RW | `SLOPE_HYST` ch0..ch3 `[17:0]` | `0` | — (nuevo) |
+| `0x090`+4·ch | RW | `PZ_CFG` ch0..ch3 `{en[31], sh[29:24], m[12:8], k[4:0]}` | `0` — apagado | — (nuevo) |
+| `0x0A0`+4·ch | RW | `PZ_MQ` ch0..ch3 `[19:0]`: M·16 | `0` | — (nuevo) |
+| `0x0B0`+4·ch | RW | `PZ_THR` ch0..ch3 `[17:0]` | `0` | — (nuevo) |
+| `0x0C0`+4·ch | RW | `PZ_HYST` ch0..ch3 `[17:0]` | `0` | — (nuevo) |
 
 **Reset** es el valor tras cargar el bitstream o un reset de `adc_rstn`
 (`mt_cfg.sv`, los bloques `if (!adc_rstn_i)`). El software **no** lo restaura
@@ -216,12 +220,15 @@ Bits, definidos en `mt_trig_src.sv`:
 | 18 | `BIT_SLOPE_P1` | 22 | `BIT_SLOPE_N1` |
 | 19 | `BIT_SLOPE_P2` | 23 | `BIT_SLOPE_N2` |
 | 20 | `BIT_SLOPE_P3` | 24 | `BIT_SLOPE_N3` |
+| 25 | `BIT_PZ_P0` | 27 | `BIT_PZ_P2` |
+| 26 | `BIT_PZ_P1` | 28 | `BIT_PZ_P3` |
 
-Los bits 25–31 están reservados. Los 17–24 son el disparo por pendiente y se
-configuran con `SLOPE_*` (abajo).
+Los bits 29–31 están reservados. Los 17–24 son el disparo por pendiente y se
+configuran con `SLOPE_*`; los 25–28, el disparo con polo-cero, con `PZ_*`
+(abajo).
 
 > **El snapshot de `0x018` usa otro orden en sus 17 bits bajos**
-> (`p0,p1,p2,p3,n0,n1,…`), no el de esta tabla. Los bits 17–24 coinciden en
+> (`p0,p1,p2,p3,n0,n1,…`), no el de esta tabla. Los bits 17–28 coinciden en
 > los dos. Es correcto siempre que el empaquetado de
 > `trig_snapshot_i` en `mt_trig_src.sv` use ese segundo orden — es una
 > trampa conocida, no un error del mapa.
@@ -253,9 +260,43 @@ SLOPE_CFG (0x060 + 4·ch)
   canal, como el umbral y la histéresis del disparo de nivel.
 - Cambiar `L` o `G`, o pasar por `en=0`, **re-arranca** el filtro. Mientras la
   ventana de `2L+G` muestras no se llena no sale ningún pulso.
-- No tienen espejo en el slot 1. Desde Python: `MtRegion.set_slope()`.
+- Desde Python: `MtRegion.set_slope()`.
 - `TRG_STATE` (8 b por canal) no muestra los bits 17–24; usar `OR_MASK` y
   `SNAPSHOT`.
+
+### Disparo con polo-cero: `PZ_CFG` / `PZ_MQ` / `PZ_THR` / `PZ_HYST`
+
+Un trapecio corto con polo-cero (`mca_trap`, el mismo del MCA) y un Schmitt
+solo positivo, por canal. Es el disparo del banco de trapecios. Separa pares
+desde 7–8 muestras, la cola de un pulso grande no tapa a uno chico y el instante
+corre 1 muestra con la amplitud. Teoría, validación y límites en
+[`disparo_polo_cero.md`](disparo_polo_cero.md).
+
+```
+PZ_CFG (0x090 + 4·ch)
+ 31  30 29    24 23        13 12    8 7   5 4    0
++---+--+--------+------------+-------+-----+------+
+|en |0 |   sh   |     0      |   m   |  0  |  k   |
++---+--+--------+------------+-------+-----+------+
+```
+
+| Campo | Rango | Nota |
+|---|---|---|
+| `k` | 1..31 | subida; `0` se toma como 1 |
+| `m` | 0..30 | meseta; `k + m` satura en 31 (las líneas tienen 32 muestras) |
+| `sh` | 0..63 | corrimiento de la salida |
+| `en` | 0/1 | `0` vacía el trapecio y no sale ningún pulso |
+| `PZ_MQ` | 0..2²⁰−1 | M·16: el mismo que el MCA (`0x12C` del slot 7) |
+| `PZ_THR` | 0..2¹⁸−1 | umbral sobre la salida (`y ≥ thr`) |
+| `PZ_HYST` | 0..2¹⁸−1 | re-arma bajo `thr−hyst`; tiene que ser `< thr` |
+
+- Para el pulso del Rigol: k = 2, m = 1, sh = 10, umbral 50 cuentas y re-armado
+  25. En unidades de la salida son 353/177 con el M nominal (`pz_ganancia`).
+- Cambiar `k`, `m` o `PZ_MQ`, o pasar por `en=0`, **re-arranca** el trapecio.
+  Hasta k + l + 12 muestras después no sale ningún pulso, y el primero pide
+  re-armar antes.
+- Sin fan-out por `indep_mode`. Desde Python:
+  `MtRegion.set_pz()` o `multitrigger_armar_mca(fuente='pz', mq=...)`.
 
 ---
 
@@ -274,15 +315,14 @@ funcionando.
 
 ---
 
-## Una verruga preservada a propósito
+## Los pulsos del bus duran 6 ciclos
 
-`sys_bus_cdc` sostiene `wen` hasta el ack, así que los pulsos de este módulo
-—`TRIG_SW`, `TRIG_DIS_CLR`, `new_trg_src`— duran **~5 ciclos, no uno**.
+`sys_bus_cdc` sostiene `wen` hasta el ack, y este módulo y `osc_cfg` dan el ack a los 5
+ciclos, así que `TRIG_SW`, `TRIG_DIS_CLR` y `new_trg_src` duran **6 ciclos, no uno**. En el
+módulo original los registros daban el ack al ciclo siguiente y duraban 2.
 
-Es el comportamiento que tenía el módulo original y del que depende la lógica
-aguas abajo. Convertirlos en estrobos de un ciclo es un cambio deliberado y
-aparte: no es algo que deba colarse en una mudanza de registros, donde lo que se
-busca es mover código sin cambiar semántica.
+`mt_trig_src` toma `TRIG_SW` por flanco, así que una escritura es un disparo. Por nivel, con
+auto-rearme y holdoff 0, salían dos triggers.
 
 (Los registros de configuración —`SHIELD_CFG`, `OR_MASK`— no sufren: la
 escritura es idempotente.)
@@ -307,8 +347,9 @@ salidas— y es lo primero que se pierde al mover código de un archivo a otro.
 | Testbench | Qué verifica |
 |---|---|
 | [`tb_mt_cfg`](../../modulos/mt/sim/tb_mt_cfg.sv) | equivalencia con el mapa viejo registro por registro; puente legacy en las dos vías; fan-out por `indep_mode`; contrato de bus sobre todo el slot |
-| [`tb_mt_trig_src`](../../modulos/mt/sim/tb_mt_trig_src.sv) | la OR-mask dispara; latch/clear de `adc_trg_dis`; gating SW por `dly_valp`; fuentes de pendiente (bits 17–24) |
+| [`tb_mt_trig_src`](../../modulos/mt/sim/tb_mt_trig_src.sv) | la OR-mask dispara; latch/clear de `adc_trg_dis`; gating SW por `dly_valp`; fuentes de pendiente (bits 17–24) y de polo-cero (25–28) |
+| [`tb_mt_pz_trig`](../../modulos/mt/sim/tb_mt_pz_trig.sv) | el trapecio bit a bit y el Schmitt contra modelos; arranque con continua; re-arranque; pares; decimación |
 | [`tb_mt_slope_trig`](../../modulos/mt/sim/tb_mt_slope_trig.sv) | el trapezoidal contra un modelo de suma directa; pulsos por escalón; inmunidad a continua y rampas; re-arranque |
 | [`tb_trigger_shield`](../../modulos/mt/sim/tb_trigger_shield.sv) | holdoff `src→dst`, `dur=0` vs `dur=K` |
-| [`tb_mt_event_logic`](../../modulos/mt/sim/tb_mt_event_logic.sv) | `trigger_event` = OR de canales; latch/reset del snapshot (25 b) |
+| [`tb_mt_event_logic`](../../modulos/mt/sim/tb_mt_event_logic.sv) | `trigger_event` = OR de canales; latch/reset del snapshot (29 b); un `TRIG_SW` de 6 ciclos con auto-rearme da un solo evento; el snapshot ya vale en el ciclo del evento |
 | [`tb_trig_capture`](../../sim/tb_trig_capture.sv) | el race arm-vs-máscara; ver [`orden_arm_trigger_captura.md`](../osc/orden_arm_trigger_captura.md) |

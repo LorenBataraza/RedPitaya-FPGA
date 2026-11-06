@@ -36,16 +36,16 @@ MCA de este proyecto, que tiene otro hardware debajo.
 
 **El handle remoto ES un `MCA`.** `MCARemote`
 ([`API/mca_remote.py`](../../software/API/mca_remote.py)) hereda de `class MCA`
-y sólo redefine `r32`/`w32` y las lecturas en bloque. Como todas las funciones
-de `API/mca.py` acceden al hardware únicamente por ahí, **la superficie `mca_*`
-entera funciona por red sin tocar una línea**:
+y es un proxy: cada función de `API/mca.py` viaja ENTERA por la op `call` y
+corre en la placa, como un comando SCPI. **La superficie `mca_*` entera
+funciona por red sin tocar una línea**, y el cliente no necesita libmca:
 
 ```python
-from API.mca import mca_set_thr, mca_read_histogram
+from API.mca import mca_set_n_acc, mca_read_histogram
 from API.mca_remote import MCARemote
 
 h = MCARemote.connect('10.73.28.27')
-mca_set_thr(h, 317)
+mca_set_n_acc(h, 4)              # una ida y vuelta, atómica en la placa
 hist = mca_read_histogram(h)
 ```
 

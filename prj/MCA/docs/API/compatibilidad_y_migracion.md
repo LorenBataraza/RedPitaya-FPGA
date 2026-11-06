@@ -28,7 +28,7 @@ docstring de cada shim.
 
 ### `MultiTriggerScope` vive en el shim
 
-La clase compone un `Osciloscope` y un `MultiTrigger` **sobre el mismo mapeo** y
+La clase compone un `Osciloscope` y un `MultiTrigger`, cada uno con su mapeo, y
 delega. Está en `multitrigger_utils.py` y no en `API/` porque es una clase de
 compatibilidad, no de la API nueva. Sus métodos se listan explícitamente en vez
 de heredarlos todos, para que la superficie que el shim garantiza esté escrita y

@@ -1,0 +1,112 @@
+% trap_recuperacion. GENERADO por figuras_recuperacion.py: no editar a mano.
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../../figuras/estilo_tikz.tex}
+\begin{document}
+\begin{tikzpicture}[fondo]
+\node[titulo] at (-1.4,5.25) {\textbf{Recuperar los pulsos que el trapecio no separa} \quad {\scriptsize el peor de los dos pulsos de un par (A = 1000, B = 600), ruido de 4 cuentas}};
+\node[anchor=south west, font=\scriptsize\bfseries, inner sep=0pt] at (0.000,4.350) {con el $\Delta t$ exacto};
+\draw[black!50, line width=0.4pt] (0.000,0.000) rectangle (6.200,4.200);
+\draw[black!10] (0.000,0.335) -- (6.200,0.335);
+\node[nodo, anchor=east] at (-0.040,0.335) {0.1\,\%};
+\draw[black!10] (0.000,1.446) -- (6.200,1.446);
+\node[nodo, anchor=east] at (-0.040,1.446) {1\,\%};
+\draw[black!10] (0.000,2.558) -- (6.200,2.558);
+\node[nodo, anchor=east] at (-0.040,2.558) {10\,\%};
+\draw[black!10] (0.000,3.670) -- (6.200,3.670);
+\node[nodo, anchor=east] at (-0.040,3.670) {100\,\%};
+\draw[black!10] (0.000,0.000) -- (0.000,4.200);
+\node[nodo, anchor=north] at (0.000,-0.040) {2};
+\draw[black!10] (1.234,0.000) -- (1.234,4.200);
+\node[nodo, anchor=north] at (1.234,-0.040) {5};
+\draw[black!10] (2.167,0.000) -- (2.167,4.200);
+\node[nodo, anchor=north] at (2.167,-0.040) {10};
+\draw[black!10] (3.100,0.000) -- (3.100,4.200);
+\node[nodo, anchor=north] at (3.100,-0.040) {20};
+\draw[black!10] (4.334,0.000) -- (4.334,4.200);
+\node[nodo, anchor=north] at (4.334,-0.040) {50};
+\draw[black!10] (5.267,0.000) -- (5.267,4.200);
+\node[nodo, anchor=north] at (5.267,-0.040) {100};
+\draw[black!10] (6.200,0.000) -- (6.200,4.200);
+\node[nodo, anchor=north] at (6.200,-0.040) {200};
+\node[nodo, anchor=north] at (3.100,-0.320) {$\Delta t$, muestras};
+\node[font=\scriptsize, anchor=south, rotate=90] at (-0.620,2.100) {error RMS del peor};
+\draw[black!45, dashed] (0.000,1.446) -- (6.200,1.446);
+\draw[azul!85!black, line width=1.4pt] plot coordinates {(0.000,3.916) (0.546,3.916) (0.933,3.916) (1.234,3.916) (1.479,3.916) (1.866,3.916) (2.167,3.916) (2.412,3.916) (2.620,3.916) (2.800,3.916) (2.958,3.915) (3.100,3.912) (3.288,3.903) (3.453,3.890) (3.646,3.864) (3.853,3.821) (4.033,3.772) (4.192,3.719) (4.334,3.658) (4.579,3.508) (4.787,3.290) (4.966,2.881) (5.125,1.878) (5.198,0.429) (5.267,0.385) (5.512,0.397) (5.813,0.413) (6.200,0.436)};
+\draw[verde!55!black, line width=1.4pt] plot coordinates {(0.000,3.916) (0.546,3.916) (0.933,3.916) (1.234,3.885) (1.479,3.816) (1.866,3.639) (2.167,3.355) (2.412,2.579) (2.620,0.921) (2.800,0.901) (2.958,0.904) (3.100,0.910) (3.288,0.899) (3.453,0.707) (3.646,0.764) (3.853,0.725) (4.033,0.769) (4.192,0.713) (4.334,0.546) (4.579,0.522) (4.787,0.568) (4.966,0.591) (5.125,0.547) (5.198,0.429) (5.267,0.385) (5.512,0.397) (5.813,0.413) (6.200,0.436)};
+\draw[rojo!75!black, line width=0.9pt, dash pattern=on 1.5pt off 1.5pt] plot coordinates {(0.000,4.200) (0.546,4.200) (0.933,4.200) (1.234,4.200) (1.479,4.200) (1.866,4.200) (2.167,4.200) (2.412,4.200) (2.620,4.200) (2.800,4.200) (2.958,2.873) (3.100,2.259) (3.288,1.738) (3.453,1.417) (3.646,1.162) (3.853,0.913) (4.033,0.802) (4.192,0.703) (4.334,0.628) (4.579,0.536) (4.787,0.483) (4.966,0.427) (5.125,0.407) (5.198,0.429) (5.267,0.385) (5.512,0.397) (5.813,0.413) (6.200,0.436)};
+\draw[black, line width=0.9pt, dashed] plot coordinates {(0.000,1.259) (0.546,1.154) (0.933,1.072) (1.234,1.051) (1.479,1.013) (1.866,0.939) (2.167,0.850) (2.412,0.838) (2.620,0.802) (2.800,0.756) (2.958,0.720) (3.100,0.697) (3.288,0.702) (3.453,0.639) (3.646,0.603) (3.853,0.594) (4.033,0.578) (4.192,0.519) (4.334,0.479) (4.579,0.478) (4.787,0.434) (4.966,0.419) (5.125,0.402) (5.198,0.367) (5.267,0.369) (5.512,0.345) (5.813,0.271) (6.200,0.236)};
+\node[anchor=south west, font=\scriptsize\bfseries, inner sep=0pt] at (8.000,4.350) {con el $\Delta t$ de los disparos errado en una muestra};
+\draw[black!50, line width=0.4pt] (8.000,0.000) rectangle (14.200,4.200);
+\draw[black!10] (8.000,0.335) -- (14.200,0.335);
+\node[nodo, anchor=east] at (7.960,0.335) {0.1\,\%};
+\draw[black!10] (8.000,1.446) -- (14.200,1.446);
+\node[nodo, anchor=east] at (7.960,1.446) {1\,\%};
+\draw[black!10] (8.000,2.558) -- (14.200,2.558);
+\node[nodo, anchor=east] at (7.960,2.558) {10\,\%};
+\draw[black!10] (8.000,3.670) -- (14.200,3.670);
+\node[nodo, anchor=east] at (7.960,3.670) {100\,\%};
+\draw[black!10] (8.000,0.000) -- (8.000,4.200);
+\node[nodo, anchor=north] at (8.000,-0.040) {2};
+\draw[black!10] (9.234,0.000) -- (9.234,4.200);
+\node[nodo, anchor=north] at (9.234,-0.040) {5};
+\draw[black!10] (10.167,0.000) -- (10.167,4.200);
+\node[nodo, anchor=north] at (10.167,-0.040) {10};
+\draw[black!10] (11.100,0.000) -- (11.100,4.200);
+\node[nodo, anchor=north] at (11.100,-0.040) {20};
+\draw[black!10] (12.334,0.000) -- (12.334,4.200);
+\node[nodo, anchor=north] at (12.334,-0.040) {50};
+\draw[black!10] (13.267,0.000) -- (13.267,4.200);
+\node[nodo, anchor=north] at (13.267,-0.040) {100};
+\draw[black!10] (14.200,0.000) -- (14.200,4.200);
+\node[nodo, anchor=north] at (14.200,-0.040) {200};
+\node[nodo, anchor=north] at (11.100,-0.320) {$\Delta t$, muestras};
+\node[font=\scriptsize, anchor=south, rotate=90] at (7.380,2.100) {error RMS del peor};
+\draw[black!45, dashed] (8.000,1.446) -- (14.200,1.446);
+\draw[azul!85!black, line width=1.4pt] plot coordinates {(8.000,3.916) (8.546,3.916) (8.933,3.916) (9.234,3.916) (9.479,3.916) (9.866,3.916) (10.167,3.916) (10.412,3.916) (10.620,3.916) (10.800,3.916) (10.958,3.915) (11.100,3.912) (11.288,3.903) (11.453,3.890) (11.646,3.864) (11.853,3.821) (12.033,3.772) (12.192,3.719) (12.334,3.658) (12.579,3.508) (12.787,3.290) (12.966,2.881) (13.125,1.874) (13.198,0.434) (13.267,0.413) (13.512,0.398) (13.813,0.421) (14.200,0.378)};
+\draw[verde!55!black, line width=1.4pt] plot coordinates {(8.000,3.916) (8.546,3.916) (8.933,3.916) (9.234,3.885) (9.479,3.816) (9.866,3.639) (10.167,3.355) (10.412,2.578) (10.620,0.891) (10.800,0.926) (10.958,0.915) (11.100,0.893) (11.288,0.909) (11.453,0.755) (11.646,0.710) (11.853,0.770) (12.033,0.738) (12.192,0.737) (12.334,0.542) (12.579,0.555) (12.787,0.578) (12.966,0.576) (13.125,0.569) (13.198,0.434) (13.267,0.413) (13.512,0.398) (13.813,0.421) (14.200,0.378)};
+\draw[rojo!75!black, line width=0.9pt, dash pattern=on 1.5pt off 1.5pt] plot coordinates {(8.000,4.200) (8.546,4.200) (8.933,4.200) (9.234,4.200) (9.479,4.200) (9.866,4.200) (10.167,4.200) (10.412,4.200) (10.620,4.200) (10.800,3.952) (10.958,3.156) (11.100,2.835) (11.288,2.582) (11.453,2.433) (11.646,2.309) (11.853,2.109) (12.033,2.005) (12.192,1.941) (12.334,1.901) (12.579,1.865) (12.787,1.861) (12.966,1.847) (13.125,1.335) (13.198,0.434) (13.267,0.413) (13.512,0.398) (13.813,0.421) (14.200,0.378)};
+\draw[black, line width=0.9pt, dashed] plot coordinates {(8.000,3.179) (8.546,3.040) (8.933,2.931) (9.234,2.843) (9.479,2.766) (9.866,2.642) (10.167,2.541) (10.412,2.456) (10.620,2.388) (10.800,2.321) (10.958,2.266) (11.100,2.214) (11.288,2.146) (11.453,2.086) (11.646,2.016) (11.853,1.936) (12.033,1.864) (12.192,1.805) (12.334,1.747) (12.579,1.650) (12.787,1.560) (12.966,1.478) (13.125,1.411) (13.198,1.379) (13.267,1.353) (13.512,1.228) (13.813,1.067) (14.200,0.853)};
+\node[anchor=south west, font=\scriptsize\bfseries, inner sep=0pt] at (0,-2.050) {pulsos buenos contra la tasa (compuerta de 104)};
+\draw[black!50, line width=0.4pt] (0.000,-6.200) rectangle (6.200,-2.200);
+\draw[black!10] (0.000,-6.200) -- (6.200,-6.200);
+\node[nodo, anchor=east] at (-0.040,-6.200) {0};
+\draw[black!10] (0.000,-4.867) -- (6.200,-4.867);
+\node[nodo, anchor=east] at (-0.040,-4.867) {300};
+\draw[black!10] (0.000,-3.533) -- (6.200,-3.533);
+\node[nodo, anchor=east] at (-0.040,-3.533) {600};
+\draw[black!10] (0.000,-2.200) -- (6.200,-2.200);
+\node[nodo, anchor=east] at (-0.040,-2.200) {900};
+\draw[black!10] (0.000,-6.200) -- (0.000,-2.200);
+\node[nodo, anchor=north] at (0.000,-6.240) {10};
+\draw[black!10] (0.933,-6.200) -- (0.933,-2.200);
+\node[nodo, anchor=north] at (0.933,-6.240) {20};
+\draw[black!10] (2.167,-6.200) -- (2.167,-2.200);
+\node[nodo, anchor=north] at (2.167,-6.240) {50};
+\draw[black!10] (3.100,-6.200) -- (3.100,-2.200);
+\node[nodo, anchor=north] at (3.100,-6.240) {100};
+\draw[black!10] (4.033,-6.200) -- (4.033,-2.200);
+\node[nodo, anchor=north] at (4.033,-6.240) {200};
+\draw[black!10] (5.267,-6.200) -- (5.267,-2.200);
+\node[nodo, anchor=north] at (5.267,-6.240) {500};
+\draw[black!10] (6.200,-6.200) -- (6.200,-2.200);
+\node[nodo, anchor=north] at (6.200,-6.240) {1000};
+\node[nodo, anchor=north] at (3.100,-6.520) {tasa de entrada, kcps};
+\node[font=\scriptsize, anchor=south, rotate=90] at (-0.620,-4.200) {pulsos buenos, kcps};
+\draw[black!20, line width=0.6pt] plot coordinates {(0.000,-6.156) (6.200,-2.200)};
+\node[nodo, anchor=east, text=black!45, fill=white, inner sep=1pt] at (5.831,-2.689) {todos};
+\draw[azul!85!black, line width=1.4pt] plot coordinates {(0.000,-6.156) (0.933,-6.114) (1.479,-6.073) (2.167,-5.993) (2.620,-5.918) (3.100,-5.817) (3.646,-5.669) (4.033,-5.531) (4.579,-5.333) (5.267,-5.114) (5.720,-5.073) (6.200,-5.167)};
+\draw[verde!55!black, line width=1.4pt] plot coordinates {(0.000,-6.155) (0.933,-6.112) (1.479,-6.068) (2.167,-5.980) (2.620,-5.893) (3.100,-5.765) (3.646,-5.555) (4.033,-5.339) (4.579,-4.934) (5.267,-4.181) (5.720,-3.487) (6.200,-2.519)};
+\draw[verde!55!black, line width=1.4pt, dash pattern=on 4pt off 2pt] plot coordinates {(0.000,-6.156) (0.933,-6.112) (1.479,-6.068) (2.167,-5.981) (2.620,-5.894) (3.100,-5.767) (3.646,-5.560) (4.033,-5.349) (4.579,-4.965) (5.267,-4.302) (5.720,-3.741) (6.200,-3.083)};
+\draw[rojo!75!black, line width=0.9pt, dash pattern=on 1.5pt off 1.5pt] plot coordinates {(0.000,-6.156) (0.933,-6.112) (1.479,-6.070) (2.167,-5.984) (2.620,-5.900) (3.100,-5.781) (3.646,-5.595) (4.033,-5.412) (4.579,-5.109) (5.267,-4.711) (5.720,-4.502) (6.200,-4.538)};
+\node[nodo, anchor=east, text=verde!45!black, fill=white, inner sep=1pt] at (6.200,-2.342) {banco, $N$ = 4};
+\node[nodo, anchor=east, text=verde!45!black, fill=white, inner sep=1pt] at (6.200,-3.305) {banco, $N$ = 2};
+\node[nodo, anchor=east, text=rojo!65!black, fill=white, inner sep=1pt] at (6.200,-4.338) {descomp. \texttt{F\_TRAP}};
+\node[nodo, anchor=east, text=azul!75!black, fill=white, inner sep=1pt] at (6.200,-5.367) {trapecio de hoy};
+\begin{scope}[shift={(8.2,-2.6)}]\draw[azul!85!black, line width=1.4pt] (0,-0.00) -- ++(0.7,0) node[right, font=\scriptsize, black] {trapecio de hoy ($k$ = 64)}; \draw[verde!55!black, line width=1.4pt] (0,-0.42) -- ++(0.7,0) node[right, font=\scriptsize, black] {banco adaptativo ($k$ = 64, 32, 16, 8)}; \draw[rojo!75!black, line width=0.9pt, dash pattern=on 1.5pt off 1.5pt] (0,-0.84) -- ++(0.7,0) node[right, font=\scriptsize, black] {descomposición de \texttt{F\_TRAP}}; \draw[black, line width=0.9pt, dashed] (0,-1.26) -- ++(0.7,0) node[right, font=\scriptsize, black] {descomposición de la integral};\end{scope}
+\node[anchor=north west, font=\scriptsize, text width=6.2cm, align=left] at (8.0,-4.6) {El banco no necesita conocer $\Delta t$ con precisión (solo elige qué trapecio usar) y la descomposición sí: con una muestra de error en $\Delta t$ se va a varios por ciento. Abajo, la descomposición de \texttt{F\_TRAP} se cuenta desde $\Delta t$ = 26, lo que vale solo con el $\Delta t$ exacto: es una cota optimista.};
+\end{tikzpicture}
+\end{document}

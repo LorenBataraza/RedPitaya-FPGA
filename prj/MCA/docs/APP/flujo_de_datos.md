@@ -90,20 +90,20 @@ Los saltos, con su fichero:
    ejecuta en el hilo del socket, no en el de la GUI.
 4. **`Trabajador.escribir_campo`** ([`mcamon.py:195`](../../software/app/mcamon.py#L195))
    resuelve el setter por nombre: `getattr(A, f'mca_set_{campo}')(self.h, valor)`.
-5. **`mca_set_thr`** hace read-modify-write en
-   [`API/mca.py:676`](../../software/API/mca.py#L676), porque `R_THR` comparte
-   palabra con otros campos en varios registros del mapa.
-6. **`h` es un `MCARemote`**, así que `r32`/`w32` son idas y vueltas por el
-   socket en vez de accesos a `mmap`.
-7. **El servidor** valida el nombre de la operación y sus argumentos, toma el
-   lock del handle y escribe en `/dev/mem`.
+5. **`h` es un `MCARemote`**, así que el despacho de `@_api` manda la función
+   entera por la op `call`: `{"op": "call", "args": {"fn": "mca_set_n_acc",
+   "a": [4], "k": {}}}`.
+6. **El servidor** comprueba que la función esté registrada para la red, toma
+   el lock del handle y la corre: el read-modify-write ocurre en la placa, en
+   C, en una sola ida y vuelta.
 
 > **La GUI escribe campo por campo, nunca con `mca_configure`.** El bloque
 > entero de configuración escribe `R_CTRL` con `run=0`, así que tocar un umbral
 > **pararía la medición en curso**. Es la razón por la que
 > `Trabajador.escribir_campo` resuelve un `mca_set_<campo>` en vez de armar un
-> dict y mandarlo de una. Además, tres de esos setters validan (`bl_k`,
-> `tail_dly`, `dec`) y pasar por ellos es lo que mantiene esa validación viva.
+> dict y mandarlo de una. Además, varios de esos setters validan (`dec`,
+> `n_acc`, `pre_dly`, el trapecio) y pasar por ellos es lo que mantiene esa
+> validación viva.
 
 ### El antirrebote, y por qué son tres mecanismos
 
@@ -113,7 +113,7 @@ hay tres cosas superpuestas, y cada una tapa un agujero distinto:
 | mecanismo | qué evita |
 |---|---|
 | `setKeyboardTracking(False)` | que tipear "317" mande tres escrituras: 3, 31, 317 |
-| `QTimer` singleShot de 250 ms, reiniciado en cada cambio | que arrastrar la flecha del spinbox mande una escritura por paso — cada una son dos idas y vueltas de red más un RMW sobre `/dev/mem` |
+| `QTimer` singleShot de 250 ms, reiniciado en cada cambio | que arrastrar la flecha del spinbox mande una escritura por paso — cada una es una ida y vuelta de red más un RMW sobre `/dev/mem` |
 | el flag `_cargando` | **el eco**: cuando llega la config releída y la GUI repinta los spinbox, `setValue` dispararía `valueChanged` y reescribiría el mismo valor, para siempre |
 
 El temporizador es hijo del spinbox, así que vive en el hilo de la GUI y no
@@ -127,13 +127,10 @@ devolvió la placa, no con el que el usuario tipeó. La consecuencia es que el
 cliente **no tiene estado de configuración propio**: si el hardware satura un
 campo a su máscara, lo que se ve en pantalla es el valor saturado.
 
-> **Un `mca_set_*` por red NO es atómico.** Son dos operaciones separadas
-> (`r32` y `w32`), cada una con su propia toma del lock del servidor: entre
-> ambas puede colarse otra cosa. Es aceptable porque nadie más escribe esos
-> registros, pero es la razón por la que `MCARemote` **sí** redefine
-> `start`/`stop`/`clear`/`configure` como operaciones únicas del servidor
-> ([`mca_remote.py:52-59`](../../software/API/mca_remote.py#L52-L59)): ésas
-> pueden cruzarse con el hilo de exposición, que también escribe `R_CTRL`.
+> **Un `mca_set_*` por red es atómico** desde la op `call` (fase 2 de libmca):
+> la función entera corre en la placa bajo el lock del servidor, así que no se
+> puede cruzar con el hilo de exposición, que también escribe `R_CTRL`. Antes
+> eran dos operaciones (`r32` y `w32`), cada una con su toma del lock.
 
 ---
 
@@ -385,7 +382,7 @@ diferencia está en el hardware y no en el simulador.
 ### Todo el guardado ocurre en el cliente
 
 El servidor no escribe **un solo fichero de datos**; su única salida a disco es
-el log por stdout. Guardar el espectro (csv / npz / json), releerlo, guardar las
+el log por stdout. Guardar el espectro (csv / npz / json / N42.42), releerlo, guardar las
 imágenes y el log, y también el análisis (`buscar_picos` del espectro, `fom` del
 mapa 2D) pasan todos en la PC, en el hilo de la GUI, sobre las copias locales.
 

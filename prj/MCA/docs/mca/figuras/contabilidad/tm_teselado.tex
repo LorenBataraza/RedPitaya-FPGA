@@ -1,0 +1,87 @@
+% Teselado del tiempo: a qué casillero va cada ciclo, con las ranuras.
+% mca_window arma los casilleros dt_* (combinacional, del estado de las
+% ranuras) y mca_top los cuenta, junto con la ocupación t_ocup[j].
+% Fuente: modulos/mca/rtl/mca_window.sv (TIEMPO MUERTO) y mca_top.sv (Relojes).
+% Compilar:   pdflatex tm_teselado.tex && pdftocairo -svg tm_teselado.pdf tm_teselado.svg
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../../figuras/estilo_tikz.tex}
+\tikzset{cuenta/.style = {bloque=grisr, text width=2.5cm, minimum height=0.62cm}}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\node[anchor=west, font=\small] at (-0.4,3.95)
+  {\textbf{Teselado del tiempo: a qué casillero va cada ciclo}};
+
+% ======================================== mca_window: los casilleros dt_* ====
+\node[sen, align=center] (ent) at (1.2,1.55) {el estado de las ranuras\\[-1pt]
+  \normalfont\tiny ocupada = midiendo, reservada o cerrada};
+\node[pregunta=2.3cm] (q1) at (1.2,0.4)  {alguna habilitada libre};
+\node[pregunta=2.3cm] (q2) at (1.2,-0.9) {alguna esperando publicar};
+\node[sen] (dw) at (1.2,-2.15) {dt\_win};
+\draw[flujo] (ent) -- (q1);
+\draw[flujo] (q1.south) -- node[no] {no} (q2.north);
+\draw[flujo] (q2.south) -- node[no] {no} (dw.north);
+\node[nodo, align=left, anchor=north] at (1.2,-2.4) {todas midiendo};
+\node[grupo, fit={(-0.35,2.45) (3.1,-2.95)}] (gw) {};
+\node[rotulo] at (gw.north west) {\texttt{mca\_window} · combinacional};
+
+% ========================================== mca_top: los relojes de 64 b ====
+\node[sen] (run) at (6.1,2.35) {cada ciclo con run = 1};
+\node[pregunta] (r0) at (6.1,1.4)  {veto\_i};
+\node[pregunta] (r1) at (6.1,0.4)  {dt\_win};
+\node[pregunta] (r2) at (6.1,-0.6) {dt\_div};
+\coordinate (r3) at (6.1,-1.6);
+\draw[flujo] (run) -- (r0);
+\foreach \a/\b in {r0/r1, r1/r2}
+  \draw[flujo] (\a.south) -- node[no] {no} (\b.north);
+\draw[line width=0.8pt] (r2.south) -- node[no] {no} (r3);
+
+\node[cuenta] (crt) at (9.4,2.35) {\etq{realtime}{\texttt{0x068}}};
+\node[cuenta] (c0)  at (9.4,1.4)  {\etq{vetotime}{\texttt{0x0C0}}};
+\node[cuenta, fill=verde!55]  (c1) at (9.4,0.4)  {\etq{t\_win}{\texttt{0x0C8}}};
+\node[cuenta, fill=amarillo]  (c2) at (9.4,-0.6) {\etq{t\_div}{\texttt{0x0D0}}};
+\node[cuenta, fill=white]     (c3) at (9.4,-1.6) {\etq{livetime}{\texttt{0x070}}};
+\draw[flujo] (run) -- node[sen, above] {+1} (crt);
+\foreach \k in {0,1,2}
+  \draw[flujo] (r\k.east) -- node[si] {sí} node[sen, above, pos=0.6] {+1} (c\k.west);
+\draw[flujo] (r3) -- node[sen, above, pos=0.6] {+1} (c3.west);
+
+% la ocupacion, en paralelo
+\node[cuenta, text width=2.9cm] (oc) at (9.6,-2.85)
+  {\etq{t\_ocup[n\_ocup]}{\texttt{0x140 + 8·j}, j = 0..N\_ACC}};
+\node[sen, anchor=east] (no) at (7.6,-2.85) {sin veto};
+\draw[flujo] (no) -- node[sen, above] {+1} (oc.west);
+\node[grupo, fit={(4.55,3.2) (11.25,-3.45)}] (gt) {};
+\node[rotulo] at (gt.north west) {\texttt{mca\_top} · contadores de 64 b};
+
+% ================================== los casilleros cruzan de un lado al otro
+\draw[flujo] (q1.east) -- node[si] {sí} (2.8,0.4) -- (2.8,0.95) node[sen, above] {puede\_abrir};
+\draw[flujo] (q2.east) -- node[si] {sí} node[sen, above, pos=0.6] {dt\_div} (r2.west);
+\draw[flujo] (dw.east) -- (3.6,-2.15) |- node[sen, above, pos=0.8] {dt\_win} (r1.west);
+\node[nodo, anchor=north, align=center] at (2.8,0.25) {bit 5\\ de 0x010};
+
+% ============================================== lo que no entra al teselado
+\node[anchor=north west, font=\scriptsize, align=left, text width=4.6cm]
+  at (-0.35,-3.2)
+  {\textbf{Aparte, sin entrar al teselado:}\\[1pt]
+   \texttt{deadtime} (0x078) $+$1 si \texttt{!veto\_i} y alguna ranura ocupada: la
+   ocupación, que con varias ranuras no es tiempo muerto\\[1pt]
+   \texttt{t\_clear} (0x0FC) $+$1 si \texttt{clear\_busy}: el barrido de borrado
+   pierde incrementos, no ventanas};
+
+% ================================================================ invariantes
+\node[draw=black, line width=0.8pt, rounded corners=3pt, fill=white, inner sep=5pt,
+      align=center, font=\scriptsize] at (5.5,-6.75)
+  {\texttt{realtime = vetotime + t\_win + t\_div + livetime}
+   \quad {\itshape(\texttt{ap\_suma\_relojes})}\\[3pt]
+   \texttt{t\_ocup[0] + … + t\_ocup[N\_ACC] = realtime $-$ vetotime}
+   \quad {\itshape(\texttt{ap\_suma\_ocupacion})}\\[3pt]
+   tiempo muerto $=$ \texttt{t\_win + t\_div}: no hay ranura libre};
+
+\end{tikzpicture}
+\end{document}

@@ -1,0 +1,14 @@
+2225 trig
+2226 cap 1
+2229 ev 1
+2291 cap 2
+2292 cap 0
+2292 lvl 1
+2293 wrt 1
+2297 wrt 2
+2364 wrt 3
+2376 wrt 4
+2377 wrt 5
+2379 wrt 0
+2379 wr_slot 1
+2380 lvl 0

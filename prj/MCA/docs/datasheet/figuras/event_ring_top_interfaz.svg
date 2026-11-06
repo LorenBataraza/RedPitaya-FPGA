@@ -24,14 +24,14 @@
 <rect class="hdr" x="250.9" y="14.7" width="296.2" height="121.8" rx="3.5" fill="#fccea0"/>
 <text class="ti" x="399.0" y="42.0" font-size="16" text-anchor="middle">event_ring_top</text>
 <text class="sb" x="399.0" y="56.5" font-size="9.5" text-anchor="middle">prj/MCA/modulos/event_ring/rtl/event_ring_top.sv</text>
-<text class="pr" x="331.3" y="79.0" font-size="10.5">DW=14</text>
-<text class="pr" x="331.3" y="93.5" font-size="10.5">N_CH=2</text>
-<text class="pr" x="331.3" y="108.0" font-size="10.5">SW=16</text>
-<text class="pr" x="331.3" y="122.5" font-size="10.5">PRE_AW=9</text>
-<text class="pr" x="403.7" y="79.0" font-size="10.5">S_AW=11</text>
-<text class="pr" x="403.7" y="93.5" font-size="10.5">DATA_AW=12</text>
-<text class="pr" x="403.7" y="108.0" font-size="10.5">E=4</text>
-<text class="pr" x="403.7" y="122.5" font-size="10.5">FIFO_FW=8</text>
+<text class="pr" x="328.1" y="79.0" font-size="10.5">DW=14</text>
+<text class="pr" x="328.1" y="93.5" font-size="10.5">N_CH=2</text>
+<text class="pr" x="328.1" y="108.0" font-size="10.5">SW=16</text>
+<text class="pr" x="328.1" y="122.5" font-size="10.5">PRE_AW=11</text>
+<text class="pr" x="406.8" y="79.0" font-size="10.5">S_AW=11</text>
+<text class="pr" x="406.8" y="93.5" font-size="10.5">DATA_AW=12</text>
+<text class="pr" x="406.8" y="108.0" font-size="10.5">E=4</text>
+<text class="pr" x="406.8" y="122.5" font-size="10.5">FIFO_FW=8</text>
 <line class="rule" x1="250.2" y1="136.5" x2="547.8" y2="136.5"/>
 <ellipse class="bus" cx="225.8" cy="178.5" rx="12.0" ry="17.5"/>
 <path class="brc" d="M150.0,164.0 Q143.0,164.0 143.0,171.2 L143.0,171.2 Q143.0,178.5 138.8,178.5 Q143.0,178.5 143.0,185.8 L143.0,185.8 Q143.0,193.0 150.0,193.0"/>

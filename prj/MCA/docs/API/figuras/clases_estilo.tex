@@ -3,7 +3,7 @@
 %
 % Notación: la de UML, recortada a lo que hace falta acá.
 %   caja de tres partes        nombre · atributos · métodos
-%   triángulo hueco, llena     hereda
+%   triángulo hueco, llena     hereda (en C: el struct base como primer miembro)
 %   triángulo hueco, punteada  cumple la interfaz sin heredar (duck typing)
 %   rombo lleno                compone: el dueño crea la parte y la cierra
 %   flecha punteada            usa, o recibe por parámetro
@@ -29,6 +29,9 @@
   interfaz/.default = 4.4cm,
   hilo/.style       = {clase=#1, rectangle split part fill={naranja!70,white,white}},
   hilo/.default     = 4.4cm,
+  % un tipo de C (libmca): struct con sus campos y las funciones que lo reciben
+  ctipo/.style      = {clase=#1, rectangle split part fill={rojo!30,white,white}},
+  ctipo/.default    = 4.4cm,
   % caja de una sola parte: módulos de funciones, referencias a otra figura
   modulo/.style     = {draw=black, line width=0.6pt, inner sep=3pt, align=left,
                        text width=#1, fill=white,

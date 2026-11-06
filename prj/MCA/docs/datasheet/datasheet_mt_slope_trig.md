@@ -184,35 +184,7 @@ Contrato del bus: [`bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) 
 ### 1.5 Frecuencia máxima de trabajo
 
 <!-- AUTO:timing -->
-**Punto de síntesis** — Vivado out-of-context, `xc7z010clg400-1`.
-
-| Métrica | Valor |
-|---|---|
-| Período de la restricción | 8.00 ns (125.0 MHz) |
-| WNS | 2.472 ns |
-| Camino crítico | 5.528 ns |
-| **Fmax** | **180.9 MHz** |
-| Niveles de lógica | 3 |
-
-
-**Camino crítico**
-
-|  |  |
-|---|---|
-| startpoint | `len_q_reg[0]/C` |
-| endpoint | `p1_xc_reg[0]/R` |
-
-
-**Recursos**
-
-| LUT | FF | BRAM | DSP | CARRY | MUXF |
-|---|---|---|---|---|---|
-| 287 | 226 | 0 | 0 | 36 | 0 |
-
-
-`lut` cuenta **primitivas** LUT, no los _Slice LUTs_ del `report_utilization` (dos LUT5 que comparten O5/O6 ocupan un solo sitio).
-
-_Barrido no corrido_: `make -C modulos/mt/work sweep-all` y regenerar.
+El `metrics.txt` del módulo es de `mt_top`, no de `mt_slope_trig`: la síntesis OOC del módulo apunta a otro top, así que acá no hay números propios de este bloque.
 <!-- /AUTO:timing -->
 
 <!-- A mano: qué hay en el camino crítico y qué se haría para romperlo si
@@ -314,22 +286,23 @@ python3 docs/mt/figuras/ondas/ondas_mt.py    # regenerar
 Todo corre en batch y se chequea el `RESULT: PASS` del testbench; las ondas quedan en `work/waves/<tb>.wlf`.
 
 ```bash
-make -C modulos/mt/work            # los 6 testbenches
+make -C modulos/mt/work            # los 7 testbenches
 make -C modulos/mt/work cov        # + cobertura
 make -C modulos/mt/work lint
 ```
 
 | Testbench | DUT | Escenas | Casos | Contra qué compara | Es el de este módulo |
 |---|---|---|---|---|---|
-| [`tb_mt_cfg`](../../modulos/mt/sim/tb_mt_cfg.sv) | `mt_cfg` | 13 | 41 | vectores a mano |  |
+| [`tb_mt_cfg`](../../modulos/mt/sim/tb_mt_cfg.sv) | `mt_cfg` | 14 | 59 | vectores a mano |  |
 | [`tb_mt_slope_trig`](../../modulos/mt/sim/tb_mt_slope_trig.sv) | `mt_slope_trig` | 8 | 15 | vectores a mano | **sí** |
-| [`tb_mt_trig_src`](../../modulos/mt/sim/tb_mt_trig_src.sv) | `mt_trig_src` | 6 | 12 | vectores a mano |  |
-| [`tb_mt_event_logic`](../../modulos/mt/sim/tb_mt_event_logic.sv) | `mt_event_logic` | 5 | 9 | vectores a mano |  |
+| [`tb_mt_pz_trig`](../../modulos/mt/sim/tb_mt_pz_trig.sv) | `mt_pz_trig` | 8 | 1 | vectores a mano |  |
+| [`tb_mt_trig_src`](../../modulos/mt/sim/tb_mt_trig_src.sv) | `mt_trig_src` | 7 | 14 | vectores a mano |  |
+| [`tb_mt_event_logic`](../../modulos/mt/sim/tb_mt_event_logic.sv) | `mt_event_logic` | 8 | 11 | vectores a mano |  |
 | [`tb_trigger_shield`](../../modulos/mt/sim/tb_trigger_shield.sv) | `trigger_shield` | 8 | 19 | vectores a mano |  |
-| [`tb_mt_top`](../../modulos/mt/sim/tb_mt_top.sv) | `mt_top` | 20 | 46 | vectores a mano |  |
+| [`tb_mt_top`](../../modulos/mt/sim/tb_mt_top.sv) | `mt_top` | 20 | 51 | vectores a mano |  |
 
 
-**142 casos con nombre** en 6 testbenches (60 escenas). La lista completa, caso por caso, está en el plan de verificación.
+**170 casos con nombre** en 7 testbenches (73 escenas). La lista completa, caso por caso, está en el plan de verificación.
 
 Las escenas de [`tb_mt_slope_trig`](../../modulos/mt/sim/tb_mt_slope_trig.sv): 1) Exactitud, 2) Exactitud con huecos de dv y L, G intermedios, 3) L=1 G=0 es x[n]-x[n-1]; L=0 se satura a 1; L>LMA, 4) Escalón sobre una base, 5) Continua grande y rampa lenta, 6) Escalones ruidosos, 7) Cambio de L en caliente, 8) cfg_en = 0.
 

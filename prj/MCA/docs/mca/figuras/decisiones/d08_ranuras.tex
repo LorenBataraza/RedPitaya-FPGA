@@ -1,0 +1,53 @@
+% D8 por dentro: los estados de una ranura (mca_slot) y lo que guarda.
+% Fuente: modulos/mca/rtl/mca_slot.sv.
+% Compilar:   pdflatex d08_ranuras.tex && pdftocairo -svg d08_ranuras.pdf d08_ranuras.svg
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../../figuras/estilo_tikz.tex}
+\tikzset{
+  estado/.style = {draw=black, line width=0.7pt, rounded corners=9pt, align=center,
+                   font=\scriptsize, inner sep=4pt, minimum height=1.0cm, text width=#1},
+  estado/.default = 2.2cm,
+}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\node[decision] (d) at (-0.9,2.9) {D8};
+\node[anchor=west, font=\small] at (d.east)
+  {\textbf{Una ranura por dentro} \quad {\scriptsize\ttfamily mca\_slot}};
+
+\node[estado, fill=white] (li) at (0.6,0) {\textbf{libre}};
+\node[estado=3.6cm, fill=verde!55] (mi) at (5.2,0)
+  {\textbf{midiendo}\\[2pt]
+   cada muestra válida: pico, $Q_\mathrm{tot}$, $Q_\mathrm{cola}$ (desde la
+   compuerta corta), largo, $t_\mathrm{sub}$; y las marcas de solape};
+\node[estado, fill=amarillo] (ce) at (9.8,0)
+  {\textbf{cerrada}\\[1pt] guarda el resultado\\ hasta que lo publican};
+
+\draw[flujo] (li.north) to[out=40, in=140] node[sen, above, align=center]
+  {abre\\[-1pt]\normalfont\scriptsize el disparo la eligió;\\[-2pt]\normalfont\scriptsize retiene las compuertas} (mi.north);
+\draw[flujo] (mi.north east) to[out=30, in=150] node[sen, above, align=center]
+  {cierra en \texttt{len = gate\_larga}\\[-1pt]\normalfont\scriptsize amplitud en [min, max]} (ce.north west);
+\draw[flujo] (mi.south west) to[out=-150, in=-30] node[sen, below, align=center]
+  {cierra fuera de [min, max]\\[-1pt]\normalfont\scriptsize cnt\_rej\_amp} (li.south east);
+\draw[flujo] (ce.south) to[out=-110, in=-70] node[sen, below, align=center, pos=0.5]
+  {libera: el publicador terminó (18 ciclos)} (li.south);
+\path (0,-3.1) coordinate (abajo);
+
+\node[rotulo, anchor=north west, text width=12.4cm] at (-0.6,-3.95)
+  {\textbf{Marcas de solape}, que viajan con el resultado al bus de features:
+   \texttt{F\_DTPREV}, las muestras desde el disparo anterior;
+   \texttt{F\_DTNEXT}, las muestras hasta el próximo disparo \emph{dentro} de la
+   ventana; \texttt{F\_SOLAPE}, cuántas ranuras había abiertas al abrir, si llegó
+   otro disparo adentro y si alguno se perdió. Una ventana abierta sobre la cola
+   de otro pulso suma esa cola: la ranura no lo corrige, lo marca.\\[3pt]
+   La ranura ocupa \texttt{gate\_larga + 1} ciclos midiendo: la elegida queda
+   \emph{reservada} el ciclo siguiente a la decisión, y la muestra llega
+   registrada.};
+
+\end{tikzpicture}
+\end{document}

@@ -1,0 +1,88 @@
+% La PL y el PS trabajando a la vez: un lote de lectura.
+% Fuente: software/API/osciloscope_ring.py (wait_event, _prefetch, _slot_ok,
+% _publish_rd) y modulos/event_ring/rtl/event_slot_writer.sv. Los costos son los
+% medidos en placa de diseno_y_register_map.md ("Leer slot por slot no sirve").
+%
+% Compilar:   pdflatex ring_lote.tex
+%             pdftocairo -svg ring_lote.pdf ring_lote.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+\tikzset{
+  vida/.style   = {black!45, line width=0.6pt, densely dashed},
+  cabeza/.style = {bloque=#1, text width=2.9cm, minimum height=0.85cm},
+  hp/.style     = {->, naranja!60!black, line width=1.1pt},
+  gp/.style     = {->, rojo!65!black, line width=0.9pt},
+  rot/.style    = {font=\scriptsize, fill=white, text=black, inner sep=1.5pt, align=center},
+  costo/.style  = {font=\scriptsize, black!70, anchor=west, inner sep=1pt, align=left},
+}
+\def\xpl{0} \def\xrg{5.0} \def\xdd{9.6} \def\xps{14.6}
+
+\node[cabeza=verde!55] (pl) at (\xpl,0) {\textbf{PL}\\ captura y writer};
+\node[cabeza=rojo!45]  (rg) at (\xrg,0) {\textbf{Registros}\\ slot 2, por GP0};
+\node[cabeza=naranja!70] (dd) at (\xdd,0) {\textbf{DDR}\\ los slots};
+\node[cabeza=azul!35] (ps) at (\xps,0) {\textbf{PS}\\ \texttt{RingSource}};
+\foreach \x in {\xpl,\xrg,\xdd,\xps} \draw[vida] (\x,-0.43) -- (\x,-11.35);
+
+% ---- la PL escribe sin esperar a nadie
+\draw[hp] (\xpl,-1.0) -- node[rot, pos=0.72] {slot \texttt{seq = 0}: cabecera, ventana, relleno, footer} (\xdd,-1.0);
+\draw[gp] (\xpl,-1.5) -- node[rot, pos=0.6] {\texttt{WR\_SLOT = 1}} (\xrg,-1.5);
+\draw[hp] (\xpl,-2.05) -- node[rot, pos=0.72] {slot \texttt{seq = 1}} (\xdd,-2.05);
+\draw[gp] (\xpl,-2.55) -- node[rot, pos=0.6] {\texttt{WR\_SLOT = 2}} (\xrg,-2.55);
+\node[font=\scriptsize, black!70, anchor=west, fill=white, inner sep=1.5pt] at (0.25,-3.0) {\dots\;hasta $k$ slots};
+
+% ---- el marco del lote
+\fill[azul!8, rounded corners=3pt] (3.4,-3.35) rectangle (19.1,-9.3);
+\draw[azul!60!black, line width=0.6pt, rounded corners=3pt] (3.4,-3.35) rectangle (19.1,-9.3);
+\node[font=\scriptsize\bfseries, anchor=north east, azul!40!black, inner sep=3pt] at (19.1,-3.35) {un lote};
+\foreach \x in {\xrg,\xdd,\xps} \draw[vida] (\x,-3.35) -- (\x,-9.3);
+
+% 1: cuántos hay
+\draw[gp] (\xps,-3.95) -- node[rot, pos=0.5] {leer \texttt{WR\_SLOT}: hay $k$} (\xrg,-3.95);
+\node[costo] at (\xps+0.2,-3.95) {\textbf{1}\; 2.3 µs, una vez por lote};
+
+% 2: copiar
+\draw[hp] (\xdd,-4.85) -- node[rot] {copiar $n$ slots contiguos} (\xps,-4.85);
+\node[costo] at (\xps+0.2,-4.85) {\textbf{2}\; hasta 64 KB: 296 µs\\ \phantom{\textbf{2}\;}(128 slots de 512 B)};
+
+% 3: validar, con su alternativa
+\draw[black, line width=0.7pt, ->, rounded corners=3pt] (\xps,-5.65) -- (\xps-0.5,-5.65) -- (\xps-0.5,-6.1) -- (\xps,-6.1);
+\node[font=\scriptsize, anchor=east, align=right, fill=azul!8, inner sep=1.5pt] at (\xps-0.6,-5.87) {por cada slot: ¿\texttt{\{$\sim$seq, seq\}}\\ con el \texttt{seq} esperado?};
+\node[costo] at (\xps+0.2,-5.87) {\textbf{3}\; sin tocar hardware:\\ \phantom{\textbf{3}\;}el bloque ya está copiado};
+
+\node[font=\scriptsize, anchor=west, align=left, fill=white, draw=black!45, rounded corners=2pt, inner sep=3pt, text width=5.6cm] at (\xdd-1.0,-7.0)
+  {\textbf{no:} el footer todavía no llegó (\texttt{WR\_SLOT} sube cuando lo acepta el FIFO). Se descarta lo que queda del bloque y se vuelve a pedir. \texttt{seq} no avanza: no se pierde nada.};
+\node[font=\scriptsize, anchor=west, align=left, fill=white, draw=black!45, rounded corners=2pt, inner sep=3pt, text width=3.75cm] at (\xps+0.2,-7.0)
+  {\textbf{sí:} \texttt{ts}, \texttt{snapshot} y las muestras salen de offsets fijos del slot.};
+
+% 4: devolver créditos
+\draw[gp] (\xps,-8.4) -- node[rot, pos=0.5] {escribir \texttt{RD\_SLOT = seq} siguiente} (\xrg,-8.4);
+\node[costo] at (\xps+0.2,-8.4) {\textbf{4}\; una escritura por lote:\\ \phantom{\textbf{4}\;}devuelve $n$ créditos};
+
+% ---- la PL sigue mientras tanto
+\draw[hp] (\xpl,-4.35) -- node[rot, pos=0.33] {slot $k$} (\xdd,-4.35);
+\draw[hp] (\xpl,-5.5) -- node[rot, pos=0.33] {slot $k{+}1$} (\xdd,-5.5);
+\draw[hp] (\xpl,-6.65) -- node[rot, pos=0.33] {slot $k{+}2$} (\xpl+4.2,-6.65);
+\node[font=\scriptsize, black!75, anchor=north west, align=left, text width=4.3cm, inner sep=1.5pt, fill=white] at (-1.5,-7.0)
+  {La PL no espera: mientras queden créditos sigue escribiendo, y el lector se entera en el lote siguiente.};
+
+% créditos de vuelta
+\draw[ctrl, line width=0.8pt] (\xrg,-8.85) -- node[rot, pos=0.45] {\texttt{credit\_ok}: \texttt{wr $-$ rd} $< N$} (\xpl,-8.85);
+
+% ---- y de vuelta
+\draw[->, line width=0.6pt, black!70] (\xps,-9.75) -- (\xps+1.0,-9.75) node[right, font=\scriptsize, black!70, align=left] {vuelve a \textbf{1}};
+
+% leyenda
+\draw[hp] (-1.5,-10.3) -- ++(0.7,0);
+\node[font=\scriptsize, anchor=west] at (-0.75,-10.3) {DDR: HP2 del lado de la PL, \texttt{mmap} con \texttt{O\_SYNC} del lado del PS};
+\draw[gp] (-1.5,-10.75) -- ++(0.7,0);
+\node[font=\scriptsize, anchor=west] at (-0.75,-10.75) {registro, por GP0: lo caro, por eso se usa una vez por lote};
+\end{tikzpicture}
+\end{document}

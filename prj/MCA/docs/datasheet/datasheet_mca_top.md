@@ -15,9 +15,9 @@
 |---|---|
 | Módulo RTL | `mca_top` |
 | Archivo | [`mca_top.sv`](../../modulos/mca/rtl/mca_top.sv) |
-| Parámetros | 12 |
+| Parámetros | 13 |
 | Puertos | 13 (10 in / 3 out) |
-| MAGIC | `32'h4D434131` — `"MCA1"` |
+| MAGIC | `32'h4D434132` — `"MCA2"` |
 | Parte | `xc7z010clg400-1` |
 
 
@@ -115,7 +115,8 @@ en [`figuras/07_cadena.png`](../mca/figuras/07_cadena.png).
 | `LEN_W` | `integer` | `16` |  |
 | `DIV_W` | `integer` | `16` | bits de cociente de los divisores de forma |
 | `NFEAT` | `integer` | `16` | ranuras del bus de features |
-| `PUB_K` | `integer` | `2` |  |
+| `N_ACC` | `integer` | `4` |  |
+| `N_FORMAS` | `integer` | `4` |  |
 
 
 Los marcados **(del TOP)** son los valores con los que el diseño se construye de verdad (`GENERICS` del `work/Makefile`); los anchos de esta página están resueltos con ésos, no con los defaults del RTL.
@@ -148,9 +149,9 @@ Mientras vale 1 no se abren pulsos, el pulso en curso termina normal y el reloj 
 | `veto_i` | in | 1 | adc_clk_i |
 
 
-##### FASE 2: trigger externo (nivel del multitrigger, se toma por FLANCO)
+##### Trigger externo: el UNICO que abre ventanas (se toma por FLANCO)
 
-Abre ventana cuando cfg_trig_src lo habilita. Viene del trigger_event del multitrigger, ya en adc_clk, asi que no hace falta CDC. Atar a 0 si el top no lo usa: con cfg_trig_src = 0 (el default) no se mira.
+Viene del trigger_event del multitrigger, ya en adc_clk, asi que no hace falta CDC. Llega con la latencia del disparo por pendiente: la compensa la linea de retardo de muestras (cfg_pre_dly). Atado a 0, el MCA no abre nunca.
 
 | Puerto | Dir | Bits | Dominio |
 |---|---|---|---|
@@ -203,25 +204,25 @@ Contrato del bus: [`bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) 
 | Métrica | Valor |
 |---|---|
 | Período de la restricción | 8.00 ns (125.0 MHz) |
-| WNS | -0.148 ns |
-| Camino crítico | 8.148 ns |
-| **Fmax** | **122.7 MHz** |
-| Niveles de lógica | 13 |
+| WNS | 0.037 ns |
+| Camino crítico | 7.963 ns |
+| **Fmax** | **125.6 MHz** |
+| Niveles de lógica | 8 |
 
 
 **Camino crítico**
 
 |  |  |
 |---|---|
-| startpoint | `dat_q_reg[1]/C` |
-| endpoint | `i_feat/i_win/q_tot_reg[15]/D` |
+| startpoint | `cfg_amp_max_reg[4]/C` |
+| endpoint | `i_feat/i_win/max_q_reg[0]/S` |
 
 
 **Recursos**
 
 | LUT | FF | BRAM | DSP | CARRY | MUXF |
 |---|---|---|---|---|---|
-| 3778 | 3153 | 16 | 0 | 558 | 42 |
+| 9418 | 6463 | 28 | 4 | 1226 | 206 |
 
 
 `lut` cuenta **primitivas** LUT, no los _Slice LUTs_ del `report_utilization` (dos LUT5 que comparten O5/O6 ocupan un solo sitio).
@@ -430,7 +431,7 @@ python3 docs/mca/figuras/ondas/ondas_mca.py    # regenerar
 Todo corre en batch y se chequea el `RESULT: PASS` del testbench; las ondas quedan en `work/waves/<tb>.wlf`.
 
 ```bash
-make -C modulos/mca/work            # los 7 testbenches
+make -C modulos/mca/work            # los 8 testbenches
 make -C modulos/mca/work cov        # + cobertura
 make -C modulos/mca/work lint
 ```
@@ -441,18 +442,19 @@ make -C modulos/mca/work lint
 | [`tb_mca_hist`](../../modulos/mca/sim/tb_mca_hist.sv) | `mca_hist` | 8 | 31 | vectores a mano |  |
 | [`tb_mca_zoom`](../../modulos/mca/sim/tb_mca_zoom.sv) | `mca_zoom` | 5 | 11 | vectores a mano |  |
 | [`tb_mca_discriminator`](../../modulos/mca/sim/tb_mca_discriminator.sv) | `mca_discriminator` | 7 | 21 | vectores a mano |  |
-| [`tb_mca_pulse_feature`](../../modulos/mca/sim/tb_mca_pulse_feature.sv) | `mca_pulse_feature` | 17 | 161 | vectores a mano |  |
-| [`tb_mca_pulse_feature_eq`](../../modulos/mca/sim/tb_mca_pulse_feature_eq.sv) | `mca_pulse_feature_eq` | — | — | RTL de referencia `mca_pulse_feature_ref.v` instanciado al lado del DUT |  |
-| [`tb_mca_top`](../../modulos/mca/sim/tb_mca_top.sv) | `mca_top` | 9 | 82 | vectores a mano | **sí** |
+| [`tb_mca_trap`](../../modulos/mca/sim/tb_mca_trap.sv) | `mca_trap` | — | — | vectores a mano |  |
+| [`tb_mca_multi`](../../modulos/mca/sim/tb_mca_multi.sv) | `mca_multi` | — | — | vectores a mano |  |
+| [`tb_mca_pulse_feature_evt`](../../modulos/mca/sim/tb_mca_pulse_feature_evt.sv) | `mca_pulse_feature_evt` | — | — | RTL de referencia `mca_pulse_feature_ref.v` instanciado al lado del DUT |  |
+| [`tb_mca_top`](../../modulos/mca/sim/tb_mca_top.sv) | `mca_top` | 11 | 121 | vectores a mano | **sí** |
 
 
-**328 casos con nombre** en 7 testbenches (52 escenas). La lista completa, caso por caso, está en el plan de verificación.
+**206 casos con nombre** en 8 testbenches (37 escenas). La lista completa, caso por caso, está en el plan de verificación.
 
-Las escenas de [`tb_mca_top`](../../modulos/mca/sim/tb_mca_top.sv): 1) Identificación, 2) Escritura y relectura de todos los registros RW, 3) BARRIDO DE ACK — la regresión importante, 4) El mismo barrido en el DUT B, con el motor 2D AU, 5) Lectura DURANTE el barrido de borrado, 6) CAMINO DE DATOS COMPLETO, 7) El borrado deja el espectro y los contadores en , 8) EL TESELADO DEL TIEMPO MUERTO, visto por el BUS, 9) FASE 2 POR EL BUS.
+Las escenas de [`tb_mca_top`](../../modulos/mca/sim/tb_mca_top.sv): 1) Identificación, 2) Escritura y relectura de todos los registros RW, 3) BARRIDO DE ACK — la regresión importante, 4) El mismo barrido en el DUT B, con el motor 2D AU, 5) Lectura DURANTE el barrido de borrado, 6) CAMINO DE DATOS COMPLETO, 7) El borrado deja el espectro y los contadores en , 8) EL TESELADO DEL TIEMPO MUERTO, visto por el BUS,, 9) VARIAS RANURAS, por el bus, 10) EL TRAPECIO, 10) toma los pares que la forma 0 no puede medir lim.
 
 **Assertions** — en `sim/sva/`, enganchadas por `bind` (no tocan el RTL sintetizable).
 
-- [`mca_top_sva.sv`](../../modulos/mca/sim/sva/mca_top_sva.sv) — 64 propiedades
+- [`mca_top_sva.sv`](../../modulos/mca/sim/sva/mca_top_sva.sv) — 68 propiedades
 
 Plan de verificación, casos cubiertos y deuda: [`mca/sim/VERIFICACION.md`](../../modulos/mca/sim/VERIFICACION.md).
 <!-- /AUTO:verificacion -->

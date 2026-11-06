@@ -16,26 +16,23 @@
      renderiza bien y el chequeo de enlaces del repo lo puede verificar; al
      copiarlos a la pagina se recalculan solos.                           -->
 
-**Qué hace.** Es el núcleo del extractor: resta la base, abre y cierra la
-ventana, re-arma el detector, corre los acumuladores (pico, $Q_\mathrm{tot}$,
-$Q_\mathrm{cola}$, largo, tiempo de subida), evalúa la ventana de amplitud y
-reparte cada ciclo y cada cruce de umbral en los casilleros de tiempo muerto.
-Viven acá cuatro decisiones de la
-[vista general](../../mca/vista_general_mca.md): quién abre (**D4**), quién
-cierra (**D5**), cómo se re-arma (**D6**) y qué amplitud mira la ventana (**D7**).
+**Qué hace.** Es el núcleo del extractor: resta la base de la muestra, la
+registra y la reparte a las `N_ACC` ranuras (`mca_slot`); toma el disparo
+(`trig_i`, por flanco, sostenido hasta la muestra válida siguiente) y le asigna
+la ranura libre de menor índice entre las `cfg_n_acc` habilitadas; y reparte cada
+ciclo y cada disparo en los casilleros de tiempo muerto y de atribución. Es la
+decisión **D8** de la [vista general](../../mca/vista_general_mca.md), cuántas
+ranuras miden a la vez.
 
-**Por qué es un módulo tan grande.** Por acá pasa el camino crítico de todo el
-bitstream, `dat → x → umbrales → abrir/cerrar → acumuladores`, y el
-sintetizador corre con `-flatten_hierarchy none`. Una frontera en medio de ese
-cono le suma un nivel de LUT. El re-armado se probó como módulo aparte y
-volvió: abrir consume el armado en el mismo flanco, el flanco de apertura tenía
-que salir como puerto, y eso solo costó 576 ps en todo el cono. Lo que sale hacia
-[`mca_publish`](../datasheet_mca_publish.md) sale de registros, o va directo a la
-WE de la FIFO.
+**Por qué la muestra se registra antes de repartirse.** El sintetizador corre con
+`-flatten_hierarchy none`, así que una frontera es gratis solo si lo que cruza
+sale de un registro. `xc_q` es ese registro, y lo que el asignador decide para
+cada muestra (abrir, qué ranura, las marcas de solape) viaja registrado con ella.
+La ranura elegida queda **reservada** el ciclo siguiente, porque recién abre en
+ese flanco: sin la reserva, un disparo en la muestra siguiente elegiría la misma.
 
-**Dos ajustes de mapeo, documentados en el RTL.** Las sumas de $Q_\mathrm{tot}$ y
-$Q_\mathrm{cola}$ llevan `keep`, y $Q_\mathrm{cola}$ se escribe como valor
-siguiente en todos los ciclos. Sin eso, al separar la publicación Vivado plegó la
-apertura dentro del sumador y `q_tot` cayó a −0.148 ns en la OOC. La lógica es la
-misma: lo verifica `tb_mca_pulse_feature_eq` contra la copia congelada del
-módulo original.
+**Por qué ya no hay Schmitt.** La ventana la abría un Schmitt interno, que no
+puede ver un pulso montado sobre la cola de otro (la señal nunca baja del umbral
+entre los dos), y esos son los pulsos para los que existen las ranuras. Abre
+solo el disparo por pendiente del multitrigger; `mca_delay` compensa que llega
+tarde.

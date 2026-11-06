@@ -1,0 +1,133 @@
+% La capa de C del MCA: libmca, los niveles 1 a 4 en una biblioteca con la
+% forma de rp-api. Tres columnas:
+%   izquierda  quién la llama: el binding de Python (por ctypes, figura
+%              clases_mca) y los programas en C;
+%   centro     mca_h, el handle opaco, con todas las operaciones como funciones
+%              que devuelven un código y entregan el resultado por puntero; y
+%              debajo el bus, mca_bus, con el backend devmem, que hereda a la
+%              manera de C (la base como primer miembro);
+%   derecha    los tipos de valor que cruzan la interfaz y, abajo, la PL.
+% El backend por callbacks (bus_callback.c) no se dibuja: sirve a los
+% sustitutos de prueba (diseno_de_clases.md §9.1).
+% Fuentes: software/libmca/include/{mca.h,mca_regs.h,mca_bus.h},
+% software/libmca/src/{mca.c,bus.h,bus.c,devmem.h,bus_devmem.c,bus_mmap.c}.
+% El texto que acompaña está en docs/API/diseno_de_clases.md §3. Estilo:
+% docs/figuras/estilo_tikz.tex y clases_estilo.tex.
+%
+% Compilar:   pdflatex clases_libmca.tex
+%             pdftocairo -svg clases_libmca.pdf clases_libmca.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+\input{clases_estilo.tex}
+
+\begin{document}
+\catcode`\_=12
+\begin{tikzpicture}[fondo]
+
+% ================================================================ mca_h ===
+\node[ctipo=7.4cm, anchor=north] (h) at (0,0) {
+  \clase{mca_h}{libmca · include/mca.h · src/mca.c · struct opaco}
+  \nodepart{two}
+  bus : mca_bus* · propio\\
+  caps · h_aw · h2_aw · psd_aw\\
+  error[LARGO_ERROR]
+  \nodepart{three}
+  \gr{ciclo de vida}
+  mca_open(\&h, phys, size, check_magic) · mca_close(h)\\
+  mca_open_bus(\&h, bus, propio, check_magic)\\
+  mca_identify(h, \&info) · mca_last_error(h)\\
+  \gr{un campo: get y set, generados de MCA_FIELDS}
+  mca_get_<campo>(h, \&v) · mca_set_<campo>(h, v)\\
+  mca_get_n_ocup(h, \&v) · mca_get_puede_abrir(h, \&v) · …\\
+  \gr{configuración y control}
+  mca_configure(h, \&cfg) · mca_get_config(h, vals, n)\\
+  mca_start(h) · mca_stop(h) · mca_clear(h, timeout_s)\\
+  \gr{lectura}
+  mca_read_counters(h, \&cnt) · mca_read_last_event(h, \&ev)\\
+  mca_read_histogram(h, dst, n) · mca_read_map2d(h, dst, n)\\
+  mca_read_acquire(h, s, clear_first, hist, …, \&cnt)\\
+  mca_read_acquire_chunks(h, s, chunk_s, fn, ctx, …)\\
+  \gr{ajuste de escala}
+  mca_autoscale_q_shift(h, canal, s, \&shift)
+};
+
+% ======================================================== quién la llama ===
+\node[modulo=4.4cm, anchor=north] (py) at (-7.0,0) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont API/mca.py}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont el binding de Python · figura clases_mca}\\[3pt]
+  _libmca.py: argtypes y restype\\
+  una función de Python por cada\\
+  \hspace*{1em}función de C, mismo nombre
+};
+\node[modulo=4.4cm, anchor=north] (cc) at (-7.0,-2.6) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont un programa en C}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont tests/bench_libmca.c · libmca.so}\\[3pt]
+  \#include "mca.h"\\
+  sin Python de por medio
+};
+\draw[usa] (py.east) -- (py.east -| h.west) node[rol, midway, above] {ctypes};
+\draw[usa] (cc.east) -- (cc.east -| h.west);
+
+% ======================================================= tipos de valor ===
+\node[modulo=4.8cm, anchor=north] (tv) at (6.6,0) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont lo que cruza la interfaz}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont include/mca.h · include/mca_regs.h}\\[3pt]
+  int: MCA_OK = 0 · MCA_E* < 0\\[2pt]
+  mca_config_t\\
+  \hspace*{1em}<- mca_config_default(\&cfg)\\
+  mca_counters_t\\
+  \hspace*{1em}t_ocup[MCA_N_ACC_TOPE + 1]\\
+  mca_info_t · mca_last_event_t\\[2pt]
+  MCA_FIELDS \es{X-macro}\\
+  \hspace*{1em}nombre · registro · bits\\
+  MCA_REGS · MCA_F_* (10 features)
+};
+\draw[usa] (h.east |- tv.north west) ++(0,-1.0) -- ++(0.85,0);
+
+% ================================================================= bus ===
+\node[ctipo=4.6cm, anchor=north] (bus) at (0,-7.3) {
+  \clase{mca_bus}{include/mca_bus.h · src/bus.h · bus.c}
+  \nodepart{two}
+  vt : const mca_bus_vt* · size
+  \nodepart{three}
+  mca_bus_r32(b, off, \&v)\\
+  mca_bus_w32(b, off, v)\\
+  mca_bus_read_words(b, off, n, dst)
+};
+\draw[usa] (h.south) -- (bus.north) node[rol, midway, right] {bus};
+
+% el backend: `base` es el primer miembro, así que un puntero al backend
+% también es un puntero a mca_bus
+\node[ctipo=4.6cm, anchor=north] (dm) at (0,-10.6) {
+  \clase{devmem_bus}{src/devmem.h · el único que toca la PL}
+  \nodepart{two}
+  base : mca_bus\\
+  fd · map · map_len · regs
+  \nodepart{three}
+  dm_r32 · dm_w32 · dm_read_words\\
+  \hspace*{1em}\es{bus_devmem.c: ldr / str de 32 b}\\
+  mca_bus_open_devmem() \es{bus_mmap.c}
+};
+\draw[hereda] (dm.north) -- (bus.south);
+
+\node[modulo=4.2cm, anchor=north] (pl) at (6.6,-10.85) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont la PL}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont /dev/mem · mmap}\\[3pt]
+  0x4070_0000 · slot 7 · 192 KiB\\
+  de a una palabra, sin ráfagas
+};
+\draw[usa] (dm.east |- pl.west) -- (pl.west) node[rol, midway, above] {map};
+
+% ============================================================== leyenda ===
+\leyendac{-8.7,-14.4}{17.0cm}{rojo!30/tipo de C (libmca), white/{módulo o programa que la usa}}
+  {Triángulo hueco: hereda (el struct base va como primer miembro). Flecha
+   punteada: usa. Las funciones devuelven un código; el resultado, por
+   puntero. El backend por callbacks, para las pruebas, no se dibuja.}
+
+\end{tikzpicture}
+\end{document}

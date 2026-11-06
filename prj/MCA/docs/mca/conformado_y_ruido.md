@@ -145,13 +145,14 @@ cruz: el valor de Nicholson.*
 Las mismas siete familias con el **mismo FWHM (2 µs)** y la **misma altura**
 (1920 cuentas, la línea del estudio de apilamiento), muestreadas a 125 MSPS con
 fase `U[0, Ts)` y ruido blanco de σ = 2.8 cuentas, redondeadas y saturadas como
-el ADC. Cada pulso pasa por el segmentador del RTL
-([`segmentar_rapido`](../../software/monte-carlo/pileup.py), modo 0) y la amplitud
-se estima de tres maneras sobre las **mismas muestras**:
+el ADC. Cada pulso pasa por la réplica del MCA2
+([`replica_mca2.py`](../../software/monte-carlo/replica_mca2.py), una ranura, disparo
+por pendiente, y una compuerta que alcance el ápice) y la amplitud se estima de tres
+maneras sobre las **mismas muestras**:
 
 | estimador | qué es |
 |---|---|
-| `pico` | el máximo de la ventana, tal cual lo calcula `mca_pulse_feature.sv` |
+| `pico` | el máximo de la ventana, tal cual lo calcula `mca_slot.sv` |
 | `boxcar` | media móvil de 9 muestras (72 ns) y después el máximo — el conformado digital mínimo |
 | `adaptado` | correlación con la propia plantilla y máximo sobre lags enteros — el filtro adaptado para ruido blanco; su cota es `σ_ADC / √Σ s_n²` |
 
@@ -165,13 +166,13 @@ que la verdad es exactamente 1920.
 ```
   familia      ápice │              pico              │             boxcar             │            adaptado
                  [n] │  sesgo      σ σ_fase  σ_rui FWHM%│  sesgo      σ σ_fase  σ_rui FWHM%│  sesgo      σ σ_fase  σ_rui FWHM%
-  cusp             3 │  -2.35   2.84   1.59   2.82 0.35│ -23.75   0.96   0.20   0.94 0.12│  -0.01   0.21   0.02   0.21 0.03
-  triangular       5 │  -1.45   2.62   1.18   2.73 0.32│ -17.25   0.94   0.14   0.92 0.12│  -0.01   0.21   0.01   0.22 0.03
-  trapezoidal    128 │  +7.23   1.19   0.00   1.19 0.15│  +2.07   0.50   0.00   0.52 0.06│  -0.02   0.20   0.01   0.20 0.02
-  CR-RC⁴          30 │  +3.78   1.68   0.00   1.66 0.21│  -0.26   0.91   0.08   0.88 0.11│  +0.00   0.21   0.02   0.20 0.03
-  CR-RC           29 │  +3.78   1.65   0.00   1.66 0.20│  -0.29   0.86   0.07   0.87 0.11│  -0.01   0.20   0.02   0.20 0.02
-  CR              19 │  +3.06   1.80   0.00   1.79 0.22│  -1.42   0.92   0.08   0.90 0.11│  -0.02   0.21   0.03   0.20 0.03
-  (CR)²-RC        32 │  +3.88   1.61   0.00   1.62 0.20│  -0.13   0.85   0.03   0.87 0.10│  +0.00   0.20   0.02   0.21 0.02
+  cusp             3 │  -2.35   2.84   1.57   2.75 0.35│ -23.75   0.96   0.20   0.94 0.12│  -0.01   0.21   0.02   0.21 0.03
+  triangular       5 │  -1.36   2.61   1.18   2.69 0.32│ -17.22   0.92   0.14   0.95 0.11│  -0.01   0.22   0.01   0.22 0.03
+  trapezoidal    128 │  +7.22   1.20   0.00   1.21 0.15│  +2.07   0.52   0.00   0.50 0.06│  -0.02   0.20   0.01   0.20 0.02
+  CR-RC⁴          30 │  +3.79   1.69   0.00   1.64 0.21│  -0.24   0.89   0.08   0.89 0.11│  -0.01   0.20   0.02   0.20 0.02
+  CR-RC           29 │  +3.77   1.63   0.00   1.65 0.20│  -0.29   0.86   0.07   0.88 0.11│  -0.01   0.20   0.02   0.21 0.02
+  CR              19 │  +3.04   1.76   0.00   1.79 0.22│  -1.46   0.90   0.08   0.91 0.11│  -0.02   0.20   0.03   0.21 0.03
+  (CR)²-RC        32 │  +3.86   1.67   0.00   1.62 0.21│  -0.14   0.87   0.03   0.89 0.11│  -0.01   0.21   0.02   0.21 0.03
 ```
 
 `ápice` es cuántas muestras de la plantilla superan el 99 % del pico. Sesgo y σ
@@ -209,7 +210,7 @@ Lo que dice, columna por columna:
   ADC como espectro de ruido, y como ese espectro es blanco, la respuesta es
   otra.
 
-![el ápice y los tres estimadores](../../software/datos/conformado_20260917_163201/conformado_adc.png)
+![el ápice y los tres estimadores](../../software/datos/conformado_20261104_152621/conformado_adc.png)
 
 *Arriba: ±17 muestras alrededor del ápice de cada familia (curva continua),
 las muestras del ADC para fase 0.5 y, en negro, la muestra que el RTL toma como
@@ -252,13 +253,15 @@ con ápice de pocas muestras miden la fase de muestreo tanto como la amplitud.
 - El experimento A es un modelo de dos ruidos blancos sin término 1/f ni
   déficit balístico; con eso reproduce la figura, así que es el mismo modelo
   que usó Nicholson. No modela el tiempo de colección finito del detector.
-- El experimento B usa el segmentador del RTL para el `pico` (mismo umbral,
-  misma histéresis, mismo recorte a cero), pero `boxcar` y `adaptado` son
+- El experimento B usa la réplica del MCA2 para el `pico`, comparada bit a bit contra
+  el RTL. Con el segmentador del MCA1 la tabla daba lo mismo a menos de 0.1 cuentas:
+  el máximo de la ventana no depende de quién la abre, mientras contenga el ápice.
+  `boxcar` y `adaptado` son
   estimadores hipotéticos calculados sobre la matriz de muestras: no existen en
   el hardware. El `adaptado` busca el máximo sólo sobre lags enteros: su
   sesgo residual por fase (−0.02) es el error de tomar la autocorrelación en
   el entero más cercano, despreciable con pulsos de 250 muestras.
-- La bipolar entra por el segmentador con el lóbulo negativo recortado a cero,
+- La bipolar entra a la réplica con el lóbulo negativo recortado a cero,
   como en la placa; para `boxcar` y `adaptado` se usa la traza sin recortar.
 
 ## Archivos

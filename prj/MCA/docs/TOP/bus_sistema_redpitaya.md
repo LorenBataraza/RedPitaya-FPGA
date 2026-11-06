@@ -796,8 +796,8 @@ transferencias; **no están medidos sobre la implementación correspondiente**.
 
 | Cambio | Tiempo | Qué resuelve | Costo | Riesgo |
 |---|---|---|---|---|
-| **Hoy** (Python, palabra a palabra) | ~55 ms | — | — | — |
-| **Reescribir el lazo en C** | ~2 ms *(est.)* | el 96 % del tiempo actual es intérprete, no bus | ~30 líneas; **no toca RTL ni resíntesis** | nulo |
+| **Hoy** (Python, palabra a palabra) | ~55 ms; **34.3 ms** medido con `bench_impl.py` (2026-10-30, `ref_py`) | — | — | — |
+| **Reescribir el lazo en C** — **hecho: libmca, fase 1** (`software/libmca/`) | **1.88 ms** medido por ctypes, **1.70 ms** en C puro (2026-10-30; ×18 sobre Python) | el 96 % del tiempo actual es intérprete, no bus | la API del MCA entera en C, con binding por ctypes; **no toca RTL ni resíntesis** | nulo: el acceso de dispositivo vive en un fichero que `make -C libmca check-bus` revisa en el binario |
 | **`axi_protocol_converter` delante del slot** | ~2 ms *(est.)* | el convertidor **parte las ráfagas** en accesos sueltos: `memcpy` vuelve a ser legal y **el reinicio desaparece** | block design + resíntesis | bajo |
 | **Esclavo con ráfagas de verdad** | ~65 µs *(est.)* | amortiza fase de dirección y CDC sobre varias palabras | rehacer `axi4_slave.sv` **y** el `sys_bus` (una transacción en vuelo). RTL de upstream, compartido por los 8 slots | alto |
 | **Espectro a DDR por HP** | ~150 µs *(est.)* | saca el bus de registros del camino de datos, como el `event_ring` | un master AXI nuevo en el MCA | medio |
@@ -808,6 +808,8 @@ Dos observaciones:
 
 - **La de mejor relación beneficio/costo no toca el hardware.** Reescribir el
   lazo en C recupera ~×28 sin resintetizar, porque el cuello es el intérprete.
+  Medido sobre libmca dio ×18 (34.3 → 1.88 ms; 0.24 µs por palabra), con el
+  espectro bit a bit igual al de Python.
 - **Sólo la segunda corrige el defecto**; la primera lo evita. Con el convertidor
   de protocolo, ningún programador futuro puede reintroducir el reinicio de §7.3.
   Y no es hipotético: **ya existe en esta placa**. El XADC cuelga de `M_AXI_GP1`

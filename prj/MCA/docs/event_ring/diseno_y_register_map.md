@@ -6,8 +6,8 @@ una cola productor/consumidor de N_SLOTS eventos.
 
 > El detalle interno —señales, las tres FSMs, qué son los créditos y cómo se
 > forman las transferencias AXI— está en
-> [`logica_de_captura_y_axi.md`](logica_de_captura_y_axi.md). La máquina que esto
-> reemplaza está en
+> [`logica_de_captura_y_axi.md`](logica_de_captura_y_axi.md), con los diagramas de
+> funcionamiento y los límites medidos. La máquina que esto reemplaza está en
 > [`../osc/sistema_adquisicion_original.md`](../osc/sistema_adquisicion_original.md).
 
 ## Por qué "ring" y no "arbiter"
@@ -45,6 +45,24 @@ global y los registros. La fuente es
 `sys_bus_cdc`. Captura, writer y registros comparten `adc_clk`: **no hace falta
 CDC ni codificación Gray** entre `WR_SLOT` y `RD_SLOT`.
 
+## Recursos
+
+Síntesis fuera de contexto de `event_ring_top` a 125 MHz, con Vivado 2021.2:
+
+| ventana máxima | `PRE_AW` | `DATA_AW` | LUT | FF | RAMB36 | RAMB18 | bloques de BRAM |
+|---|---|---|---|---|---|---|---|
+| ~500 muestras (antes) | 9 | 12 | 1086 | 1008 | 3 | 2 | 4 |
+| **1024 muestras (hoy)** | **11** | **12** | **1091** | **1012** | **5** | **1** | **5.5** |
+| 1024, con 4 ventanas en el stage | 11 | 13 | 1097 | 1016 | 7 | 1 | 7.5 |
+
+Agrandar la ventana cuesta casi solo memoria: el pre-buffer pasa de 1 RAMB18 a
+2 RAMB36. El camino crítico no cambia. Dejando afuera los caminos de geometría, que
+el bitstream lleva como multiciclo, da +0.393 ns en las tres filas (después de
+síntesis, sin ruteo).
+
+En el bitstream hay que sumar el maestro de HP2, que hoy está atado a cero: unos
+106 LUT y 131 FF.
+
 ## Layout del slot
 
 `SLOT_SZ = 2^SLOT_SHIFT` bytes, escrito siempre completo y en orden creciente de
@@ -54,7 +72,7 @@ dirección (el generador del `axi_wr_fifo` es lineal, sin saltos).
 |---|---|
 | `0x00` | `timestamp[63:0]` — ciclos de `adc_clk` desde el start |
 | `0x08` | `{flags[7:0], n_ch[7:0], n_samp[15:0], seq[31:0]}` |
-| `0x10` | `{event_id[31:0], 15'b0, snapshot[16:0]}` |
+| `0x10` | `{32'b0, 15'b0, snapshot[16:0]}`; `event_id` nunca se implementó: el writer escribe 0 |
 | `0x18` | reservado |
 | `0x20…` | muestras int16, 4 por palabra, canales **intercalados**: `ch0[k], ch1[k], ch0[k+1], …` |
 | … | relleno de ceros |
@@ -164,8 +182,10 @@ cd prj/MCA/sim && make        # 13 TB, todos con RESULT: PASS
 |---|---|
 | `tb_event_window_capture` | alineación pre/post por VALOR (rampa), sof/eof, drop_busy, drop_full, pre=0, ventana impar |
 | `tb_event_stage_fifo` | `s_accept` como promesa, evento ofrecido sólo con EOF, orden, flush |
-| `tb_event_slot_writer` | layout, empaquetado little-endian, footer al final **bajo contrapresión aleatoria**, freno por créditos, `err_slot_ovf` |
+| `tb_event_slot_writer` | layout, empaquetado little-endian, footer al final **bajo contrapresión aleatoria**, freno por créditos, `err_slot_ovf`, una palabra cada 4 ciclos, ventana justa en el slot |
 | `tb_event_ring_top` | punta a punta: wrap del ring, geometría congelada, **absorción de ráfaga + invariante de pérdida**, parada ordenada, contrapresión de AXI |
+| `tb_event_ring_ventana` | la geometría del bitstream: ventanas de 1024 con la rampa entera en memoria, el borde del pre-buffer, 1014 muestras justas en 4 KB |
+| [`tb_ring_sistema`](../../sim/tb_ring_sistema.sv) (en `prj/MCA/sim`) | el ring con scope, multitrigger, CDC del bus y `axi_master`, sin el MCA. Lo maneja `hw_ring_swtrig.py` sin cambios, y comprueba además todos los slots, las muestras y el snapshot. Ver [Prueba del sistema sin placa](#prueba-del-sistema-sin-placa) |
 
 El TB de integración además vuelca la DDR a
 `software/API/tests/datos_ref/ring_dump.hex`, que `test_ring_format.py` decodifica con el
@@ -246,7 +266,7 @@ lógico al mismo tiempo, se pisan. Para producción conviene un nodo propio.
 - [x] **síntesis en Vivado** (`red_pitaya_vivado_Z10_v3_event_ring.tcl`, salida en
       `out/v3_event_ring/`): bitstream + `.bit.bin`. Utilización 43.5/60 tiles de
       BRAM (vs 40 del MCA), LUT 40 %, FF 25 %.
-- [x] **validado en placa** (`hw_ring_swtrig.py`, RESULT: PASS): el invariante
+- [x] **validado en placa en agosto de 2026**, antes de `osc_cfg` (`hw_ring_swtrig.py`, RESULT: PASS): el invariante
       cierra EXACTO con trigger por software, que es la única forma de conocer
       sin ambigüedad cuántos triggers entraron:
 
@@ -258,8 +278,57 @@ lógico al mismo tiempo, se pisan. Para producción conviene un nodo propio.
       Los créditos frenaron al writer justo en `ocupados = N_SLOTS`, y los 46
       eventos perdidos quedaron CONTADOS. Con la BRAM esa pérdida es invisible.
 - [x] `RingSource` en `mca/ring_source.py` + tests offline (10/10)
+- [ ] **sin probar en la placa ni armar en un bitstream:** las ventanas de 1024
+      muestras y el writer acelerado. Solo están verificados en simulación
+      ([`acelerar_writer.md`](acelerar_writer.md)).
+- [x] **`hw_ring_swtrig.py` pasa contra el RTL, sin placa** (`tb_ring_sistema`). Encontró dos
+      errores, ya corregidos: ver [Prueba del sistema sin placa](#prueba-del-sistema-sin-placa).
 - [ ] **timing NO cierra** — y tampoco cerraba antes del ring. Ver abajo.
 - [ ] falta: barrido con arribos Poisson contra la predicción M/M/1/K
+
+### Prueba del sistema sin placa
+
+`tb_ring_sistema` corre `hw_ring_swtrig.py` sin cambios contra el RTL: scope,
+multitrigger, ring, los CDC del bus y `axi_master`, con el slot 7 vacío.
+[`correr_hw_ring_swtrig.py`](../../sim/correr_hw_ring_swtrig.py) solo reemplaza
+`/dev/mem` y `time.sleep`.
+
+```bash
+make -C prj/MCA/sim tb_ring_sistema
+```
+
+**Qué no prueba.** No es el bitstream: no están el PS ni `axi4_slave`, la DDR es un
+modelo, y no hay timing ni contención real con el PS.
+
+**Respaldo del modelo.** Con el ack de los registros como era en agosto, da lo mismo
+que la placa en ese momento: 200/0/0 y 68/0/46.
+
+Esta prueba encontró dos errores, que ya están corregidos en el RTL pero no llegaron a
+ningún bitstream, y dejó una observación abierta.
+
+**1. Una escritura a `TRIG_SW` daba dos triggers.** Desde que `osc_cfg` y `mt_cfg` dan el
+ack a los 5 ciclos, `wen` dura 6 ciclos en vez de 2. Con auto-rearme (`we_keep = 1` y
+holdoff 0), `adc_trg_dis` se limpiaba mientras el pulso seguía arriba y el trigger salía
+otra vez. El segundo caía como `DROP_BUSY`: 200 triggers daban 200 eventos y 200
+`DROP_BUSY`. No afectaba a un single-shot, donde el primer trigger limpia la máscara, ni a
+las fuentes de hardware. **Corrección:** `mt_trig_src.sv` toma `adc_trig_sw_i` por flanco.
+
+**2. La cabecera del slot traía el snapshot del evento anterior.** `event_window_capture`
+toma `snapshot_i` en el flanco del trigger, y el registro de `mt_event_logic` se actualiza
+un ciclo después. Con dos fuentes alternadas, ningún evento decía la suya. Los TB de unidad
+no lo veían porque usan un snapshot fijo. **Corrección:** `trig_snapshot_o` entrega el
+valor nuevo en el ciclo del evento.
+
+`tb_mt_event_logic` cubre los dos casos con el `trigger_shield` real, y falla si se quita
+cualquiera de las dos correcciones. `tb_ring_sistema` da hoy 200/0/0 y 68/0/46, y 11 de 11
+eventos dicen su fuente. También pasa con 150 y con 1250 ciclos entre
+accesos del bus, y con 1000 triggers y la DDR frenada al 25 %.
+
+**Observación abierta: ráfagas que cruzan 4 KB.** Si la DDR acepta el 20 % de los ciclos o
+menos y el FIFO se atrasa, `axi_wr_fifo` emite ráfagas de 16 palabras desde `0x…FF8`, lo que
+AXI prohíbe: 20 de 4911 ráfagas con `READY` al 20 %. Los datos llegan bien en el modelo. El
+módulo es de Red Pitaya y `rp_axi_sm` usa el mismo. Qué hace el puerto HP con esto solo se
+puede saber en la placa.
 
 ### Timing: el ring no es el problema, pero el diseño no cierra
 

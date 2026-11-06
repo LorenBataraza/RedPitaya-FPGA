@@ -44,13 +44,13 @@ osciloscopio original de RedPitaya (umbral, decimación, delay, histéresis,
 filtros, calibración, punteros, BRAM) con lo que añadió este proyecto (máscaras
 OR `0x240/0x244`, shield `0x210`, snapshot `0x218`).
 
-Se partió en `Osciloscope` y `MultiTrigger`. Comparten slot, no identidad: uno es
+Se partió en `Osciloscope` y `MultiTrigger`. Uno es
 hardware heredado y el otro es la contribución del proyecto, y mezclarlos hacía
 imposible saber qué era qué al leer.
 
-`MultiTrigger.open(osc=...)` **reutiliza el mapeo del osciloscopio** en vez de
-abrir otro. Dos mapeos de la misma región de memoria de dispositivo no dan
-problema de coherencia, pero un fd de menos es un fd de menos.
+Después el hardware los separó de verdad: el multitrigger se mudó a su región
+propia (slot 3) y el espejo del slot 1 desapareció, así que `MultiTrigger` tiene su
+propio mapeo. `MultiTrigger.open(osc=...)` sigue aceptando el argumento, y no lo usa.
 
 ### El precio: la secuencia de armado cruza los dos
 

@@ -1,0 +1,134 @@
+% Cómo encuentra el PS un evento: buffer circular contra ring de slots.
+% Fuente: rtl/classic/rp_bram_sm.v y rp_axi_sm.v (un solo wp_trig por armado),
+% software/API/osciloscope_store/sources.py (BramSource),
+% modulos/event_ring/rtl/event_slot_writer.sv y software/API/osciloscope_ring.py.
+%
+% Compilar:   pdflatex ring_vs_buffer.tex
+%             pdftocairo -svg ring_vs_buffer.pdf ring_vs_buffer.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\newcommand{\pulso}[3]{% x0, amplitud, largo: subida vertical y cola exponencial
+  \draw[#3, line width=0.7pt] (#1,0.08) -- (#1,{0.08+#2})
+     plot[domain=0:1.1, samples=14, smooth] ({#1+\x},{0.08+#2*exp(-\x/0.42)});}
+\newcommand{\paso}[3]{% y, número, texto
+  \node[marca, minimum size=3.9mm, font=\tiny\bfseries] at (0.2,#1) {#2};
+  \node[anchor=west, font=\scriptsize, inner sep=0pt, text width=8.6cm, align=left] at (0.5,#1) {#3};}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+% =================================================================== a) buffer
+\begin{scope}
+\node[titulo] at (-0.1,5.3) {\textbf{a) Buffer circular} \quad {\scriptsize hay que averiguar dónde quedó el evento}};
+\node[font=\scriptsize, black!70, anchor=west, inner sep=0pt] at (0,4.72) {BRAM de 8192 muestras. A DDR es igual: más largo, un \texttt{wp\_trig} por armado.};
+
+% la tira: las direcciones del buffer, con la vuelta explícita
+\begin{scope}[yshift=0.75cm]
+\fill[grisr!45] (0,0) rectangle (9.2,1.5);
+\fill[verde!55] (7.9,0) rectangle (9.2,1.5);
+\fill[verde!55] (0,0) rectangle (0.9,1.5);
+\draw[line width=0.6pt] (0,0) rectangle (9.2,1.5);
+\draw[->, black!60, line width=0.5pt, rounded corners=8pt] (9.2,1.3) -- (9.55,1.3) -- (9.55,1.95) -- (-0.35,1.95) -- (-0.35,1.3) -- (0,1.3);
+\node[font=\scriptsize, black!70, fill=white, inner sep=1.5pt] at (4.6,1.95) {la dirección da la vuelta};
+
+% pulsos sin puntero
+\pulso{1.6}{0.9}{black!55}
+\pulso{2.9}{0.6}{black!55}
+\pulso{3.5}{1.15}{black!55}
+\pulso{5.5}{0.75}{black!55}
+\node[font=\scriptsize, black!70, anchor=north, align=center] at (3.7,-0.08) {estos pulsos no tienen puntero:\\ habría que buscarlos en software};
+
+% el evento: cruza el final
+\draw[line width=0.9pt] (8.4,0.08) -- (8.4,1.2) plot[domain=0:0.8, samples=10, smooth] ({8.4+\x},{0.08+1.12*exp(-\x/0.8)});
+\draw[line width=0.9pt] plot[domain=0.8:1.7, samples=10, smooth] ({\x-0.8},{0.08+1.12*exp(-\x/0.8)});
+
+% los punteros
+\draw[->, line width=0.8pt] (8.4,2.55) -- (8.4,1.5);
+\node[font=\scriptsize\ttfamily\bfseries, anchor=south] at (8.4,2.55) {wp\_trig};
+\draw[<->, line width=0.45pt] (7.9,-0.16) -- (8.4,-0.16);
+\node[font=\scriptsize, anchor=north, inner sep=1.5pt] at (8.15,-0.2) {pre};
+\draw[line width=0.45pt] (8.4,-0.16) -- (9.2,-0.16);
+\node[font=\scriptsize, anchor=north, inner sep=1.5pt] at (8.8,-0.2) {post};
+\draw[->, line width=0.45pt] (0,-0.16) -- (0.9,-0.16);
+\node[font=\scriptsize, anchor=north, inner sep=1.5pt] at (0.45,-0.2) {post};
+\node[font=\scriptsize, black!75, anchor=south west, inner sep=1pt] at (0.02,1.52) {la ventana sigue acá};
+\end{scope}
+
+% lo que hace el PS
+\begin{scope}[shift={(0,-1.05)}]
+\node[font=\scriptsize\bfseries, anchor=west, inner sep=0pt] at (0,0) {Lo que hace el PS por cada evento};
+\paso{-0.42}{1}{armar el canal y esperar}
+\paso{-0.84}{2}{polear \texttt{adc\_we = 0}: el hardware disparó y congeló (GP0)}
+\paso{-1.26}{3}{leer \texttt{wp\_trig} (GP0): \textbf{el único puntero, uno por armado}}
+\paso{-1.68}{4}{calcular \texttt{inicio = (wp\_trig $-$ pre) mod N} y resolver la vuelta}
+\paso{-2.10}{5}{leer cada canal desde la BRAM (45.6 µs por canal, GP0)}
+\paso{-2.52}{6}{leer aparte qué fuente disparó (GP0)}
+\paso{-2.94}{7}{re-armar}
+\node[anchor=north west, draw=black!55, rounded corners=2pt, font=\scriptsize, text width=9.0cm, inner sep=4pt, align=left] at (0,-3.25)
+  {\textbf{252.7 µs por evento}, $K = 1$. Mientras el PS lee, la captura está congelada y un trigger
+   que llegue \textbf{no queda en ningún contador}.};
+\end{scope}
+\end{scope}
+
+% ===================================================================== b) ring
+\begin{scope}[shift={(10.6,0)}]
+\node[titulo] at (-0.1,5.3) {\textbf{b) Ring de slots} \quad {\scriptsize cada evento tiene su lugar, y el lugar se calcula}};
+
+% la fila de slots
+\def\slotw{1.62}
+\foreach \i/\etq in {0/$n$,1/$n{+}1$,2/$n{+}2$,3/$n{+}3$,4/$n{+}4$} {
+  \pgfmathsetmacro\xa{\i*(\slotw+0.06)}
+  \fill[naranja!45!black] (\xa,3.25) rectangle ++(0.2,0.55);
+  \fill[verde!55] (\xa+0.2,3.25) rectangle ++(0.72,0.55);
+  \fill[grisr] (\xa+0.92,3.25) rectangle ++(0.56,0.55);
+  \fill[black] (\xa+1.48,3.25) rectangle ++(0.14,0.55);
+  \draw[line width=0.5pt] (\xa,3.25) rectangle ++(\slotw,0.55);
+  \node[font=\scriptsize, anchor=south, inner sep=2pt] at ({\xa+\slotw/2},3.8) {slot \etq};
+}
+\node[font=\scriptsize, black!70, anchor=west, inner sep=0pt] at (0,4.72) {Slots del mismo tamaño: \texttt{dirección = SLOT\_BASE + (seq mod N) $\cdot$ SLOT\_SZ}};
+
+% el zoom de un slot
+\draw[black!45, line width=0.4pt, densely dashed] (1.68,3.25) -- (0,2.55);
+\draw[black!45, line width=0.4pt, densely dashed] (3.30,3.25) -- (9.2,2.55);
+\fill[naranja!45!black!45] (0,1.3) rectangle (2.7,2.2);
+\fill[verde!55] (2.7,1.3) rectangle (6.9,2.2);
+\fill[grisr] (6.9,1.3) rectangle (8.2,2.2);
+\fill[black] (8.2,1.3) rectangle (9.2,2.2);
+\draw[line width=0.6pt] (0,1.3) rectangle (9.2,2.2);
+\draw[line width=0.4pt] (2.7,1.3) -- (2.7,2.2) (6.9,1.3) -- (6.9,2.2) (8.2,1.3) -- (8.2,2.2);
+\node[font=\scriptsize, align=center, text width=2.6cm, inner sep=0pt] at (1.35,1.75) {\textbf{cabecera}\\ \texttt{ts, seq, n\_samp,}\\ \texttt{n\_ch, snapshot}};
+\node[font=\scriptsize, align=center, text width=4.1cm, inner sep=0pt] at (4.8,1.75) {\textbf{la ventana, sin vuelta}\\ \texttt{ch0[0] ch1[0] ch0[1] $\dots$}};
+\node[font=\scriptsize, align=center, inner sep=0pt] at (7.55,1.75) {relleno};
+\node[font=\scriptsize, align=center, text=white, inner sep=0pt] at (8.7,1.75) {\textbf{footer}};
+% offsets
+\node[font=\scriptsize\ttfamily, black!70, anchor=south west, inner sep=2pt] at (0,2.2) {0x00};
+\node[font=\scriptsize\ttfamily, black!70, anchor=south west, inner sep=2pt] at (2.7,2.2) {0x20};
+\node[font=\scriptsize\ttfamily, black!70, anchor=south east, inner sep=2pt] at (9.2,2.2) {SLOT\_SZ$-$8};
+% dónde cae el trigger dentro de la ventana
+\draw[->, line width=0.7pt] (3.75,0.72) -- (3.75,1.3);
+\node[font=\scriptsize, anchor=north, inner sep=1.5pt, align=center] at (3.75,0.72) {el trigger: siempre\\ la muestra \texttt{pre}};
+\node[font=\scriptsize, anchor=north, inner sep=1.5pt, align=left] at (7.1,0.72) {\texttt{\{$\sim$seq, seq\}}: si está,\\ todo lo anterior llegó};
+\draw[->, line width=0.5pt, black!70] (8.7,0.72) -- (8.7,1.3);
+
+% lo que hace el PS
+\begin{scope}[shift={(0,-1.05)}]
+\node[font=\scriptsize\bfseries, anchor=west, inner sep=0pt] at (0,0) {Lo que hace el PS por cada \emph{lote} de eventos};
+\paso{-0.42}{1}{leer \texttt{WR\_SLOT} (GP0): cuántos hay. Una lectura por lote}
+\paso{-0.84}{2}{copiar los slots contiguos de DDR: hasta 64 KB de una vez}
+\paso{-1.26}{3}{por cada slot, validar el footer contra \texttt{seq}}
+\paso{-1.68}{4}{tomar \texttt{ts}, \texttt{snapshot} y las muestras de offsets fijos}
+\paso{-2.10}{5}{publicar \texttt{RD\_SLOT} (GP0): una escritura por lote}
+\node[anchor=north west, draw=black!55, rounded corners=2pt, font=\scriptsize, text width=9.0cm, inner sep=4pt, align=left] at (0,-3.25)
+  {\textbf{2.3 µs por slot} de 512 B, leyendo en lote, sin punteros de muestra ni re-armado: la captura nunca se
+   congela. Lo que se pierde \textbf{queda contado}: \texttt{EV\_CNT + DROP\_BUSY + DROP\_FULL} = triggers.};
+\end{scope}
+\end{scope}
+
+\end{tikzpicture}
+\end{document}

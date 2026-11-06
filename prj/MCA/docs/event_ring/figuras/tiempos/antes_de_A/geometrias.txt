@@ -1,0 +1,6 @@
+pre=8 post=24 shift=8 captura=66 writer=165
+pre=16 post=112 shift=10 captura=258 writer=645
+pre=16 post=240 shift=11 captura=514 writer=1285
+pre=16 post=479 shift=12 captura=992 writer=2499
+pre=16 post=998 shift=12 captura=2030 writer=4573
+pre=32 post=992 shift=13 captura=2050 writer=5125

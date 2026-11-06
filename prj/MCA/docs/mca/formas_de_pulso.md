@@ -110,10 +110,16 @@ allá para preguntar si un evento contiene más de un pulso.
 
 [`pico_vs_carga.py`](../../software/monte-carlo/pico_vs_carga.py) lleva esto al plano donde la
 campaña lo mide: hace un Monte-Carlo de eventos **dobles y triples** con la
-CR-RC⁴ y grafica pico contra carga. La recta de eventos limpios sale con
-pendiente 2.121 µs contra el techo teórico `factor_forma × FWHM = 1.0764 × 2 µs
-= 2.153 µs` (la ventana por histéresis corta la cola), y los apilados abren
-rectas propias de pendiente 1.27× y 1.77×.
+CR-RC⁴ y grafica pico contra carga, con 1 y con 4 ranuras. La compuerta de 384 corta
+mucho de esta forma, que pica en la muestra 210: la recta de eventos limpios sale con
+pendiente 1.51 µs, el 70 % del techo teórico `factor_forma × FWHM = 1.0764 × 2 µs
+= 2.153 µs`, la misma con 1 y con 4 ranuras. Un doble a 150 muestras cae **debajo** de
+la recta (0.81×), porque el pico suma más que la carga que entra en la compuerta, y un
+triple a 120 y 320, con 4 ranuras, cae arriba (1.51×).
+
+En el MCA1 la firma era otra: la ventana por histéresis se estiraba con el segundo
+pulso, así que los limpios llegaban a 2.121 µs y los apilados se iban para arriba, a
+1.27× y 1.77×.
 
 De ahí sale una consecuencia práctica que conviene tener presente: **el corte por
 factor de forma hay que recalibrarlo si se cambia la forma del pulso**. El lugar

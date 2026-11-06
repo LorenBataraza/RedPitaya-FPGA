@@ -5,6 +5,10 @@
 % Fuente: modulos/mca/rtl/mca_top.sv y los submódulos de mca_pulse_feature.
 % Misma paleta y estilo que docs/osc/figuras/panorama_rp_scope_com.tex.
 %
+% Lo que se dibuja como registro (gris, con el triángulo de reloj) es un
+% registro de verdad en el RTL. La base, el bus de features y los contadores
+% también salen de registros; se marca en el rótulo.
+%
 % Compilar:   pdflatex panorama_mca_top.tex
 %             pdftocairo -svg panorama_mca_top.pdf panorama_mca_top.svg
 % Incluir:    \includegraphics[width=\textwidth]{panorama_mca_top.pdf}
@@ -16,10 +20,11 @@
 \usepackage[none]{hyphenat}
 \input{../../figuras/estilo_tikz.tex}
 \tikzset{
-  bloque/.append style = {text width=2.3cm},
+  bloque/.append style = {text width=2.1cm},
   modulo/.style  = {bloque=verde!55},
   dm/.style      = {decision, minimum size=4.8mm, font=\tiny\bfseries},
   banda/.style   = {anchor=west, font=\scriptsize\bfseries, black!60},
+  xbus/.style    = {line width=1.6pt},
 }
 % marca de decisión pegada a la esquina de arriba a la izquierda de un nodo
 \newcommand{\dmark}[2]{\node[dm] at ($(#1.north west)+(0.05,-0.02)$) {#2};}
@@ -28,135 +33,177 @@
 \begin{tikzpicture}[fondo]
 
 % ================================================================ 1 · entrada
-\node[banda] at (-0.55,1.25) {1 · entrada};
-\node[datos, fill=azul!15, line width=0.5pt, text width=2.6cm] (sel) at (1.6,0)
-  {\etq{canal y decimación}{\texttt{cfg\_chan}, \texttt{cfg\_dec}\\ + registro de entrada}};
-\dmark{sel}{D1}
-\node[dm] at ($(sel.north east)+(-0.05,-0.02)$) {D2};
+% Una columna, de arriba hacia abajo: canal, decimación, registro de entrada y
+% línea de retardo.
+\node[banda] at (-0.6,4.25) {1 · entrada};
+\muxdecv{m1}{(4.35,3.7)}{1.5}
+\node[font=\tiny, anchor=north] at ($(m1-in)+(-0.4,-0.03)$) {0};
+\node[font=\tiny, anchor=north] at ($(m1-in)+(0.4,-0.03)$) {1};
+\node[dm] at ($(m1-in)+(-1.05,0.05)$) {D1};
+\draw[ctrl] ($(m1-sel)+(-0.9,0)$) node[left, sen, black] {cfg\_chan} -- (m1-sel);
+
+\node[etapa, text width=1.75cm] (dec) at (4.35,2.25)
+  {\etq{decimación}{\texttt{val}: 1 de cada\\ \texttt{cfg\_dec}}};
+\dmark{dec}{D2}
+\node[registro, minimum width=1.05cm] (rin) at (4.35,0.8) {\texttt{dat\_q}\\ \texttt{val\_q}};
+\node[nodo, anchor=east, align=right] at (rin.west) {registro\\ de entrada};
+\node[modulo, param={verde!55}{verde!20}, text width=1.9cm] (dly) at (4.35,-0.55)
+  {\blk{mca\_delay}{}\nodepart{two}0..127 ciclos};
+\node[nodo, anchor=east, align=right] at (dly.west) {\texttt{cfg\_pre\_dly}:\\ el disparo llega tarde};
+\draw[flujo] (m1-out) -- (dec.north);
+\draw[flujo] (dec.south) -- (rin.north);
+\draw[flujo] (rin.south) -- (dly.north);
 
 % ========================================================= 2 · la ventana
-\node[banda] at (-0.55,-1.15) {2 · la ventana};
+\node[banda] at (-0.6,-1.3) {2 · la ventana};
 
 % --- mca_baseline
-\node[modulo, param={verde!55}{verde!20}] (bas) at (1.6,-2.75)
+\node[modulo, param={verde!55}{verde!20}] (bas) at (1.45,-3.9)
   {\blk{mca\_baseline}{}\nodepart{two}IIR o base fija,\\ congelada en el pulso};
 \dmark{bas}{D3}
 
-% --- mca_window: el núcleo
-\node[etapa] (ape) at (4.6,-2.6) {\etq{apertura}{Schmitt interno\\ o \texttt{trig\_i}}};
-\dmark{ape}{D4}
-\node[etapa] (cie) at (7.7,-2.6) {\etq{cierre}{histéresis o\\ compuertas fijas}};
-\dmark{cie}{D5}
-\node[etapa] (rea) at (4.6,-4.35) {\etq{re-armado}{por nivel o\\ por contador}};
-\dmark{rea}{D6}
-\node[etapa] (acu) at (7.7,-4.35) {\etq{acumuladores}{pico, $Q_\mathrm{tot}$, $Q_\mathrm{cola}$, largo,\\ $t_\mathrm{sub}$ + ventana de amplitud}};
+% --- mca_window: la resta de la base es lo primero, y x va a todo
+\node[circle, draw, line width=0.6pt, fill=white, minimum size=5.5mm, inner sep=0pt,
+      font=\small] (res) at (4.35,-3.9) {$-$};
+\node[registro, minimum width=0.8cm] (xq) at (5.45,-3.9) {\texttt{xc\_q}};
+\node[etapa] (ape) at (6.6,-2.75) {\etq{disparo}{flanco de \texttt{trig\_i}\\ en una muestra válida}};
+\node[etapa] (cie) at (9.35,-2.75) {\etq{asignador}{la ranura libre de\\ menor índice}};
+\dmark{cie}{D8}
+\node[modulo, param={verde!55}{verde!20}, text width=3.7cm,
+      double copy shadow={shadow xshift=2pt, shadow yshift=-2pt}] (acu) at (7.85,-5.05)
+  {\blk{mca\_slot {\normalfont$\times$} 4}{}\nodepart{two}acumuladores (pico, $Q_\mathrm{tot}$,
+   $Q_\mathrm{cola}$, largo, $t_\mathrm{sub}$),\\ ventana de amplitud, marcas de solape,\\ meseta del trapecio};
 \dmark{acu}{D7}
-\node[grupo, fit={(3.2,-1.75) (9.2,-5.15)}] (gw) {};
+\node[modulo, param={verde!55}{verde!20}, text width=1.3cm] (trp) at (4.88,-5.05)
+  {\blk{mca\_trap}{}\nodepart{two}trapecio\\ $k$, $m$, $M$};
+\dmark{trp}{D13}
+\node[etapa] (cas) at (11.4,-5.05) {\etq{casilleros}{\texttt{dt\_*} del tiempo\\ muerto + arribos}};
+\node[grupo, fit={(3.95,-1.95) (12.6,-5.85)}] (gw) {};
 \node[rotulo, anchor=north east] at (gw.north east) {\texttt{mca\_window}};
 
 % --- mca_publish
-\node[etapa] (fifo) at (7.7,-6.35) {\etq{FIFO + árbitro}{\texttt{PUB\_K} lugares,\\ id de ventana}};
-\dmark{fifo}{D8}
-\node[modulo, param={verde!55}{verde!20}] (div) at (4.6,-6.35)
+\node[modulo, param={verde!55}{verde!20}] (div) at (6.1,-7.55)
   {\blk{mca\_div\_restore {\normalfont$\times$} 2}{}
    \nodepart{two}$Q_\mathrm{cola}/Q_\mathrm{tot}$, pico$/Q_\mathrm{tot}$};
-\node[grupo, fit={(3.2,-5.5) (9.2,-7.2)}] (gp) {};
+\node[etapa] (fifo) at (8.75,-7.55) {\etq{cola de cerradas}{en orden de cierre,\\ id de ventana}};
+\node[grupo, fit={(3.95,-6.6) (12.6,-8.4)}] (gp) {};
 \node[rotulo, anchor=south east] at (gp.south east) {\texttt{mca\_publish}};
 
-\node[contenedor, draw=black!55, line width=0.7pt, fit={(0.05,-1.4) (9.55,-7.55)}] (pf) {};
+\node[contenedor, draw=black!55, line width=0.7pt, fit={(-0.3,-1.55) (12.85,-8.75)}] (pf) {};
 \node[rotulo, anchor=south west] at (pf.south west)
   {\texttt{mca\_pulse\_feature}\; (solo cableado)};
 
-% ================================================== 3 · del evento al bin
-\node[banda] at (-0.55,-8.25) {3 · del evento al bin};
-\node[modulo, param={verde!55}{verde!20}] (dis) at (1.6,-10.3)
-  {\blk{mca\_discriminator}{}\nodepart{two}acepta o rechaza\\ por una feature};
-\dmark{dis}{D10}
-\node[etapa] (mux) at (4.6,-10.3) {\etq{mux de eje}{16:1 $\times$ 3\\ (\texttt{cfg\_sel\_*})}};
+% ================================================== 3 · del evento al índice
+\node[banda] at (-0.6,-9.45) {3 · del evento al índice};
+\node[etapa] (mux) at (1.45,-11.35) {\etq{mux de eje}{16:1 $\times$ 3\\ (\texttt{cfg\_sel\_*})}};
 \dmark{mux}{D9}
-\node[modulo, param={verde!55}{verde!20}, double copy shadow={shadow xshift=2pt, shadow yshift=-2pt}] (zoo) at (7.7,-10.3)
+\node[modulo, param={verde!55}{verde!20},
+      double copy shadow={shadow xshift=2pt, shadow yshift=-2pt}] (zoo) at (4.1,-11.35)
   {\blk{mca\_zoom {\normalfont$\times$} 3}{}\nodepart{two}feature $\to$ bin,\\ ventana $2^{-z}$};
 \dmark{zoo}{D11}
+\node[registro, minimum width=1.05cm] (pip) at (6.65,-11.35) {\texttt{bin}\\ \texttt{inc}};
+\node[nodo, anchor=south] at (pip.north) {pipeline};
+\node[grupo, fit={(0.15,-10.45) (7.35,-12.25)}] (gi) {};
+\node[rotulo, anchor=north west] at (gi.south west)
+  {cálculo de índices: un bin por eje, con su \texttt{inc}};
+\node[modulo, param={verde!55}{verde!20}, text width=2.55cm] (dis) at (9.95,-11.35)
+  {\blk{mca\_discriminator}{}\nodepart{two}acepta o rechaza\\ por una feature};
+\dmark{dis}{D10}
 
-% ======================================================= 4 · histogramas
-\node[banda] at (-0.55,-11.75) {4 · histogramas};
-\node[etapa, text width=1.6cm, minimum height=0.8cm] (pip) at (4.6,-12.6) {\etq{registro}{de pipeline}};
-\node[modulo, param={verde!55}{verde!20}] (h1) at (7.7,-12.6)
-  {\blk{mca\_hist}{\prm{AW=H\_AW}}\nodepart{two}espectro 1D\\ (8192 canales)};
-\dmark{h1}{D12}
-\node[modulo, param={verde!55}{verde!20}] (h2) at (7.7,-14.5)
-  {\blk{mca\_hist}{\prm{AW=H2\_AW+PSD\_AW}}\nodepart{two}mapa 2D\\ amplitud $\times$ forma};
+% ======================================================= 4 · el histograma
+\node[banda] at (-0.6,-13.25) {4 · el histograma};
+\node[modulo, param={verde!55}{verde!20}, text width=3.6cm,
+      double copy shadow={shadow xshift=2pt, shadow yshift=-2pt}] (hst) at (6.65,-14.65)
+  {\blk{mca\_hist {\normalfont$\times$} 2}{}\nodepart{two}una BRAM por instancia:\\
+   1D 8192 $\times$ 32 b · 2D $128{\times}64 \times 32$ b};
+\dmark{hst}{D12}
 
 % ========================================= contabilidad, registros y bus
-\node[etapa, text width=2.6cm] (rel) at (12.5,-2.75)
-  {\etq{contabilidad}{relojes: real, vivo, veto,\\ $t_\mathrm{win}$, $t_\mathrm{div}$, $t_\mathrm{rearm}$ (64 b)\\
-   período muerto: cuenta,\\ máximo, extendidos}};
-\node[comp, text width=2.6cm, minimum height=5.2cm] (reg) at (12.5,-10.6)
+\node[etapa, text width=2.6cm] (rel) at (14.75,-4.6)
+  {\etq{contabilidad}{relojes: real, vivo, veto,\\ $t_\mathrm{win}$, $t_\mathrm{div}$ (64 b)\\[2pt]
+   ocupación: $t_\mathrm{ocup}[j]$\\[2pt]
+   período muerto: cuenta,\\ máximo, con arribo}};
+\node[comp, text width=2.6cm, minimum height=5.4cm] (reg) at (14.75,-11.6)
   {\etq{banco de registros}{\texttt{cfg\_*}\\[2pt] contadores 64 b\\ con sombra\\[2pt] mux de lectura\\[2pt] ack de latencia fija}};
-\node[bus, text width=1.8cm] (s7) at (12.5,-15.0) {\texttt{\bfseries sys\_bus}};
+\node[bus, text width=1.8cm] (s7) at (14.75,-15.55) {\texttt{\bfseries sys\_bus}};
 
 % ============================================================ caja mca_top
-\node[contenedor, fit={(-0.65,1.65) (14.25,-15.6)}] (top) {};
-\node[titulo] at (top.north west -| 5.45,0)
+\node[contenedor, fit={(-0.75,4.7) (16.45,-16.2)}] (top) {};
+\node[titulo] at (top.north west -| 7.3,0)
   {\texttt{\bfseries mca\_top}\;\; {\scriptsize\itshape todo en \texttt{adc\_clk}}\\[1pt]
    \prm{DW=14 & H\_AW=13 & H2\_AW=7 & PSD\_AW=6\\
-        AMP\_W=16 & QW=32 & DIV\_W=16 & PUB\_K=2}};
+        AMP\_W=16 & QW=32 & DIV\_W=16 & N\_ACC=4}};
 
 % ============================================================== flechas ====
 % --- entradas (desde rp_scope_mt_com y el multitrigger) ---
-\draw[flujo] (sel.north |- 0,2.6) node[above, sen, align=center]
-  {mca\_dat\_i, mca\_val\_i\\[-1pt]\normalfont\scriptsize 2 canales, 125\,MSPS} -- (sel.north);
-\draw[flujo] (4.2,2.6) node[above, sen] {veto\_i} -- (4.2,0 |- ape.north);
-\draw[flujo] (5.0,2.6) node[above, sen, xshift=4mm] {trig\_i} -- (5.0,0 |- ape.north);
-\draw[flujo] (rel.north |- 0,2.6) node[above, sen] {veto\_i} -- (rel.north);
+\node[sen, align=center, anchor=south] at (4.35,6.5)
+  {mca\_dat\_i, mca\_val\_i\\[-1pt]\normalfont\scriptsize 2 canales, 125\,MSPS};
+\draw[flujo] ($(m1-in)+(-0.4,2.3)$) -- node[nodo, left, pos=0.55] {IN1} ($(m1-in)+(-0.4,0)$);
+\draw[flujo] ($(m1-in)+(0.4,2.3)$) -- node[nodo, right, pos=0.55] {IN2} ($(m1-in)+(0.4,0)$);
+\draw[flujo] (6.2,5.5) node[above left, sen, xshift=3pt] {veto\_i} -- (6.2,0 |- ape.north);
+\draw[flujo] (7.0,5.5) node[above right, sen, xshift=-3pt] {trig\_i} -- (7.0,0 |- ape.north);
+\node[nodo, anchor=west, align=left] at (7.15,5.25) {del multitrigger:\\ el único que abre};
+\draw[flujo] (rel.north |- 0,5.5) node[above, sen] {veto\_i} -- (rel.north);
 
-% --- la ventana ---
-\draw[flujo] (sel.south) -- node[sen, right] {dat\_q} (bas.north);
-\draw[flujo] (bas.east |- ape.west) -- node[sen, above] {base} (ape.west);
-\draw[flujo] (ape.east) -- (cie.west);
-\draw[ctrl]  (rea.north) -- node[sen, right, black] {armed} (ape.south);
-\draw[flujo] (cie.south) -- node[sen, right] {cierre} (acu.north);
-\draw[flujo] (acu.south) -- node[sen, right] {acepta} (fifo.north);
+% --- la muestra retrasada va a la base y a la resta ---
+\draw[flujo] (dly.south) -- node[sen, right, pos=0.3] {dat\_d, val\_d} (res.north);
+\draw[flujo] (4.35,-2.05) -| (bas.north);
+\punto{4.35,-2.05}
+\draw[flujo] (bas.east) -- node[sen, above] {base} node[nodo, below] {registrada} (res.west);
+
+% --- x = dat - base, registrada, a las ranuras ---
+\draw[flujo] (res.east) -- (xq.west);
+\draw[flujo] (xq.east) -- node[nodo, above] {xc} (6.3,-3.9) -- (6.3,0 |- acu.north);
+\draw[flujo] (xq.south) -- node[nodo, right, pos=0.4] {x} (xq.south |- trp.north);
+\draw[flujo] (trp.east) -- (trp.east -| acu.west);
+\draw[flujo] (ape.east) -- node[sen, above] {disparo} (cie.west);
+\draw[flujo] (cie.south) -- node[sen, right] {abre} (cie.south |- acu.north);
+\draw[flujo] (acu.east) -- node[sen, above] {estado} (cas.west);
+\draw[ctrl] (gw.west |- 0,-5.45) -- node[sen, below, black, pos=0.55] {seguir / congelar} (1.45,-5.45) -- (bas.south);
+
+% --- de la ventana a la publicación ---
+\draw[flujo] (acu.south -| fifo.north) -- node[sen, right] {cerradas} (fifo.north);
 \draw[flujo] (fifo.west) -- (div.east);
+\draw[ctrl] (div.north) -- node[sen, black, left, pos=0.5] {libera} (div.north |- acu.south);
 
 % --- bus de features ---
-\coordinate (bj) at (4.6,-8.55);
+\coordinate (bj) at (6.1,-9.85);
 \draw[line width=0.8pt] (div.south) -- (bj);
-\draw[line width=2.2pt] (1.6,-8.55) -- (4.6,-8.55);
+\draw[line width=2.2pt] (1.45,-9.85) -- (9.95,-9.85);
 \punto{bj}
-\draw[flujo] (1.6,-8.55) -- (dis.north);
-\draw[flujo] (4.6,-8.55) -- (mux.north);
-\node[sen, anchor=south west, align=left] at (4.7,-8.55)
-  {ev\_valid, ev\_feat\\[-1pt]\normalfont\scriptsize 16 features $\times$ 16 b};
+\draw[flujo] (1.45,-9.85) -- (mux.north);
+\draw[flujo] (9.95,-9.85) -- (dis.north);
+\node[sen, anchor=south west, align=left] at (6.2,-9.85)
+  {ev\_valid, ev\_feat, ev\_psd\_ok\\[-1pt]\normalfont\scriptsize 16 features $\times$ 16 b, registrado};
 
-% --- del evento al bin, y a los motores ---
-\draw[flujo] (mux.east) -- node[sen, above] {f\_eje} (zoo.west);
-\draw[flujo] (zoo.south) -- ++(0,-0.45) -| node[sen, left, pos=0.75] {bin, x, y} (pip.north);
-\draw[flujo] (dis.south) |- node[sen, below, pos=0.75] {acepta} (pip.west);
-\draw[flujo] (pip.east) -- (h1.west);
-\draw[flujo] ($(pip.east)+(0.35,0)$) |- (h2.west);
+% --- del evento al índice y al histograma ---
+\draw[flujo] (mux.east) -- node[sen, below] {f$\times$3} (zoo.west);
+\draw[flujo] (zoo.east) -- node[sen, above] {bin} (pip.west);
+\draw[flujo] (dis.west) -- node[sen, above] {acepta} (pip.east);
+\draw[flujo] (pip.south) -- node[sen, right, align=left] {addr 1D, addr 2D = \{x, y\}\\[-1pt]
+  inc (1D), inc $\wedge$ psd\_ok (2D)} (hst.north);
 
 % --- contabilidad, contadores y configuración ---
-\draw[flujo] (pf.east |- rel.west) -- node[sen, above] {dt\_*} (rel.west);
+\draw[flujo] (cas.east) -- node[sen, above] {dt\_*} (rel.west |- cas.east);
 \draw[flujo] (rel.south) -- node[sen, right] {tiempos} (reg.north);
-\draw[flujo] (pf.east |- 0,-4.35) -- (10.7,-4.35) |- node[sen, right, pos=0.25] {contadores}
-  ([yshift=2.1cm]reg.west);
-\draw[ctrl] ([yshift=1.5cm]reg.west) -| (10.1,-6.4) -- (pf.east |- 0,-6.4);
-\node[sen, black!80, anchor=west] at (10.15,-7.0) {cfg\_*};
-\draw[flujo] (h1.east) -- node[sen, above] {rd\_data} (h1.east -| reg.west);
-\draw[flujo] (h2.east) -- ++(0.6,0) |- node[sen, above, pos=0.75] {rd\_data} ([yshift=-2.25cm]reg.west);
+\draw[flujo] (pf.east |- 0,-6.3) -- (13.2,-6.3) |- (reg.west |- 0,-9.4);
+\node[sen, anchor=west] at (13.25,-7.4) {contadores};
+\draw[ctrl] (reg.west |- 0,-10.0) -| (12.97,-8.2) -- (pf.east |- 0,-8.2);
+\node[sen, black!80, anchor=east] at (12.9,-9.35) {cfg\_*};
+\draw[flujo] (hst.east) -- node[sen, above, pos=0.6] {rd\_data} (hst.east -| reg.west);
 
 % --- bus del sistema ---
 \draw[<->, line width=0.8pt] (reg.south) -- (s7.north);
-\draw[<->, line width=0.8pt] (s7.east) -- ++(1.4,0) node[right, sen, align=left]
+\draw[<->, line width=0.8pt] (s7.east) -- ++(1.2,0) node[right, sen, align=left]
   {M\_AXI\_GP0\\[-1pt]\normalfont\scriptsize$\leftrightarrow$ ARM};
 
 % ================================================================= leyenda ===
-\leyenda{-0.6,-16.4}{azul!35/acondicionamiento, verde!55/submódulo del MCA,
-  verde!20/lógica dentro del módulo, grisr/registros, rojo!45/bus del sistema}
+\leyenda{-0.6,-16.95}{azul!35/acondicionamiento, verde!55/submódulo del MCA,
+  verde!20/lógica dentro del módulo, grisr/registro, rojo!45/bus del sistema}
   {Nombre en monoespaciada: submódulo con archivo propio; en romana: lógica escrita
-   en el módulo que lo contiene. \textbf{Dn}: decisión configurable por registro;
-   cada una tiene su figura de opciones en \texttt{figuras/decisiones/}. \notaparam}
+   en el módulo que lo contiene. Gris con triángulo: registro del RTL.
+   \textbf{Dn}: decisión configurable por registro; cada una tiene su figura de
+   opciones en \texttt{figuras/decisiones/}. \notaparam}
 
 \end{tikzpicture}
 \end{document}

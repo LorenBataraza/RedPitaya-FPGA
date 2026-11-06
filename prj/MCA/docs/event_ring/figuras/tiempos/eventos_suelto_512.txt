@@ -1,0 +1,14 @@
+5011 trig
+5012 cap 1
+5015 ev 1
+5077 cap 2
+5078 cap 0
+5078 lvl 1
+5079 wrt 1
+5083 wrt 2
+5150 wrt 3
+5194 wrt 4
+5195 wrt 5
+5197 wrt 0
+5197 wr_slot 1
+5198 lvl 0

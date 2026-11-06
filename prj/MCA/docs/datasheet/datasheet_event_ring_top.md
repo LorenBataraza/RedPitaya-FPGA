@@ -18,6 +18,7 @@
 | Parámetros | 8 |
 | Puertos | 22 (12 in / 10 out) |
 | MAGIC | `32'h45564E54` — `"EVNT"` |
+| Parte | `xc7z010clg400-1` |
 
 
 ![Interfaz de event_ring_top](figuras/event_ring_top_interfaz.svg)
@@ -108,7 +109,7 @@ está en [§1.6](#16-transacciones).
 | `DW` | `integer` | `14` |  |
 | `N_CH` | `integer` | `2` |  |
 | `SW` | `integer` | `16` |  |
-| `PRE_AW` | `integer` | `9` | pre-buffer: 512 muestras |
+| `PRE_AW` | `integer` | `11` | pre-buffer: 2048, para ventanas de hasta 1024 |
 | `S_AW` | `integer` | `11` |  |
 | `DATA_AW` | `integer` | `12` | stage: 4096 muestras (~2 RAMB36) |
 | `E` | `integer` | `4` | eventos en vuelo en el stage |
@@ -187,14 +188,35 @@ No hay un mapa de registros para este módulo en `docs/event_ring/`. Si es un es
 ### 1.5 Frecuencia máxima de trabajo
 
 <!-- AUTO:timing -->
-Sin datos de síntesis todavía. Correr:
+**Punto de síntesis** — Vivado out-of-context, `xc7z010clg400-1`.
 
-```bash
-make -C modulos/event_ring/work syn
-make -C modulos/event_ring/work sweep-all
-```
+| Métrica | Valor |
+|---|---|
+| Período de la restricción | 8.00 ns (125.0 MHz) |
+| WNS | -0.463 ns |
+| Camino crítico | 8.463 ns |
+| **Fmax** | **118.2 MHz** |
+| Niveles de lógica | 12 |
 
-y volver a generar esta página.
+
+**Camino crítico**
+
+|  |  |
+|---|---|
+| startpoint | `ring_sz_reg[27]/C` |
+| endpoint | `sys_rdata_reg[4]/D` |
+
+
+**Recursos**
+
+| LUT | FF | BRAM | DSP | CARRY | MUXF |
+|---|---|---|---|---|---|
+| 1290 | 1012 | 6 | 0 | 162 | 0 |
+
+
+`lut` cuenta **primitivas** LUT, no los _Slice LUTs_ del `report_utilization` (dos LUT5 que comparten O5/O6 ocupan un solo sitio).
+
+_Barrido no corrido_: `make -C modulos/event_ring/work sweep-all` y regenerar.
 <!-- /AUTO:timing -->
 
 <!-- A mano: qué hay en el camino crítico y qué se haría para romperlo si
@@ -259,7 +281,7 @@ _Sin figuras de ondas._ Se generan con un script en `docs/event_ring/figuras/ond
 Todo corre en batch y se chequea el `RESULT: PASS` del testbench; las ondas quedan en `work/waves/<tb>.wlf`.
 
 ```bash
-make -C modulos/event_ring/work            # los 4 testbenches
+make -C modulos/event_ring/work            # los 5 testbenches
 make -C modulos/event_ring/work cov        # + cobertura
 make -C modulos/event_ring/work lint
 ```
@@ -268,11 +290,12 @@ make -C modulos/event_ring/work lint
 |---|---|---|---|---|---|
 | [`tb_event_window_capture`](../../modulos/event_ring/sim/tb_event_window_capture.sv) | `event_window_capture` | 7 | 25 | vectores a mano |  |
 | [`tb_event_stage_fifo`](../../modulos/event_ring/sim/tb_event_stage_fifo.sv) | `event_stage_fifo` | — | 26 | vectores a mano |  |
-| [`tb_event_slot_writer`](../../modulos/event_ring/sim/tb_event_slot_writer.sv) | `event_slot_writer` | 9 | 32 | vectores a mano |  |
+| [`tb_event_slot_writer`](../../modulos/event_ring/sim/tb_event_slot_writer.sv) | `event_slot_writer` | 12 | 39 | vectores a mano |  |
 | [`tb_event_ring_top`](../../modulos/event_ring/sim/tb_event_ring_top.sv) | `event_ring_top` | — | 39 | vectores a mano | **sí** |
+| [`tb_event_ring_ventana`](../../modulos/event_ring/sim/tb_event_ring_ventana.sv) | `event_ring_ventana` | 8 | 23 | vectores a mano |  |
 
 
-**122 casos con nombre** en 4 testbenches (16 escenas). La lista completa, caso por caso, está en el plan de verificación.
+**152 casos con nombre** en 5 testbenches (27 escenas). La lista completa, caso por caso, está en el plan de verificación.
 
 **Assertions** — en `sim/sva/`, enganchadas por `bind` (no tocan el RTL sintetizable).
 

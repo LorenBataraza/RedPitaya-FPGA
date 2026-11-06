@@ -16,22 +16,15 @@
      renderiza bien y el chequeo de enlaces del repo lo puede verificar; al
      copiarlos a la pagina se recalculan solos.                           -->
 
-**Qué hace.** Recibe la ventana que [`mca_window`](../datasheet_mca_window.md)
-cerró y aceptó, la guarda en una FIFO de `PUB_K` lugares, corre los dos
-[`mca_div_restore`](../datasheet_mca_div_restore.md) y arma el bus de features:
-16 ranuras de 16 b, todas del mismo pulso. Es la ejecución de la decisión **D8**
-de la [vista general](../../mca/vista_general_mca.md#27-la-publicación--d8-y-mca_div_restore).
+**Qué hace.** Publica los eventos de las ranuras cerradas, **en orden de
+cierre**: guarda una cola de índices de ranura, toma la más vieja, la pasa por los
+dos `mca_div_restore` (forma $Q_\mathrm{cola}/Q_\mathrm{tot}$ y ancho inverso
+pico$/Q_\mathrm{tot}$), arma el bus de features con todas las ranuras del mismo
+evento y libera la ranura. Si la cola está vacía, los divisores arrancan en el
+mismo flanco del cierre: una ranura espera exactamente 18 ciclos por evento.
 
-**Por qué no tiene la entrada `cfg_pub_mode`.** Hace lo mismo en los dos modos:
-toda ventana aceptada entra a la FIFO, y si el publicador está libre los
-divisores arrancan en ese mismo flanco desde los valores vivos (el *arranque
-directo*). La diferencia entre bloqueante y FIFO es solo cuándo puede reabrir la
-ventana, y eso lo decide `mca_window`, que espera en `S_DIV` hasta ver
-`pub_done_o`. Que `pub_done_o` sea combinacional y no la FIFO vacía es lo que
-mantiene `S_DIV` en 17 ciclos exactos y la identidad
-`deadtime_cnt == t_win + t_div` que dejó la Fase 1.
-
-**La frontera de entrada es la más justa del MCA.** `acepta_i` es la WE de los
-LUTRAM de la FIFO sin ninguna LUT de este lado; en el bitstream es el peor
-camino del dominio del ADC (+0.064 ns). Cualquier lógica nueva sobre `acepta_i`
-hay que hacerla del otro lado.
+**Por qué los operandos salen del índice registrado.** La primera versión cargaba
+los operandos en el mismo flanco en que decidía qué ranura atender, y el camino
+cierre → aceptación → prioridad → mux de 32 bits → comparador de 32 bits dio
+−0.734 ns. El divisor engancha los operandos un ciclo después de `div_start`, así
+que salen del índice `cur`, ya registrado: +0.065 ns en la OOC.

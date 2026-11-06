@@ -1,7 +1,7 @@
 # Mapa de registros — `mca_top` (Analizador Multicanal)
 
 **Base:** `0x4070_0000` (slot 7 del bus de sistema) · **Tamaño de mmap:** `0x30000`
-**RTL:** [`prj/MCA/rtl/mine/mca/mca_top.sv`](../../rtl/mine/mca/mca_top.sv)
+**RTL:** [`prj/MCA/modulos/mca/rtl/mca_top.sv`](../../modulos/mca/rtl/mca_top.sv)
 **Driver:** [`prj/MCA/software/API/mca.py`](../../software/API/mca.py)
 **API:** [referencia de `API.mca`](../API/referencia_api.md#1-apimca--analizador-multicanal) — qué función toca cada registro
 **Bitstream:** `mca_red_pitaya.bit` (top `mca_red_pitaya_top`) — **no** el del scope
@@ -13,19 +13,15 @@ El cruce a `clk_fpga_0` lo hace `sys_bus_cdc` por slot, igual que el scope.
 > `err=1`. Por eso el registro `0x000` tiene un valor mágico: permite distinguir
 > "bitstream sin MCA" de "MCA presente" sin adivinar.
 
-> ⚠ **El magic NO distingue este bitstream del anterior**: sigue siendo `"MCA1"`
-> en los dos. Y el decodificador de este módulo **ignora en silencio las
-> escrituras a direcciones no mapeadas** (el `default` devuelve `32'h0` y no
-> levanta `sys_err`), así que contra el bitstream viejo `configure(sel_1d=…,
-> zoom_1d=…, discr=…)` **no falla**: escribe al vacío y el MCA sigue midiendo con
-> lo que tenía. Una campaña entera sale plausible y sin relación con lo pedido.
->
-> Detectarlo requiere **escribir y releer** un registro del bloque nuevo. Lo hace
-> `MCA.tiene_features()` sobre `0x09C`, que es inerte con el discriminador
-> apagado; `MCA.exigir_features()` aborta con el comando de recarga en el
-> mensaje. La verificación completa —eje, los 8 registros escribibles y los 3 de
-> sólo lectura— es `campanas/preparar_placa.py`. Ver
-> [`sesion_placa_deriva.md`](sesion_placa_deriva.md) §0.
+> **El magic distingue el mapa.** Con las ranuras de medición el mapa cambió de
+> propósito (se fueron el Schmitt interno, la histéresis, el re-armado y el modo
+> de publicación) y el magic pasó de `"MCA1"` a **`"MCA2"`**. El software tiene
+> que mirarlo antes de configurar: el decodificador **ignora en silencio las
+> escrituras a direcciones no mapeadas o reservadas** (devuelve `32'h0` y no
+> levanta `sys_err`), así que un software para `"MCA1"` contra este bitstream no
+> falla, escribe al vacío. Para verificar el bloque de features sigue valiendo
+> escribir y releer (`MCA.tiene_features()` sobre `0x09C`; ver
+> [`sesion_placa_deriva.md`](sesion_placa_deriva.md) §0).
 
 ---
 
@@ -33,8 +29,8 @@ El cruce a `clk_fpga_0` lo hace `sys_bus_cdc` por slot, igual que el scope.
 
 | Offset | R/W | Campo | Descripción |
 |---|---|---|---|
-| `0x000` | R | `MAGIC` | `0x4D434131` (`"MCA1"`). Si no coincide, no hay MCA cargado. |
-| `0x004` | R | `CAPS` | bit0 `EN_HIST_H` (espectro 1D), bit1 `EN_HIST_H_PSD` (mapa 2D) |
+| `0x000` | R | `MAGIC` | `0x4D434132` (`"MCA2"`, el mapa de las ranuras). Con `"MCA1"` es el bitstream anterior. |
+| `0x004` | R | `CAPS` | bit0 `EN_HIST_H` (espectro 1D), bit1 `EN_HIST_H_PSD` (mapa 2D), bit2 `N_FORMAS > 0` (conformado trapezoidal, `F_TRAP` y `F_FORMA`) |
 | `0x008` | R | `WIDTHS` | `{PSD_AW[23:16], H2_AW[15:8], H_AW[7:0]}` |
 
 `WIDTHS` existe para que el software **derive** los tamaños de apertura en vez de
@@ -62,11 +58,12 @@ Valores del build por defecto: **`H_AW=13` (8192 canales)**, `H2_AW=7` × `PSD_A
 | | W | 1 | `clear` | — | **Autolimpiante.** Borra histogramas, contadores y relojes |
 | | RW | 8 | `chan_sel` | `0` (IN1) | 0 = IN1, 1 = IN2 |
 | `0x010` | R | 0 | `clear_busy` |   | Barrido de borrado en curso |
-| | R | 1 | `busy` |   | Pulso activo o divisor de PSD ocupado (`st != S_IDLE`) |
+| | R | 1 | `busy` |   | Alguna ranura ocupada (midiendo o esperando publicar) |
 | | R | 2 | `baseline_stale` |   | El seguidor de línea de base lleva demasiado congelado |
 | | R | 3 | `vetoed` |   | Veto externo activo: el `trigger_shield` del multitrigger con `DST_MCA` |
-| | R | 4 | `rearm_pend` |   | En `S_IDLE` pero **sin poder abrir**: el Schmitt no se re-armó |
-| | R | 5 | `puede_abrir` |   | Complemento de los casilleros de tiempo muerto |
+| | R | 4 | — |   | Reservado (era `rearm_pend`; ya no hay re-armado en el MCA) |
+| | R | 5 | `puede_abrir` |   | Hay alguna ranura habilitada libre: el próximo disparo abre |
+| | R | 10:8 | `n_ocup` |   | Ranuras ocupadas ahora |
 | `0x0A8` | R | 0 | `full_1d` |   | Algún bin del espectro llegó al tope. **Pegajoso**: sólo lo limpia `clear` |
 | | R | 1 | `full_2d` |   | Ídem para el mapa 2D |
 
@@ -75,16 +72,10 @@ Valores del build por defecto: **`H_AW=13` (8192 canales)**, `H2_AW=7` × `PSD_A
 > `0x010` (`mca_top.sv`, el `case` de lectura); `0x0A8` sólo trae las dos
 > banderas de histograma lleno. El RTL nunca cambió: era un error del mapa.
 
-**`busy` no es la condición de bloqueo del módulo**, y por eso existen los bits
-4 y 5. El MCA tampoco puede abrir una ventana mientras `armed` siga en 0, y
-`armed` es una condición de **nivel**: la señal tiene que bajar de
-`thr − hyst`. Con `rearm_pend = 1` y `busy = 0` el módulo está muerto y el
-registro histórico `0x078` no lo cuenta. Ver la sección *Tiempo muerto*.
-
-Con `pub_mode = 1` (fase 2) aparece un caso más en que `busy = 0` y el módulo
-igual no puede abrir: la FIFO de publicación llena. Ahí `puede_abrir` también
-baja, pero `rearm_pend` queda en 0 — lo que los distingue es `pub_occ` en
-`0x10C`. Ver *Políticas de ventana*.
+**`busy` no es la condición de bloqueo del módulo**: con varias ranuras pueden
+valer `busy = 1` y `puede_abrir = 1` a la vez (hay ranuras midiendo y alguna
+libre). El módulo está muerto exactamente cuando `puede_abrir = 0`. Ver
+*Relojes*.
 
 El barrido de borrado recorre `2^H_AW` bins: **131 µs** con 16384 canales. Durante
 ese lapso el puerto de lectura sigue vivo (el bus **no** se cuelga), pero los
@@ -96,21 +87,25 @@ eventos que lleguen se descartan y se cuentan en `cnt_dropped`.
 
 | Offset | R/W | Campo | Reset | Descripción |
 |---|---|---|---|---|
-| `0x014` | RW | `cfg_thr` | `100` (API: 200) | Umbral sobre la línea de base, 14 b con signo |
-| `0x018` | RW | `cfg_hyst` | `50` (API: 80) | Histéresis (positiva). Cierra al bajar de `thr − hyst` |
 | `0x01C` | RW | `cfg_baseline` | `0` | Línea de base fija (si `bl_auto = 0`) |
 | `0x020` | RW | `cfg_bl_ctrl` | `0x60` (k=6, base fija; API: k=12) | `{holdoff[31:16], k[7:4], auto[0]}` |
 | `0x024` | R | `baseline_now` |   | Línea de base seguida, para calibrar |
-| `0x028` | RW | `cfg_maxlen` | `1024` | Largo máximo de ventana; al llegar cuenta como apilamiento |
-| `0x02C` | RW | `cfg_tail_dly` | `4` (API: 8) | Muestras desde el pico hasta el inicio de la cola. **≥ 1** |
 | `0x030` | RW | `cfg_amp_min` | `0` | Ventana de aceptación en amplitud |
 | `0x034` | RW | `cfg_amp_max` | `0xFFFF` | |
 | `0x038` | RW | `cfg_amp_src` | `0` (pico) | bit0: 0 = muestra de pico, 1 = integral. `q_shift` en `[12:8]`. **Escribirlo también mueve `cfg_hist_sel`** (compatibilidad: toda la campaña existente sigue andando sin tocarla) |
 | `0x03C` | RW | `cfg_h_shift` | `0` | **DEPRECADO** — lo subsume `cfg_zoom_1d`. Se sigue leyendo y escribiendo, pero **ya no afecta al datapath** |
 | `0x040` | RW | `cfg_h2_shift` | `0` | **DEPRECADO** — lo subsume `cfg_zoom_2dx`, ídem |
 | `0x044` | RW | `cfg_dec` | `1` | Decimación propia del MCA (1 = sin decimar) |
-| `0x048` | RW | `cfg_gate_mode` | `0` | bit0: **0** = ventana por histéresis, **1** = compuertas de largo fijo |
-| `0x04C` | RW | `cfg_gate_len` | `0x0180_0020` (384/32) | `{larga[31:16], corta[15:0]}` en muestras. Sólo con `gate_mode = 1` |
+| `0x04C` | RW | `cfg_gate_len` | `0x0180_0020` (384/32) | `{larga[31:16], corta[15:0]}` en muestras, desde el disparo. La ventana cierra en la larga y la cola arranca en la corta. Cada ranura las **retiene al abrir** |
+| `0x120` | RW | `cfg_n_acc` | `1` | Ranuras habilitadas, 1..`N_ACC` (`0` se toma como 1; más que `N_ACC` satura). Ver *Las ranuras* |
+| `0x124` | RW | `cfg_pre_dly` | `11` | Retardo de la muestra respecto de `trig_i`, en **ciclos** (0..127). Ver *La línea de retardo* |
+| `0x128` | RW | `cfg_trap_km` | `0x0020_0040` (k = 64, m = 32) | `{m[25:16], k[9:0]}` del trapecio, en muestras. **Escribirlo reinicia su estado**. Ver *El conformado trapezoidal* |
+| `0x12C` | RW | `cfg_trap_mq` | `0` | Constante polo-cero `M·16` (20 b: M hasta 65535.94 muestras). **Escribirlo reinicia su estado** |
+| `0x130` | RW | `cfg_trap_med` | `0x8704_0048` | `{ok[31] (R), sh[29:24], lw[18:16], off[15:0]}`: la ventana de 2^lw muestras sobre la meseta, desde `off`, y la escala de `F_TRAP`. `ok` dice si la ventana entra en la compuerta larga |
+| `0x134` | RW | `cfg_n_formas` | `0x8000_0401` | `{umbr_ok[31] (R), N_FORMAS[10:8] (R), n_formas[2:0]}`: cuántas formas del banco se usan (0 = 1, satura en `N_FORMAS`). Ver *El banco de trapecios* |
+| `0x180`+16·f | RW | `FORMA_KM` f | forma 0: el de `0x128`; f > 0: la mitad de la anterior | Como `0x128`, para la forma f; la forma 0 **es** `0x128`. Escribirlo reinicia el estado |
+| `0x184`+16·f | RW | `FORMA_MED` f | ídem | Como `0x130`, para la forma f; la forma 0 **es** `0x130` |
+| `0x188`+16·f | RW | `FORMA_UMBR` f | `0` | `{despues[31:16], antes[15:0]}`: la forma f se elige si `antes ≤ F_DTPREV` y `despues ≤ F_DTNEXT` |
 | `0x090` | RW | `cfg_hist_sel` | `0x200` (PEAK, PEAK, PSD) | `{sel_2dy[11:8], sel_2dx[7:4], sel_1d[3:0]}` — qué feature alimenta cada eje |
 | `0x094` | RW | `cfg_zoom_1d` | `0` | `{k[15:8], z[3:0]}` del eje 1D. `z = 0` = fondo de escala |
 | `0x0B8` | RW | `cfg_zoom_2dx` | `0` | ídem, eje de amplitud del mapa 2D |
@@ -119,6 +114,11 @@ eventos que lleguen se descartan y se cuentan en `cnt_dropped`.
 | `0x09C` | RW | `cfg_discr_min` | `0` | 16 b |
 | `0x0A0` | RW | `cfg_discr_max` | `0xFFFF` | 16 b |
 | `0x0A4` | RW | `cfg_hist_ctrl` | **`0`** (la API escribe `1`: con `0` el histograma deja de contar al llenarse un bin) | bit0 `keep_counter_if_full` |
+
+**Reservados**: `0x014`, `0x018`, `0x028`, `0x02C`, `0x048`, `0x104`, `0x108`
+(eran el umbral, la histéresis, `maxlen`, `tail_dly`, el modo de ventana y las
+políticas de apertura, re-armado y publicación). Se escriben sin efecto y se leen
+en cero; lo fija `tb_mca_top`.
 
 ### El bus de features y el selector de eje
 
@@ -135,12 +135,22 @@ qué ranura alimenta cada eje.
 | 3 | `F_INVW` | `Pico/Q_total` — ancho inverso | **no** (ver abajo) |
 | 4 | `F_LEN` | largo de la ventana, en muestras | no |
 | 5 | `F_TRISE` | muestras del disparo al pico | no |
-| 6–15 | — | reservadas (meseta del trapecio); valen **cero** | — |
+| 6 | `F_DTPREV` | muestras desde el disparo anterior (haya abierto o no); `0xFFFF` = ninguno o saturado | no |
+| 7 | `F_DTNEXT` | muestras hasta el siguiente disparo **dentro** de la ventana; `0xFFFF` = ninguno | no |
+| 8 | `F_SOLAPE` | `{perdido[5], adentro[4], otras[3:0]}`: ranuras abiertas al abrir, si llegó otro disparo adentro y si alguno se perdió | campo de bits |
+| 9 | `F_TRAP` | altura de la meseta del trapecio: el promedio sobre la ventana de `cfg_trap_med`, `>> sh`; **0** si la ventana no se completó | **sí**, con `sh` elegido para eso |
+| 10 | `F_FORMA` | la forma del banco que publicó la ranura (0..3), o `0xFFFF` si ninguna alcanzó: **marcado**, y entonces `F_TRAP` = 0 | no |
+| 11–15 | — | reservadas; valen **cero** | — |
 
 El contrato del bus es *uint16 con fondo de escala `0xFFFF`*, así que las
 features acotadas se **alinean a la izquierda**: extenderlas con cero dejaría la
 fracción en los bits bajos y cada eje necesitaría un corrimiento distinto para
 decir lo mismo.
+
+**Las marcas de solape** (6–8) dicen si lo que midió la ventana estaba montado
+sobre otro pulso. La ranura no lo corrige: el discriminador puede cortar por
+`F_DTPREV`/`F_DTNEXT` (por ejemplo, aceptar solo eventos aislados por más de una
+ventana) o por `F_SOLAPE`, y el software decide si corregir o rechazar.
 
 **Tres no se normalizan, y conviene saberlo**: `F_LEN` y `F_TRISE` son contadores
 sin fondo de escala natural (depende de `cfg_gate_long`); `F_INVW` es una
@@ -196,43 +206,26 @@ fijado por un test. `configure()` levanta `ValueError` si se pide interno con
 > la forma mal — un corte en amplitud disfrazado de corte en forma, que da un
 > resultado espectacular y falso.
 
-### Los dos modos de ventana
+### La ventana: la abre el disparo, la cierra la compuerta
 
-> Las dos metodologías, con diagramas y cronogramas, están en
-> [`ventana_de_medicion.md`](ventana_de_medicion.md).
+La ventana la abre **solo** el trigger externo (`trig_i`, el `trigger_event` del
+multitrigger), por **flanco**, y la cierra la compuerta larga: `gate_larga`
+muestras desde el disparo, pase lo que pase con la señal. La cola arranca en la
+compuerta corta, también desde el disparo. Es el método de comparación de carga
+(Brooks 1959; Knoll cap. 17), y el que mejor resolución dio: medido offline
+sobre 7054 pulsos reales, la integral con compuerta fija da **0.149 %** contra
+0.528 % de la ventana por histéresis y 0.272 % de la muestra de pico.
 
-Con **`cfg_gate_mode = 0`** (default, y el comportamiento histórico) la ventana
-cierra al bajar de `cfg_thr − cfg_hyst`, o al llegar a `cfg_maxlen` — esto último
-cuenta como apilamiento. La cola arranca `cfg_tail_dly` muestras después del pico.
+Ya no hay Schmitt interno, histéresis ni re-armado: no pueden ver un pulso
+montado sobre la cola de otro (la señal nunca baja del umbral entre los dos), y
+esos son los pulsos para los que existen las ranuras. El disparo lo hace el
+multitrigger, con su disparo por pendiente, y su Schmitt es el que re-arma. Ver
+*Cómo configurar el multitrigger para el MCA*.
 
-Con **`cfg_gate_mode = 1`** la ventana cierra a `gate_larga` muestras del
-disparo, pase lo que pase, y la cola arranca en `gate_corta` — las dos medidas
-**desde el disparo**, no desde el pico. Es el método de comparación de carga
-(Brooks 1959; Knoll cap. 17).
-
-**Apilamiento en modo 1:** se marca cuando llega un **segundo pulso dentro de la
-compuerta**, o sea que la señal bajó de `cfg_thr − cfg_hyst` y **volvió a
-cruzar** `cfg_thr` con la ventana todavía abierta.
-
-> La regla obvia —"si al cerrar la señal sigue alta, hay apilamiento"— es
-> **incorrecta**, y se descubrió midiendo en la placa. La cola del *propio*
-> pulso tarda cientos de muestras en bajar del umbral (~700 con un pulso de 2 µs
-> y `thr_lo = 60` cuentas), así que esa regla descartaba el **100 %** de los
-> eventos con cualquier compuerta más corta que la cola — justo el rango útil.
-> Y como el cruce cae en la parte más chata del pulso, el punto se movía
-> cientos de muestras con cualquier deriva de línea de base: el resultado no era
-> ni siquiera reproducible entre corridas.
-
-**`cfg_maxlen` no actúa en el modo 1**: el largo ya está acotado por la
-compuerta, así que dejarlo activo sólo agregaría un modo de falla si alguien
-configurara `maxlen < gate_larga`.
-
-Por qué existe el modo 1: con histéresis el largo de la ventana lo decide dónde
-la cola cruza el umbral, que es la parte más chata del pulso — o sea que lo
-decide el ruido. Medido offline sobre 7054 pulsos reales, la resolución de la
-integral pasa de **0.528 %** (histéresis) a **0.149 %** (compuerta fija), y
-también mejora 1.8× sobre la muestra de pico. Ver
-[`../../software/API/modelo_rtl/`](../../software/API/modelo_rtl/).
+> **Una ventana ocupa su ranura `gate_larga + 1` ciclos midiendo.** La muestra se
+> registra antes de repartirse a las ranuras, así que la ranura elegida queda
+> reservada el ciclo siguiente a la decisión y procesa cada muestra un ciclo
+> después de recibirla. Con la ventana única de antes eran `gate_larga`.
 
 ### El estimador de amplitud (`cfg_amp_src`) es el parámetro más importante
 
@@ -250,12 +243,13 @@ Poder alternar entre los dos sobre el mismo estímulo **es** el experimento que
 mide la contribución de jitter de muestreo (`compare_estimators()` en
 `testbench_mca.py`).
 
-### `cfg_tail_dly` tiene que ser ≥ 1
+### La cola con `gate_corta = 0`
 
-Con `0` la cola integra desde el arranque del pulso y queda `Q_cola == Q_total`,
-que el RTL rechaza y contabiliza en `cnt_rej_psd`. Sin esa guarda el cociente
-daría `2^PSD_AW`, que no entra en `PSD_AW` bits y **envolvería a 0**, mandando el
-evento al extremo *opuesto* del eje de forma.
+Con `gate_corta = 0` la cola integra todo menos la muestra del disparo, así que
+`Q_cola = Q_total` cuando esa muestra cae en la base. El RTL lo rechaza y lo
+cuenta en `cnt_rej_psd` (el evento entra al 1D pero no al 2D): sin esa guarda el
+cociente daría `2^PSD_AW`, que no entra en `PSD_AW` bits y **envolvería a 0**,
+mandando el evento al extremo *opuesto* del eje de forma.
 
 ---
 
@@ -263,12 +257,12 @@ evento al extremo *opuesto* del eje de forma.
 
 | Offset | Campo | Descripción |
 |---|---|---|
-| `0x050` | `cnt_total` | Pulsos cerrados (aceptados + rechazados) |
+| `0x050` | `cnt_total` | Ventanas cerradas (aceptadas + rechazadas) |
 | `0x054` | `cnt_accepted` | Entraron al espectro 1D |
 | `0x058` | `cnt_rej_amp` | Amplitud fuera de `[amp_min, amp_max]` |
 | `0x05C` | `cnt_rej_psd` | `Q_total = 0` o `Q_cola ≥ Q_total`: entran al 1D pero **no** al 2D |
-| `0x060` | `cnt_pileup` | Cerrados por `maxlen`: contaminados, **no** se histogramean |
-| `0x064` | `cnt_dropped` | Perdidos por divisor ocupado, colisión de lectura o borrado |
+| `0x060` | `cnt_pileup` | Ventanas cerradas **con marca de solape** (`F_SOLAPE` distinto de cero). **Sí** se histogramean: el corte lo hace el discriminador |
+| `0x064` | `cnt_dropped` | `cnt_lost_busy` (disparos sin ranura libre con alguna esperando publicar) + colisiones de lectura + borrado |
 | `0x0AC` | `cnt_rej_discr` | Rechazados por el **discriminador** (aparte de `cnt_rej_amp`: son criterios distintos y hay que poder atribuir la pérdida a cada uno) |
 | `0x0B0` | `cnt_full_supp` | Eventos **no contados** por histograma lleno con `keep = 0` |
 
@@ -278,67 +272,58 @@ Todos se ponen a cero con `clear` (`0x00C` bit 1).
 
 | Offset | Campo |
 |---|---|
-| Offset | Campo |
-|---|---|
 | `0x068` / `0x06C` | `realtime` lo / hi |
-| `0x070` / `0x074` | `livetime` lo / hi |
-| `0x078` / `0x07C` | `deadtime` lo / hi — **histórico, subestima** (ver abajo) |
+| `0x070` / `0x074` | `livetime` lo / hi — hay alguna ranura libre |
+| `0x078` / `0x07C` | `deadtime` lo / hi — **ocupación**: alguna ranura ocupada (ver abajo) |
 | `0x0C0` / `0x0C4` | `vetotime` lo / hi |
-| `0x0C8` / `0x0CC` | `t_win` lo / hi — ventana abierta (`S_ACTIVE`) |
-| `0x0D0` / `0x0D4` | `t_div` lo / hi — **bloqueado por la publicación** (ver fase 2) |
-| `0x0D8` / `0x0DC` | `t_rearm` lo / hi — **libre pero sin re-armar** |
+| `0x0C8` / `0x0CC` | `t_win` lo / hi — sin ranura libre, **todas midiendo** |
+| `0x0D0` / `0x0D4` | `t_div` lo / hi — sin ranura libre, **alguna esperando publicar** |
+| `0x0D8` / `0x0DC` | reservado (era `t_rearm`) |
 | `0x0FC` / `0x100` | `t_clear` lo / hi — barrido de borrado del histograma |
+| `0x140 + 8j` / `0x144 + 8j` | `t_ocup[j]` lo / hi — ciclos con **exactamente j** ranuras ocupadas, j = 0..`N_ACC` |
 
 Cuentan ciclos de `adc_clk` mientras `run = 1`. Dividir por 125e6 para segundos.
 
-### El teselado, y por qué `deadtime` no alcanza
+### El teselado
 
 Con `run = 1`, **cada ciclo se atribuye a exactamente un casillero**:
 
 ```
-realtime = vetotime + t_win + t_div + t_rearm + livetime
+realtime = vetotime + t_win + t_div + livetime
 ```
 
 Es una identidad exacta en todo ciclo, y está verificada como assertion del RTL
-(`modulos/mca/sim/sva/mca_top_sva.sv::ap_suma_relojes`), no sólo medida.
+(`modulos/mca/sim/sva/mca_top_sva.sv::ap_suma_relojes`), no sólo medida. El
+tiempo muerto es **no hay ranura libre**, `t_win + t_div`, partido por la causa:
+todas midiendo, o el publicador que no da abasto. El veto va primero: la cola de
+una ventana que termina bajo veto cuenta como vetada, no como muerta.
 
-`deadtime` (`0x078`) es la definición **anterior**: cuenta `busy`, o sea
-`t_win + t_div`. Se conserva **bit-idéntico** para que las campañas ya medidas
-sigan siendo comparables, pero **subestima el bloqueo real**, porque el módulo
-tampoco puede abrir mientras el Schmitt no se re-arme — y eso es `t_rearm`.
+### La ocupación
 
-El tiempo muerto honesto es `t_win + t_div + t_rearm`.
+```
+t_ocup[0] + t_ocup[1] + … + t_ocup[N_ACC] = realtime − vetotime
+```
 
-Cuánto importa, medido sobre la FSM de este mismo RTL con compuerta de 384
-muestras (`docs/mca/figuras/tiempo_muerto/README.md`):
+también en todo ciclo (`ap_suma_ocupacion`). Es la medición **directa** del
+modelo M/D/N/N: con arribos Poisson la fracción de tiempo con j ranuras ocupadas
+sigue la distribución de Erlang, y la de todas ocupadas es la pérdida B(N, ρ).
+Con N = 1 es la columna `K=1` de [`tiempo_muerto.md`](tiempo_muerto.md), con
+pérdida de primer orden en ρ; con N ranuras la pérdida es ~ρ^N/N!.
 
-| tasa | `deadtime`/`realtime` | bloqueo real |
-|---|---|---|
-| 20 kcps | 5.5 % | **11.0 %** |
-| 50 kcps | 11.5 % | **25.6 %** |
-| 126 kcps | 18.1 % | **52.2 %** |
-| 318 kcps | 14.0 % | **85.7 %** |
+`deadtime` (`0x078`) es la **ocupación de alguna ranura**, `realtime − vetotime −
+t_ocup[0]` (`ap_deadtime_es_ocupacion`). Con una ranura coincide con el tiempo
+muerto (`deadtime = t_win + t_div`, `ap_una_ranura`, siempre que `cfg_n_acc` no
+haya cambiado desde el último `clear`). Con varias **no es tiempo muerto**: hay
+ciclos con ranuras midiendo en que el módulo igual puede abrir.
 
-Y lo informado **no es monótono**: pasa por un máximo cerca de 126 kcps y
-después baja, porque a tasa alta casi no se abren ventanas. Un tiempo muerto que
-baja al subir la tasa no corrige nada. En modo histéresis (`gate_mode = 0`)
-`deadtime` sí es honesto, porque la ventana cierra justo cuando la señal baja de
-`thr − hyst` y el bloqueo coincide con `busy`.
+> **Verificar las identidades exige frenar.** Valen ciclo a ciclo en el hardware,
+> pero cada acceso al bus se lleva ~6 ciclos y los contadores avanzan entre uno y
+> otro, así que la suma **leída con `run = 1` no cierra**. Para comprobarla hay
+> que `stop()` primero.
 
-`t_clear` va **aparte del teselado**: durante el barrido de borrado el extractor
-sigue abriendo ventanas y lo que se pierde son los incrementos al histograma,
-que se cuentan como eventos en `cnt_dropped`.
-
-> **Artefacto de arranque.** Tras `clear` o al poner `run = 1`, `armed` vale 0
-> hasta la primera muestra por debajo de `thr − hyst`, así que `t_rearm` suma
-> unos pocos ciclos al principio. Es correcto —el módulo realmente no puede
-> abrir— y es un diagnóstico útil: si `cfg_thr` quedó por debajo de la línea de
-> base, `armed` no se pone nunca y `t_rearm` lee el 100 %.
-
-> **Verificar la identidad exige frenar.** Vale ciclo a ciclo en el hardware,
-> pero cada acceso al bus se lleva ~6 ciclos y los contadores avanzan entre uno
-> y otro, así que la suma **leída con `run = 1` no cierra** (medido en
-> `tb_mca_top`: 651 contra 677). Para comprobarla hay que `stop()` primero.
+`t_clear` va **aparte del teselado**: durante el barrido de borrado las ranuras
+siguen midiendo y lo que se pierde son los incrementos al histograma, que se
+cuentan como eventos en `cnt_dropped`.
 
 ## Distribución del período muerto
 
@@ -346,247 +331,264 @@ que se cuentan como eventos en `cnt_dropped`.
 |---|---|
 | `0x0E0` | `cnt_dead_periods` — cantidad de períodos muertos |
 | `0x0E4` | `max_dead_len` — el más largo, en ciclos |
-| `0x0E8` | `cnt_dead_ext` — períodos **extendidos** |
+| `0x0E8` | `cnt_dead_ext` — períodos **con arribo** adentro |
 
-Un período muerto es un tramo contiguo de ciclos que suman a
-`t_win + t_div + t_rearm`. De ahí sale `E[L] = (t_win+t_div+t_rearm) /
-cnt_dead_periods`, que es lo que **separa paralizable de no paralizable sin
-barrido de tasa**: el modelo no paralizable tiene `L = τ` exacto, sin
-dispersión, y el paralizable predice `E[L]/τ = (e^ρ − 1)/ρ`.
+Un período muerto es un tramo contiguo de ciclos **sin ranura libre**, los mismos
+que suman a `t_win + t_div`. De ahí sale `E[L] = (t_win + t_div) /
+cnt_dead_periods`.
 
-`cnt_dead_ext` cuenta **períodos** extendidos, uno por período como máximo, no
-extensiones. Esa es la diferencia que lo hace útil:
+- **Con una ranura** cada período dura exactamente τ = `gate_larga + 1 + 18`
+  ciclos (la ventana y la publicación): sin dispersión, `max_dead_len = E[L]`.
+- **Con varias**, un período arranca cuando se ocupa la última ranura libre y
+  termina cuando se libera alguna: su largo es variable, y su distribución es la
+  del modelo M/D/N/N.
 
-```
-P(L > τ) = cnt_dead_ext / cnt_dead_periods = 1 − e^(−ρ)
-```
-
-o sea una **medición directa de la fracción apilada** — justo lo que
-`cnt_pileup` no logra (marca 0.00–0.45 % donde el 40–47 % de los eventos tiene
-más de un pulso; ver [`ventana_de_medicion.md`](ventana_de_medicion.md) §3).
-
-Un veto en medio de un bloqueo lo **parte** en dos períodos, porque el criterio
-excluye el veto para que la suma de los largos cierre con los relojes. Con el
-veto apagado —el caso de cualquier caracterización de tiempo muerto— no pasa.
+`cnt_dead_ext` cuenta **períodos** con al menos un disparo adentro, uno por
+período como máximo, no disparos. Cada uno es un pulso que se perdió por falta de
+ranura. Un veto en medio de un bloqueo lo **parte** en dos períodos, porque el
+criterio excluye el veto para que la suma de los largos cierre con los relojes.
 
 ## Atribución de arribos
 
 | Offset | Campo |
 |---|---|
-| `0x0EC` | `cnt_cross` — todos los cruces de `thr` hacia arriba |
-| `0x0B4` | `cnt_open` — ...que abrieron ventana |
-| `0x0F0` | `cnt_lost_rearm` — ...perdidos esperando el re-armado |
-| `0x0F4` | `cnt_lost_active` — ...llegados dentro de la ventana |
-| `0x0F8` | `cnt_lost_veto` — ...llegados bajo veto |
-| `0x114` | `cnt_lost_notrig` — ...libres, pero sin disparo habilitado (fase 2) |
-| `0x110` | `cnt_win` — **ventanas abiertas**, vengan o no de un cruce (fase 2) |
+| `0x0EC` | `cnt_cross` — todos los **disparos** (flancos de `trig_i` en una muestra válida, con `run`) |
+| `0x0B4` | `cnt_open` — ...que abrieron una ranura |
+| `0x0F4` | `cnt_lost_active` — ...sin ranura libre, todas midiendo |
+| `0x064` (parte) | `cnt_lost_busy` — ...sin ranura libre, alguna esperando publicar (sumado en `cnt_dropped`) |
+| `0x0F8` | `cnt_lost_veto` — ...bajo veto |
+| `0x110` | `cnt_win` — ventanas abiertas (igual a `cnt_open`: cada ventana viene de un disparo) |
+| `0x118` | `cnt_trig` — flancos **crudos** de `trig_i`, haya `run` o no |
+| `0x0F0`, `0x114` | reservados (eran `cnt_lost_rearm` y `cnt_lost_notrig`) |
 
-La versión por eventos del teselado, también exacta en todo ciclo y también
-como assertion (`ap_atribucion_arribos`):
+La versión por eventos del teselado, también exacta en todo ciclo y también como
+assertion (`ap_atribucion_arribos`):
 
 ```
-cnt_cross = cnt_open + cnt_lost_rearm + cnt_lost_active + cnt_lost_busy
-            + cnt_lost_veto + cnt_lost_notrig
+cnt_cross = cnt_open + cnt_lost_active + cnt_lost_busy + cnt_lost_veto
 ```
 
-> **`cnt_win` no es `cnt_open`, y la diferencia importa.** `cnt_open` cuenta
-> **cruces de `thr` que abrieron**; `cnt_win` cuenta **ventanas abiertas**. Son
-> lo mismo sólo con la configuración histórica. Con re-armado por contador sobre
-> una señal que se queda arriba de `thr`, o con apertura por trigger externo,
-> hay ventanas que abren **sin** ningún cruce, y entonces `cnt_win > cnt_open`.
-> El que se compara con `cnt_total` (cierres) es `cnt_win`, y eso es lo que fija
-> `ap_win_vs_total`.
+con el mismo orden que los relojes: veto primero, después la causa del bloqueo.
+`cnt_trig` puede superar a `cnt_cross` con decimación: dos flancos que caen entre
+dos muestras válidas son un solo disparo.
 
-`cnt_lost_busy` (dentro de `cnt_dropped`, `0x064`) son los arribos durante
-`S_DIV`. **`cnt_lost_rearm` es el casillero nuevo y el que importa**: son los
-pulsos que antes desaparecían sin quedar en ningún contador, los que llegan
-montados sobre la cola del pulso anterior.
+## Las ranuras
 
-> **`cnt_lost_busy` cambió de definición.** Antes se incrementaba sólo con
-> `armed`, lo que subcontaba: si dentro de `S_DIV` la señal bajaba de `thr` pero
-> no de `thr − hyst` y volvía a subir, ese segundo pulso no quedaba en ninguna
-> parte. Ahora cuenta el flanco de `thr`, igual que el resto de los casilleros.
-> Los dos criterios coinciden en el caso frecuente, así que la diferencia
-> numérica es chica.
+| Offset | R/W | Campo | Reset | Descripción |
+|---|---|---|---|---|
+| `0x120` | RW | `cfg_n_acc` | `1` | Ranuras habilitadas, 1..`N_ACC` |
+| `0x124` | RW | `cfg_pre_dly` | `11` | Retardo de la muestra respecto de `trig_i`, en ciclos |
+| `0x10C` | R | `{last_win_id[31:16], occ_max[15:8], occ[7:0]}` |   | La cola de publicación: ranuras cerradas ahora, su máximo y el id de la última ventana publicada |
+| `0x11C` | R | `N_ACC` |   | Ranuras con que se sintetizó (4 en los tops) |
 
-> **El detector de arribos es un flanco crudo de `thr`, sin histéresis** — tiene
-> que serlo, porque los pulsos que llegan durante el bloqueo por re-armado
-> tienen `armed = 0` por definición. Con `hyst = 0` eso **sobrecuenta** las
-> re-cruzadas por ruido del mismo pulso. Se eligió así porque sobrecontar con
-> `hyst = 0` es visible, y subcontar era silencioso.
+Una **ranura** es un juego entero de acumuladores. Un disparo abre la ranura
+habilitada libre de menor índice; la ranura mide durante la compuerta larga y,
+si la amplitud cae en `[amp_min, amp_max]`, se queda con el resultado hasta que
+el publicador (los dos divisores de forma, 18 ciclos) lo toma. O sea que las
+ranuras **son** la cola de publicación: con `cfg_n_acc = 1` la ranura no puede
+reabrir hasta publicar, que es la publicación bloqueante de antes; con más, un
+disparo que llega con una ventana abierta abre otra.
 
-`vetotime` es el tiempo con el **veto externo** puesto (`veto_i`, que viene del
-`trigger_shield` del multitrigger con `DST_MCA`; ver
-[`register_map_mt.md`](../mt/register_map_mt.md)).
-Es la semántica de una compuerta de MCA: bajo veto no se abren pulsos, el pulso
-en curso termina normal, y el reloj vivo se para. El veto tiene **prioridad
-sobre `busy`**: la cola de un pulso que termina bajo veto cuenta como vetada, no
-como muerta, así que las tres partes siguen sumando el real. El seguidor de
-línea de base **sigue corriendo** bajo veto — a diferencia de `run = 0` — para
-no arrancar desfasado al liberarse. Un pulso que sube con el veto puesto **no**
-se abre al liberarlo a mitad: el Schmitt se desarma y hay que volver por
-debajo de `thr − hyst`; ese pulso no se cuenta en ningún contador, porque
-vetarlo es lo que se pidió.
+Lo que compran: la pérdida de eventos pasa de ser de **primer orden** en la tasa
+(~ρ con una ranura) a ~ρ^N/N!. Lo que cuestan: lo medido sobre otro pulso viene
+**contaminado** (su carga incluye la cola del anterior, y la primera ventana
+incluye la cabeza del segundo). El RTL no lo corrige, lo **marca** en el bus de
+features (`F_DTPREV`, `F_DTNEXT`, `F_SOLAPE`) y cuenta las ventanas marcadas en
+`cnt_pileup`. La corrección es `F_TRAP`: ver *El conformado trapezoidal*.
 
-> **Leer siempre la palabra BAJA primero.** Leer `lo` congela `hi` en un registro
-> sombra del RTL. Al revés la lectura se parte: a 125 MHz el contador avanza
-> entre los dos accesos. `mca_utils._r64()` respeta el orden.
+La **cola** cuenta las ranuras cerradas, incluida la que se está publicando:
+`occ_max = N_ACC` quiere decir que llegó a haber todas esperando. Lo que se
+perdió por eso está en `cnt_lost_busy`. El `last_win_id` ata el evento publicado
+a la ventana que lo produjo: un salto en la secuencia de ids delata un resultado
+perdido.
 
-## Políticas de ventana (fase 2)
+`cfg_n_acc` se puede cambiar en caliente: se usa desde el próximo disparo, y las
+ranuras que quedaron afuera terminan lo que estaban midiendo. La compuerta
+también, porque cada ranura la retiene al abrir. La ventana de amplitud y
+`q_shift`, **no**: se evalúan un ciclo antes del cierre, contra umbrales
+pre-desplazados, y un cambio a mitad de una ventana la evalúa mal. Se cambian con
+todo publicado.
 
-Tres políticas, todas seleccionables por registro y **todas en 0 = comportamiento
-histórico**. Conviven en el mismo bitstream a propósito: comparar dos
-arquitecturas sobre los **mismos** pulsos es lo único que decide entre ellas con
-datos, y es el mismo argumento que ya justificaba `cfg_amp_src`.
+### La línea de retardo
 
-| Offset | Campo | Reset |
-|---|---|---|
-| `0x104` | bits `[1:0]` `trig_src`, bit `[8]` `rearm_mode`, bit `[16]` `pub_mode` | `0` (histórico) |
-| `0x108` | `rearm_dly` — holdoff de re-armado, en **muestras** | `0` |
-| `0x10C` | `{last_win_id[31:16], pub_occ_max[15:8], pub_occ[7:0]}` |   |
-| `0x110` | `cnt_win` — ventanas abiertas |   |
-| `0x114` | `cnt_lost_notrig` — cruces libres sin disparo habilitado |   |
-| `0x118` | `cnt_trig` — flancos de trigger externo recibidos |   |
-| `0x11C` | `PUB_K` — lugares de la FIFO con que se sintetizó |   |
+El trigger del multitrigger llega **tarde** respecto de la muestra que lo causó:
+el disparo por pendiente necesita del orden de L muestras para cruzar su umbral,
+más los registros de `mt_trig_src` y `mt_event_logic`. `cfg_pre_dly` retrasa la
+muestra esa cantidad de ciclos, así la ventana abre en el pie del pulso. Lo que
+hace falta lo mide `sim/tb_mca_mt_latencia.sv`, con `mt_top` y `mca_top`
+conectados como en el top y la misma muestra en los dos:
 
-### `trig_src` — quién abre la ventana
-
-| Valor | Fuente |
-|---|---|
-| 0 | Schmitt interno (`x ≥ thr`), como siempre |
-| 1 | **trigger externo**: el `trigger_event` del multitrigger |
-| 2 | cualquiera de los dos |
-
-El trigger se toma **por flanco y nunca por nivel**. Un trigger por software dura
-~5 ciclos de bus, y por nivel abriría varias ventanas — es el bug que
-[`event_window_capture.sv:58-64`](../../modulos/event_ring/rtl/event_window_capture.sv#L58-L64)
-ya documenta como medido en la placa. Lo fija el test 16c de
-`tb_mca_pulse_feature` (trigger alto 5 muestras → **una** ventana) y el test 9 de
-`tb_mca_top`, que lo prueba atravesando el puerto `trig_i` del top.
-
-> ⚠ **El modo 1 todavía no sirve para espectrometría, y hay que decirlo.** El
-> trigger externo llega con latencia respecto de la muestra que lo causó, así que
-> la ventana arranca unas muestras **tarde** y se pierde el flanco de subida: la
-> integral y el pico salen **truncados**. Para medir energía con apertura externa
-> hace falta la línea de retardo de muestras de la fase 3 (muestreo doble
-> correlacionado). Sin ella, el modo 1 sirve para **coincidencia** y para tener
-> una base de tiempo común con el scope y el `event_ring`, que es su motivo
-> arquitectónico — no para amplitud.
-
-Con `trig_src ≠ 0` aparece `cnt_lost_notrig`: cruces de `thr` que encontraron el
-módulo **libre** y no abrieron porque no vino el trigger. Sin ese casillero la
-invariante de atribución se rompería exactamente al cambiar de fuente, y en
-silencio.
-
-### `rearm_mode` — cómo se re-arma. **Es la palanca del tiempo muerto**
-
-| Valor | Política | Modelo | τ |
+| Disparo por pendiente | Pulso | Latencia pie → `trig_i` | `cfg_pre_dly` |
 |---|---|---|---|
-| 0 | por **nivel**: la señal tiene que bajar de `thr − hyst` | paralizable | 5.9 µs, lo decide la cola |
-| 1 | por **contador**: `rearm_dly` muestras tras el cierre | no paralizable | ventana + `rearm_dly`, determinista |
+| L = 4, G = 2 | subida rápida | 6–7 ciclos | 9 |
+| L = 8, G = 4 | subida rápida | 6–9 ciclos | **11** (el reset) |
+| L = 16, G = 8 | subida rápida | 7–12 ciclos | 14 |
+| L = 4, G = 2 | semi-gaussiana (pico a 1 µs) | 20–34 ciclos | 36 |
+| L = 8, G = 4 | semi-gaussiana | 24–40 ciclos | 42 |
+| L = 16, G = 8 | semi-gaussiana | 31–50 ciclos | 52 |
+| L = 8, G = 4 | el pulso de la campaña (FWHM 2 µs), **medido en placa** | ~14 ciclos | 16 |
 
-Es la única palanca grande. En pérdida de eventos con arribos Poisson:
+La regla es `cfg_pre_dly = latencia_máx − 2 + margen`, donde 2 son los registros
+del camino de la muestra adentro de `mca_top` y el margen (4 en la tabla) son
+muestras de base antes del pie. La latencia **depende de la amplitud**: es el
+*walk* de un disparo por umbral, y por eso el rango. La tabla supone que el
+multitrigger y el MCA toman la muestra del mismo punto de la cadena DSP; si los
+taps son distintos, la diferencia se suma.
 
-| | 20 kcps | 100 kcps |
+### Cómo configurar el multitrigger para el MCA
+
+El MCA necesita un disparo por pulso, sin intervención del software entre uno y
+otro. En el multitrigger ([`register_map_mt.md`](../mt/register_map_mt.md)) eso es:
+
+1. **Modo continuo** (`we_keep` = bit 3 de `0x00` del scope): la máscara sobrevive
+   al disparo.
+2. **Re-armado por el shield**: `SHIELD_CFG` con la fuente y el destino en el
+   canal del MCA (`src[k]`, `dst[8+k]`). Al vencer el holdoff le limpia el disable
+   al canal; con `dur = 0`, enseguida.
+3. **Disparo por pendiente**: `SLOPE_CFG/THR/HYST` del canal y su bit en
+   `OR_MASK` (`slope_p`, bits 17–20). Su Schmitt es el que re-arma de verdad:
+   vuelve a disparar cuando la pendiente baja de `thr − hyst` y sube otra vez, o
+   sea con un pulso montado sobre la cola de otro.
+
+`tb_mca_mt_latencia` arma exactamente esto. El umbral se elige sobre la
+**pendiente**: para un escalón de alto A, `s = L·A`; para una rampa de m cuentas
+por muestra, `s = L·(L+G)·m` ([`trigger_pendiente.md`](../mt/trigger_pendiente.md)).
+
+## El conformado trapezoidal
+
+| Offset | R/W | Campo | Reset | Descripción |
+|---|---|---|---|---|
+| `0x128` | RW | `{m[25:16], k[9:0]}` | k = 64, m = 32 | Subida y meseta, en muestras. `k = 0` se toma como 1 y `k + m` satura en 1023 |
+| `0x12C` | RW | `Mq` | `0` | `M·16`, con M la constante polo-cero en muestras |
+| `0x130` | RW | `{ok[31], sh[29:24], lw[18:16], off[15:0]}` | off = 72, lw = 4, sh = 7 | La ventana sobre la meseta y la escala; `ok` es de solo lectura |
+
+`mca_trap` conforma la muestra relativa a la base, `x = dat − base`, con la forma
+recursiva de Jordanov y Knoll (NIM A 345, 1994):
+
+    d[n] = x[n] − x[n−k] − x[n−l] + x[n−k−l]        l = k + m
+    p[n] = p[n−1] + d[n]
+    s[n] = s[n−1] + 16·p[n] + Mq·d[n]
+
+Un pulso exponencial `A·e^(−n/τ)` sale como un trapecio de subida k, meseta m y
+bajada k, de altura `16·A·k·(1+M)`, si `M = 1/(e^(1/τ) − 1) ≈ τ − 0.5`: el
+término `M·d` cancela el polo de la cola. **La salida vuelve a cero 2k+m
+muestras después del pie, aunque la cola de la entrada dure mucho más.** Con
+`M = 0` el trapecio es el de un impulso, y su altura es el área del pulso.
+
+Cada ranura promedia la salida sobre las muestras `[off, off + 2^lw)` contadas
+desde la que abrió la ventana, y eso es `F_TRAP` (`>> sh`, saturado a 16 bits;
+lo negativo va a 0). La latencia del trapecio (8 muestras) la descuenta el RTL:
+`off` se cuenta como si no la hubiera.
+
+**Qué separa dos pulsos.** El trapecio de un pulso termina 2k+m muestras después
+de su pie, y el promedio de la meseta del siguiente empieza k muestras después
+del suyo. Los dos miden limpio si están separados **`Δt ≥ k + m`**, aunque en la
+entrada el segundo monte sobre la cola del primero. `F_DTPREV` y `F_DTNEXT` dan
+Δt por evento, así que el discriminador puede quedarse solo con los limpios.
+Las condiciones exactas, una por pulso, en
+[`separacion_trapezoidal.md`](separacion_trapezoidal.md).
+`tb_mca_top` lo verifica con pulsos de τ = 50, k = 32 y m = 16:
+
+| | `F_TRAP` | pico |
 |---|---|---|
-| nivel (paralizable, τ = 5.9 µs) | 11.2 % | 45.9 % |
-| contador (no paralizable, τ = 3.2 µs) | **6.0 %** | **24.2 %** |
+| pulso solo, A = 1000 | 6313 (teoría 6312.5) | 1000 |
+| par a Δt = 60: el primero, A = 1000 | **6313** | 1000 |
+| par a Δt = 60: el segundo, A = 600, sobre 30 % de cola | **3787** = 0.6 × 6313 | 901 |
+| par a Δt = 30 < k + m: el primero | contaminado | 1000 |
 
-Medido en RTL con el mismo estímulo (120 muestras que nunca bajan de `thr`,
-compuerta de 10, `tb_mca_pulse_feature` 15a/15b):
+**Cómo elegir los parámetros**, para pulsos de cola τ y subida (tiempo de
+colección) t_c, con la ventana abriendo `j` muestras antes del pie (lo fija
+`cfg_pre_dly`, ver *La línea de retardo*):
 
-| `rearm_mode` | ventanas | ciclos de bloqueo oculto |
-|---|---|---|
-| 0 (nivel) | 1 | 119 |
-| 1 (contador, `rearm_dly = 8`) | 3 | 27 |
+- `Mq = round(16 / (e^(1/τ) − 1))` como punto de partida, **y después se
+  ajusta en el hardware**: la τ que importa es la de la cola que llega al ADC,
+  no la de la fuente. En la placa, con pulsos de 2 µs del Rigol, la cancelación
+  exacta quedó en M = 242.8 (τ efectiva 1.946 µs, −2.7 %); con el M nominal, un
+  pulso a 1 µs de otro medía 1.26 % de menos. El ajuste es un barrido de M
+  mirando que un pulso sobre la cola de otro mida lo mismo que aislado (la etapa
+  `trapecio` de `test_mca2_placa.py` lo hace, separando las dos poblaciones con
+  el discriminador por `F_DTPREV`). La cuantización de 1/16 de muestra es
+  despreciable.
+- `m > t_c`: la meseta va de `j + k + t_c` a `j + k + m`. Si `m ≤ t_c` **no hay
+  meseta** y lo que se promedia es el flanco, que depende de la forma de cada
+  pulso: es un error silencioso, `F_TRAP` da un número y es malo.
+- `off` y `lw` con la ventana adentro de la meseta, con margen a los dos lados:
+  `j + k + t_c < off` y `off + 2^lw < j + k + m`.
+- `off + 8 + 2^lw ≤ gate_larga`, o ninguna ranura completa la ventana y `F_TRAP`
+  sale en **cero**: cae en el canal 0, donde se ve, en vez de un promedio parcial
+  en cualquier lugar del espectro. El bit `ok` de `0x130` lo dice de antemano.
+- `sh = round(log2(16·k·(1+M)/8))` deja una amplitud A en `F_TRAP ≈ 8A`: los 13
+  bits de una amplitud positiva alineados a la izquierda de los 16 del bus.
+- k largo promedia más ruido blanco (σ baja como 1/√k) pero alarga el trapecio y
+  con él la separación mínima k + m: es el compromiso de siempre entre resolución
+  y tasa.
 
-> **La contrapartida está medida y no se puede tapar: el re-armado por contador
-> SOBRE-CUENTA.** Trocea un apilamiento en pedazos del largo de la compuerta y
-> registra cada pedazo como un evento — se ve en el test 15c, donde todos los
-> pedazos salen con `F_LEN` igual a `gate_long`. La mitigación **no** es volver
-> al nivel: es rechazar por **forma**. El ancho inverso (`F_INVW`) rechaza el
-> 99.1 % de los apilados donde `PSD` rechaza el 0 % en modo compuerta (ver
-> [`ventana_de_medicion.md`](ventana_de_medicion.md) §2). Los contadores de la
-> fase 1 son los que permiten verificarlo.
+### El banco de trapecios
 
-El holdoff se carga en los **tres** caminos de cierre —apilado, rechazado por
-amplitud y aceptado—, porque τ es una propiedad de la ventana y no de si el
-evento sirvió. Si sólo se cargara al aceptar, un rechazo por amplitud dejaría el
-contador en cero y el módulo reabriría al instante: τ dejaría de ser
-determinista justo con los pulsos de ruido, que son los más frecuentes.
+![Qué son k, m y la ventana, y cómo se elige la forma](figuras/trapecio/banco_formas.svg)
 
-`rearm_dly` está **en muestras**, igual que `maxlen` y `gate_long`, así que el
-contador avanza con `val_i`. Sin muestras válidas el holdoff no progresa: es
-consistente con el resto de los largos del módulo, pero significa que cortar el
-flujo de muestras deja el módulo en `t_rearm` indefinidamente.
+El MCA corre `N_FORMAS` = 4 trapecios sobre la misma muestra, con el M de
+`0x12C` en común. Cada ranura suma la meseta de todos, y al publicar se elige
+cuál sale en `F_TRAP`: **la primera forma f < `n_formas` con
+`antes[f] ≤ F_DTPREV` y `despues[f] ≤ F_DTNEXT`**, o sea la más larga (la de
+menos ruido) cuya ventana no alcanza al vecino. Si ninguna cumple, el pulso queda
+**marcado**: `F_TRAP` = 0 y `F_FORMA` = `0xFFFF`. El discriminador sobre
+`F_FORMA` en [0, 3] lo saca del espectro, y el histograma 1D de `F_FORMA` (zoom
+3: el bin es el valor) dice cuántas veces se eligió cada forma. Para un espectro
+de `F_TRAP` no hace falta gastar el discriminador: los marcados están en el canal
+0, y basta leerlo sin ese canal.
 
-### `pub_mode` — cómo se publica, y el árbitro
+Con `n_formas` = 1 y los umbrales en cero, que es lo del reset, gana siempre la
+forma 0: es el MCA de un solo trapecio, con los registros de siempre en `0x128`
+y `0x130`.
 
-| Valor | Política |
-|---|---|
-| 0 | **bloqueante**: la ventana no reabre hasta que los divisores terminan (`S_DIV`) |
-| 1 | **FIFO** de `PUB_K` lugares con id de ventana |
+**Para el pulso del Rigol**, con el disparo con polo-cero del multitrigger
+([`../mt/disparo_polo_cero.md`](../mt/disparo_polo_cero.md)), `pre_dly` = 16 y la
+compuerta larga en **112**:
 
-El búfer que congela el resultado mientras corren los divisores ya existía con
-profundidad 1. Llevarlo a `PUB_K` lugares **es** el arbitraje del recurso
-compartido: el divisor es uno solo y la ventana es la que lo pide. Con la FIFO la
-ventana cierra, deja su resultado y reabre, y el publicador consume a su ritmo.
+| forma | k / m | 2^lw | off | antes / después | sh |
+|---|---|---|---|---|---|
+| 0 | 64 / 48 | 16 | 87 | 97 / 96 | 15 |
+| 1 | 32 / 24 | 8 | 47 | 49 / 48 | 14 |
+| 2 | 16 / 12 | 4 | 27 | 26 / 24 | 13 |
+| 3 | 8 / 8 | 2 | 18 | 15 / 13 | 12 |
 
-Medido con dos pulsos separados por menos que los 17 ciclos del divisor
-(`tb_mca_pulse_feature` 17a/17b, mismo estímulo):
+- **off = c + `pre_dly` + 2**, con c el inicio de la ventana contado desde el
+  disparo que da el modelo (69, 29, 9 y 0). Si la meseta cae corrida en la
+  placa, se barre como en la etapa `banco`.
+- **Los umbrales** son las muestras de disparo a disparo que cada forma necesita
+  libres de cada lado para medir con error < 1 %
+  ([`pruebas_banco_trapecios.md`](pruebas_banco_trapecios.md) §2).
+- **La compuerta tiene que cubrir la ventana de la forma 0**: off + 8 + 16 = 111
+  ≤ `gate_larga`. Con 104 esa forma sale siempre incompleta. El bit 31 de cada
+  `FORMA_MED` lo dice, y el bit 31 de `0x134` dice si los `despues` de las formas
+  habilitadas entran en la compuerta (si no, `F_DTNEXT` no ve al vecino).
+- **El mismo sh por k deja la misma ganancia** en las cuatro: 7.79 por cuenta con
+  subida rápida, una sola calibración para el banco.
 
-| `pub_mode` | ventanas | eventos publicados | perdidos |
-|---|---|---|---|
-| 0 (bloqueante) | 1 | 1 | 1 (en `cnt_lost_busy`) |
-| 1 (FIFO, `K=2`) | **2** | **2** | 0 |
+Desde Python, `mca_configure(h, n_acc=4, sel_1d='trapecio',
+**mca_banco_config(mq))` escribe esta tabla y valida el banco junto con la
+compuerta. Cada campo tiene además su get y su set (`mca_set_forma1_k`,
+`mca_set_trap_antes`, `mca_set_n_formas`…), y `mca_get_formas_ok`,
+`mca_get_umbr_ok` y `mca_get_n_formas_max` leen los avisos. Ver
+[`referencia_api.md`](../API/referencia_api.md) §1.2.
 
-Con **un solo juego de acumuladores** la FIFO desacopla la publicación, no las
-ventanas: `K=2` alcanza, y para ventanas realmente solapadas habría que duplicar
-acumuladores, que es otro costo. En el presupuesto de τ esto vale 0.7 pp contra
-los 22 pp de `rearm_mode`: **la FIFO no es la que reduce el tiempo muerto**, es
-la que desacopla la publicación del cierre.
+**Reconfigurar reinicia.** La forma recursiva es un FIR solo si el estado (los
+dos integradores) es consistente con lo que hay en las líneas de retardo. Por eso
+escribir `0x128` o `0x12C`, y el `clear` del MCA, ponen el estado en cero, y hasta
+que cada línea se llena (k, l y k+l muestras) su salida cuenta como cero. Sin
+eso, a `p` le quedaría un escalón permanente y `s`, que lo integra, derivaría sin
+fin. `0x130` no toca el estado: es post-proceso.
 
-> **El desborde de la FIFO ES tiempo muerto, y entra al teselado.** Con la FIFO
-> llena el módulo no puede abrir aunque la FSM de ventana esté en reposo, así que
-> `t_div` (`0x0D0`) recibe esa contrapresión. Si quedara afuera, el tiempo muerto
-> oculto que la fase 1 sacó a la luz se habría **mudado del Schmitt al árbitro**
-> en vez de desaparecer. Lo fija `ap_contrapresion_es_muerta`, y el cover
-> `cp_contrapresion` comprueba que la simulación realmente llena la FIFO.
+**La línea de base importa.** La ganancia del trapecio en continua es `16·k·l`
+(contra `16·k·(1+M)` para un pulso), así que un error de base ε corre `F_TRAP`
+en `l·ε/((1+M)·A)` relativo: 0.04 % por cuenta de error con l = 96, M = 250 y
+A = 1000. La base la sigue `mca_baseline` como para las demás features.
 
-`pub_occ_max` es el dato que dice si `PUB_K` alcanza: si llegó a `PUB_K` hubo
-contrapresión, y lo que se perdió por eso está en `cnt_lost_busy` (dentro de
-`0x064`). El `last_win_id` permite atar el evento publicado a la ventana que lo
-produjo aunque la publicación esté desacoplada del cierre — un salto en la
-secuencia de ids delata un resultado perdido, que de otro modo sería
-indistinguible de un pulso que nunca llegó.
-
-### `deadtime` (`0x078`) miente **más** en modo FIFO
-
-La identidad con el registro histórico depende del modo, y las dos están como
-assertion:
-
-| `pub_mode` | identidad |
-|---|---|
-| 0 | `deadtime = t_win + t_div` (`ap_deadtime_viejo_identidad`) |
-| 1 | `deadtime = t_win` (`ap_deadtime_viejo_fifo`) |
-
-Porque en modo FIFO la contrapresión ocurre con la FSM de ventana en reposo, o
-sea con `busy` **bajo**. La única razón de conservar `0x078` sigue siendo no
-romper los datos ya tomados; el total honesto es siempre
-`t_win + t_div + t_rearm`.
-
-> **Las dos identidades valen sólo si el modo no cambió desde el último
-> `clear`.** Los relojes son acumulativos: mezclar dos modos en una misma cuenta
-> no tiene identidad, sin que haya ningún bug. Las assertions lo expresan con un
-> flag `modo_sucio` en vez de fallar en un caso legítimo — una assertion que
-> grita cuando no hay error se termina desactivando, y entonces ya no protege
-> nada.
-
-Con `pub_mode = 0`, `trig_src = 0` y `rearm_mode = 0` el módulo es
-**bit-idéntico** al de la fase 1, incluido el largo exacto de `S_DIV` (17
-ciclos). Eso no es gratis: el cierre arranca los divisores desde los registros
-vivos cuando el publicador está libre, y `S_DIV` sale con la señal combinacional
-de fin de publicación y no con «FIFO vacía», que llegaría un ciclo tarde.
+Lo verifican `tb_mca_trap` (bit a bit contra `estimadores.trapecio`, el modelo de
+Python, 28 413 muestras en cuatro formas), `tb_mca_multi` (el modelo del
+trapecio dentro del de las ranuras, con `clr` a mitad de ventana) y `tb_mca_top`
+(la tabla de arriba).
 
 ## Último evento (depuración)
 
@@ -607,13 +609,13 @@ Sirve para ajustar umbrales: si `cnt_total` no sube, mirar `baseline_now` y
 | Offset | Contenido | Tamaño |
 |---|---|---|
 | `0x10000` | Espectro 1D de amplitud | `2^H_AW` palabras (64 KB con `H_AW=14`) |
-| `0x20000` | Amplitud × factor de forma | `2^(H2_AW+PSD_AW)` palabras |
+| `0x20000` | Mapa 2D: el par de features que elige `cfg_hist_sel` (por defecto amplitud × forma) | `2^(H2_AW+PSD_AW)` palabras |
 
 Bins **uint32 sin signo**, saturantes (se quedan en `0xFFFFFFFF`, no envuelven).
 A diferencia del buffer del scope, acá **no** hay que extender el signo.
 
 El mapa 2D se lee como un bloque y se hace `reshape(2^H2_AW, 2^PSD_AW)`: filas =
-amplitud, columnas = factor de forma.
+eje X (`sel_2dx`), columnas = eje Y (`sel_2dy`).
 
 Las aperturas decodifican `sys_addr[19:16]`, o sea 64 KB cada una, mientras que
 el histograma ocupa menos: los offsets de más **aliasan** sobre el mismo

@@ -524,7 +524,7 @@ es **muestra de pico** hasta tener pulsos reales que digan otra cosa.
 
 ## 6. Arquitectura RTL
 
-Nueve módulos en [`modulos/mca/rtl/`](../../modulos/mca/rtl/), todos en el
+Once módulos en [`modulos/mca/rtl/`](../../modulos/mca/rtl/), todos en el
 dominio `adc_clk`. El cruce a `clk_fpga_0` lo hace `sys_bus_cdc` por slot, así
 que no hay CDC propio. El recorrido etapa por etapa, con cada decisión
 configurable y su figura de opciones, está en
@@ -533,9 +533,9 @@ módulo.
 
 ![Panorama de mca_top](figuras/panorama_mca_top.svg)
 
-Por bandas: la entrada (canal y decimación), la ventana (`mca_pulse_feature` con
-sus tres submódulos), del evento al bin (discriminador, mux de eje y zoom) y los
-dos `mca_hist`; a la derecha, la contabilidad y el banco de registros. Los
+Por bandas: la entrada (canal, decimación y línea de retardo), la ventana
+(`mca_pulse_feature` con sus submódulos y las cuatro ranuras), del evento al
+índice (discriminador, mux de eje y zoom) y los dos `mca_hist`; a la derecha, la contabilidad y el banco de registros. Los
 círculos **Dn** son las decisiones de la vista general. Los nombres en
 monoespaciada son submódulos con archivo propio; los que van en romana son
 lógica escrita dentro del módulo que los contiene. La fuente es
@@ -566,55 +566,81 @@ Si frenara el ack, el bus se colgaría.
 
 ### `mca_pulse_feature.sv` — segmentador y extractor
 
-Emite **un registro de evento coherente** `{amp, psd}` por pulso. Que salga de
-un único registro es lo que garantiza que el espectro 1D y el mapa 2D cuenten
-exactamente los mismos pulsos.
+Emite **un registro de evento coherente** por pulso. Que salga de un único
+registro es lo que garantiza que el espectro 1D y el mapa 2D cuenten exactamente
+los mismos pulsos.
 
-Es cableado: el trabajo está en tres submódulos, `mca_baseline` (la línea de
-base), `mca_window` (la resta de la base, la apertura, el cierre, el re-armado,
-los acumuladores, la ventana de amplitud y la contabilidad de tiempo muerto) y
-`mca_publish` (la FIFO, el árbitro, los divisores y el bus de features).
+Es cableado: el trabajo está en `mca_baseline` (la línea de base), `mca_window`
+(la resta de la base, el disparo, el asignador de ranuras y la contabilidad de
+tiempo muerto), `N_ACC` instancias de `mca_slot` (una ranura cada una: los
+acumuladores, la ventana de amplitud y las marcas de solape) y `mca_publish` (la
+cola de ranuras cerradas, los divisores y el bus de features). Antes de todo eso,
+en `mca_top`, la línea de retardo `mca_delay`.
+
+**Varias ventanas a la vez.** Hasta esta versión había una sola ventana, la abría
+un Schmitt interno, la cerraba la histéresis o una compuerta, y la FIFO de
+publicación solo sacaba de τ los ciclos de los divisores. Con re-armado por nivel
+y cola larga no sacaba nada: medido en `tb_tm_cronograma` en modo FIFO, esos
+ciclos pasaban a `t_rearm` y los períodos quedaban iguales. Las ranuras son la
+idea que la FIFO no llegaba a cumplir: **cada lugar de la cola es un juego entero
+de acumuladores**, así que un pulso que llega con una ventana abierta se mide en
+otra ranura. El Schmitt se sacó porque no puede ver ese pulso (la señal nunca
+baja del umbral entre los dos); abre solo el disparo por pendiente del
+multitrigger, y la línea de retardo compensa que llega tarde. El porqué de cada
+cosa que se fue está en la vista general, §Decisiones retiradas.
 
 **Dónde van las fronteras lo decidió el timing.** El bitstream se sintetiza con
 `-flatten_hierarchy none`, así que cada puerto es una barrera de optimización, y
-el camino crítico de todo el diseño es `dat → x → umbrales → abrir/cerrar →
-acumuladores`. Las fronteras están donde lo que cruza sale de un registro (la
-base, la ocupación de la FIFO) o entra directo a un pin de primitiva (la WE de la
-FIFO). Medido en la síntesis OOC:
+las fronteras están donde lo que cruza sale de un registro. Medido en la síntesis
+OOC:
 
-- Separar la publicación movió dos decisiones del mapeo: Vivado plegó la apertura
-  dentro del sumador de $Q_\mathrm{tot}$ y armó el CE de $Q_\mathrm{cola}$
-  reusando la LUT del de `len`. `q_tot` pasó de +0.470 a −0.148 ns. Se corrigió
-  con un `keep` sobre las dos sumas y con $Q_\mathrm{cola}$ escrito como valor
-  siguiente, igual que $Q_\mathrm{tot}$: los dos quedan en +0.440. Ni
-  `extract_reset` ni reescribir el `if/else` cambian nada, porque Vivado normaliza
-  las dos formas a la misma red.
-- El re-armado **se probó como módulo propio y volvió**. Abrir consume el armado
-  en el mismo flanco, así que el módulo de afuera necesita el flanco de apertura
-  como puerto; Vivado le arma una LUT dedicada y las cargas internas de la
-  apertura pasan a colgar de ella. Todo el cono perdió 576 ps.
+- La muestra relativa a la base se **registra** (`xc_q`) antes de repartirse a
+  las N ranuras, y lo que el asignador decide para cada muestra viaja registrado
+  con ella. Sin el Schmitt, el camino que fue el crítico de todo el diseño
+  (muestra → umbrales → abrir/cerrar → acumuladores) dejó de existir.
+- Las sumas de cada ranura llevan `keep`: sin el atributo Vivado pliega la
+  apertura dentro del sumador de $Q_\mathrm{tot}$ (pasó de +0.470 a −0.148 ns la
+  primera vez que se separó la publicación).
+- La primera versión del publicador cargaba los operandos del divisor en el
+  mismo flanco en que decidía qué ranura atender: cierre de la ranura
+  (`len ≥ gate_larga`) → aceptación → prioridad → mux de 32 bits → comparador de
+  32 bits → `psd_ok`, trece niveles y **−0.734 ns**. Como el divisor engancha los
+  operandos un ciclo después de `div_start`, ahora salen del índice ya
+  registrado: **+0.065 ns**, con el peor camino en el precálculo de la ventana de
+  amplitud desde la configuración.
 
-El resultado en el bitstream: el dominio del ADC cierra con **+0.064 ns**, contra
-+0.006 ns antes de partir el módulo. Y el comportamiento es bit-idéntico:
-`tb_mca_pulse_feature_eq` compara contra la copia congelada
-[`sim/mca_pulse_feature_ref.v`](../../modulos/mca/sim/mca_pulse_feature_ref.v)
-todas las salidas en todos los ciclos, con estímulo aleatorio que recorre todas
-las combinaciones de modos y `PUB_K` = 1, 2 y 3.
+El costo de cuatro ranuras: la OOC pasó de 3732 a 6273 LUT y de 3153 a 6222 FF.
+En el bitstream el dominio del ADC cierra con **+0.093 ns** (antes +0.064) y el
+diseño ocupa el 65 % de los LUT del xc7z010 (antes ~53 %).
+
+La verificación ya no puede ser de equivalencia de ciclo, porque el
+comportamiento cambió a propósito. Son dos:
+
+- [`tb_mca_multi`](../../modulos/mca/sim/tb_mca_multi.sv) corre cuatro DUT
+  (N = 4, 1, 3 y 2 sin divisores) contra un **modelo** escrito aparte, que
+  evalúa la ventana de amplitud directo sobre los acumuladores y modela el
+  publicador como una cola con temporizador. Compara en cada ciclo los eventos
+  (con su ciclo exacto), todos los contadores y los casilleros. Detecta 12 de 13
+  mutaciones inyectadas; la que no, el tope de `max_q` cuando `(max+1) << s`
+  desborda 32 bits, es equivalente dentro de lo que puede sumar una ventana.
+- [`tb_mca_pulse_feature_evt`](../../modulos/mca/sim/tb_mca_pulse_feature_evt.sv)
+  compara una ranura contra la copia congelada de la ventana única
+  ([`sim/mca_pulse_feature_ref.v`](../../modulos/mca/sim/mca_pulse_feature_ref.v))
+  con disparo externo y compuerta fija: para pulsos aislados la secuencia de
+  eventos publicados es idéntica.
 
 - **Línea de base**: seguidor IIR `bl_acc += x − (bl_acc >> k)` con acumulador
   ancho. Con la forma ingenua `bl += (x−bl)>>k` el incremento se cuantiza a cero
-  cuando `|x−bl| < 2^k` y el seguidor se congela. Se congela durante el pulso
-  **y durante `cfg_bl_holdoff` muestras después**: si se descongelara al cruzar
-  la histéresis hacia abajo, agarraría el undershoot de la cola y arrastraría la
-  base hacia el lado equivocado.
-- **Segmentación**: Schmitt igual que `rp_adc_trig.v`, para que los umbrales del
-  MCA y del scope sean comparables.
+  cuando `|x−bl| < 2^k` y el seguidor se congela. Se congela mientras haya una
+  ventana abierta **y durante `cfg_bl_holdoff` muestras después** de cada cierre:
+  si siguiera apenas cierra la compuerta, agarraría la cola y el undershoot del
+  pulso y arrastraría la base hacia el lado equivocado.
 - **Pico con comparación estricta (`>`)**: en un techo plano con ruido gana la
   *primera* ocurrencia. Con `>=` el instante de pico se correría hasta el final
   de la meseta.
-- **Apilamiento**: si la ventana llega a `cfg_maxlen`, el evento se cuenta en
-  `cnt_pileup` pero **no** se histogramea — su integral y su pico están
-  contaminados por el segundo pulso.
+- **Solape**: una ventana abierta sobre otro pulso se mide igual y se **marca**
+  (`F_DTPREV`, `F_DTNEXT`, `F_SOLAPE`, `cnt_pileup`). El corte lo hace el
+  discriminador; la corrección, el conformado trapezoidal de la fase siguiente.
 - **Cargas**: cada muestra se satura a ≥ 0 antes de acumular. Sin eso, una cola
   con undershoot resta de `Q_total` mientras `Q_cola` sigue sumando, y se llega
   a `Q_cola > Q_total`, que rompe la premisa del divisor.
@@ -639,8 +665,9 @@ Son 16 ciclos y **cero DSP**; el segundo divisor no agrega ni un ciclo.
 
 Latencia **fija** de `Q_W` ciclos incluso en los casos de error: es deliberado,
 hace predecible el tiempo muerto por evento (uno de los parámetros a
-caracterizar). Con el registro de arranque, `S_DIV` dura 17 ciclos en el modo de
-publicación bloqueante.
+caracterizar). En el modo de publicación bloqueante `S_DIV` dura **18 ciclos**:
+uno del registro de arranque, uno de carga, las 16 iteraciones y el de `valid`,
+que es el que la hace salir. Es el `t_div = 18` por evento que mide `tb_mca_top`.
 
 Tres casos borde que rompen si no se tratan, y que el testbench barre
 exhaustivamente (32640 combinaciones, a un ancho reducido):

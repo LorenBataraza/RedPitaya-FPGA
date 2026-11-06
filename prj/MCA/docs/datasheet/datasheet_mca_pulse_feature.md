@@ -15,8 +15,8 @@
 |---|---|
 | Módulo RTL | `mca_pulse_feature` |
 | Archivo | [`mca_pulse_feature.sv`](../../modulos/mca/rtl/mca_pulse_feature.sv) |
-| Parámetros | 12 |
-| Puertos | 59 (27 in / 32 out) |
+| Parámetros | 17 |
+| Puertos | 59 (29 in / 30 out) |
 | Parte | `xc7z010clg400-1` |
 
 
@@ -26,171 +26,70 @@
 
 > mca_pulse_feature — segmentador de pulsos y extractor de características
 >
-> Recibe la muestra ya calibrada/filtrada y, por cada pulso detectado, emite
-> UN registro de evento coherente {amp, psd} que alimenta a todos los motores
-> de histograma. Que salga de un único registro es lo que garantiza que el
-> espectro 1D y el mapa 2D cuenten exactamente los mismos pulsos.
+> Recibe la muestra ya calibrada/filtrada (y retrasada por mca_delay) y, por
+> cada pulso que dispara el multitrigger, emite UN registro de evento coherente
+> que alimenta a todos los motores de histograma. Que salga de un único
+> registro es lo que garantiza que el espectro 1D y el mapa 2D cuenten
+> exactamente los mismos pulsos.
 >
 > PARTICION: este modulo es solo cableado
-> El extractor esta repartido en submodulos, uno por etapa de la vista general
-> (docs/mca/vista_general_mca.md), de modo que cada decision Dn vive en un solo
-> bloque:
->
 >   mca_baseline la linea de base: seguidor IIR o base fija (D3)
->   mca_window   el nucleo: la muestra relativa a la base, quien abre (D4),
->                quien cierra (D5), el re-armado (D6), los acumuladores, la
->                ventana de amplitud (D7) y la contabilidad del tiempo muerto
->   mca_publish  la FIFO, el arbitro, los dos mca_div_restore y el armado del
->                bus de features (D8)
+>   mca_window   el nucleo: la muestra relativa a la base, el disparo, el
+>                asignador de ranuras, las N_ACC ranuras (mca_slot) con sus
+>                acumuladores y la ventana de amplitud (D7), el conformado
+>                trapezoidal (mca_trap) y la contabilidad del tiempo muerto
+>   mca_publish  la cola de ranuras cerradas, los dos mca_div_restore y el
+>                armado del bus de features
 >
-> Los puertos y los parametros son los mismos que cuando era un solo modulo,
-> asi que mca_top, los testbenches y las assertions no se enteraron. Y el
-> comportamiento es BIT-IDENTICO: lo verifica tb_mca_pulse_feature_eq contra
-> la copia congelada sim/mca_pulse_feature_ref.v, en todas las salidas y en
-> todos los ciclos.
+> DONDE VAN LAS FRONTERAS lo decide el timing: el bitstream se sintetiza con
+> -flatten_hierarchy none, asi que cada puerto es una barrera de optimizacion.
+> Todo lo que cruza sale de un registro: la base (de mca_baseline), la muestra
+> saturada (xc_q, adentro de mca_window, antes de repartirse a las ranuras) y
+> los resultados de las ranuras.
 >
-> DONDE VAN LAS FRONTERAS lo decide el timing, no la prolijidad. El bitstream
-> se sintetiza con -flatten_hierarchy none, asi que cada puerto es una barrera
-> de optimizacion, y el camino critico (dat -> umbrales -> abrir/cerrar ->
-> acumuladores) cerro con 6 ps. Las fronteras estan donde lo que cruza sale de
-> un registro o entra directo a un pin de primitiva; por eso segmentacion y
-> acumuladores comparten modulo.
+> VARIAS VENTANAS A LA VEZ
+> La ventana la abre SOLO el trigger externo (el multitrigger, con su disparo
+> por pendiente): el Schmitt interno se saco porque no ve un pulso montado
+> sobre la cola de otro. Con eso dejaron de existir quien abre (D4), quien
+> cierra (D5: siempre compuerta fija), el re-armado (D6: lo hace el
+> multitrigger) y el modo de publicacion (D8: lo reemplaza cfg_n_acc).
 >
-> EL RE-ARMADO SE PROBO AFUERA y volvio. `armed` sale de un registro, pero abrir
-> lo consume en el mismo flanco (y le gana al re-armado por nivel), asi que el
-> modulo de afuera necesita el flanco de apertura como puerto. Con
-> -flatten_hierarchy none Vivado arma una LUT dedicada a ese puerto y las cargas
-> internas de la apertura pasan a colgar de ella: medido en la OOC, q_tot y
-> q_tail cayeron a -0.131 ns y t_peak, d_min/d_max, win_id y gate_2nd perdieron
-> 576 ps cada uno. No hay forma de no exportar ese flanco sin cambiar el
-> comportamiento.
+> cfg_n_acc elige cuantas ranuras se usan, de 1 a N_ACC. Con 1, una ranura que
+> cierra espera a los divisores antes de poder reabrir: es la publicacion
+> bloqueante de antes. Con mas, un disparo que llega con una ventana abierta
+> abre otra, y la perdida de eventos pasa de ser de primer orden en la tasa a
+> ~rho^N/N! (modelo M/D/N/N). Lo que se mide sobre otro pulso viene
+> contaminado: se MARCA en el bus de features (F_DTPREV, F_DTNEXT, F_SOLAPE) y
+> lo deciden el discriminador o el software.
 >
-> FASE 2: las tres politicas, todas seleccionables por registro
-> Las tres conviven en el MISMO bitstream y arrancan en el comportamiento
-> historico, porque comparar dos politicas sobre los mismos pulsos es lo unico
-> que decide entre ellas con datos (es el mismo argumento de cfg_amp_src).
+> La CORRECCION es el conformado trapezoidal (mca_trap, D13): cancela el polo
+> de la cola, asi que cada pulso sale como un trapecio que vuelve a cero en
+> 2k+m muestras, y cada ranura promedia su meseta en F_TRAP. Dos pulsos
+> separados k+m o mas miden limpio aunque se pisen en la entrada; F_DTPREV y
+> F_DTNEXT dicen cuales son.
 >
-> (1) QUIEN ABRE: cfg_trig_src. 0 = el Schmitt interno (como siempre),
->     1 = un TRIGGER EXTERNO (el trigger_event del multitrigger), 2 = cualquiera
->     de los dos. Detalle, y la advertencia de que el modo 1 no sirve para
->     espectrometria sin linea de retardo, en la cabecera de mca_window.
->
-> (2) COMO SE RE-ARMA: cfg_rearm_mode. 0 = por NIVEL (la senal tiene que bajar
->     de thr_lo), 1 = por CONTADOR (cfg_rearm_dly muestras despues del cierre,
->     pase lo que pase con la senal).
->
->     ESTA ES LA PALANCA DEL TIEMPO MUERTO, y es la unica grande. Con re-armado
->     por nivel el modulo es PARALIZABLE: cada pulso que monta sobre la cola del
->     anterior extiende el bloqueo, y tau = 5.9 us. Con re-armado por contador es
->     NO PARALIZABLE y tau = 3.2 us determinista. En perdida de eventos con
->     arribos Poisson: 45.9 % -> 24.2 % a 100 kcps. El doble buffer de (3), en
->     comparacion, vale 0.7 pp.
->
->     Su contrapartida tambien esta medida y es seria: el re-armado por contador
->     SOBRE-CUENTA, porque trocea un apilamiento en pedazos del largo de la
->     compuerta y registra cada pedazo como un evento. La mitigacion no es volver
->     al nivel, es rechazar por FORMA (F_INVW / F_LEN): el ancho inverso rechaza
->     el 99.1 % de los apilados donde PSD rechaza el 0 % en modo compuerta. Los
->     contadores de la Fase 1 son los que permiten verificarlo.
->
-> (3) COMO SE PUBLICA: cfg_pub_mode. 0 = BLOQUEANTE (la ventana no puede reabrir
->     hasta que los divisores terminan: st se queda en S_DIV, como siempre),
->     1 = FIFO de PUB_K lugares con id de ventana.
->
->     Lo que compra la FIFO es que la ventana cierre y REABRA sin esperar la
->     publicacion. Con UN solo juego de acumuladores desacopla la publicacion,
->     no las ventanas: K=2 alcanza, y para ventanas realmente solapadas habria
->     que duplicar acumuladores, que es otro costo.
->
->     Y EL DESBORDE DE LA FIFO ES TIEMPO MUERTO: sale en dt_pub_o y entra al
->     teselado como un casillero propio. Si no se contara, el tiempo muerto
->     oculto que la Fase 1 saco a la luz se habria mudado del Schmitt al arbitro
->     en vez de desaparecer.
->
-> COMPATIBILIDAD. Con los tres registros en 0 el modulo es BIT-IDENTICO al de la
-> Fase 1, incluido el largo exacto de S_DIV: por eso el cierre arranca los
-> divisores desde los registros vivos cuando el publicador esta libre (ver
-> `arranque_directo`) y S_DIV sale con `pub_done` y no con la FIFO vacia. Un
-> ciclo de diferencia ahi no cambiaria nada fisico, pero romperia la identidad
-> deadtime_cnt == t_win + t_div que la Fase 1 dejo como assertion.
+> Con el BANCO (N_FORMAS trapecios, de la forma mas larga a la mas corta) cada
+> ranura suma la meseta de todas, y al publicar se elige la mas larga que el
+> vecino permite, por dt_prev y dt_next contra los umbrales de cada forma; la
+> elegida sale en F_FORMA. Ver mca_publish y docs/mca/pruebas_banco_trapecios.md.
 <!-- /AUTO:resumen -->
 
 <!-- AUTO:prosa -->
 <!-- Prosa a mano: se edita en prosa/mca_pulse_feature.md, no aca. -->
 
-**Qué hace.** Es **el bloque central del MCA**: recibe el flujo de muestras ya
-calibrado y, por cada pulso que detecta, emite **un** registro de evento
-coherente con todas sus características —pico, integral, cocientes de forma,
-largo, tiempo de subida—. Que salga de un único registro es lo que garantiza
-que el espectro 1D y el mapa 2D cuenten **exactamente los mismos pulsos**; si
-cada histograma se armara su propio evento, un corte podría afectar a uno y no
-al otro y las dos vistas dejarían de ser comparables.
+**Qué hace.** Es el extractor de características: por cada disparo abre una
+ventana en una ranura libre, acumula las características del pulso y publica un
+evento coherente con 16 features. Que salga de un único registro es lo que
+garantiza que el espectro 1D y el mapa 2D cuenten exactamente los mismos pulsos.
+Mide varios pulsos a la vez: tiene `N_ACC` ranuras y `cfg_n_acc` elige cuántas
+se usan.
 
-Su vida completa, muestra por muestra y con los números de cada etapa medidos
-sobre la simulación, está en
-[`mca_pulso_vida.svg`](../mca/figuras/ondas/mca_pulso_vida.svg).
-
-**Hoy es solo cableado.** El trabajo está en tres submódulos:
-[`mca_baseline`](datasheet_mca_baseline.md) (la línea de base),
-[`mca_window`](datasheet_mca_window.md) (la ventana, los acumuladores y la
-contabilidad de tiempo muerto) y [`mca_publish`](datasheet_mca_publish.md)
-(la FIFO, los divisores y el bus de features). Los puertos son los de siempre, y
-el comportamiento es bit-idéntico al del módulo único: lo verifica
-`tb_mca_pulse_feature_eq` contra la copia congelada `sim/mca_pulse_feature_ref.v`.
-Dónde van las fronteras lo decidió el timing; el detalle está en
-[`decisiones_diseno_mca.md`](../mca/decisiones_diseno_mca.md) §6.
-
-**Tres decisiones que explican su forma.**
-
-**1 · Hay dos modos de cerrar la ventana, y la diferencia se mide.** Con
-histéresis el largo lo decide dónde la cola cruza el umbral, que es la parte
-más chata del pulso: lo decide el ruido. Con compuertas fijas el largo es
-`cfg_gate_long` y no depende de la señal. Sobre **7054 pulsos reales**, offline,
-la resolución de la integral pasa de **0.528 % a 0.149 %**
-(`software/API/modelo_rtl/estimadores.py`). Los dos modos conviven en el mismo
-bitstream porque comparar dos políticas sobre los **mismos** pulsos es lo único
-que decide entre ellas con datos.
-
-**2 · La amplitud es seleccionable, y eso ES el experimento.** `cfg_amp_src = 0`
-toma la muestra de pico —ruido de una sola muestra, y el muestreo casi nunca
-cae en el máximo real: ensancha el fotopico—; `= 1` toma la integral de carga,
-donde el ruido blanco promedia como σ/√N y el jitter de muestreo no entra.
-Poder alternar entre las dos en el mismo bitstream es lo que permite **medir**
-la contribución del jitter en vez de estimarla
-([`fuentes_de_jitter.md`](../mca/fuentes_de_jitter.md)).
-
-**3 · El tiempo muerto se mide por casilleros, no por `busy`.** `busy_o` **no**
-es la condición de bloqueo del módulo, y usarlo como tal es lo que hacía que el
-reloj de tiempo muerto de [`mca_top`](datasheet_mca_top.md) mintiera: la
-condición real exige `armed`, que es de **nivel**, así que mientras la cola del
-último pulso siga arriba el módulo está en `S_IDLE` —`busy_o` bajo— pero **no
-puede abrir**. Ese tiempo no entraba en ningún contador. Por eso salen los
-cuatro casilleros `dt_win` / `dt_div` / `dt_rearm` / `puede_abrir`, mutuamente
-excluyentes, más los contadores de atribución que mandan **cada** cruce de
-umbral a exactamente un casillero. El desarrollo está en
-[`tiempo_muerto.md`](../mca/tiempo_muerto.md).
-
-**Los detalles que parecen menores y no lo son.** El seguidor de línea de base
-usa un acumulador ancho porque con la forma ingenua el incremento se cuantiza a
-cero y el seguidor se congela; se descongela `cfg_bl_holdoff` muestras
-**después** del pulso para no agarrar el undershoot de la cola. El pico se
-compara con `>` estricto, porque con `>=` el instante de pico se correría hasta
-el final de una meseta con ruido y el tiempo de subida saldría arbitrariamente
-largo. Cada muestra se satura a ≥ 0 antes de acumular, porque si no una cola con
-undershoot resta de `q_tot` mientras `q_tail` sigue sumando y se llega a
-`q_tail > q_tot`, que rompe la premisa del divisor.
-
-El apilamiento —ventana que llega a `cfg_maxlen`— se **cuenta** en
-`cnt_pileup` pero **no se histogramea**: su integral y su pico están
-contaminados por el segundo pulso. Se ve cerrarse en
-[`mca_apilamiento.svg`](../mca/figuras/ondas/mca_apilamiento.svg) y el
-tratamiento completo está en [`apilamiento.md`](../mca/apilamiento.md).
-
-> **El bloque que el formal no paga.** Acumuladores anchos sobre ventanas de
-> miles de ciclos: la profundidad de BMC mata el intento, y la propiedad
-> interesante necesita el modelo de referencia que ya existe. Es el único de la
-> lista con veredicto **no** en
-> [`verificacion_formal.md`](../verificacion_formal.md).
+**Es cableado.** El trabajo está en `mca_baseline` (la base, **D3**),
+`mca_window` (el disparo, el asignador, las ranuras y la contabilidad, **D8**),
+`mca_slot` (cada ranura, con la ventana de amplitud de **D7**) y `mca_publish`
+(la cola y los divisores). Las fronteras están donde lo que cruza sale de un
+registro, porque el sintetizador no aplana jerarquía. Ver la
+[vista general](../mca/vista_general_mca.md) §2.
 <!-- /AUTO:prosa -->
 
 ### 1.2 Interfaces
@@ -209,9 +108,14 @@ tratamiento completo está en [`apilamiento.md`](../mca/apilamiento.md).
 | `LEN_W` | `integer` | `16` | ancho de los contadores de longitud |
 | `BL_KW` | `integer` | `4` | bits del exponente k del seguidor IIR |
 | `EN_PSD` | `integer` | `1` | 0: no instancia los divisores |
-| `PUB_K` | `integer` | `2` |  |
+| `N_ACC` | `integer` | `4` | ranuras de medicion |
 | `PUB_IDW` | `integer` | `16` | bits del id de ventana |
-| `PUB_AW` | `integer` | `(PUB_K <= 2) ? 1 : $clog2(PUB_K)` |  |
+| `NA_W` | `integer` | `3` | bits de cfg_n_acc |
+| `N_FORMAS` | `integer` | `4` | trapecios del banco; 0: sin trapecio (F_TRAP vale cero) |
+| `TDAW` | `integer` | `10` | log2 de la profundidad de sus lineas de retardo |
+| `TMW` | `integer` | `20` | bits de su constante polo-cero |
+| `OC_W` | `integer` | `$clog2(N_ACC + 1)` = `3` |  |
+| `NF` | `integer` | `(N_FORMAS < 1) ? 1 : N_FORMAS` |  |
 
 
 #### Puertos
@@ -224,7 +128,7 @@ tratamiento completo está en [`apilamiento.md`](../mca/apilamiento.md).
 | `rstn_i` | in | 1 | — |
 
 
-##### Muestras de entrada (ya calibradas/filtradas/decimadas)
+##### Muestras de entrada (calibradas, filtradas, decimadas y retrasadas)
 
 | Puerto | Dir | Bits | Signo | Dominio |
 |---|---|---|---|---|
@@ -237,42 +141,36 @@ tratamiento completo está en [`apilamiento.md`](../mca/apilamiento.md).
 | Puerto | Dir | Bits | Signo | Dominio | Descripción |
 |---|---|---|---|---|---|
 | `cfg_run_i` | in | 1 |  | clk_i |  |
-| `veto_i` | in | 1 |  | clk_i | VETO externo (nivel): no se abren pulsos nuevos mientras vale 1. El pulso en curso termina normal, y el seguidor de linea de base SIGUE corriendo -- a diferencia de cfg_run=0 --, porque la base deriva igual durante el veto y si se congelara arrancaria desfasada al liberarse. Viene del trigger_shield del multitrigger (dst = mca). |
+| `veto_i` | in | 1 |  | clk_i | VETO externo (nivel): no se abren ventanas nuevas mientras vale 1. Las que estan abiertas terminan normal, y el seguidor de linea de base SIGUE corriendo -- a diferencia de cfg_run=0 --, porque la base deriva igual durante el veto. Viene del trigger_shield del multitrigger (dst = mca). |
 | `cnt_clr_i` | in | 1 |  | clk_i | pulso: pone a cero los contadores |
-| `cfg_thr_i` | in | 14 `[DW-1:0]` | signed | clk_i | umbral sobre la línea de base |
-| `cfg_hyst_i` | in | 14 `[DW-1:0]` |  | clk_i | histéresis (positiva) |
 | `cfg_baseline_i` | in | 14 `[DW-1:0]` | signed | clk_i | base fija si cfg_bl_auto=0 |
 | `cfg_bl_auto_i` | in | 1 |  | clk_i |  |
 | `cfg_bl_k_i` | in | 4 `[BL_KW-1:0]` |  | clk_i | alfa = 2^-k |
 | `cfg_bl_holdoff_i` | in | 16 `[LEN_W-1:0]` |  | clk_i |  |
-| `cfg_maxlen_i` | in | 16 `[LEN_W-1:0]` |  | clk_i |  |
-| `cfg_tail_dly_i` | in | 16 `[LEN_W-1:0]` |  | clk_i | >= 1 |
+| `cfg_gate_short_i` | in | 16 `[LEN_W-1:0]` |  | clk_i | compuerta corta (cola), en muestras |
+| `cfg_gate_long_i` | in | 16 `[LEN_W-1:0]` |  | clk_i | compuerta larga (ventana), en muestras |
+| `cfg_amp_min_i` | in | 16 `[AMP_W-1:0]` |  | clk_i |  |
+| `cfg_amp_max_i` | in | 16 `[AMP_W-1:0]` |  | clk_i |  |
+| `cfg_amp_src_i` | in | 1 |  | clk_i | 0=pico, 1=integral |
+| `cfg_q_shift_i` | in | 5 |  | clk_i |  |
+| `cfg_n_acc_i` | in | 3 `[NA_W-1:0]` |  | clk_i | ranuras habilitadas, 1..N_ACC |
+| `trig_i` | in | 1 |  | clk_i | Trigger externo, el UNICO que abre ventanas. Se toma por FLANCO. |
 
 
-##### Modo de ventana (ver cabecera, SEGMENTACION)
-
-| Puerto | Dir | Bits | Dominio | Descripción |
-|---|---|---|---|---|
-| `cfg_gate_mode_i` | in | 1 | clk_i | 0=histeresis, 1=compuertas fijas |
-| `cfg_gate_short_i` | in | 16 `[LEN_W-1:0]` | clk_i | compuerta corta, en muestras |
-| `cfg_gate_long_i` | in | 16 `[LEN_W-1:0]` | clk_i | compuerta larga, en muestras |
-| `cfg_amp_min_i` | in | 16 `[AMP_W-1:0]` | clk_i |  |
-| `cfg_amp_max_i` | in | 16 `[AMP_W-1:0]` | clk_i |  |
-| `cfg_amp_src_i` | in | 1 | clk_i | 0=pico, 1=integral |
-| `cfg_q_shift_i` | in | 5 | clk_i |  |
-
-
-##### FASE 2: apertura, re-armado y publicacion (ver cabecera)
-
-Trigger externo. Se toma por FLANCO; `trig_pend` lo sostiene hasta la muestra valida siguiente para que la decimacion no se lo coma.
+##### El banco de trapecios (mca_trap): NF formas, aplanadas, y la eleccion
 
 | Puerto | Dir | Bits | Dominio | Descripción |
 |---|---|---|---|---|
-| `trig_i` | in | 1 | clk_i |  |
-| `cfg_trig_src_i` | in | 2 | clk_i | 0=interno, 1=externo, 2=ambos |
-| `cfg_rearm_mode_i` | in | 1 | clk_i | 0=nivel(thr_lo), 1=contador |
-| `cfg_rearm_dly_i` | in | 16 `[LEN_W-1:0]` | clk_i | holdoff de re-armado |
-| `cfg_pub_mode_i` | in | 1 | clk_i | 0=bloqueante, 1=FIFO |
+| `trap_clr_i` | in | 1 | clk_i | pulso: reinicia su estado |
+| `cfg_trap_k_i` | in | `[NF*TDAW-1:0]` | clk_i | subida, >= 1 |
+| `cfg_trap_l_i` | in | `[NF*TDAW-1:0]` | clk_i | subida + meseta |
+| `cfg_trap_mq_i` | in | 20 `[TMW-1:0]` | clk_i | polo-cero, M * 16 (comun) |
+| `cfg_trap_sh_i` | in | `[NF*6-1:0]` | clk_i | escala de F_TRAP |
+| `cfg_trap_off_i` | in | `[NF*LEN_W-1:0]` | clk_i | inicio de la meseta, desde la apertura |
+| `cfg_trap_lw_i` | in | `[NF*3-1:0]` | clk_i | largo de la meseta: 2^lw |
+| `cfg_trap_antes_i` | in | `[NF*LEN_W-1:0]` | clk_i | umbral de dt_prev de cada forma |
+| `cfg_trap_despues_i` | in | `[NF*LEN_W-1:0]` | clk_i | umbral de dt_next de cada forma |
+| `cfg_n_formas_i` | in | 3 | clk_i | formas habilitadas (0 = 1) |
 
 
 ##### Evento de salida (pulso de 1 ciclo)
@@ -283,7 +181,7 @@ Trigger externo. Se toma por FLANCO; `trig_pend` lo sostiene hasta la muestra va
 | `ev_amp_o` | out | 16 `[AMP_W-1:0]` | clk_i |  |
 | `ev_psd_o` | out | 6 `[PSD_AW-1:0]` | clk_i |  |
 | `ev_psd_ok_o` | out | 1 | clk_i | 0 => no histogramear el 2D |
-| `ev_feat_o` | out | 256 `[NFEAT*AMP_W-1:0]` | clk_i | Bus de features: NFEAT ranuras de AMP_W bits, todas del MISMO evento. Se arma a la salida de S_DIV, no al cerrar, porque los cocientes valen DIV_W ciclos mas tarde que el resto (ver F_ del cuerpo). |
+| `ev_feat_o` | out | 256 `[NFEAT*AMP_W-1:0]` | clk_i | Bus de features: NFEAT ranuras de AMP_W bits, todas del MISMO evento. |
 
 
 ##### Estado y contadores
@@ -292,53 +190,47 @@ Trigger externo. Se toma por FLANCO; `trig_pend` lo sostiene hasta la muestra va
 |---|---|---|---|---|---|
 | `baseline_o` | out | 14 `[DW-1:0]` | signed | clk_i |  |
 | `baseline_stale_o` | out | 1 |  | clk_i |  |
-| `cnt_total_o` | out | 32 |  | clk_i | pulsos cerrados |
+| `cnt_total_o` | out | 32 |  | clk_i | ventanas cerradas |
 | `cnt_accepted_o` | out | 32 |  | clk_i |  |
 | `cnt_rej_amp_o` | out | 32 |  | clk_i | fuera de [min,max] |
 | `cnt_rej_psd_o` | out | 32 |  | clk_i | q_tot=0 o q_tail>=q_tot |
-| `cnt_pileup_o` | out | 32 |  | clk_i | cerrado por maxlen |
-| `cnt_lost_busy_o` | out | 32 |  | clk_i | pulso perdido con el divisor ocupado |
+| `cnt_pileup_o` | out | 32 |  | clk_i | cerradas con marca de solape |
+| `cnt_lost_busy_o` | out | 32 |  | clk_i | sin ranura, alguna esperando publicar |
 | `last_qtot_o` | out | 32 `[QW-1:0]` |  | clk_i |  |
 | `last_qtail_o` | out | 32 `[QW-1:0]` |  | clk_i |  |
-| `busy_o` | out | 1 |  | clk_i | pulso activo o divisor ocupado |
+| `busy_o` | out | 1 |  | clk_i | alguna ranura ocupada |
 
 
-##### Casilleros de tiempo muerto (ver "TIEMPO MUERTO" del cuerpo)
-
-Mutuamente excluyentes. Su union es exactamente "no puede abrir", salvo los terminos cfg_run/veto que los pone mca_top porque son suyos.
+##### Casilleros de tiempo muerto: disjuntos, y su union es "no puede abrir"
 
 | Puerto | Dir | Bits | Dominio | Descripción |
 |---|---|---|---|---|
-| `dt_win_o` | out | 1 | clk_i | ventana abierta |
-| `dt_div_o` | out | 1 | clk_i | bloqueado por la publicacion |
-| `dt_rearm_o` | out | 1 | clk_i | libre pero sin re-armar |
+| `dt_win_o` | out | 1 | clk_i | sin ranura libre, todas midiendo |
+| `dt_div_o` | out | 1 | clk_i | sin ranura libre, alguna esperando publicar |
 | `puede_abrir_o` | out | 1 | clk_i |  |
+| `n_ocup_o` | out | 3 `[OC_W-1:0]` | clk_i | ranuras ocupadas ahora |
 
 
-##### Atribucion de arribos: cada cruce de thr_hi va a UN casillero
-
-| Puerto | Dir | Bits | Dominio | Descripción |
-|---|---|---|---|---|
-| `arribo_o` | out | 1 | clk_i | flanco de thr_hi, 1 ciclo |
-| `cnt_cross_o` | out | 32 | clk_i | todos los cruces de thr_hi |
-| `cnt_open_o` | out | 32 | clk_i | ...que abrieron ventana |
-| `cnt_lost_rearm_o` | out | 32 | clk_i | ...perdidos esperando el re-armado |
-| `cnt_lost_active_o` | out | 32 | clk_i | ...llegados dentro de la ventana |
-| `cnt_lost_veto_o` | out | 32 | clk_i | ...llegados bajo veto |
-| `cnt_lost_notrig_o` | out | 32 | clk_i | FASE 2. Con apertura por trigger externo un cruce puede encontrar al modulo libre y NO abrir (porque no vino trigger), y una ventana puede abrir SIN cruce (trigger sobre un pulso bajo umbral, o por software). Son dos hechos distintos y necesitan dos contadores distintos: — cruce libre, sin disparo habilitado |
-| `cnt_win_o` | out | 32 | clk_i | ventanas ABIERTAS (venga o no de un cruce) |
-
-
-##### FASE 2: estado del arbitro de publicacion
-
-occ_max es el dato que decide si PUB_K alcanza: si llega a PUB_K hubo contrapresion, y los eventos que se perdieron por eso estan en cnt_lost_busy.
+##### Atribucion de arribos: cada disparo va a UN casillero
 
 | Puerto | Dir | Bits | Dominio | Descripción |
 |---|---|---|---|---|
-| `pub_occ_o` | out | `[PUB_AW:0]` | clk_i | lugares ocupados ahora |
-| `pub_occ_max_o` | out | `[PUB_AW:0]` | clk_i | maximo historico |
+| `arribo_o` | out | 1 | clk_i | disparo en esta muestra, con run |
+| `cnt_cross_o` | out | 32 | clk_i | todos los arribos |
+| `cnt_open_o` | out | 32 | clk_i | ...que abrieron ranura |
+| `cnt_lost_active_o` | out | 32 | clk_i | ...sin ranura libre, todas midiendo |
+| `cnt_lost_veto_o` | out | 32 | clk_i | ...bajo veto |
+| `cnt_win_o` | out | 32 | clk_i | ventanas abiertas |
+
+
+##### La cola de publicacion
+
+| Puerto | Dir | Bits | Dominio | Descripción |
+|---|---|---|---|---|
+| `pub_occ_o` | out | 3 `[OC_W-1:0]` | clk_i | ranuras esperando publicar |
+| `pub_occ_max_o` | out | 3 `[OC_W-1:0]` | clk_i | maximo historico |
 | `last_win_id_o` | out | 16 `[PUB_IDW-1:0]` | clk_i | id de la ultima ventana publicada |
-| `cnt_trig_o` | out | 32 | clk_i | flancos de trigger externo |
+| `cnt_trig_o` | out | 32 | clk_i | flancos crudos de trig_i |
 <!-- /AUTO:interfaces -->
 
 ### 1.3 Mapa de registros
@@ -479,7 +371,7 @@ python3 docs/mca/figuras/ondas/ondas_mca.py    # regenerar
 Todo corre en batch y se chequea el `RESULT: PASS` del testbench; las ondas quedan en `work/waves/<tb>.wlf`.
 
 ```bash
-make -C modulos/mca/work            # los 7 testbenches
+make -C modulos/mca/work            # los 8 testbenches
 make -C modulos/mca/work cov        # + cobertura
 make -C modulos/mca/work lint
 ```
@@ -490,18 +382,19 @@ make -C modulos/mca/work lint
 | [`tb_mca_hist`](../../modulos/mca/sim/tb_mca_hist.sv) | `mca_hist` | 8 | 31 | vectores a mano |  |
 | [`tb_mca_zoom`](../../modulos/mca/sim/tb_mca_zoom.sv) | `mca_zoom` | 5 | 11 | vectores a mano |  |
 | [`tb_mca_discriminator`](../../modulos/mca/sim/tb_mca_discriminator.sv) | `mca_discriminator` | 7 | 21 | vectores a mano |  |
-| [`tb_mca_pulse_feature`](../../modulos/mca/sim/tb_mca_pulse_feature.sv) | `mca_pulse_feature` | 17 | 161 | vectores a mano | **sí** |
-| [`tb_mca_pulse_feature_eq`](../../modulos/mca/sim/tb_mca_pulse_feature_eq.sv) | `mca_pulse_feature_eq` | — | — | RTL de referencia `mca_pulse_feature_ref.v` instanciado al lado del DUT |  |
-| [`tb_mca_top`](../../modulos/mca/sim/tb_mca_top.sv) | `mca_top` | 9 | 82 | vectores a mano |  |
+| [`tb_mca_trap`](../../modulos/mca/sim/tb_mca_trap.sv) | `mca_trap` | — | — | vectores a mano |  |
+| [`tb_mca_multi`](../../modulos/mca/sim/tb_mca_multi.sv) | `mca_multi` | — | — | vectores a mano |  |
+| [`tb_mca_pulse_feature_evt`](../../modulos/mca/sim/tb_mca_pulse_feature_evt.sv) | `mca_pulse_feature_evt` | — | — | RTL de referencia `mca_pulse_feature_ref.v` instanciado al lado del DUT |  |
+| [`tb_mca_top`](../../modulos/mca/sim/tb_mca_top.sv) | `mca_top` | 11 | 121 | vectores a mano |  |
 
 
-**328 casos con nombre** en 7 testbenches (52 escenas). La lista completa, caso por caso, está en el plan de verificación.
+**206 casos con nombre** en 8 testbenches (37 escenas). La lista completa, caso por caso, está en el plan de verificación.
 
-Las escenas de [`tb_mca_pulse_feature`](../../modulos/mca/sim/tb_mca_pulse_feature.sv): 1) Pulso rectangular, 2) Estimador de INTEGRAL, 3) Pulso por debajo del umbral, 4) Ventana de aceptación de amplitud, 5) APILAMIENTO, 6) Pulso que NUNCA vuelve a bajar de la histéresis, 7) Línea de base FIJA distinta de cero, 8) Línea de base AUTOMÁTICA, 9) Caso borde PSD, 10) Caso borde PSD, 11) Dos pulsos SEPARADOS (hueco > latencia del divis, 12) cfg_run=0 inhibe la detección, 13) COMPUERTAS DE LARGO FIJO (cfg_gate_mode = 1), 14) TIEMPO MUERTO, 15) FASE 2 — RE-ARMADO POR CONTADOR, 16) FASE 2 — APERTURA POR TRIGGER EXTERNO, 17) FASE 2 — FIFO DE PUBLICACION.
+> **`mca_pulse_feature` no tiene testbench propio.** Ningún `TBS` del `work/Makefile` lo instancia como DUT: lo que se verifica de este módulo es lo que arrastre el TB de otro. Es deuda de verificación, no una omisión de esta página.
 
 **Assertions** — en `sim/sva/`, enganchadas por `bind` (no tocan el RTL sintetizable).
 
-- [`mca_top_sva.sv`](../../modulos/mca/sim/sva/mca_top_sva.sv) — 64 propiedades
+- [`mca_top_sva.sv`](../../modulos/mca/sim/sva/mca_top_sva.sv) — 68 propiedades
 
 Plan de verificación, casos cubiertos y deuda: [`mca/sim/VERIFICACION.md`](../../modulos/mca/sim/VERIFICACION.md).
 <!-- /AUTO:verificacion -->

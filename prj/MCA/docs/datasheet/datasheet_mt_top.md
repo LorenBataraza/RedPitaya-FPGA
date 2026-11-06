@@ -35,11 +35,15 @@
 > puertos de docs/mt/register_map_mt.md.
 >
 >   tap MTRG ──→ rp_adc_trig ×N_CH  (nivel) ─┐
->            └─→ mt_slope_trig ×N_CH (pend.) ─┤
+>            ├─→ mt_slope_trig ×N_CH (pend.) ─┤
+>            └─→ mt_pz_trig ×N_CH (polo-cero) ┤
 >   trig_ext ──→ rp_ext_trig ──→ (afuera y vuelve por trig_ext_asg_i)
 >            └─→ sync 2 FF (nivel, veto) ─────┼─→ mt_event_logic ──→ trigger_event
 >   trig_ch_i ────────────────────────────────┘          ↑
->   sys_bus slot 3 ──→ mt_cfg ── máscaras, escudo, pendiente, pulsos
+>   sys_bus slot 3 ──→ mt_cfg ── máscaras, escudo, pendiente, polo-cero, pulsos
+>
+> mt_pz_trig (el disparo con polo-cero) se agregó después de la mudanza: es una
+> fuente nueva en los bits 25..28 de la máscara, no un cambio de las de antes.
 >
 > ES UNA MUDANZA, NO UN CAMBIO DE LÓGICA. Cada instancia es la que estaba en
 > rp_scope_mt_com, con los mismos parámetros y las mismas conexiones; los
@@ -236,7 +240,35 @@ Contrato del bus: [`bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) 
 ### 1.5 Frecuencia máxima de trabajo
 
 <!-- AUTO:timing -->
-El `metrics.txt` del módulo es de `mt_slope_trig`, no de `mt_top`: la síntesis OOC del módulo apunta a otro top, así que acá no hay números propios de este bloque.
+**Punto de síntesis** — Vivado out-of-context, `xc7z010clg400-1`.
+
+| Métrica | Valor |
+|---|---|
+| Período de la restricción | 8.00 ns (125.0 MHz) |
+| WNS | 1.461 ns |
+| Camino crítico | 6.539 ns |
+| **Fmax** | **152.9 MHz** |
+| Niveles de lógica | 7 |
+
+
+**Camino crítico**
+
+|  |  |
+|---|---|
+| startpoint | `g_ch[0].i_pz_trig/mq_q_reg[4]/C` |
+| endpoint | `g_ch[0].i_pz_trig/i_trap/r5_reg/RSTB` |
+
+
+**Recursos**
+
+| LUT | FF | BRAM | DSP | CARRY | MUXF |
+|---|---|---|---|---|---|
+| 2509 | 2159 | 0 | 2 | 226 | 0 |
+
+
+`lut` cuenta **primitivas** LUT, no los _Slice LUTs_ del `report_utilization` (dos LUT5 que comparten O5/O6 ocupan un solo sitio).
+
+_Barrido no corrido_: `make -C modulos/mt/work sweep-all` y regenerar.
 <!-- /AUTO:timing -->
 
 <!-- A mano: qué hay en el camino crítico y qué se haría para romperlo si
@@ -338,22 +370,23 @@ python3 docs/mt/figuras/ondas/ondas_mt.py    # regenerar
 Todo corre en batch y se chequea el `RESULT: PASS` del testbench; las ondas quedan en `work/waves/<tb>.wlf`.
 
 ```bash
-make -C modulos/mt/work            # los 6 testbenches
+make -C modulos/mt/work            # los 7 testbenches
 make -C modulos/mt/work cov        # + cobertura
 make -C modulos/mt/work lint
 ```
 
 | Testbench | DUT | Escenas | Casos | Contra qué compara | Es el de este módulo |
 |---|---|---|---|---|---|
-| [`tb_mt_cfg`](../../modulos/mt/sim/tb_mt_cfg.sv) | `mt_cfg` | 13 | 41 | vectores a mano |  |
+| [`tb_mt_cfg`](../../modulos/mt/sim/tb_mt_cfg.sv) | `mt_cfg` | 14 | 59 | vectores a mano |  |
 | [`tb_mt_slope_trig`](../../modulos/mt/sim/tb_mt_slope_trig.sv) | `mt_slope_trig` | 8 | 15 | vectores a mano |  |
-| [`tb_mt_trig_src`](../../modulos/mt/sim/tb_mt_trig_src.sv) | `mt_trig_src` | 6 | 12 | vectores a mano |  |
-| [`tb_mt_event_logic`](../../modulos/mt/sim/tb_mt_event_logic.sv) | `mt_event_logic` | 5 | 9 | vectores a mano |  |
+| [`tb_mt_pz_trig`](../../modulos/mt/sim/tb_mt_pz_trig.sv) | `mt_pz_trig` | 8 | 1 | vectores a mano |  |
+| [`tb_mt_trig_src`](../../modulos/mt/sim/tb_mt_trig_src.sv) | `mt_trig_src` | 7 | 14 | vectores a mano |  |
+| [`tb_mt_event_logic`](../../modulos/mt/sim/tb_mt_event_logic.sv) | `mt_event_logic` | 8 | 11 | vectores a mano |  |
 | [`tb_trigger_shield`](../../modulos/mt/sim/tb_trigger_shield.sv) | `trigger_shield` | 8 | 19 | vectores a mano |  |
-| [`tb_mt_top`](../../modulos/mt/sim/tb_mt_top.sv) | `mt_top` | 20 | 46 | vectores a mano | **sí** |
+| [`tb_mt_top`](../../modulos/mt/sim/tb_mt_top.sv) | `mt_top` | 20 | 51 | vectores a mano | **sí** |
 
 
-**142 casos con nombre** en 6 testbenches (60 escenas). La lista completa, caso por caso, está en el plan de verificación.
+**170 casos con nombre** en 7 testbenches (73 escenas). La lista completa, caso por caso, está en el plan de verificación.
 
 Las escenas de [`tb_mt_top`](../../modulos/mt/sim/tb_mt_top.sv): 1) IDENTIFICACIÓN por el slot 3 (MAGIC, CAPS con N_, 2) NIVEL, 3) PENDIENTE configurada por registros, 4) EXTERNA, 5) VETO por nivel externo, 6) SW por el puente legacy (lo que usa librp) y por, 7) CADENA, 8) MODO CONTINUO, 9) EL LAZO CON LA CAPTURA, 10) RELLENO, 1) IDENTIFICACIÓN, 2) NIVEL, single-shot, 3) PENDIENTE, configurada por registros, 4) EXTERNA, por el lazo trig_ext_asg, 5) VETO por nivel externo, 6) SW, 7) CADENA, 8) MODO CONTINUO, 9) EL LAZO CON LA CAPTURA, 10) RELLENO Y CONTRATO.
 

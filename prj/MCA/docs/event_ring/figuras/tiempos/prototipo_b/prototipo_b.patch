@@ -1,0 +1,282 @@
+--- a/rtl/event_window_capture.sv
++++ b/rtl/event_window_capture.sv
+@@ -36,7 +36,7 @@
+   parameter integer DW      = 14,   // ancho de la muestra del ADC
+   parameter integer N_CH    = 2,    // canales capturados por evento
+   parameter integer SW      = 16,   // ancho de la muestra en el stream (sign-ext)
+-  parameter integer PRE_AW  = 11,   // buffer circular de pre-trigger: 2^PRE_AW
++  parameter integer PRE_AW  = 9,    // buffer circular de pre-trigger: 2^PRE_AW
+   parameter integer S_AW    = 11,   // ancho de los contadores de muestras
+   parameter integer TS_W    = 64    // ancho del timestamp
+ )(
+@@ -75,7 +75,7 @@
+   output reg                 m_sof_o,      // coincide con la primera m_val_o
+   output reg                 m_eof_o,      // coincide con la ultima m_val_o
+   output reg                 m_val_o,
+-  output reg [SW-1:0]        m_dat_o,
++  output reg [N_CH*SW-1:0]   m_dat_o,   // PROTOTIPO B: una palabra {ch1, ch0} por ciclo
+   // Aceptacion: se muestrea SOLO en el ciclo del trigger. 1 = hay lugar para
+   // la ventana completa.
+   input                      m_accept_i,
+@@ -137,7 +137,7 @@
+ 
+   reg [1:0]      st;
+   reg [S_AW:0]   samp_left;    // muestras POR CANAL que faltan emitir
+-  reg [$clog2(N_CH+1)-1:0] ch_idx;
++  reg [S_AW:0]   rd_left;      // palabras que faltan leer del buffer
+   reg [N_CH*SW-1:0] word_r;    // palabra leida del buffer, se serializa por canal
+   reg            word_val;
+ 
+@@ -147,23 +147,21 @@
+   // de escritura. Durante el pre siempre hay (arrancamos `pre` atras); durante
+   // el post esto es lo que sincroniza con la llegada de muestras nuevas.
+   wire rd_avail = (rd_ptr != wr_ptr);
+-  // Se lee una palabra nueva cuando terminamos de serializar la anterior.
+-  wire want_word = (st == ST_DRAIN) && (samp_left != 0) &&
+-                   (!word_val || (ch_idx == N_CH-1));
+-
+-  wire do_read = want_word && rd_avail;
++  // PROTOTIPO B: sin serializar. Se lee una palabra por ciclo, asi que el rezago
++  // queda fijo en `pre` y el pre-buffer solo tiene que cubrir `pre`.
++  wire do_read = (st == ST_DRAIN) && (rd_left != 0) && rd_avail;
+ 
+   always @(posedge clk_i) begin
+     if (!rstn_i) begin
+       st          <= ST_IDLE;
+       samp_left   <= {(S_AW+1){1'b0}};
+-      ch_idx      <= '0;
++      rd_left     <= '0;
+       rd_ptr      <= {PRE_AW{1'b0}};
+       word_val    <= 1'b0;
+       m_val_o     <= 1'b0;
+       m_sof_o     <= 1'b0;
+       m_eof_o     <= 1'b0;
+-      m_dat_o     <= {SW{1'b0}};
++      m_dat_o     <= '0;
+       m_ts_o      <= {TS_W{1'b0}};
+       m_snap_o    <= 17'h0;
+       m_nsamp_o   <= {S_AW{1'b0}};
+@@ -195,7 +193,7 @@
+               m_nsamp_o <= pre_i + post_i;
+               m_ts_o    <= ts_i;
+               m_snap_o  <= snapshot_i;
+-              ch_idx    <= '0;
++              rd_left   <= {1'b0, pre_i} + {1'b0, post_i};
+               word_val  <= 1'b0;
+               st        <= ST_DRAIN;
+             end
+@@ -207,34 +205,20 @@
+           // Un trigger durante el drenaje es el tiempo muerto intrinseco.
+           if (trig_edge) drop_busy_o <= 1'b1;
+ 
++          word_val <= do_read;
+           if (do_read) begin
+-            word_r   <= pre_buf[rd_ptr];
+-            word_val <= 1'b1;
+-            rd_ptr   <= rd_ptr + 1'b1;
++            word_r  <= pre_buf[rd_ptr];
++            rd_ptr  <= rd_ptr + 1'b1;
++            rd_left <= rd_left - 1'b1;
+           end
+ 
+-          // Serializacion por canal de la palabra ya cargada.
+           if (word_val) begin
+-            m_val_o <= 1'b1;
+-            m_dat_o <= word_r[ch_idx*SW +: SW];
+-            // sof: primerisima muestra del evento
+-            m_sof_o <= (samp_left == ({1'b0, m_nsamp_o})) && (ch_idx == 0);
+-            // eof: ultima muestra del ultimo canal
+-            m_eof_o <= (samp_left == 1) && (ch_idx == N_CH-1);
+-
+-            if (ch_idx == N_CH-1) begin
+-              ch_idx    <= '0;
+-              samp_left <= samp_left - 1'b1;
+-              // OJO: do_read puede dispararse en ESTE mismo ciclo (want_word lo
+-              // permite cuando ch_idx==N_CH-1). Si acá se forzara 0 a secas, el
+-              // `word_val <= 1` de la rama de lectura quedaría pisado y se
+-              // perdería la palabra recién cargada: un off-by-one silencioso de
+-              // una muestra por evento.
+-              word_val  <= do_read;
+-              if (samp_left == 1) st <= ST_TAIL;
+-            end else begin
+-              ch_idx <= ch_idx + 1'b1;
+-            end
++            m_val_o   <= 1'b1;
++            m_dat_o   <= word_r;
++            m_sof_o   <= (samp_left == ({1'b0, m_nsamp_o}));
++            m_eof_o   <= (samp_left == 1);
++            samp_left <= samp_left - 1'b1;
++            if (samp_left == 1) st <= ST_TAIL;
+           end
+         end
+ 
+--- a/rtl/event_slot_writer.sv
++++ b/rtl/event_slot_writer.sv
+@@ -44,7 +44,7 @@
+ //=============================================================================
+ 
+ module event_slot_writer #(
+-  parameter integer SW    = 16,
++  parameter integer SW    = 32,   // PROTOTIPO B: {ch1, ch0} por palabra del stage
+   parameter integer S_AW  = 11,
+   parameter integer TS_W  = 64,
+   parameter integer N_CH  = 2,
+@@ -108,7 +108,9 @@
+   reg [16:0]       snap_r;
+   reg [S_AW-1:0]   nsamp_r;
+   reg [S_AW+2:0]   samp_left;     // muestras TOTALES que faltan leer del stage
+-  reg [47:0]       acc;           // las tres primeras muestras de la palabra
++  reg [SW-1:0]     acc;           // la primera mitad de la palabra
++  reg [63:0]       skid;          // la palabra que llega con la salida ocupada
++  reg              skid_val;
+   reg [1:0]        pack_cnt;      // muestras recibidas de esta palabra, 0..3
+   reg              rd_d;          // s_dat_rd_o retrasado 1 ciclo (latencia BRAM)
+ 
+@@ -118,21 +120,15 @@
+   // Emision efectiva este ciclo
+   wire fire = wr_val_o && wr_rdy_i;
+ 
+-  // W_DATA pide una muestra por ciclo y arma una palabra cada 4. Entre pedir y recibir
+-  // hay dos ciclos, asi que puede haber muestras en camino cuando la salida se frena.
+-  // `pedidas` cuenta las recibidas mas las que vienen: si da 3, la proxima completa la
+-  // palabra, y esa solo se pide con la salida libre. Hasta que llegue no puede salir
+-  // otra palabra, asi que la salida sigue libre y no hace falta otro registro.
++  // PROTOTIPO B: dos palabras de 32 b por palabra de 64, una cada 2 ciclos. Con dos
++  // muestras en camino puede cerrarse una palabra con la salida ocupada: para esa
++  // esta el skid.
+   wire        salida_libre = !wr_val_o || fire;
+-  wire [2:0]  pedidas = pack_cnt + s_dat_rd_o + rd_d;
+-  wire        cierra  = (pedidas == 3'd3);
++  wire        puede_pedir  = salida_libre && !skid_val;
+   wire        en_camino = s_dat_rd_o || rd_d;
+-  // Falta algo de este evento. Sin esto, una ventana que entra justa en el slot, con la
+-  // ultima palabra ya emitida, pareceria una que no entra.
+   wire        hay_mas = (samp_left != 0) || en_camino || (pack_cnt != 2'd0);
+-  // Ventana no multiplo de 4: lo que falta de la ultima palabra se completa con ceros.
+   wire        relleno = !en_camino && (samp_left == 0) && (pack_cnt != 2'd0);
+-  wire [15:0] entra   = rd_d ? s_dat_i : 16'h0;
++  wire [SW-1:0] entra = rd_d ? s_dat_i : {SW{1'b0}};
+ 
+   // Contadores de slot: NO se tocan con flush_i (ver la nota del puerto).
+   always @(posedge clk_i) begin
+@@ -152,7 +148,9 @@
+       slot_words  <= '0;
+       hdr_idx     <= 2'd0;
+       samp_left   <= '0;
+-      acc         <= 48'h0;
++      acc         <= '0;
++      skid        <= 64'h0;
++      skid_val    <= 1'b0;
+       pack_cnt    <= 2'd0;
+       rd_d        <= 1'b0;
+       s_dat_rd_o  <= 1'b0;
+@@ -192,7 +190,7 @@
+             ts_r       <= s_ts_i;
+             snap_r     <= s_snap_i;
+             nsamp_r    <= s_nsamp_i;
+-            samp_left  <= s_nsamp_i * N_CH;
++            samp_left  <= s_nsamp_i;
+             slot_words <= {{(WCW-1){1'b0}}, 1'b1} << (slot_shift_i - 5'd3);
+             st         <= W_HDR;
+           end
+@@ -225,24 +223,32 @@
+             // err_slot_ovf_o ya quedó levantado.
+             st <= W_FOOT;
+           end else begin
+-            // Recibir: el dato del stage vale 1 ciclo despues del pop. La cuarta
+-            // muestra sale directo, sin pasar por acc.
+-            if (rd_d || (relleno && (pack_cnt != 2'd3 || salida_libre))) begin
+-              if (pack_cnt == 2'd3) begin
+-                wr_val_o <= 1'b1;
+-                wr_dat_o <= {entra, acc};
++            if (skid_val && salida_libre) begin
++              wr_val_o <= 1'b1;
++              wr_dat_o <= skid;
++              skid_val <= 1'b0;
++            end
++            if (rd_d || relleno) begin
++              if (pack_cnt == 2'd1) begin
+                 word_idx <= word_idx + 1'b1;
++                pack_cnt <= 2'd0;
++                if (salida_libre && !skid_val) begin
++                  wr_val_o <= 1'b1;
++                  wr_dat_o <= {entra, acc};
++                end else begin
++                  skid     <= {entra, acc};
++                  skid_val <= 1'b1;
++                end
+               end else begin
+-                acc <= {entra, acc[47:16]};
++                acc      <= entra;
++                pack_cnt <= 2'd1;
+               end
+-              pack_cnt <= pack_cnt + 1'b1;     // de 3 vuelve a 0
+             end
+-            // Pedir, en el mismo ciclo.
+-            if (samp_left != 0 && (!cierra || salida_libre)) begin
++            if (samp_left != 0 && puede_pedir) begin
+               s_dat_rd_o <= 1'b1;
+               samp_left  <= samp_left - 1'b1;
+             end
+-            if (!hay_mas) st <= W_PAD;
++            if (!hay_mas && !skid_val) st <= W_PAD;
+           end
+         end
+ 
+--- a/rtl/event_ring_top.sv
++++ b/rtl/event_ring_top.sv
+@@ -38,9 +38,9 @@
+   parameter integer DW      = 14,
+   parameter integer N_CH    = 2,
+   parameter integer SW      = 16,
+-  parameter integer PRE_AW  = 11,   // pre-buffer: 2048, para ventanas de hasta 1024
++  parameter integer PRE_AW  = 9,    // PROTOTIPO B: alcanza con cubrir `pre`
+   parameter integer S_AW    = 11,
+-  parameter integer DATA_AW = 12,   // stage: 4096 muestras (~2 RAMB36)
++  parameter integer DATA_AW = 11,   // PROTOTIPO B: 2048 palabras de 32 b, los mismos bits
+   parameter integer E       = 4,    // eventos en vuelo en el stage
+   parameter integer FIFO_FW = 8     // profundidad del axi_wr_fifo (2^FW)
+ )(
+@@ -101,7 +101,7 @@
+   reg        err_cfg;        // sticky: escritura de geometria corriendo
+ 
+   wire [31:0] n_slots = (ring_sz >> slot_shift);
+-  wire [S_AW+2:0] win_len = ({{3{1'b0}}, pre_n} + {{3{1'b0}}, post_n}) * N_CH;
++  wire [S_AW+2:0] win_len = {{3{1'b0}}, pre_n} + {{3{1'b0}}, post_n};
+ 
+   //--------------------------------------------------------------------------
+   // Timestamp libre. Se resetea al arrancar, asi el t=0 de la corrida es el
+@@ -126,7 +126,7 @@
+   // Captura de ventana
+   //--------------------------------------------------------------------------
+   wire            cap_sof, cap_eof, cap_val;
+-  wire [SW-1:0]   cap_dat;
++  wire [N_CH*SW-1:0] cap_dat;
+   wire [63:0]     cap_ts;
+   wire [16:0]     cap_snap;
+   wire [S_AW-1:0] cap_nsamp;
+@@ -156,13 +156,13 @@
+   wire [63:0]     stg_ts;
+   wire [16:0]     stg_snap;
+   wire [S_AW-1:0] stg_nsamp;
+-  wire [SW-1:0]   stg_dat;
++  wire [N_CH*SW-1:0] stg_dat;
+   wire [DATA_AW:0] stg_lvl;
+   wire [$clog2(E+1)-1:0] stg_ev_lvl;
+   wire            flush = (gst == G_STOPPED) || cfg_clr;
+ 
+   event_stage_fifo #(
+-    .SW(SW), .S_AW(S_AW), .DATA_AW(DATA_AW), .E(E)
++    .SW(N_CH*SW), .S_AW(S_AW), .DATA_AW(DATA_AW), .E(E)
+   ) i_stage (
+     .clk_i(adc_clk_i), .rstn_i(adc_rstn_i), .flush_i(flush),
+     .win_len_i(win_len),
+@@ -184,7 +184,7 @@
+   wire        no_credit, err_slot_ovf;
+ 
+   event_slot_writer #(
+-    .SW(SW), .S_AW(S_AW), .N_CH(N_CH)
++    .SW(N_CH*SW), .S_AW(S_AW), .N_CH(N_CH)
+   ) i_writer (
+     .clk_i(adc_clk_i), .rstn_i(adc_rstn_i), .flush_i(flush), .clr_cnt_i(flush),
+     .slot_shift_i(slot_shift),

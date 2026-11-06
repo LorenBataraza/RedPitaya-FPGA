@@ -1,0 +1,86 @@
+% Atribución de arribos: a qué contador va cada disparo, con las ranuras.
+% El detector (flanco de trig_i, sostenido hasta la muestra válida siguiente) y
+% la cadena if / else-if que reparte cada disparo en exactamente un casillero.
+% Fuente: modulos/mca/rtl/mca_window.sv ("El disparo" y los contadores).
+% Compilar:   pdflatex tm_arribos.tex && pdftocairo -svg tm_arribos.pdf tm_arribos.svg
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../../figuras/estilo_tikz.tex}
+\usetikzlibrary{circuits.logic.US}
+\tikzset{cuenta/.style = {bloque=grisr, text width=2.9cm, minimum height=0.62cm}}
+
+\begin{document}
+\begin{tikzpicture}[fondo, circuit logic US]
+
+\node[anchor=west, font=\small] at (-0.6,2.6)
+  {\textbf{Atribución de arribos: a qué contador va cada disparo}};
+
+% ===================================================== detector del disparo ===
+\node[registro] (tq) at (0.5,-0.55) {\texttt{trig\_q}};
+\node[and gate, inputs={ni}, logic gate input sep=0.25cm,
+      minimum height=0.8cm, draw, line width=0.6pt] (fl) at (2.0,0.65) {};
+\draw[line width=0.6pt] (-0.55,0.775) node[sen, left] {trig\_i} -- (fl.input 1);
+\draw[line width=0.6pt] (-0.25,0.775) |- (tq.west);
+\punto{-0.25,0.775}
+\draw[line width=0.6pt] (tq.east) -| (1.35,0.525) -- (fl.input 2);
+\node[sen, above] at (2.95,0.65) {flanco};
+\node[registro, text width=1.5cm] (pd) at (3.0,-0.9) {\texttt{trig\_pend}\\[-1pt]\tiny flanco sin val};
+\draw[line width=0.6pt] (fl.output) -- (3.45,0.65);
+\punto{2.55,0.65}
+\draw[line width=0.6pt] (2.55,0.65) |- (pd.west);
+\node[or gate, inputs={nn}, logic gate input sep=0.25cm,
+      minimum height=0.8cm, draw, line width=0.6pt] (or) at (4.1,0.525) {};
+\draw[line width=0.6pt] (3.45,0.65) -- (or.input 1);
+\draw[line width=0.6pt] (pd.east) -| (3.7,0.4) -- (or.input 2);
+\node[and gate, inputs={nnn}, logic gate input sep=0.22cm,
+      minimum height=0.8cm, draw, line width=0.6pt] (an) at (5.5,0.5) {};
+\draw[line width=0.6pt] (or.output) -- (an.input 1);
+\draw[line width=0.6pt] (an.input 2) -- ++(-0.35,0) |- (4.6,-0.35) node[sen, below] {val};
+\draw[line width=0.6pt] (an.input 3) -- ++(-0.15,0) |- (5.2,-0.75) node[sen, below] {run};
+\draw[flujo] (an.output) -- (6.95,0.5);
+\node[sen, above] at (6.4,0.5) {disparo};
+\node[nodo, align=left, anchor=north west, text width=5.2cm] at (-0.45,-1.75)
+  {Por \textbf{flanco}: un trigger que dura varios ciclos es un solo disparo. Si
+   cae entre dos muestras válidas espera a la siguiente (\texttt{trig\_pend}); si
+   cae en una muestra válida se usa ahí y no deja pendiente, porque si no el
+   mismo trigger abriría dos ranuras.};
+
+% ======================================================== la cadena ==========
+\node[cuenta] (ccross) at (10.3,0.85) {\etq{cnt\_cross}{\texttt{0x0EC} · todos}};
+\draw[flujo] (6.95,0.5) -- (7.4,0.5) |- node[sen, above, pos=0.75] {+1} (ccross.west);
+\coordinate (top) at (7.4,0.5);
+\punto{top}
+
+\node[pregunta=2.4cm] (q1) at (7.4,-0.4) {veto\_i};
+\node[pregunta=2.4cm] (q2) at (7.4,-1.45) {alguna libre};
+\node[pregunta=2.4cm] (q3) at (7.4,-2.5) {alguna esperando\\ publicar};
+\coordinate (q4) at (7.4,-3.55);
+\draw[flujo] (top) -- (q1.north);
+\draw[flujo] (q1.south) -- node[no] {no} (q2.north);
+\draw[flujo] (q2.south) -- node[no] {no} (q3.north);
+\draw[line width=0.8pt] (q3.south) -- node[no] {no} (q4);
+
+\node[cuenta] (c1) at (10.3,-0.4)  {\etq{cnt\_lost\_veto}{\texttt{0x0F8} · se pidió}};
+\node[cuenta, fill=verde!55] (c2) at (10.3,-1.45) {\etq{cnt\_open}{\texttt{0x0B4} · abre la libre de menor índice}};
+\node[cuenta, fill=amarillo] (c3) at (10.3,-2.5) {\etq{cnt\_lost\_busy}{\texttt{0x064} (en \texttt{dropped})}};
+\node[cuenta] (c4) at (10.3,-3.55) {\etq{cnt\_lost\_active}{\texttt{0x0F4} · todas midiendo}};
+\draw[flujo] (q1.east) -- node[si] {sí} (c1.west);
+\draw[flujo] (q2.east) -- node[si] {sí} (c2.west);
+\draw[flujo] (q3.east) -- node[si] {sí} (c3.west);
+\draw[flujo] (q4) -- (c4.west);
+
+\node[grupo, fit={(-0.75,2.15) (12.0,-4.15)}] (g) {};
+\node[rotulo, anchor=north east] at (g.north east) {\texttt{mca\_window}};
+
+% ================================================================ invariante
+\node[draw=black, line width=0.8pt, rounded corners=3pt, fill=white, inner sep=5pt,
+      align=center, font=\scriptsize] at (5.6,-4.95)
+  {\texttt{cnt\_cross = cnt\_open + cnt\_lost\_active + cnt\_lost\_busy + cnt\_lost\_veto}\\[2pt]
+   en todo ciclo \quad {\itshape(assertion \texttt{ap\_atribucion\_arribos})} \quad
+   mismo orden que el teselado del tiempo};
+
+\end{tikzpicture}
+\end{document}

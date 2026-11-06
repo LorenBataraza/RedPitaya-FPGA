@@ -44,7 +44,7 @@
 \fill[black!3] (-0.2,0.3)    rectangle (16.4,-4.55);
 \fill[black!7] (-0.2,-4.55)  rectangle (16.4,-8.35);
 \fill[black!3] (-0.2,-8.35)  rectangle (16.4,-11.55);
-\node[parte] at (0.0,0.1)   {Pipeline de adquisición\quad\normalfont colas};
+\node[parte] at (0.0,0.1)   {Pipeline del osciloscopio\quad\normalfont colas};
 \node[donde] at (16.2,0.1)  {en la placa · \texttt{API/osciloscope\_store/}};
 \node[parte] at (0.0,-4.75) {Servidor\quad\normalfont un lock};
 \node[donde] at (16.2,-4.75){en la placa · \texttt{app/mca\_server.py}};
@@ -53,12 +53,12 @@
 
 % ============================================================ pipeline ===
 \node[recurso] (src) at (\xA,-1.95) {\blk{EventSource}{el scope}};
-\node[hilo]    (rd)  at (\xB,-1.95) {\blk{mca-reader}{único que toca el scope}};
+\node[hilo]    (rd)  at (\xB,-1.95) {\blk{osc-reader}{único que toca el scope}};
 \node[cola]    (fq)  at (\xC,-1.65) {};
 \node[cola]    (frq) at (\xC,-2.25) {};
 \node[sen, above=1pt of fq]  {full\_q};
 \node[sen, below=1pt of frq] {free\_q};
-\node[hilo]    (wr)  at (\xD,-1.95) {\blk{mca-writer}{un \texttt{.npz} por batch}};
+\node[hilo]    (wr)  at (\xD,-1.95) {\blk{osc-writer}{un \texttt{.npz} por batch}};
 \node[recurso] (dir) at (\xE,-1.95) {\blk{run\_dir/}{\texttt{chunk\_*.npz}}};
 \node[grupo, fit={(\xC-0.85,-0.95) (\xC+0.85,-2.95)}] (pool) {};
 \node[rotulo, anchor=south] at (pool.north) {pool fijo de batches};

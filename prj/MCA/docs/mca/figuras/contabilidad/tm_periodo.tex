@@ -1,0 +1,100 @@
+% Distribución del período muerto: los tres escalares de 0x0E0-0x0E8.
+% Un período muerto es un tramo contiguo de ciclos con `bloqueado`; la lógica
+% mide su largo y deja la cuenta, el máximo y cuántos tuvieron un arribo.
+% Fuente: modulos/mca/rtl/mca_top.sv ("Distribución del período muerto").
+% Compilar:   pdflatex tm_periodo.tex && pdftocairo -svg tm_periodo.pdf tm_periodo.svg
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../../figuras/estilo_tikz.tex}
+\usetikzlibrary{circuits.logic.US}
+\tikzset{
+  cuenta/.style = {bloque=grisr, text width=3.7cm, minimum height=0.75cm},
+  puerta/.style = {draw, line width=0.6pt, minimum height=0.8cm,
+                   logic gate input sep=0.22cm},
+}
+
+\begin{document}
+\begin{tikzpicture}[fondo, circuit logic US]
+
+\node[anchor=west, font=\small] at (-1.8,2.55)
+  {\textbf{Distribución del período muerto: cuántos, el más largo, cuántos con arribo}};
+
+% ================================================================ bloqueado
+\node[or gate, inputs={nn}, puerta] (or) at (1.2,1.0) {};
+\foreach \s [count=\i] in {dt\_win, dt\_div}
+  \draw[line width=0.6pt] (or.input \i) -- ++(-0.75,0) node[sen, left] {\s};
+\node[and gate, inputs={nni}, puerta] (and) at (2.9,0.5) {};
+\draw[line width=0.6pt] (or.output) -- (2.15,1.0) |- (and.input 1);
+\draw[line width=0.6pt] (and.input 2) -- (0.45,0.5) node[sen, left] {run};
+\draw[line width=0.6pt] (and.input 3) -- (0.45,0.28) node[sen, left] {veto\_i};
+\draw[line width=0.8pt] (and.output) -- (4.9,0.5);
+\node[sen, above] at (3.95,0.5) {bloqueado};
+\node[nodo, align=left, anchor=north west] at (-0.85,-0.05)
+  {sin ranura libre: los mismos ciclos\\ que suman \texttt{t\_win + t\_div}, así que\\
+   la suma de los $L$ cierra con los relojes};
+
+% ===================================================== flanco de subida y bajada
+\node[registro] (bq) at (4.3,-0.35) {\texttt{bloq\_q}};
+\draw[line width=0.6pt] (3.75,0.5) |- (bq.west);
+\punto{3.75,0.5}
+\node[etapa, text width=3.75cm, align=left] (fl) at (7.05,-0.2)
+  {\texttt{subida = bloqueado $\wedge$ !bloq\_q}\\[2pt]
+   \texttt{bajada = !bloqueado $\wedge$ bloq\_q}};
+\draw[line width=0.6pt] (4.9,0.5) |- ([yshift=0.15cm]fl.west);
+\draw[line width=0.6pt] (bq.east) -- ([yshift=-0.15cm]fl.west);
+
+% ================================================================ registros
+\node[cuenta] (dl) at (12.3,1.55)
+  {\etq{dead\_len}{32 b · interno\\ subida: $\leftarrow 1$ · bloqueado: $+1$ (satura)}};
+\node[cuenta] (np) at (12.3,0.4)
+  {\etq{cnt\_dead\_periods}{\texttt{0x0E0} · $+1$ en subida}};
+\node[cuenta] (mx) at (12.3,-0.75)
+  {\etq{max\_dead\_len}{\texttt{0x0E4} · en bajada:\\ máx(\texttt{max\_dead\_len}, \texttt{dead\_len})}};
+
+\draw[ctrl] (4.9,0.5) |- node[sen, above, pos=0.75, black] {bloqueado} ([yshift=0.15cm]dl.west);
+\punto{4.9,0.5}
+\draw[flujo] ([yshift=0.15cm]fl.east) -- node[sen, above] {subida} (9.75,-0.05)
+  |- ([yshift=-0.15cm]dl.west);
+\draw[flujo] (9.75,0.4) -- (np.west);
+\punto{9.75,0.4}
+\draw[flujo] ([yshift=-0.15cm]fl.east) -- node[sen, below, pos=0.4] {bajada} (10.05,-0.35)
+  |- (mx.west);
+\draw[ctrl] (dl.east) -- ++(0.3,0) |- node[sen, right, pos=0.25, black] {dead\_len} (mx.east);
+
+% ============================================== períodos con un arribo adentro
+\node[and gate, inputs={nni}, puerta] (ax) at (7.4,-2.4) {};
+\draw[line width=0.6pt] (3.75,0.5) -- (3.75,-2.18) -- (ax.input 1);
+\draw[line width=0.6pt] (ax.input 2) -- (0.45,-2.4) node[sen, left] {arribo};
+\node[nodo, anchor=north east] at (0.45,-2.5) {(el disparo de \texttt{trig\_i})};
+\node[registro, text width=3.3cm, align=left] (ev) at (10.6,-3.75)
+  {\texttt{ext\_visto}\\[-1pt]\tiny 1 al contar; 0 en subida y en bajada};
+\node[cuenta] (ne) at (12.3,-2.4)
+  {\etq{cnt\_dead\_ext}{\texttt{0x0E8} · $+1$ por período}};
+\draw[flujo] (ax.output) -- node[sen, above, pos=0.35] {dead\_ext\_now} (ne.west);
+\draw[line width=0.6pt] (8.6,-2.4) |- (ev.west);
+\punto{8.6,-2.4}
+\draw[line width=0.6pt] (ev.east) -- ++(0.25,0) |- (6.55,-4.55) |- (ax.input 3);
+\node[nodo, align=left, anchor=north west] at (-0.4,-3.3)
+  {cuenta \textbf{períodos}, no arribos: uno con tres\\ arribos cuenta una vez. Cada uno es un pulso\\
+   perdido por falta de ranura};
+
+\node[grupo, fit={(-1.95,2.05) (14.5,-4.85)}] (g) {};
+\node[rotulo, anchor=south east] at (g.south east) {\texttt{mca\_top}};
+
+% ============================================ lo que hace con eso el software
+\node[draw=black, line width=0.8pt, rounded corners=3pt, fill=white, inner sep=5pt,
+      align=left, font=\scriptsize, anchor=north west, text width=15.9cm] at (-1.95,-5.1)
+  {\textbf{El software} (\texttt{API/mca.py}) no ajusta ninguna curva:\\[2pt]
+   \quad $E[L] = (\texttt{t\_win} + \texttt{t\_div}) / \texttt{cnt\_dead\_periods}$\\[1pt]
+   \quad fracción de períodos con arribo $= \texttt{cnt\_dead\_ext} / \texttt{cnt\_dead\_periods}$\\[2pt]
+   \textbf{Una ranura}: cada período dura $\tau = \texttt{gate\_larga} + 1 + 18$ ciclos, sin
+   dispersión, así que \texttt{max\_dead\_len} $= E[L]$.\\
+   \textbf{Varias}: un período arranca al ocuparse la última libre y termina al liberarse
+   alguna; dura menos que una ventana y su largo varía. La ocupación (\texttt{t\_ocup[j]})
+   da la distribución de Erlang completa.};
+
+\end{tikzpicture}
+\end{document}

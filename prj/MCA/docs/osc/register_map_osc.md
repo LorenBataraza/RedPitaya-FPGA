@@ -206,7 +206,7 @@ por canal** a `mt_cfg`, donde se OR-ea con el registro propio:
 
 El resto de los registros del multitrigger (`0x210`, `0x214`, `0x218`, `0x21C`,
 `0x240`–`0x24C`) **no** tiene puente: `librp` no los conoce, son propios del
-proyecto. Ahí sólo hay que reapuntar el driver de Python al slot 3.
+proyecto. `API/multitrigger.py` ya habla con el slot 3.
 
 ---
 

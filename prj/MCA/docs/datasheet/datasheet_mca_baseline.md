@@ -28,20 +28,21 @@
 >
 > Es la decision D3 (cfg_bl_auto) de la vista general
 > (docs/mca/vista_general_mca.md). Las dos opciones conviven y la salida es un
-> REGISTRO: mca_window la resta de la muestra (x = dat - base) y compara contra
-> los umbrales, asi que los umbrales del MCA son siempre relativos a la base.
+> REGISTRO: mca_window la resta de la muestra (x = dat - base), y todo lo que
+> acumulan las ranuras es relativo a la base.
 >
 > LÍNEA DE BASE. Seguidor IIR  bl_acc += x - (bl_acc >> k),  bl = bl_acc >> k.
 > El acumulador es ancho a propósito: con la forma ingenua `bl += (x-bl)>>k`
 > el incremento se cuantiza a cero cuando |x-bl| < 2^k y el seguidor se
-> congela. Se congela durante el pulso Y durante cfg_bl_holdoff muestras
-> después: si se descongelara al cruzar la histéresis hacia abajo, agarraría
-> el undershoot de la cola y arrastraría la base hacia el lado equivocado.
+> congela. Se congela mientras haya una ventana abierta Y durante
+> cfg_bl_holdoff muestras después de cada cierre: si siguiera apenas cierra la
+> compuerta, agarraría la cola y el undershoot del pulso y arrastraría la base
+> hacia el lado equivocado.
 >
 > QUIEN DECIDE CUANDO SEGUIR es la ventana: track_i, hold_load_i y stale_set_i
-> salen de mca_window porque dependen de su estado. La resta x = dat - base NO
-> esta aca sino alla, en el mismo modulo que los umbrales: es el comienzo del
-> camino critico del bitstream, y el sintetizador no aplana jerarquia.
+> salen de mca_window porque dependen del estado de las ranuras. La resta
+> x = dat - base NO esta aca sino alla, junto al registro que la reparte a las
+> ranuras: el sintetizador no aplana jerarquia.
 <!-- /AUTO:resumen -->
 
 <!-- AUTO:prosa -->
@@ -105,9 +106,9 @@ pulso, no al cruzar la histéresis, para no agarrar el undershoot de la cola
 
 | Puerto | Dir | Bits | Signo | Dominio | Descripción |
 |---|---|---|---|---|---|
-| `track_i` | in | 1 |  | clk_i | reposo y sin abrir en este flanco |
+| `track_i` | in | 1 |  | clk_i | ninguna ventana sobre esta muestra |
 | `hold_load_i` | in | 1 |  | clk_i | cierre: arranca el holdoff |
-| `stale_set_i` | in | 1 |  | clk_i | pulso abierto sin muestras desde hace maxlen |
+| `stale_set_i` | in | 1 |  | clk_i | ventana vencida sin muestras |
 | `baseline_o` | out | 14 `[DW-1:0]` | signed | clk_i |  |
 | `baseline_stale_o` | out | 1 |  | clk_i |  |
 <!-- /AUTO:interfaces -->
@@ -250,7 +251,7 @@ python3 docs/mca/figuras/ondas/ondas_mca.py    # regenerar
 Todo corre en batch y se chequea el `RESULT: PASS` del testbench; las ondas quedan en `work/waves/<tb>.wlf`.
 
 ```bash
-make -C modulos/mca/work            # los 7 testbenches
+make -C modulos/mca/work            # los 8 testbenches
 make -C modulos/mca/work cov        # + cobertura
 make -C modulos/mca/work lint
 ```
@@ -261,18 +262,19 @@ make -C modulos/mca/work lint
 | [`tb_mca_hist`](../../modulos/mca/sim/tb_mca_hist.sv) | `mca_hist` | 8 | 31 | vectores a mano |  |
 | [`tb_mca_zoom`](../../modulos/mca/sim/tb_mca_zoom.sv) | `mca_zoom` | 5 | 11 | vectores a mano |  |
 | [`tb_mca_discriminator`](../../modulos/mca/sim/tb_mca_discriminator.sv) | `mca_discriminator` | 7 | 21 | vectores a mano |  |
-| [`tb_mca_pulse_feature`](../../modulos/mca/sim/tb_mca_pulse_feature.sv) | `mca_pulse_feature` | 17 | 161 | vectores a mano |  |
-| [`tb_mca_pulse_feature_eq`](../../modulos/mca/sim/tb_mca_pulse_feature_eq.sv) | `mca_pulse_feature_eq` | — | — | RTL de referencia `mca_pulse_feature_ref.v` instanciado al lado del DUT |  |
-| [`tb_mca_top`](../../modulos/mca/sim/tb_mca_top.sv) | `mca_top` | 9 | 82 | vectores a mano |  |
+| [`tb_mca_trap`](../../modulos/mca/sim/tb_mca_trap.sv) | `mca_trap` | — | — | vectores a mano |  |
+| [`tb_mca_multi`](../../modulos/mca/sim/tb_mca_multi.sv) | `mca_multi` | — | — | vectores a mano |  |
+| [`tb_mca_pulse_feature_evt`](../../modulos/mca/sim/tb_mca_pulse_feature_evt.sv) | `mca_pulse_feature_evt` | — | — | RTL de referencia `mca_pulse_feature_ref.v` instanciado al lado del DUT |  |
+| [`tb_mca_top`](../../modulos/mca/sim/tb_mca_top.sv) | `mca_top` | 11 | 121 | vectores a mano |  |
 
 
-**328 casos con nombre** en 7 testbenches (52 escenas). La lista completa, caso por caso, está en el plan de verificación.
+**206 casos con nombre** en 8 testbenches (37 escenas). La lista completa, caso por caso, está en el plan de verificación.
 
 > **`mca_baseline` no tiene testbench propio.** Ningún `TBS` del `work/Makefile` lo instancia como DUT: lo que se verifica de este módulo es lo que arrastre el TB de otro. Es deuda de verificación, no una omisión de esta página.
 
 **Assertions** — en `sim/sva/`, enganchadas por `bind` (no tocan el RTL sintetizable).
 
-- [`mca_top_sva.sv`](../../modulos/mca/sim/sva/mca_top_sva.sv) — 64 propiedades
+- [`mca_top_sva.sv`](../../modulos/mca/sim/sva/mca_top_sva.sv) — 68 propiedades
 
 Plan de verificación, casos cubiertos y deuda: [`mca/sim/VERIFICACION.md`](../../modulos/mca/sim/VERIFICACION.md).
 <!-- /AUTO:verificacion -->

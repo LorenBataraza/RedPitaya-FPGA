@@ -46,6 +46,25 @@ Tres propiedades que definen todo el diseño:
 3. **Un evento entra entero o no entra.** Medio evento en la DDR sería
    indistinguible de uno bueno del lado del PS.
 
+### Cómo se encuentra un evento
+
+![Buffer circular contra ring de slots](figuras/ring_vs_buffer.svg)
+
+Con un buffer circular, encontrar el evento es trabajo del PS: el hardware deja un
+solo puntero, `wp_trig`, y el PS tiene que restarle `pre`, resolver la vuelta del
+buffer y leer canal por canal. Es **un puntero por armado**, tanto en la BRAM
+(`rp_bram_sm`) como en la captura continua a DDR (`rp_axi_sm`). Los demás pulsos
+que hayan quedado en el buffer no tienen ninguno: habría que buscarlos por umbral
+en software.
+
+En el ring ese trabajo desaparece por diseño. Cada evento ocupa un slot de tamaño
+fijo, la dirección sale de `seq`, y dentro del slot todo está en offsets fijos: la
+ventana no da la vuelta, el trigger es siempre la muestra `pre`, y `ts` y
+`snapshot` vienen en la cabecera.
+
+Lo que el ring **no** da es lo que queda fuera de las ventanas: la señal entre
+eventos y los pulsos sin trigger. Para mirar eso sigue estando la captura en BRAM.
+
 ---
 
 ## 2. `event_window_capture` — de trigger a stream
@@ -91,7 +110,7 @@ frágil; el flanco no. Regresión: `tb_event_window_capture` test [7].
 
 ### 2.3 Una sola memoria para el pre y el post
 
-El pre-trigger vive en un buffer circular de `2^PRE_AW = 512` palabras que **se
+El pre-trigger vive en un buffer circular de `2^PRE_AW = 2048` palabras que **se
 escribe siempre** mientras `run_i`, pase lo que pase con la FSM de lectura. Si
 dejara de escribirse durante el drenaje, el pre-trigger del evento siguiente
 tendría un hueco.
@@ -116,10 +135,19 @@ durante el "post" el lector va detrás del escritor y consume lo que va llegando
 > ```
 >
 > Si ese número llegara a `2^PRE_AW`, el escritor pisaría datos que el lector no
-> leyó todavía, **en silencio**. Con la geometría por defecto
-> (`pre=8, post=24, N_CH=2`) da 40 contra 512: casi 13× de margen. Pero `S_AW=11`
-> permite configurar ventanas de hasta 2047 muestras, y **el RTL no verifica esta
-> condición**. Es el límite a respetar si se agrandan `PRE`/`POST`.
+> leyó todavía, **en silencio**: **el RTL no verifica esta condición**. `RingSource`
+> sí, y rechaza la geometría con un `ValueError`.
+>
+> `PRE_AW = 11` es lo que hace falta para ventanas de **1024 muestras**: con dos
+> canales la condición es `pre + (pre + post) < 2048`, así que entran con cualquier
+> `pre` hasta 1023. Medido en simulación con una rampa
+> (`figuras/tiempos/ventana_max.txt`), el borde es exacto: con `2·pre + post = 2047`
+> sale limpia, y con 2048 aparece un salto por evento. Lo cubre
+> `tb_event_ring_ventana`, que falla si se vuelve a `PRE_AW = 9`.
+>
+> Una ventana de 1024 no entra en un slot de 4 KB, porque con la cabecera y el
+> footer ocupa 4136 B: necesita 8 KB, y la mitad queda de relleno. Hasta 1014
+> muestras (4096 B justos) alcanza con 4 KB.
 
 ### 2.4 La FSM
 
@@ -137,16 +165,22 @@ stateDiagram-v2
     ST_TAIL --> ST_IDLE: (trig_edge → drop_busy++)
 ```
 
-El tiempo muerto **intrínseco del PL** es la duración de `ST_DRAIN` + `ST_TAIL`:
+El tiempo muerto **de la captura** es la duración de `ST_DRAIN` + `ST_TAIL`. Medido
+en simulación con la ventana por defecto:
 
 ```
-(pre + post)·N_CH + 1  ciclos  =  65 ciclos  =  520 ns   (S=32, N_CH=2, 125 MHz)
+(pre + post)·N_CH + 2  ciclos  =  66 ciclos  =  528 ns   (S=32, N_CH=2, 125 MHz)
 ```
 
-o sea un techo de ~1.9 Mev/s del lado del hardware, contra los 3.96 kev/s del
-camino original. (La cabecera del módulo dice "~256 ns con S=32"; ese número
-olvida el factor `N_CH` de la serialización. El valor correcto es 512 ns de
-drenaje.)
+o sea un techo de ~1.9 Mev/s para este bloque, contra los 3.96 kev/s del camino
+original. **No es el techo del ring**: el writer tarda más, sobre todo con slots
+que llevan relleno, ver §4.5. (La
+cabecera del módulo dice "~256 ns con S=32"; ese número olvida el factor `N_CH` de
+la serialización.)
+
+La ventana cuesta el doble de lo que dura, porque dos canales salen de a una
+muestra de 16 b por ciclo. Y las ventanas no se solapan: un trigger durante el
+drenaje no abre otra, se cuenta en `drop_busy`.
 
 ### 2.5 El handshake de aceptación, y por qué es en el SOF
 
@@ -206,6 +240,11 @@ el N.
 El writer las consume **desacopladas**: primero lee el metadato para armar la
 cabecera, después drena las muestras.
 
+Con ventanas de 1024 muestras entran solo dos eventos, porque cada uno ocupa 2048
+palabras. `DATA_AW = 13` devolvería los cuatro, pero no paga sus 2 RAMB36: con la
+ventana de 1024 y el tren de §4.5, guarda lo mismo hasta 100 kcps y como mucho 1 k/s
+más por encima (`figuras/tiempos/stage_8192/poisson.txt`).
+
 ### El metadato se publica en el EOF, no en el SOF
 
 ```verilog
@@ -253,8 +292,8 @@ stateDiagram-v2
 
     W_IDLE --> W_HDR: s_meta_val & credit_ok & !s_meta_rd
     W_HDR --> W_DATA: hdr_idx == 3
-    W_DATA --> W_PAD: samp_left == 0
-    W_DATA --> W_FOOT: word_idx >= slot_words-1<br/>(err_slot_ovf, geometria mal)
+    W_DATA --> W_PAD: no falta nada del evento
+    W_DATA --> W_FOOT: falta algo & word_idx >= slot_words-1<br/>(err_slot_ovf, geometria mal)
     W_PAD --> W_FOOT: word_idx == slot_words-1
     W_FOOT --> W_DONE: palabra aceptada
     W_DONE --> W_IDLE: !wr_val_o
@@ -262,19 +301,46 @@ stateDiagram-v2
 
 ### 4.2 El empaquetado
 
-Cuatro muestras de 16 b por palabra de 64, entrando por arriba:
+Cuatro muestras de 16 b por palabra de 64, entrando por arriba. Las tres primeras se
+guardan y la cuarta sale directo:
 
 ```verilog
-acc <= {s_dat_i, acc[63:16]};
+acc      <= {entra, acc[47:16]};   // muestras 1 a 3
+wr_dat_o <= {entra, acc};          // la cuarta completa la palabra
 ```
 
 La primera muestra queda en `[15:0]` — *little-endian*, para que el PS haga un
 `np.frombuffer(..., '<i2')` directo, sin reordenar nada. Si la ventana no es
 múltiplo de 4, la última palabra se completa con ceros por el mismo camino.
 
-El pipeline es de un ciclo: `s_dat_rd_o` pide, `rd_d` marca que el dato del stage
-ya está disponible. Esa asimetría es la que obliga a los tres caminos del `case`
-de `W_DATA` (emitir, absorber, pedir).
+`W_DATA` pide una muestra por ciclo y arma una palabra cada 4:
+
+| ciclo | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| pide al stage | ● | ● | ● | ● | ● | ● | ● | ● | ● | ● |
+| llega la muestra | | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 |
+| sale la palabra | | | | | | **P1** | | | | **P2** |
+
+Entre pedir y recibir hay dos ciclos, así que puede haber muestras en camino cuando
+el `axi_wr_fifo` deja de aceptar. Por eso rige una regla: **la muestra que completa
+una palabra solo se pide con la salida libre**. Hasta que esa muestra llegue no puede
+salir otra palabra, así que la salida sigue libre y no hace falta otro registro.
+
+```verilog
+wire [2:0] pedidas = pack_cnt + s_dat_rd_o + rd_d;   // recibidas + en camino
+wire       cierra  = (pedidas == 3'd3);              // la próxima completa la palabra
+if (samp_left != 0 && (!cierra || salida_libre)) ... // pedir
+```
+
+Con `wr_rdy = 0` durante cinco ciclos, se frena con tres muestras guardadas y sin
+perder ninguna:
+
+| ciclo | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 |
+|---|---|---|---|---|---|---|---|---|---|
+| `wr_rdy` | 0 | 0 | 0 | 0 | 0 | 1 | 1 | 1 | 1 |
+| salida | P1 | P1 | P1 | P1 | P1 | P1 | | | P2 |
+| pide al stage | ● | ● | | | | | ● | ● | ● |
+| llega la muestra | 5 | 6 | 7 | | | | | 8 | 9 |
 
 ### 4.3 Dos guardas que no son opcionales
 
@@ -297,12 +363,68 @@ if (s_meta_val_i && credit_ok_i && !s_meta_rd_o) ...
 La contrapresión sube al stage, y de ahí a la captura, que descarta el evento
 **entero** y lo cuenta. Descartar a mitad de slot dejaría basura en la DDR.
 
+### 4.5 Cuánto tarda cada etapa
+
+![Una ráfaga por el ring, a escala](figuras/ring_tiempos.svg)
+
+La figura es la traza del RTL con una ráfaga de catorce triggers, uno cada 72 ciclos
+y uno más en medio de la primera ventana, con slots de 512 B. La captura da abasto,
+pero el writer tarda 120 ciclos por slot: el stage llega a `E = 4`, y tres triggers se
+pierden aunque el ring tenga lugar de sobra y AXI no frene nunca.
+
+Por evento, en la traza:
+
+| tramo | slot de 256 B | slot de 512 B |
+|---|---|---|
+| `W_HDR` | 4 | 4 |
+| `W_DATA`, 16 palabras | 67 | 67 |
+| `W_PAD` | 12 | 44 |
+| `W_FOOT` + `W_DONE` | 3 | 3 |
+| **por slot, con la vuelta a `W_IDLE`** | **88** | **120** |
+
+Las palabras de datos salen cada 4 ciclos, porque el stage da una muestra de 16 b por
+ciclo, y las de relleno, una por ciclo. Eso da unos 400 MB/s con slots a medio llenar
+y 250 MB/s con el slot justo. El techo depende de la ventana. Con un tren de Poisson,
+AXI ideal y créditos de sobra, o sea el mejor caso del lado de DDR:
+
+| ventana (`pre` + `post`) | dura | slot | ciclos: captura / writer | techo del writer | guardados a 10 / 30 / 100 / 300 / 1000 kcps (k/s) |
+|---|---|---|---|---|---|
+| 8 + 24 = 32 | 0.26 µs | 256 B | 66 / 88 | 1420 k/s | 10 / 30 / 95 / 257 / 644 |
+| 16 + 112 = 128 | 1.02 µs | 1 KB | 258 / 328 | 381 k/s | 10 / 27 / 80 / 183 / 317 |
+| 16 + 240 = 256 | 2.05 µs | 2 KB | 514 / 648 | 193 k/s | 10 / 26 / 68 / 133 / 190 |
+| 16 + 479 = 495 | 3.96 µs | 4 KB | 992 / 1264 | 99 k/s | 9 / 25 / 56 / 88 / 98 |
+| 16 + 998 = 1014 | 8.11 µs | 4 KB | 2030 / 2041 | 61 k/s | 9 / 20 / 38 / 51 / 57 |
+| 32 + 992 = 1024 | 8.19 µs | 8 KB | 2050 / 2568 | 49 k/s | 9 / 21 / 38 / 48 / 48 |
+
+El techo es 125 MHz dividido los ciclos del writer. Con trenes periódicos es exacto:
+con 32 muestras no se pierde nada desde 88 ciclos entre triggers (slot de 256 B) y
+desde 120 (slot de 512 B), y sí se pierde a 86 y a 118
+(`figuras/tiempos/periodico.txt`).
+
+Por debajo de esos techos, lo que más se pierde es `DROP_BUSY`, o sea el tiempo muerto
+de la captura. En todas las corridas el invariante cierra exacto,
+`EV_CNT + DROP_BUSY + DROP_FULL = 2000`, y la rampa llega sin saltos. Con 2000
+triggers por corrida, los porcentajes guardados valen con alrededor de un punto de
+error estadístico.
+
+A estos techos falta sumarles el PS, que acá no frena. Medido en placa, lee 512 B
+cada 2.31 µs en lote (~220 MB/s), sin contar lo que haga con los datos.
+
+Todo esto es simulación del RTL: **el writer actual no se probó en la placa**. Cómo se
+llegó a estos números, y qué más se podría acelerar, está en
+[`acelerar_writer.md`](acelerar_writer.md).
+
+Los números salen de [`figuras/tiempos/tb_ring_medir.sv`](figuras/tiempos/tb_ring_medir.sv),
+y sus resultados están en esa misma carpeta.
+
 ---
 
 ## 5. Los créditos
 
 Ésta es la pieza que reemplaza al "arm/congelar/re-armar", así que vale la pena
 ser explícito.
+
+![Los créditos, y dónde se frena y dónde se descarta](figuras/ring_creditos.svg)
 
 ### 5.1 Qué es un crédito acá
 
@@ -348,6 +470,14 @@ El PS publica `rd_slot` **una vez por batch**, no por evento. Publicarlo por
 evento devolvería el bus GP0 al camino crítico, que es exactamente lo que este
 diseño está sacando de ahí. Un batch de 128 slots devuelve 128 créditos con una
 sola escritura.
+
+![Un lote de lectura, con la PL escribiendo a la vez](figuras/ring_lote.svg)
+
+La figura sigue a `RingSource`: lee `WR_SLOT` una vez por lote para saber cuántos
+slots pedir, copia el bloque y valida cada footer sobre la copia. La lectura de
+`WR_SLOT` no reemplaza al footer: ese contador sube cuando el FIFO aceptó el footer,
+no cuando llegó a DDR. Si un footer todavía no llegó, se vuelve a pedir el bloque
+sin perder nada.
 
 ### 5.4 Los tres contadores se reinician JUNTOS
 
@@ -511,9 +641,8 @@ sys_wrdy_o <= ~&axi_wfill_lvl[3:1] && ~&axi_awfill_lvl[3:1];
 es decir, se corta cuando **cualquiera** de los dos se acerca a lleno.
 
 Ancho de banda: una palabra de 8 B por ciclo a 125 MHz ⇒ **1 GB/s** de techo. Un
-slot de 512 B son 64 ciclos, que es **exactamente** lo que tarda la captura en
-drenar una ventana de 32 muestras × 2 canales. Los dos lados del writer están
-balanceados por construcción; el ring usa ~5 % de la DDR a tasas realistas.
+slot de 512 B podría salir en 64 ciclos, pero el writer tarda 120 (§4.5), casi todo
+armando las palabras de datos. El límite es el writer, no el bus.
 
 ### 6.4 Por qué el commit es un footer y no el `BRESP`
 
@@ -546,10 +675,10 @@ El valor `{~seq, seq}` permite detectar una lectura vieja o rota comparando las
 dos mitades, sin depender de que "0" sea un valor especial (que en un ring recién
 limpiado no lo es).
 
-**La ventaja grande es del lado del PS**: no necesita leer **ningún** registro por
-GP0 en el lazo caliente. Polea el footer del próximo slot directamente en DDR, lo
-que es más rápido que una lectura de registro (2.3 µs) y saca el bus GP0 del
-camino crítico por completo. `WR_SLOT` queda como diagnóstico.
+**La ventaja grande es del lado del PS**: el footer se valida en DDR, sin leer un
+registro por evento. El diseño permite polear solo el footer; `RingSource` lee
+además `WR_SLOT` una vez por lote para saber cuánto pedir (2.3 µs repartidos entre
+todo el lote), así que GP0 sigue fuera del camino por evento.
 
 ### 6.5 Por qué slots de tamaño fijo y relleno con ceros
 
@@ -568,9 +697,9 @@ es, y se paga a propósito. Las razones, en orden de peso:
 3. **Acceso aleatorio y descarte.** Con registros de largo variable habría que
    parsear secuencialmente desde el principio; perder un slot arruinaría el resto
    del ring.
-4. **El costo no existe.** El ancho de banda sobra por un factor grande, y las
-   ráfagas alineadas a 128 B son más eficientes que ráfagas cortas de largo
-   irregular.
+4. **El costo es chico.** El relleno sale a una palabra por ciclo, contra 4 de las
+   muestras (§4.5), y las ráfagas alineadas a 128 B son más eficientes que ráfagas
+   cortas de largo irregular.
 
 Es la misma economía de los *descriptor rings* de una NIC: se paga memoria y
 ancho de banda para que la sincronización sea aritmética en vez de mensajes.
@@ -637,7 +766,7 @@ puede colgar el slot del bus. Es la lección directa del bug latente de
 | síntoma | registro | causa probable |
 |---|---|---|
 | `drop_busy` crece | `0x30` | tasa por encima del techo del PL: `(pre+post)·N_CH` ciclos por evento |
-| `drop_full` crece | `0x34` | el PS no drena, o `RING_SZ` es chico. Mirar `no_credit` |
+| `drop_full` crece | `0x34` | con `no_credit`: el PS no drena, o `RING_SZ` es chico. Sin `no_credit`: el writer no da abasto para esa tasa y esa ventana (§4.5) |
 | `no_credit` = 1 | `0x04[4]` | el writer está frenado esperando que el PS publique `RD_SLOT` |
 | `err_cfg` = 1 | `0x04[5]` | se intentó escribir geometría con la adquisición corriendo |
 | `err_slot_ovf` = 1 | `0x04[6]` | `SLOT_SHIFT` demasiado chico para `PRE+POST`: eventos truncados |
@@ -652,15 +781,20 @@ puede colgar el slot del bus. Es la lección directa del bug latente de
 - [`diseno_y_register_map.md`](diseno_y_register_map.md) — mapa de registros,
   layout del slot, resultados de la validación en placa y estado de *timing*.
 - [`salida_por_red.md`](salida_por_red.md) — qué hace el PS con los slots.
+- [`acelerar_writer.md`](acelerar_writer.md) — cómo se aceleró el writer y qué más se
+  podría hacer.
 - [`../osc/sistema_adquisicion_original.md`](../osc/sistema_adquisicion_original.md)
   — la máquina que esto reemplaza.
 - [`../bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) — el bus, el CDC y
   el contrato del `ack`.
 - [`../../software/../docs/mca/tiempo_muerto.md`](../../software/../docs/mca/tiempo_muerto.md)
   — los modelos de tiempo muerto y las mediciones.
-- RTL: [`event_window_capture.sv`](../../rtl/mine/event_ring/event_window_capture.sv),
-  [`event_stage_fifo.sv`](../../rtl/mine/event_ring/event_stage_fifo.sv),
-  [`event_slot_writer.sv`](../../rtl/mine/event_ring/event_slot_writer.sv),
-  [`event_ring_top.sv`](../../rtl/mine/event_ring/event_ring_top.sv).
+- RTL: [`event_window_capture.sv`](../../modulos/event_ring/rtl/event_window_capture.sv),
+  [`event_stage_fifo.sv`](../../modulos/event_ring/rtl/event_stage_fifo.sv),
+  [`event_slot_writer.sv`](../../modulos/event_ring/rtl/event_slot_writer.sv),
+  [`event_ring_top.sv`](../../modulos/event_ring/rtl/event_ring_top.sv).
+- Figuras: cada `figuras/ring_*.tex` dice en la cabecera cómo se compila.
+  `ring_tiempos.tex` lo genera `figuras/tiempos/figura_tiempos.py` desde la traza
+  de `tb_ring_medir.sv`, y la receta de la simulación está en la cabecera de ese TB.
 - AXI: `AMBA AXI3/AXI4 Protocol Specification` (ARM IHI 0022) — §A3.4 para el
   ordenamiento por ID, §A3.4.1 para la regla de las 4 KB.

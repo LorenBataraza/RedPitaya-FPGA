@@ -45,7 +45,7 @@
 \draw[flujo] (ts) -- node[sen, above] {os.replace} (fs);
 
 % ========================================================= los escritores ===
-\node[hilo] (wr) at (0,-0.6) {\blk{mca-writer}{un batch, un chunk}};
+\node[hilo] (wr) at (0,-0.6) {\blk{osc-writer}{un batch, un chunk}};
 \node[hilo] (ss) at (0,-1.95) {\blk{AcquisitionSession}{al cerrar}};
 \draw[flujo] (wr) -- (tn);
 \draw[flujo] (ss.east |- ts) -- (ts);

@@ -10,22 +10,186 @@ cual comparar:
    carga/pico), y **¿hace falta hardware nuevo o alcanza con el eje de forma que
    el RTL ya calcula?**
 
-Las dos reglas de ventana que se comparan acá —histéresis y compuertas fijas—
-están explicadas, con diagramas, en
-[`ventana_de_medicion.md`](ventana_de_medicion.md).
+El documento tiene dos partes. **La primera es la vigente**: el barrido sobre el
+MCA2 (las ranuras, el disparo del multitrigger, el trapecio y su banco). **La
+segunda es histórica**: el mismo estudio sobre el MCA1, con las dos reglas de
+ventana que ese mapa tenía; se conserva porque de ahí salió el diseño, y se
+reproduce con `--mapa MCA1`.
 
-**Corre en la PC, sin placa y sin datos medidos.** El estímulo es la misma forma
-semi-gaussiana de la campaña de referencia: `detector_pulse` con FWHM de 2 µs y
-cola τ = 186 muestras, la medida sobre 7054 pulsos reales.
+**Corre en la PC, sin placa y sin datos medidos.** Son predicciones, no mediciones:
+nada de esto se probó todavía en la placa.
 
 ```bash
-python3 test_pileup.py      # valida la réplica del RTL (~2 min)
-python3 montecarlo.py       # el barrido completo (~2 min)
-python3 graficar.py         # las seis figuras, sin re-simular
-python3 pico_vs_carga.py    # pico-vs-carga de dobles y triples (CR-RC^4)
+python3 montecarlo.py                # el barrido sobre el MCA2 (~20 min)
+python3 graficar.py                  # las figuras, sin re-simular
+python3 pico_vs_carga.py             # pico contra carga, con 1 y 4 ranuras (CR-RC^4)
+python3 -m pytest test_replica_mca2.py   # la réplica contra el RTL
+python3 montecarlo.py --mapa MCA1    # el barrido viejo
 ```
 
-## Resultado
+## El barrido sobre el MCA2
+
+**En corto:**
+
+- **Más ranuras dan más eventos, no más eventos buenos.** Con la integral, a
+  100 kcps, pasar de 1 a 4 ranuras lleva la pérdida de 19 % a 0, y los eventos
+  buenos se quedan en 34.6 kcps. Lo que se recupera son eventos contaminados.
+- **`F_SOLAPE` ve lo que `cnt_pileup` no veía:** marca el 37.6 % de los eventos,
+  cuando el 42 % tiene más de un pulso. Pero cortar por él cuesta la mitad del
+  fotopico.
+- **Lo que corrige es el trapecio:** en la misma semi-gaussiana, 63.5 kcps buenos
+  a 100 kcps, contra 34.6 de la integral.
+- **El banco con el disparo con polo-cero cambia de escala.** Con el pulso del
+  preamplificador, a 1 Mcps da **747 kcps buenos**; un trapecio solo con la
+  pendiente, 224. A 100 kcps el continuo es 0.5 % contra 9.8 %.
+
+### Qué se compara
+
+Dos pulsos, porque el banco no tiene sentido con el primero:
+
+- **La semi-gaussiana de la campaña**: FWHM de 2 µs, sube en ~100 muestras, cola
+  τ = 186. Es la de las mediciones que hay.
+- **El pulso del preamplificador**: sube en ~1 muestra, cola τ = 250. Es para el que
+  está pensado el banco ([`pruebas_banco_trapecios.md`](pruebas_banco_trapecios.md)):
+  con la semi-gaussiana no hay meseta para k = 8.
+
+| configuración | pulso | ranuras | disparo | estimador | compuerta |
+|---|---|---|---|---|---|
+| `r1`, `r2`, `r4` | semi-gaussiana | 1, 2, 4 | pendiente | integral | 384 |
+| `r4t` | semi-gaussiana | 4 | pendiente | trapecio k = 64, m = 256 | 384 |
+| `p4t` | preamplificador | 4 | pendiente | trapecio k = 64, m = 48 | 128 |
+| `banco` | preamplificador | 4 | polo-cero | banco 64/48, 32/24, 16/12, 8/8 | 112 |
+
+El disparo y el trapecio se ajustan a cada pulso con las mismas cuentas que en la
+placa; el banco sale de `mca_banco_config`. Ruido blanco de σ = 2.8 cuentas, base
+fija, 50 000 eventos por punto, nueve tasas de 1 kcps a 1 Mcps y los dos espectros
+fuente. Los números de abajo son del espectro de una línea (1920 cuentas). El
+realista cuenta lo mismo: a 1 Mcps, `banco` da 761 kcps y `p4t`, 219.
+
+### Eventos buenos por segundo
+
+**Bueno** es lo que sólo el Monte Carlo puede saber: el evento mide la amplitud
+verdadera del pulso que lo disparó con error menor que 1 %, con un piso de 4 cuentas
+para que el ruido de la forma corta no cuente como contaminación. Los marcados no
+cuentan como buenos. Es la cifra que importa, porque tiene en cuenta a la vez lo que
+se pierde y lo que se publica mal.
+
+| kcps incidentes | `r1` | `r2` | `r4` | `r4t` | `p4t` | `banco` |
+|---|---|---|---|---|---|---|
+| 20 | 16.3 | 16.3 | 16.2 | 18.3 | 19.5 | **20.0** |
+| 100 | 34.6 | 34.1 | 34.6 | 63.5 | 86.6 | **97.5** |
+| 200 | 22.8 | 23.3 | 23.2 | 80.6 | 149 | **191** |
+| 500 | 2.1 | 2.0 | 1.9 | 49.5 | 241 | **449** |
+| 1000 | 0.0 | 0.1 | 0.1 | 9.9 | 224 | **747** |
+
+![Pérdida por ranuras y eventos buenos](figuras/apilamiento/perdida_y_buenos.png)
+
+### A 100 kcps, espectro de una línea
+
+| | `r1` | `r4` | `r4t` | `p4t` | `banco` |
+|---|---|---|---|---|---|
+| disparos perdidos | 19.1 % | 0 | 0 | 0 | 0 |
+| eventos publicados | 37 664 | 46 686 | 46 681 | 49 210 | 49 742 |
+| con un solo pulso cerca (la verdad) | 71.3 % | 58.0 % | 58.3 % | 83.1 % | 85.1 % |
+| que el RTL marca (`F_SOLAPE ≠ 0`) | 20.8 % | 37.6 % | 37.3 % | 15.6 % | 14.5 % |
+| marcados por el banco | — | — | — | — | 1.2 % |
+| fotopico sobre la referencia | 0.477 | 0.480 | 0.695 | 0.878 | 0.978 |
+| continuo sobre el tope | 26.1 % | 39.5 % | 21.9 % | 9.8 % | 0.5 % |
+| L1 al espectro de referencia | 0.905 | 1.108 | 0.569 | 0.228 | 0.012 |
+| continuo cortando por `F_SOLAPE` | 12.3 % | 9.2 % | 7.1 % | 1.6 % | 0.5 % |
+| fotopico cortando por `F_SOLAPE` | 0.457 | 0.460 | 0.544 | 0.818 | 0.836 |
+
+Lo que hay que leer:
+
+**1. Las ranuras no corrigen, marcan.** De `r1` a `r4` la pérdida desaparece, se
+publican un 24 % más de eventos, y el espectro **empeora** (el continuo pasa de 26 %
+a 39.5 %). Es lo esperable: una ventana abierta sigue sumando la carga de lo que
+llegue, tenga o no otra ranura midiendo ese pulso. Los eventos buenos no cambian.
+
+**2. `F_SOLAPE` reemplaza al rechazo que no andaba.** En el MCA1, `cnt_pileup`
+marcaba menos del 0.45 % cuando el 40–47 % de los eventos tenía más de un pulso.
+Ahora marca el 37.6 % de un 42 %. Cortar por él baja el continuo de 39.5 % a 9.2 %,
+pero se lleva lo mismo que ya estaba perdido: el fotopico queda en 0.46. No puede
+ser mejor: lo que marca es que hubo otro disparo, y ese evento ya está contaminado.
+
+Lo que le queda abajo tiene dos orígenes: los pares a menos de ~90 muestras, que con
+esta forma la pendiente funde en un solo disparo (medido con dos pulsos de 1920: a 80
+muestras nunca da dos disparos, a 100 siempre), y la cola del pulso anterior, que no
+abre nada.
+
+**3. El eje de forma sigue sin alcanzar, y Q/pico ahora ve otra cosa.** `Q_cola/Q_tot`
+no rechaza nada con la integral (0 %). `Q/pico` con k = 3 baja el continuo de `r4` a
+10.5 % y el L1 a 0.280, rechazando el 85 % de los apilados, pero se lleva el 30 % de
+los "limpios". No son rechazos en falso: esos eventos tienen la cola del pulso
+anterior adentro. Medido con `r4` a 100 kcps, con el pulso anterior a 384–600 muestras
+el corte conserva el 0 %, a 900–1300 el 93 %, y de ahí en adelante el 100 %. El cociente
+está definido al 0.08 %, y la cola lo mueve más que eso aunque no haya otro pulso en
+la ventana. Es una definición de "limpio" más estricta que la del estudio del MCA1, y
+por eso esta tabla no es comparable con su columna de eficiencia.
+
+**4. El trapecio corrige lo que la ranura marca.** Con la misma semi-gaussiana y las
+mismas ranuras, `r4t` conserva 0.695 del fotopico contra 0.480, y casi duplica los
+eventos buenos. Sigue limitado por la forma: subir en ~100 muestras exige k + m = 320,
+y dos pulsos dentro de eso se funden.
+
+**5. Con un pulso rápido, el banco resuelve casi todo.** `banco` deja el fotopico en
+0.978 a 100 kcps y 0.764 a 1 Mcps, con un continuo de 5.3 %. Contra `p4t`, sobre el
+mismo pulso, la mejora es de las dos piezas juntas: el banco elige la forma que el
+vecino deja medir, y el polo-cero separa pares desde ~8 muestras y no se ciega en la
+cola. Lo que queda en el espectro es el pico suma: pares más cercanos que el disparo.
+A 1 Mcps queda marcado el 9.7 %, y del resto el 89.7 % mide bien.
+
+El otro estudio del banco, con otro modelo y otra señal, da 744 kcps a 1 Mcps con la
+saturación del ADC
+([`pruebas_banco_trapecios.md`](pruebas_banco_trapecios.md)). Allá las amplitudes son
+uniformes y el criterio es sobre la señal sin ruido, así que la coincidencia es de
+orden de magnitud, no una validación.
+
+**6. La pérdida por ranuras es la del modelo mientras la tasa es baja.** Con una
+ranura, Erlang B con la tasa de disparos da 0.3 % a 1 kcps (medido 0.3 %) y 1.6 % a
+5 kcps (medido 1.3 %). A 100 kcps sobreestima (23.2 % contra 19.1 %): el disparo funde
+los pulsos cercanos, y los que quedan no llegan como un proceso de Poisson. Para
+predecir la pérdida exacta hace falta simular sobre los disparos:
+`analisis.perdida_ranuras` coincide con la réplica dentro de 1 punto.
+
+### Por qué creerle a la réplica
+
+[`replica_mca2.py`](../../software/monte-carlo/replica_mca2.py) corre sobre el mismo
+estímulo que el RTL entero (`mt_top` + `mca_top`, como en el top), con
+[`sim/tb_mca2_volcado.sv`](../../sim/tb_mca2_volcado.sv).
+[`test_replica_mca2.py`](../../software/monte-carlo/test_replica_mca2.py) exige que dé,
+**bit a bit**, en 10 configuraciones y 2170 eventos:
+
+- los mismos flancos de `trig_i`, por pendiente y con polo-cero;
+- los mismos eventos, con las once features, incluidas `F_TRAP` y `F_FORMA`;
+- los mismos contadores y la misma ocupación por ranuras.
+
+Doce mutaciones a propósito en la réplica (la latencia del disparo, la comparación de
+los umbrales, qué forma gana, el recorte de `n_formas`, la ventana de una forma, su
+escala…) hacen fallar el test. Hay que volver a correr el volcado si cambia el RTL:
+`make -C prj/MCA/sim tb_mca2_volcado`.
+
+### Lo que no se modela
+
+- **El seguidor de línea de base**: la base es fija, como en el estudio del MCA1. El
+  corrimiento de la base a tasa alta no está.
+- **El ruido real**: blanco, de σ = 2.8. El correlacionado de
+  [`../ruido_del_sistema.md`](../ruido_del_sistema.md) no está.
+- **Que M esté bien ajustado**: el Monte Carlo usa el M exacto. Con 0.5 % de error el
+  banco deja de recuperar pulsos chicos sobre la cola de uno grande
+  ([`pruebas_banco_trapecios.md`](pruebas_banco_trapecios.md)).
+- **Cada grupo arranca con las ranuras libres**: el barrido renderiza por grupos
+  separados por un hueco, como el del MCA1. Afecta a ~1 evento por corte.
+
+## El barrido sobre el MCA1 (histórico)
+
+> Es del mapa anterior, con ventana por histéresis o por compuertas, y con `cnt_pileup`.
+> `python3 montecarlo.py --mapa MCA1` lo reproduce. El estímulo es la semi-gaussiana de
+> la campaña. Las dos reglas de ventana están en
+> [`ventana_de_medicion.md`](ventana_de_medicion.md). Lo que sigue sobre todo sirve para
+> entender por qué el MCA2 es como es.
+
+### Resultado
 
 A **100 kcps**, con el espectro de una línea, y con la banda del corte en k = 3σ:
 
@@ -44,7 +208,7 @@ misma: modo 0 con Q/pico saca el continuo de 10.4 % a **0.4 %** rechazando el
 
 Tres conclusiones, en orden de importancia:
 
-### 1. El rechazo de apilamiento que el RTL ya tiene no hace nada
+#### 1. El rechazo de apilamiento que el RTL ya tiene no hace nada
 
 A 100 kcps entre el **40 %** y el **47 %** de los eventos contiene más de un
 pulso, y `cnt_pileup` marca entre el **0.00 %** y el **0.45 %**. Los dos
@@ -60,7 +224,7 @@ distintas y las dos son medibles:
   bandera sólo se dispara cuando el PRIMER pulso es chico —con A = 200 la cola
   baja en la muestra 367 y ahí sí funciona—. Está en `test_pileup.py [3]`.
 
-### 2. El eje de forma que ya está en el hardware NO alcanza
+#### 2. El eje de forma que ya está en el hardware NO alcanza
 
 `Q_cola/Q_total` rechaza el 29.6 % de los apilados en modo 0 y **exactamente
 nada** en modo 1. El motivo se ve en `mapa_forma.png`: con `gate_short = 32`
@@ -75,7 +239,7 @@ Q/pico para que el cociente caiga en [0,1) y el divisor restaurador sirva sin
 cambios—. Cuesta un segundo divisor y 6 ciclos más de latencia, sobre un evento
 que ya dura cientos de muestras.
 
-### 3. Para trabajar a tasa alta conviene la ventana por histéresis, no las compuertas fijas
+#### 3. Para trabajar a tasa alta conviene la ventana por histéresis, no las compuertas fijas
 
 Esto **corrige la conclusión de la campaña anterior**, que se tomó a una sola
 tasa. Sin corregir, el modo 1 deforma menos (continuo 22.7 % contra 32.4 %),
@@ -98,7 +262,7 @@ O sea: lo que hace bueno al modo 1 para la resolución —que el largo no depend
 de la señal— es exactamente lo que lo deja ciego al apilamiento. La combinación
 que gana es **modo 0 + corte Q/pico**.
 
-## El corte hay que calibrarlo contra la amplitud
+### El corte hay que calibrarlo contra la amplitud
 
 `Q/pico` **no es constante**: en el modo 0 la ventana cierra cuando la cola cruza
 `thr − hyst`, o sea que su largo crece con el logaritmo de la amplitud, y el
@@ -119,7 +283,7 @@ k = 6 el L1 se mueve de 0.134 a 0.138 y el continuo residual de 0.53 % a 1.12 %.
 La separación es tan limpia que el corte no es sensible a dónde se ponga; k = 2
 ya da el 99.98 % de eficiencia.
 
-## El límite irreducible
+### El límite irreducible
 
 Ningún corte por forma puede sacar las **coincidencias exactas**: la suma de dos
 pulsos idénticos que llegan juntos **es** un pulso de la misma forma y el doble
@@ -146,7 +310,7 @@ eventos entran al pico suma y ahí se quedan: son el residuo en 3840 que se ve e
 La única forma de atacarlos es acortar el pulso, que es un problema de
 conformado y no de discriminación.
 
-## Qué valida el simulador, y qué no
+### Qué valida el simulador, y qué no
 
 La réplica vectorizada del RTL da **los mismos eventos, cuenta por cuenta**, que
 `estimadores.segmentar_rtl` e `integral_gates` —que a su vez ya están validadas
@@ -185,18 +349,24 @@ números absolutos:
 
 | Archivo | Qué es |
 |---|---|
-| `pileup.py` | funciones puras: forma, espectros fuente, arribos, render por grupos, réplica vectorizada del RTL en los dos modos, calibración del corte, métricas |
-| `test_pileup.py` | 10 bloques de validación. Sin placa, sin datos |
-| `montecarlo.py` | el barrido; guarda `.npz` + `resumen.json` en `software/datos/pileup_<fecha>/` |
-| `graficar.py` | las seis figuras del barrido, desde los `.npz` |
-| `pico_vs_carga.py` | Monte-Carlo pico-vs-carga de dobles y triples con las formas de Knoll |
+| `replica_mca2.py` | la réplica del MCA2: los dos disparos, las ranuras, el publicador y el banco |
+| `test_replica_mca2.py` | la réplica contra el RTL, evento por evento. Necesita el volcado de `datos_ref/` |
+| `volcado_mca2.py` | el estímulo del volcado, y cómo leer lo que devuelve el RTL |
+| `pileup.py` | funciones puras: forma, espectros fuente, arribos, render por grupos, calibración del corte, métricas, y la réplica vectorizada del MCA1 en sus dos modos |
+| `test_pileup.py` | 10 bloques de validación de la réplica del MCA1. Sin placa, sin datos |
+| `montecarlo.py` | el barrido (MCA2, o `--mapa MCA1`); guarda `.npz` + `resumen.json` en `software/datos/pileup_<fecha>/` |
+| `graficar.py` | las figuras del barrido, desde los `.npz` |
+| `pico_vs_carga.py` | Monte-Carlo pico-vs-carga de dobles y triples con las formas de Knoll, con 1 y 4 ranuras |
 | `linea_base.py` | el seguidor IIR: qué compra contra el pedestal de tasa y la deriva |
 | `graficar_base.py` | las cuatro figuras del seguidor |
 
 ## Las figuras
 
-Las seis salen de `graficar.py` y viven en el directorio de la corrida
-(`software/datos/pileup_<fecha>/`).
+Salen de `graficar.py` y viven en el directorio de la corrida
+(`software/datos/pileup_<fecha>/`). Lo que sigue describe las de la corrida del MCA1,
+con la que se escribió esta sección. Las del MCA2 son las mismas, salvo
+`perdida_y_buenos.png`, que es nueva y sólo existe ahí, y `familias_evento.png`, que
+sigue siendo del MCA1 (con la compuerta fija todas las ventanas miden lo mismo).
 
 ### `familias_evento.png` — qué es un evento apilado
 
@@ -283,6 +453,29 @@ Dos paneles a 100 kcps:
 Lo genera un script aparte, `pico_vs_carga.py`, con la familia **CR-RC⁴** del
 catálogo de Knoll (la habitual en espectroscopía) en vez de la semi-gaussiana
 del resto del estudio.
+
+**En el MCA2**, con la compuerta de 384 y el disparo por pendiente:
+
+| caso | Q/pico, 1 ranura [µs] | pendiente | eventos por realización | Q/pico, 4 ranuras [µs] | pendiente | eventos por realización |
+|---|---|---|---|---|---|---|
+| limpio | 1.529 | 1.000× | 1.00 | 1.530 | 1.000× | 1.00 |
+| doble Δt = 4 | 1.488 | 0.976× | 1.00 | 1.491 | 0.976× | 1.00 |
+| doble Δt = 20 | 1.475 | 0.964× | 1.00 | 1.475 | 0.964× | 1.00 |
+| doble Δt = 150 | 1.247 | 0.811× | 1.00 | 1.248 | 0.810× | 1.00 |
+| doble Δt = 600 | 1.598 | 1.050× | 2.00 | 1.599 | 1.050× | 2.00 |
+| triple Δt = 120 y 320 | 1.286 | 0.834× | 1.00 | 2.317 | 1.514× | 1.70 |
+
+- **La recta de limpios es la misma con 1 y con 4 ranuras** (1.51 µs, 70 % del techo):
+  un pulso solo no sabe cuántas ranuras hay. Es más baja que en el MCA1 porque
+  `pre_dly` hace abrir la ventana antes del pie en los pulsos altos, que disparan
+  temprano, y la compuerta cierra antes.
+- **El doble a 150 cae debajo de la recta**: con la compuerta fija el pico suma más que
+  la carga que entra. Es la firma contraria a la de la ventana por histéresis, que se
+  describe abajo. Un corte por forma "sólo por arriba" no lo ve con esta forma.
+- **Más ranuras sólo cambian el triple**: con cuatro, el segundo pulso abre su propia
+  ventana, que junta al tercero. Es el evento de mayor carga, y por eso se va arriba.
+
+**En el MCA1**, que es lo que describe el resto de esta sección:
 
 El gráfico pico-vs-carga compara **dos estimadores internos del mismo evento**,
 así que no depende de la exactitud del generador — por eso la campaña de formas

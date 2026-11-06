@@ -324,6 +324,10 @@ que el desplazamiento no cambia la suma.
 
 ## 5. Varianza de cada estimador, familia por familia
 
+> **Las tablas de §5.1 a §5.6 son del MCA1**, con su ventana por histéresis y su
+> disparo por nivel. Lo que cambia en el MCA2 (no hay histéresis, hay trapecio, y el
+> disparo es por pendiente) está en §5.7.
+
 Las secciones anteriores van fuente por fuente. Ésta cruza los dos ejes que
 importan para elegir configuración: las **seis familias de forma** del catálogo
 ([`formas_de_pulso.md`](formas_de_pulso.md)) contra los **cuatro estimadores**
@@ -628,10 +632,64 @@ Para rehacer cualquiera de estos números:
 
 ```bash
 cd prj/MCA/software
-python3 monte-carlo/varianza_estimadores.py            # tablas + figuras 12 y 13
-python3 monte-carlo/varianza_estimadores.py --amp 480  # otra amplitud
+python3 monte-carlo/varianza_estimadores.py --mapa MCA1   # estas tablas + figuras 12 y 13
+python3 monte-carlo/varianza_estimadores.py               # las de §5.7 + figuras *_mca2
+python3 monte-carlo/varianza_estimadores.py --amp 480     # otra amplitud
 python3 monte-carlo/varianza_estimadores.py --fwhm 5e-7
 ```
+
+### 5.7 En el MCA2
+
+El mismo estudio sobre [`replica_mca2.py`](../../software/monte-carlo/replica_mca2.py):
+una ranura, la compuerta de 384 y el disparo por pendiente L = 8, G = 4, con `pre_dly`
+ajustado para que la ventana abra en el pie de un pulso de 1920 cuentas. Son 48 000
+eventos por familia, con el mismo ruido. La integral por histéresis ya no existe, y
+entra el trapecio, con k = FWHM/4 = 62, m = FWHM = 250 y el polo-cero de la cola de cada
+forma, si la tiene.
+
+Resolución = FWHM/centroide en %, con `A = 1920` cuentas y pulso de 2 µs:
+
+| familia | pico | pico interp. | Q fija 384 | trapecio | cota C-R |
+|---|---|---|---|---|---|
+| CR | 0.353 | 0.358 | **0.193** | 0.200 | 0.040 |
+| CR-RC | 0.330 | 0.338 | 0.184 | **0.141** | 0.040 |
+| CR-RC⁴ | **0.331** | 0.335 | 0.605 | — | 0.040 |
+| triangular | 0.472 | 0.476 | **0.319** | — | 0.042 |
+| trapezoidal | 0.264 | 0.269 | 0.162 | **0.147** | 0.038 |
+| bipolar | 0.328 | 0.330 | 0.172 | **0.149** | 0.040 |
+| referencia (ARB real) | 0.339 | 0.342 | 0.180 | **0.149** | 0.040 |
+
+Lo que dice:
+
+1. **El pico no cambió.** La columna es la de §5.2, número por número: el máximo de la
+   ventana no depende de quién la abre. Sirve de control de que el modelo de ruido y
+   las formas son los mismos.
+2. **Donde cabe, el trapecio es el mejor estimador**: 0.149 % contra 0.180 % de la
+   integral en la forma real. Mejora el término de base (0.055 contra 0.067), que es el
+   dominante, y no tiene término de fase. Es una predicción: falta medirlo con un
+   espectro en la placa.
+3. **En la CR-RC⁴ y la triangular no cabe.** Con estos k y m la meseta no entra en una
+   compuerta de 384. La forma necesitaría una compuerta más larga.
+4. **La integral empeora en las formas de pie lento, por el disparo.** En la CR-RC⁴ pasa
+   de 0.203 % a 0.605 %, y en la triangular de 0.262 % a 0.319 %. El disparo por pendiente
+   baila 1.4 muestras en la CR-RC⁴, y la compuerta cierra en pleno flanco, donde la carga
+   cambia 810 cuentas por muestra: eso da 0.26 % de σ, contra 0.27 % medido sobre el mismo
+   lote. Con las formas de pie rápido, y con el pulso de la campaña, la integral queda
+   como estaba (0.180 % contra 0.175 %).
+
+Sobre los pulsos reales (2415 cuentas), el predicho contra lo medido con el MCA1:
+
+| estimador | predicho | offline, mismas trazas | cociente | en placa, MCA1 |
+|---|---|---|---|---|
+| pico | 0.272 % | 0.272 % | **1.00×** | 0.344 % |
+| Q fija 384 | 0.158 % | 0.149 % | **1.06×** | 0.161 % |
+| trapecio | 0.119 % | — | — | — |
+
+La INL que pone el estimador sigue siendo despreciable contra el ~1.08 % medido: a lo sumo
+0.04 %, salvo la integral de la CR-RC⁴, que llega a 0.20 %.
+
+Figuras: [`12_varianza_estimadores_mca2.png`](figuras/12_varianza_estimadores_mca2.png) y
+[`13_estimadores_vs_ancho_mca2.png`](figuras/13_estimadores_vs_ancho_mca2.png).
 
 ---
 

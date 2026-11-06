@@ -1200,7 +1200,7 @@ nuestro.
 §2.12 es el inventario de lo que da el proyecto original de Red Pitaya. Esta
 sección es la otra mitad: **con qué de eso nos quedamos, qué descartamos y qué
 hubo que escribir**. La arquitectura del software como pieza de software —los
-siete niveles, los hilos, los tipos— está en
+seis niveles, los hilos, los tipos— está en
 [`API/arquitectura_software.md`](API/arquitectura_software.md); acá sólo la
 frontera con la plataforma.
 

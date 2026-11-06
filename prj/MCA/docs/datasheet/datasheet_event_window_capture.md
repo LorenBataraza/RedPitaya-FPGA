@@ -17,6 +17,7 @@
 | Archivo | [`event_window_capture.sv`](../../modulos/event_ring/rtl/event_window_capture.sv) |
 | Parámetros | 6 |
 | Puertos | 22 (12 in / 10 out) |
+| Parte | `xc7z010clg400-1` |
 
 
 ![Interfaz de event_window_capture](figuras/event_window_capture_interfaz.svg)
@@ -30,19 +31,22 @@
 > estructural: rp_bram_sm CONGELA un buffer de 16384 muestras y no puede
 > capturar de nuevo hasta que el PS re-arma (K=1, ~252 us de tiempo muerto).
 > Acá la ventana se copia a un stream aguas abajo y el bloque vuelve a estar
-> listo en pre+post ciclos (~256 ns con S=32), sin intervencion del PS.
+> listo en (pre+post)*N_CH + 2 ciclos (528 ns con S=32 y dos canales), sin
+> intervencion del PS.
 >
 > UNA SOLA MEMORIA. El pre-trigger vive en un buffer circular que se escribe
 > siempre; la lectura de la ventana sale del MISMO buffer, arrancando `pre`
-> muestras atras del trigger. El puntero de lectura queda rezagado y, como se
-> consume 1 muestra/ciclo y se produce <=1 muestra/ciclo, el rezago nunca
-> crece: alcanza al productor y despues va en lock-step durante el post.
-> Por eso la profundidad sólo tiene que cubrir `pre`, no `pre+post`.
+> muestras atras del trigger. Con N_CH canales se lee una palabra cada N_CH ciclos
+> y se escribe una por ciclo, asi que el rezago CRECE durante la ventana, hasta
+>     rezago = (pre + post)*N_CH - post                  (con dv_i = 1 siempre)
+> Si llega a 2^PRE_AW, el escritor pisa lo que falta leer EN SILENCIO: este bloque
+> no lo verifica. Con N_CH=2 y PRE_AW=11 la condicion es pre + (pre+post) < 2048,
+> o sea que cualquier ventana de hasta 1024 muestras entra con pre <= 1023.
 >
 > DOS CAUSAS DE PERDIDA, contadas por separado porque son diagnosticos
 > distintos (ver docs/mt/):
 >   drop_busy_o  el trigger cayo mientras se drenaba la ventana anterior.
->                Es el tiempo muerto INTRINSECO del PL: pre+post ciclos.
+>                Es el tiempo muerto INTRINSECO del PL.
 >   drop_full_o  aguas abajo no acepto el evento (stage llena, o sin creditos
 >                de DDR porque el PS no drena). Es tiempo muerto del CONSUMIDOR.
 >
@@ -112,7 +116,7 @@ el diseño completo del camino, en
 | `DW` | `integer` | `14` | ancho de la muestra del ADC |
 | `N_CH` | `integer` | `2` | canales capturados por evento |
 | `SW` | `integer` | `16` | ancho de la muestra en el stream (sign-ext) |
-| `PRE_AW` | `integer` | `9` | buffer circular de pre-trigger: 2^PRE_AW |
+| `PRE_AW` | `integer` | `11` | buffer circular de pre-trigger: 2^PRE_AW |
 | `S_AW` | `integer` | `11` | ancho de los contadores de muestras |
 | `TS_W` | `integer` | `64` | ancho del timestamp |
 
@@ -207,14 +211,7 @@ No hay un mapa de registros para este módulo en `docs/event_ring/`. Si es un es
 ### 1.5 Frecuencia máxima de trabajo
 
 <!-- AUTO:timing -->
-Sin datos de síntesis todavía. Correr:
-
-```bash
-make -C modulos/event_ring/work syn
-make -C modulos/event_ring/work sweep-all
-```
-
-y volver a generar esta página.
+El `metrics.txt` del módulo es de `event_ring_top`, no de `event_window_capture`: la síntesis OOC del módulo apunta a otro top, así que acá no hay números propios de este bloque.
 <!-- /AUTO:timing -->
 
 <!-- A mano: qué hay en el camino crítico y qué se haría para romperlo si
@@ -278,7 +275,7 @@ _Sin figuras de ondas._ Se generan con un script en `docs/event_ring/figuras/ond
 Todo corre en batch y se chequea el `RESULT: PASS` del testbench; las ondas quedan en `work/waves/<tb>.wlf`.
 
 ```bash
-make -C modulos/event_ring/work            # los 4 testbenches
+make -C modulos/event_ring/work            # los 5 testbenches
 make -C modulos/event_ring/work cov        # + cobertura
 make -C modulos/event_ring/work lint
 ```
@@ -287,11 +284,12 @@ make -C modulos/event_ring/work lint
 |---|---|---|---|---|---|
 | [`tb_event_window_capture`](../../modulos/event_ring/sim/tb_event_window_capture.sv) | `event_window_capture` | 7 | 25 | vectores a mano | **sí** |
 | [`tb_event_stage_fifo`](../../modulos/event_ring/sim/tb_event_stage_fifo.sv) | `event_stage_fifo` | — | 26 | vectores a mano |  |
-| [`tb_event_slot_writer`](../../modulos/event_ring/sim/tb_event_slot_writer.sv) | `event_slot_writer` | 9 | 32 | vectores a mano |  |
+| [`tb_event_slot_writer`](../../modulos/event_ring/sim/tb_event_slot_writer.sv) | `event_slot_writer` | 12 | 39 | vectores a mano |  |
 | [`tb_event_ring_top`](../../modulos/event_ring/sim/tb_event_ring_top.sv) | `event_ring_top` | — | 39 | vectores a mano |  |
+| [`tb_event_ring_ventana`](../../modulos/event_ring/sim/tb_event_ring_ventana.sv) | `event_ring_ventana` | 8 | 23 | vectores a mano |  |
 
 
-**122 casos con nombre** en 4 testbenches (16 escenas). La lista completa, caso por caso, está en el plan de verificación.
+**152 casos con nombre** en 5 testbenches (27 escenas). La lista completa, caso por caso, está en el plan de verificación.
 
 Las escenas de [`tb_event_window_capture`](../../modulos/event_ring/sim/tb_event_window_capture.sv): 1) cantidad exacta de muestras emitidas = (pre+post, 2) sof/eof en la primera y ultima muestra, una sola, 3) ALINEACION, 4) intercalado de canales ch0,ch1,ch0,ch1, 5) drop_busy, 6) drop_full, 7) pre=0 (captura solo post) y ventana impar (no mu.
 

@@ -1,9 +1,18 @@
-% Los siete niveles de la API, de los registros de la PL a la aplicación, y
-% dónde corre cada uno. Cada fila es un nivel; los contenedores son las tres
+% Los seis niveles de software de la API, del mapeo crudo a la aplicación, y
+% dónde corre cada uno. Los niveles son una JERARQUÍA DE DEPENDENCIAS: cada uno
+% puede usar cualquiera de los de abajo y ninguno de los de arriba. Los
+% registros de la PL van debajo, sin número: son el hardware sobre el que se
+% apoya la pila, no una capa de software. Los contenedores son las tres
 % máquinas (PL, PS, PC) y lo que cruza entre ellos son las dos fronteras
 % físicas: el bus AXI y la red. El camino remoto (azul) entra en la placa por
-% el nivel 7 y vuelve a la pila local por el nivel 4.
-% Fuentes: software/API/, software/app/. El texto que acompaña está en
+% el nivel 6 y vuelve a la pila local por el nivel 3. El event_ring no tiene
+% handle: RingSource (nivel 5) lo mapea directo.
+% Los niveles 1 a 4 del MCA son C (libmca, en rojo): su columna es la pila de
+% la biblioteca, de mca.c a bus_mmap.c, y al lado está el binding de Python
+% (API/mca.py), una sola pieza para los niveles 3 y 4 porque los métodos de MCA
+% llaman a las funciones mca_*. Lo cruza ctypes. Los demás bloques siguen en
+% Python, con sus niveles 1 y 2 propios.
+% Fuentes: software/API/, software/app/, software/libmca/. El texto que acompaña está en
 % docs/API/arquitectura_software.md §1. Estilo: docs/figuras/estilo_tikz.tex.
 %
 % Compilar:   pdflatex niveles.tex
@@ -23,11 +32,8 @@
                     text width=#1-0.25cm, inner sep=2pt, font=\scriptsize},
   lv/.default    = 2.2cm,
   remoto/.style  = {fill=azul!30},
+  cod/.style     = {fill=rojo!30},
   nivel/.style   = {anchor=west, font=\small\bfseries, inner sep=0pt},
-  % «se puede sustituir por»
-  sust/.style    = {anchor=north west, font=\scriptsize\ttfamily, fill=verde!35,
-                    draw=verde!60!black, line width=0.4pt, rounded corners=1pt,
-                    inner sep=1.6pt},
   dominio/.style = {font=\scriptsize\itshape, black!70, rotate=90, inner sep=0pt},
   red/.style     = {<->, line width=1.0pt, azul!80!black, dashed},
 }
@@ -35,82 +41,103 @@
 \begin{document}
 \begin{tikzpicture}[fondo]
 
-% altura de cada nivel (el 1 queda aparte, en la PL)
+% altura de cada fila (la de los registros queda aparte, en la PL)
 \def\yI{0}      \def\yII{1.75}  \def\yIII{3.05}
 \def\yIV{4.35}  \def\yV{5.65}   \def\yVI{6.95}  \def\yVII{8.25}
-% columnas: cinco de 2.2 cm, la quinta es la del servidor
+% columnas de 2.2 cm: las cuatro de los bloques en Python, la de libmca (quinta)
+% y la del binding y el servidor (sexta), un poco aparte para que entre ctypes
 \def\cI{4.1} \def\cII{6.6} \def\cIII{9.1} \def\cIV{11.6} \def\cV{14.1}
+\def\cVI{17.2}
 
 % ============================================================ máquinas ===
-\draw[contenedor, fill=black!3]  (2.35,1.05)  rectangle (15.55,8.9);
+\draw[contenedor, fill=black!3]  (2.35,1.05)  rectangle (18.6,8.9);
 \draw[contenedor, fill=grisr!55] (2.35,-0.65) rectangle (15.55,0.6);
-\draw[contenedor, fill=black!3]  (16.05,3.7)  rectangle (18.85,8.9);
+\draw[contenedor, fill=black!3]  (19.1,3.7)   rectangle (21.9,8.9);
 \node[dominio] at (2.62,5.0)   {Red Pitaya · PS (ARM, Linux)};
 \node[dominio] at (2.62,-0.02) {PL};
-\node[dominio] at (16.3,6.3)   {PC};
+\node[dominio] at (19.35,6.3)  {PC};
 
 % ============================================================== niveles ===
-% 7 · aplicación
+% 6 · aplicación
 \node[lv=4.7cm] at (5.35,\yVII)  {\blk{campanas/}{barridos de caracterización}};
 \node[lv=4.7cm] at (10.35,\yVII) {\blk{\_pitaya\_run.ipynb}{notebook en la placa}};
-\node[lv] (srv) at (\cV,\yVII)   {\blk{mca\_server.py}{un cliente a la vez}};
-\node[lv] (gui) at (17.45,\yVII) {\blk{mcamon.py}{la GUI}};
+\node[lv] (srv) at (\cVI,\yVII)  {\blk{mca\_server.py}{un cliente a la vez}};
+\node[lv] (gui) at (20.5,\yVII)  {\blk{mcamon.py}{la GUI}};
 
-% 6 · fuentes y sesión
-\node[lv=3.0cm] at (4.5,\yVI)   {\ttfamily\bfseries EventSource};
+% 5 · fuentes y sesión
+\node[lv=3.0cm] at (4.5,\yVI)   {\blk{EventSource}{la fuente, intercambiable}};
 \node[lv=3.0cm] at (7.85,\yVI)  {\ttfamily\bfseries AcquisitionSession};
 \node[lv=3.0cm] at (11.2,\yVI)  {\ttfamily\bfseries Annotator};
 
-% 5 · funciones
+% 4 · funciones. Las del MCA están en su columna: las de C y el binding
 \node[lv=9.7cm] at (7.85,\yV)
-  {\blk{mca\_*\quad osciloscope\_*\quad multitrigger\_*\quad osciloscope\_ring\_*}
+  {\blk{osciloscope\_*\quad multitrigger\_*\quad integration\_*}
        {get/set de campos por read-modify-write}};
 
-% 4 · handles
-\foreach \c/\n in {\cI/Osciloscope, \cII/RingSource, \cIII/MultiTrigger, \cIV/Integration}
+% 3 · handles. Osciloscope (slot 1) y MultiTrigger (slot 3) van en la misma caja; el
+% event_ring no tiene handle propio
+\node[lv] at (\cI,\yIV) {\ttfamily\bfseries Osciloscope\\ MultiTrigger};
+\node[lv, mudo] at (\cII,\yIV) {sin handle};
+\foreach \c/\n in {\cIII/MtRegion, \cIV/Integration}
   \node[lv] at (\c,\yIV) {\ttfamily\bfseries \n};
-\node[lv, remoto] (mca) at (\cV,\yIV) {\ttfamily\bfseries MCA};
-\node[lv, remoto] (rem) at (17.45,\yIV) {\blk{MCARemote}{subclase de \texttt{MCA}}};
+\node[lv, remoto] (rem) at (20.5,\yIV) {\blk{MCARemote}{proxy:\\ op \texttt{call}}};
 
-% 3 · acceso de 32 b
-\node[lv=12.2cm] at (9.1,\yIII) {\blk{w32 · r32 · \_read\_words}{sólo palabras de 32 b}};
+% 2 · acceso de 32 b
+\node[lv=9.7cm] at (7.85,\yIII) {\blk{w32 · r32 · \_read\_words}{sólo palabras de 32 b}};
 
-% 2 · mapeo crudo
-\node[lv=12.2cm] (map) at (9.1,\yII) {\blk{/dev/mem + mmap}{una región por slot, sin driver de kernel}};
+% 1 · mapeo crudo
+\node[lv=9.7cm] at (7.85,\yII) {\blk{/dev/mem + mmap}{una región por slot, sin driver de kernel}};
 
-% 1 · registros
+% el MCA en C: la pila de libmca, del 4 al 1
+\draw[grupo] (12.85,1.2) rectangle (15.35,6.25);
+\node[anchor=south, font=\scriptsize\ttfamily\bfseries, inner sep=1pt] at (\cV,6.27) {libmca/};
+\node[lv, cod] (c4) at (\cV,\yV)   {\blk{mca\_*}{src/mca.c}};
+\node[lv, cod] (c3) at (\cV,\yIV)  {\blk{mca\_h}{struct opaco}};
+\node[lv, cod]      at (\cV,\yIII) {\blk{mca\_bus}{bus\_devmem.c}};
+\node[lv, cod]      at (\cV,\yII)  {\blk{/dev/mem + mmap}{bus\_mmap.c}};
+
+% el binding de Python: una pieza para el 4 y el 3, porque los métodos de MCA
+% llaman a las mca_*
+\node[lv, remoto, minimum height=1.3cm] (b4) at (\cVI,\yV)
+  {\blk{mca\_*}{API/mca.py\\ @\_api: c · py}};
+\node[lv, remoto, minimum height=1.3cm] (b3) at (\cVI,\yIV)
+  {\blk{MCA}{\texttt{\_c}: \texttt{mca\_h*}}};
+\draw[flujo] (b4.west) -- (c4.east);
+\draw[flujo] (b3.west) -- (c3.east);
+\node[font=\scriptsize\ttfamily, fill=black!3, inner sep=1pt, rotate=90] at (15.72,5.0) {ctypes};
+
+% registros: la base, sin número
 \foreach \c/\n/\s/\b in {\cI/osciloscopio/1/4010, \cII/{\ttfamily\bfseries event\_ring}/2/4020,
                          \cIII/multitrigger/3/4030, \cIV/integración/6/4060,
                          \cV/MCA/7/4070}
   \node[lv] at (\c,\yI) {{\bfseries \n}\\[1pt] slot \s\\ \texttt{0x\b\_0000}};
 
 % ==================================================== rótulos de nivel ===
-\foreach \y/\i/\t in {\yVII/7/aplicación, \yVI/6/fuentes y sesión, \yV/5/funciones,
-                      \yIV/4/handles, \yIII/3/acceso de 32 b, \yII/2/mapeo crudo,
-                      \yI/1/registros} {
+\foreach \y/\i/\t in {\yVII/6/aplicación, \yVI/5/fuentes y sesión, \yV/4/funciones,
+                      \yIV/3/handles, \yIII/2/acceso de 32 b, \yII/1/mapeo crudo} {
   \node[marca] at (-0.8,\y) {\i};
-  \node[nivel] at (-0.5,\y+0.12) {\t};
+  \node[nivel] at (-0.5,\y) {\t};
 }
-\node[sust] at (-0.5,\yVI-0.05)  {FakeSource};
-\node[sust] at (-0.5,\yIV-0.05)  {MCARemote · Fake*};
-\node[sust] at (-0.5,\yIII-0.05) {lazo en C (ctypes)};
+\node[nivel, font=\small\itshape] at (-0.5,\yI) {registros de la PL};
 
 % ====================================================== las fronteras ===
 % el bus: cada acceso del mmap es una transacción AXI
 \draw[<->, line width=1.6pt] (\cIII,1.3) -- (\cIII,0.6);
 \node[anchor=west, font=\scriptsize, inner sep=0pt] at (\cIII+0.2,0.83) {bus AXI (GP0)};
 
-% la red: MCARemote reemplaza r32/w32 por el socket; el servidor vuelve a
-% entrar a la pila local por el nivel 4
+% la red: MCARemote es un proxy que manda cada función entera (op `call`); el
+% servidor la corre sobre su handle y entra a la pila local por el binding
 \draw[flujo, azul!80!black] (gui) -- (rem);
-\draw[red] (rem.west) -- (15.8,\yIV) -- (15.8,\yVII) -- (srv.east);
-\node[font=\scriptsize\ttfamily, fill=white, inner sep=1.5pt, rotate=90] at (15.8,6.3) {TCP :1001};
-\draw[flujo, azul!80!black] (srv) -- (mca);
+\draw[red] (rem.west) -- (18.85,\yIV) -- (18.85,\yVII) -- (srv.east);
+\node[font=\scriptsize\ttfamily, fill=white, inner sep=1.5pt, rotate=90] at (18.85,6.3) {call · TCP :1001};
+\draw[flujo, azul!80!black] (srv) -- (b4);
 
 % ============================================================== leyenda ===
-\leyenda{-0.8,-1.35}{azul!30/camino remoto, verde!35/sustituible por, grisr!55/lógica programable}
-  {Cada nivel usa sólo el de abajo. Lo que cruza entre máquinas son las dos
-   fronteras físicas: el bus AXI y la red.}
+\leyenda{-0.8,-1.35}{azul!30/camino remoto, rojo!30/C (libmca), grisr!55/lógica programable}
+  {Los niveles son una jerarquía de dependencias: cada uno puede usar cualquiera de los de
+   abajo y ninguno de los de arriba. Los registros no son software: son la base sobre la que
+   se apoya la pila. Lo que cruza entre máquinas son las dos fronteras físicas: el bus AXI y la red.
+   Los niveles 1 a 4 del MCA son C; Python los llama por ctypes. Los demás bloques siguen en Python.}
 
 \end{tikzpicture}
 \end{document}

@@ -1,5 +1,6 @@
-% D8 — cómo se publica el evento (cfg_pub_mode). La decide mca_window (cuándo
-% reabre) y la ejecuta mca_publish (FIFO, árbitro, divisores).
+% D8 — cuántas ranuras miden a la vez (cfg_n_acc). Vive en mca_window y
+% mca_publish. Antes de las ranuras era el modo de publicación (cfg_pub_mode):
+% con una ranura se tiene el bloqueante de entonces.
 % Compilar:   pdflatex d08_publicacion.tex && pdftocairo -svg d08_publicacion.pdf d08_publicacion.svg
 \documentclass[border=0pt,tikz]{standalone}
 \usepackage[utf8]{inputenc}
@@ -7,33 +8,56 @@
 \usepackage{lmodern}
 \usepackage[none]{hyphenat}
 \input{../../../figuras/estilo_tikz.tex}
+\tikzset{ranura/.style = {etapa, text width=2.5cm, minimum height=0.8cm}}
 
 \begin{document}
 \begin{tikzpicture}[fondo]
 
-\node[decision] (d) at (-0.9,1.3) {D8};
+\node[decision] (d) at (-0.9,3.1) {D8};
 \node[anchor=west, font=\small] at (d.east)
-  {\textbf{Cómo se publica} \quad {\scriptsize\ttfamily mca\_window + mca\_publish}};
+  {\textbf{Cuántas ranuras miden a la vez} \quad {\scriptsize\ttfamily mca\_window + mca\_publish}};
 
-\node[etapa, defecto, text width=3.6cm] (o0) at (1.0,0)
-  {\etq{bloqueante}{la ventana espera en \texttt{S\_DIV}\\ a que terminen los divisores (17 ciclos)}};
-\node[etapa, text width=3.6cm] (o1) at (1.0,-1.6)
-  {\etq{FIFO de \texttt{PUB\_K} lugares}{la ventana reabre enseguida;\\ el bloqueo es la FIFO llena}};
+% el disparo y el asignador
+\node[sen, anchor=east] (tr) at (-0.4,0.25) {trig\_i};
+\node[etapa, text width=2.4cm] (as) at (1.15,0.25)
+  {\etq{asignador}{la libre de menor índice\\ entre las \texttt{cfg\_n\_acc}\\ primeras}};
+\draw[flujo] (tr) -- (as);
+\draw[ctrl] ($(as.south)+(0,-1.05)$) node[below, sen, black, align=center]
+  {cfg\_n\_acc\;\normalfont(0x120)\\[-1pt]\normalfont\scriptsize 1..N\_ACC, reset 1} -- (as.south);
+\draw[ctrl] (as.north) -- ++(0,0.5) node[above, sen, black, align=center]
+  {ninguna libre: se pierde\\[-1pt]\normalfont\scriptsize cnt\_lost\_active, cnt\_lost\_busy};
 
-\muxdec{m}{(4.3,-0.8)}{3.0}
-\foreach \k in {0,1} {
-  \draw[flujo] (o\k.east) -- (m-in |- o\k.east);
-  \node[font=\scriptsize, anchor=west] at ($(m-in |- o\k.east)+(0.05,0)$) {\k};
-}
-\draw[ctrl] ($(m-sel)+(0,-0.9)$) node[below, sen, black] {cfg\_pub\_mode\;\normalfont(0x104[16])}
-  -- (m-sel);
-\draw[flujo] (m-out) -- ++(1.4,0) node[right, sen, align=left] {estado tras aceptar\\[-1pt]\normalfont\scriptsize \texttt{S\_DIV} / \texttt{S\_IDLE}};
+% las ranuras
+\node[ranura, defecto] (s0) at (5.0,1.35)  {\etq{ranura 0}{siempre habilitada}};
+\node[ranura]          (s1) at (5.0,0.45)  {\etq{ranura 1}{si \texttt{cfg\_n\_acc} $\ge$ 2}};
+\node[ranura]          (s2) at (5.0,-0.45) {\etq{ranura 2}{si \texttt{cfg\_n\_acc} $\ge$ 3}};
+\node[ranura]          (s3) at (5.0,-1.35) {\etq{ranura 3}{si \texttt{cfg\_n\_acc} $\ge$ 4}};
+\foreach \k in {0,1,2,3}
+  \draw[flujo] (as.east) -- ++(0.45,0) |- (s\k.west);
+\node[sen, below] at (2.75,0.25) {abre};
+\node[grupo, fit={(3.6,1.95) (6.4,-1.95)}] (gs) {};
+\node[rotulo, anchor=south west] at (gs.south west) {\texttt{N\_ACC = 4} juegos de acumuladores};
 
-\node[rotulo, anchor=north west, text width=8.6cm] at (-1.25,-3.3)
-  {En los dos modos la ventana aceptada entra a la misma FIFO y los dos
-   \texttt{mca\_div\_restore} arrancan en el mismo flanco si el publicador está
-   libre: lo único que cambia es cuándo puede reabrir. Lo bloqueado cae en el
-   mismo casillero, \texttt{t\_div} (0x0D0).};
+% la cola y el publicador
+\node[etapa, text width=2.1cm] (co) at (8.5,0.0)
+  {\etq{cola}{las cerradas,\\ en orden de cierre}};
+\node[bloque=verde!55, param={verde!55}{verde!20}, text width=2.2cm] (dv) at (11.3,0.0)
+  {\blk{mca\_div\_restore {\normalfont$\times$} 2}{}\nodepart{two}18 ciclos por evento};
+\foreach \k in {0,1,2,3}
+  \draw[flujo] (s\k.east) -- ++(0.65,0) |- (co.west);
+\node[sen, below] at (6.75,0.0) {cierra};
+\draw[flujo] (co) -- (dv);
+\draw[flujo] (dv.east) -- ++(0.8,0) node[right, sen] {ev\_feat};
+\draw[ctrl] (dv.south) -- ++(0,-1.75) -| node[sen, black, below, pos=0.25] {libera la ranura} (5.0,-1.75) -- (s3.south);
+
+\node[rotulo, anchor=north west, text width=13.6cm] at (-1.25,-2.75)
+  {Con \textbf{una} ranura, la que cierra no puede reabrir hasta que el publicador
+   la toma: es la publicación bloqueante de antes, y un disparo con la ventana
+   abierta se pierde. Con \textbf{N}, un disparo se pierde solo si encuentra las N
+   ocupadas, así que la pérdida pasa de $\sim\rho$ a $\sim\rho^N/N!$. Lo medido
+   sobre otro pulso viene contaminado y sale marcado en el bus
+   (\texttt{F\_DTPREV}, \texttt{F\_DTNEXT}, \texttt{F\_SOLAPE}). Cada ranura cuesta
+   unas 620 LUT y 770 FF.};
 
 \end{tikzpicture}
 \end{document}

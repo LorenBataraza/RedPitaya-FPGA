@@ -433,12 +433,12 @@ def figura_hilos():
              k=0.85)
 
     c.caja(xa, 330, 252, 96,
-           ["mca-reader", "el único hilo que toca el scope",
+           ["osc-reader", "el único hilo que toca el scope",
             "wait_event → read_into → rearm",
             "y recién después los annotators"],
            cls="blk-proc", txtcls="nm", size=10, dy=14.5, mono_idx=(0, 2))
     c.caja(xa + 328, 330, 252, 96,
-           ["mca-writer", "payload → .tmp → os.replace",
+           ["osc-writer", "payload → .tmp → os.replace",
             "float32 → int16 acá, fuera del",
             "camino crítico"],
            cls="blk-proc", txtcls="nm", size=10, dy=14.5, mono_idx=(0, 1))
@@ -874,8 +874,8 @@ servidor usa locks y la GUI usa senales de Qt. No hay multiprocessing ni asyncio
 en ninguno.
 
 (a) EL PIPELINE DE ADQUISICION, en API/osciloscope_store/. Productor y consumidor
-con dos colas y un pool de batches preasignados: mca-reader llena un batch y lo
-pasa por full_q, mca-writer lo escribe como chunk_%06d.npz y lo devuelve por
+con dos colas y un pool de batches preasignados: osc-reader llena un batch y lo
+pasa por full_q, osc-writer lo escribe como chunk_%06d.npz y lo devuelve por
 free_q. El pool es lo que hace que la RAM sea una constante conocida de antemano
 y que descartar cueste O(1). Un solo hilo toca el scope; el escritor solo ve
 arrays de numpy.

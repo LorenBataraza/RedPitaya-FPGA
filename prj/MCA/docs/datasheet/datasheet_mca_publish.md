@@ -15,8 +15,8 @@
 |---|---|
 | Módulo RTL | `mca_publish` |
 | Archivo | [`mca_publish.sv`](../../modulos/mca/rtl/mca_publish.sv) |
-| Parámetros | 11 |
-| Puertos | 23 (12 in / 11 out) |
+| Parámetros | 17 |
+| Puertos | 34 (23 in / 11 out) |
 | Parte | `xc7z010clg400-1` |
 
 
@@ -24,57 +24,57 @@
 
 **Cabecera del RTL** (se copia tal cual de [`mca_publish.sv`](../../modulos/mca/rtl/mca_publish.sv)):
 
-> mca_publish — publicacion del evento: FIFO, arbitro, divisores de forma y
-> armado del bus de features. Es la decision D8 (cfg_pub_mode) de la vista
-> general (docs/mca/vista_general_mca.md).
+> mca_publish — publicacion del evento: cola de ranuras, divisores de forma y
+> armado del bus de features
 >
-> Recibe, en el ciclo de cierre de una ventana ACEPTADA, los valores vivos de
-> los acumuladores de mca_window, y devuelve un registro de evento coherente
-> {ev_amp, ev_psd, ev_feat} que alimenta a todos los motores de histograma.
+> Las ranuras de mca_window SON la cola de publicacion: una ranura que cierra
+> aceptada se queda con su resultado (estado CERRADA) hasta que este modulo lo
+> toma. Aca solo se guarda el ORDEN en que cerraron, como una cola de indices
+> de N_ACC lugares, y el publicador las atiende de a una: carga los operandos
+> de la mas vieja en los dos divisores, arma el bus de features cuando terminan
+> y libera la ranura. Con N_ACC = 1 la ranura no puede reabrir hasta publicar:
+> es el modo bloqueante de antes. Con mas, la ventana sigue midiendo mientras
+> el publicador trabaja.
 >
-> Las dos politicas de publicacion conviven en el mismo bitstream:
->   - BLOQUEANTE (cfg_pub_mode = 0): la ventana no reabre hasta que el
->     publicador termina. Eso NO se decide aca: lo decide mca_window, que se
->     queda en S_DIV hasta ver pub_done_o.
->   - FIFO (cfg_pub_mode = 1): la ventana cierra, deja su resultado en un
->     lugar de la FIFO y reabre; el publicador consume a su ritmo. El bloqueo,
->     si lo hay, es la FIFO llena, y mca_window lo ve en pub_occ_o.
+> ARRANQUE DIRECTO. Si la cola esta vacia y el publicador libre, los divisores
+> arrancan en el MISMO flanco del cierre, desde los registros de la ranura que
+> cierra (que en ese ciclo ya tienen su valor final: la muestra de cierre no se
+> acumula). Asi una ranura espera exactamente 18 ciclos por evento: el del
+> arranque, el de carga, las 16 iteraciones y el de valid.
 >
-> Por eso este modulo no tiene la entrada cfg_pub_mode: su comportamiento es
-> el mismo en los dos modos, y la diferencia esta toda en cuando lo deja de
-> esperar la ventana.
+> FRONTERA. Todo lo que entra de mca_window sale de los registros de las
+> ranuras, y el mux N:1 de operandos va a un registro: con
+> -flatten_hierarchy none la frontera no le agrega logica a ningun camino.
 >
-> FRONTERA. El sintetizador del bitstream no aplana jerarquia
-> (-flatten_hierarchy none), asi que cada puerto es una barrera de
-> optimizacion. Esta frontera es gratis porque todo lo que entra sale de un
-> registro de mca_window o va directo a un pin de primitiva: `acepta_i` es la
-> WE de los LUTRAM de la FIFO y el CE de pub_wr, sin logica de por medio. La
-> WE de f_qtail/f_peak esta entre los 100 peores caminos del build; agregarle
-> una LUT de este lado lo habria roto.
+> EL BANCO DE TRAPECIOS: QUE FORMA SE PUBLICA. Cada ranura trae la meseta de
+> las NF formas del banco, ordenadas de la mas larga a la mas corta, y la
+> distancia al disparo anterior (dt_prev) y al siguiente dentro de la ventana
+> (dt_next). Gana la PRIMERA forma f < n_formas con
+>     antes[f] <= dt_prev   y   despues[f] <= dt_next
+> o sea la mas larga (la de menos ruido) cuya ventana no alcanza al vecino. Si
+> ninguna cumple, el pulso queda MARCADO: F_TRAP vale cero (cae en el canal 0,
+> donde se ve, como una ventana incompleta) y F_FORMA vale 0xFFFF. Los umbrales
+> en cero, que es lo del reset, hacen ganar siempre a la forma 0: es el MCA de
+> un solo trapecio. La eleccion se registra en el ciclo en que los divisores
+> enganchan los operandos, desde `cur`, asi que no agrega latencia: los 18
+> ciclos por evento siguen iguales (y sin divisores, 2).
 <!-- /AUTO:resumen -->
 
 <!-- AUTO:prosa -->
 <!-- Prosa a mano: se edita en prosa/mca_publish.md, no aca. -->
 
-**Qué hace.** Recibe la ventana que [`mca_window`](datasheet_mca_window.md)
-cerró y aceptó, la guarda en una FIFO de `PUB_K` lugares, corre los dos
-[`mca_div_restore`](datasheet_mca_div_restore.md) y arma el bus de features:
-16 ranuras de 16 b, todas del mismo pulso. Es la ejecución de la decisión **D8**
-de la [vista general](../mca/vista_general_mca.md#27-la-publicación--d8-y-mca_div_restore).
+**Qué hace.** Publica los eventos de las ranuras cerradas, **en orden de
+cierre**: guarda una cola de índices de ranura, toma la más vieja, la pasa por los
+dos `mca_div_restore` (forma $Q_\mathrm{cola}/Q_\mathrm{tot}$ y ancho inverso
+pico$/Q_\mathrm{tot}$), arma el bus de features con todas las ranuras del mismo
+evento y libera la ranura. Si la cola está vacía, los divisores arrancan en el
+mismo flanco del cierre: una ranura espera exactamente 18 ciclos por evento.
 
-**Por qué no tiene la entrada `cfg_pub_mode`.** Hace lo mismo en los dos modos:
-toda ventana aceptada entra a la FIFO, y si el publicador está libre los
-divisores arrancan en ese mismo flanco desde los valores vivos (el *arranque
-directo*). La diferencia entre bloqueante y FIFO es solo cuándo puede reabrir la
-ventana, y eso lo decide `mca_window`, que espera en `S_DIV` hasta ver
-`pub_done_o`. Que `pub_done_o` sea combinacional y no la FIFO vacía es lo que
-mantiene `S_DIV` en 17 ciclos exactos y la identidad
-`deadtime_cnt == t_win + t_div` que dejó la Fase 1.
-
-**La frontera de entrada es la más justa del MCA.** `acepta_i` es la WE de los
-LUTRAM de la FIFO sin ninguna LUT de este lado; en el bitstream es el peor
-camino del dominio del ADC (+0.064 ns). Cualquier lógica nueva sobre `acepta_i`
-hay que hacerla del otro lado.
+**Por qué los operandos salen del índice registrado.** La primera versión cargaba
+los operandos en el mismo flanco en que decidía qué ranura atender, y el camino
+cierre → aceptación → prioridad → mux de 32 bits → comparador de 32 bits dio
+−0.734 ns. El divisor engancha los operandos un ciclo después de `div_start`, así
+que salen del índice `cur`, ya registrado: +0.065 ns en la OOC.
 <!-- /AUTO:prosa -->
 
 ### 1.2 Interfaces
@@ -92,9 +92,15 @@ hay que hacerla del otro lado.
 | `NFEAT` | `integer` | `16` | ranuras del bus de features |
 | `LEN_W` | `integer` | `16` | ancho de los contadores de longitud |
 | `EN_PSD` | `integer` | `1` | 0: no instancia los divisores |
-| `PUB_K` | `integer` | `2` | lugares de la FIFO de publicacion |
+| `N_ACC` | `integer` | `4` | ranuras de medicion |
 | `PUB_IDW` | `integer` | `16` | bits del id de ventana |
-| `PUB_AW` | `integer` | `(PUB_K <= 2) ? 1 : $clog2(PUB_K)` |  |
+| `NW` | `integer` | `4` | bits de la marca `otras` |
+| `TW` | `integer` | `18` | salida del trapecio |
+| `TNW` | `integer` | `8` | bits de la cuenta de la meseta |
+| `N_FORMAS` | `integer` | `4` | formas del banco; 0: sin trapecio |
+| `OC_W` | `integer` | `$clog2(N_ACC + 1)` = `3` |  |
+| `TSW` | `integer` | `TW + TNW - 1` = `25` |  |
+| `NF` | `integer` | `(N_FORMAS < 1) ? 1 : N_FORMAS` |  |
 
 
 #### Puertos
@@ -108,28 +114,39 @@ hay que hacerla del otro lado.
 | `cnt_clr_i` | in | 1 | clk_i | pulso: pone a cero los contadores |
 
 
-##### La ventana que cierra ACEPTADA (pulso de 1 ciclo) y sus valores vivos
+##### Las ranuras de mca_window, aplanadas
 
 | Puerto | Dir | Bits | Dominio | Descripción |
 |---|---|---|---|---|
-| `acepta_i` | in | 1 | clk_i |  |
-| `amp_sel_i` | in | 16 `[AMP_W-1:0]` | clk_i | el estimador SELECCIONADO |
-| `amp_int_i` | in | 16 `[AMP_W-1:0]` | clk_i | la integral, siempre |
-| `peak_i` | in | 14 `[DW-1:0]` | clk_i |  |
-| `len_i` | in | 16 `[LEN_W-1:0]` | clk_i |  |
-| `t_peak_i` | in | 16 `[LEN_W-1:0]` | clk_i |  |
-| `q_tot_i` | in | 32 `[QW-1:0]` | clk_i |  |
-| `q_tail_i` | in | 32 `[QW-1:0]` | clk_i |  |
-| `win_id_i` | in | 16 `[PUB_IDW-1:0]` | clk_i |  |
+| `acepta_i` | in | 4 `[N_ACC-1:0]` | clk_i | cierra aceptada en este ciclo |
+| `amp_sel_i` | in | 64 `[N_ACC*AMP_W-1:0]` | clk_i | el estimador SELECCIONADO |
+| `amp_int_i` | in | 64 `[N_ACC*AMP_W-1:0]` | clk_i | la integral, siempre |
+| `peak_i` | in | 56 `[N_ACC*DW-1:0]` | clk_i |  |
+| `len_i` | in | 64 `[N_ACC*LEN_W-1:0]` | clk_i |  |
+| `t_peak_i` | in | 64 `[N_ACC*LEN_W-1:0]` | clk_i |  |
+| `q_tot_i` | in | 128 `[N_ACC*QW-1:0]` | clk_i |  |
+| `q_tail_i` | in | 128 `[N_ACC*QW-1:0]` | clk_i |  |
+| `win_id_i` | in | 64 `[N_ACC*PUB_IDW-1:0]` | clk_i |  |
+| `dt_prev_i` | in | 64 `[N_ACC*LEN_W-1:0]` | clk_i |  |
+| `dt_next_i` | in | 64 `[N_ACC*LEN_W-1:0]` | clk_i |  |
+| `otras_i` | in | 16 `[N_ACC*NW-1:0]` | clk_i |  |
+| `adentro_i` | in | 4 `[N_ACC-1:0]` | clk_i |  |
+| `perdido_i` | in | 4 `[N_ACC-1:0]` | clk_i |  |
+| `trap_sum_i` | in | `[N_ACC*NF*TSW-1:0]` | clk_i | suma sobre cada meseta: (k*NF + f) |
+| `trap_n_i` | in | `[N_ACC*NF*TNW-1:0]` | clk_i | ...y cuantas muestras sumo |
+| `cfg_trap_lw_i` | in | `[NF*3-1:0]` | clk_i | la ventana de la forma f: 2^lw muestras |
+| `cfg_antes_i` | in | `[NF*LEN_W-1:0]` | clk_i | umbral de dt_prev de cada forma |
+| `cfg_despues_i` | in | `[NF*LEN_W-1:0]` | clk_i | umbral de dt_next de cada forma |
+| `cfg_n_formas_i` | in | 3 | clk_i | formas habilitadas (0 = 1) |
+| `libera_o` | out | 4 `[N_ACC-1:0]` | clk_i | publicada: la ranura queda libre |
 
 
-##### Estado del arbitro, hacia la ventana y el banco de registros
+##### Estado de la cola, hacia el banco de registros
 
 | Puerto | Dir | Bits | Dominio | Descripción |
 |---|---|---|---|---|
-| `pub_occ_o` | out | `[PUB_AW:0]` | clk_i | lugares ocupados ahora |
-| `pub_occ_max_o` | out | `[PUB_AW:0]` | clk_i | maximo historico |
-| `pub_done_o` | out | 1 | clk_i | el publicador termina en ESTE ciclo |
+| `pub_occ_o` | out | 3 `[OC_W-1:0]` | clk_i | ranuras esperando publicar |
+| `pub_occ_max_o` | out | 3 `[OC_W-1:0]` | clk_i | maximo historico |
 
 
 ##### Evento de salida (pulso de 1 ciclo)
@@ -284,7 +301,7 @@ python3 docs/mca/figuras/ondas/ondas_mca.py    # regenerar
 Todo corre en batch y se chequea el `RESULT: PASS` del testbench; las ondas quedan en `work/waves/<tb>.wlf`.
 
 ```bash
-make -C modulos/mca/work            # los 7 testbenches
+make -C modulos/mca/work            # los 8 testbenches
 make -C modulos/mca/work cov        # + cobertura
 make -C modulos/mca/work lint
 ```
@@ -295,18 +312,19 @@ make -C modulos/mca/work lint
 | [`tb_mca_hist`](../../modulos/mca/sim/tb_mca_hist.sv) | `mca_hist` | 8 | 31 | vectores a mano |  |
 | [`tb_mca_zoom`](../../modulos/mca/sim/tb_mca_zoom.sv) | `mca_zoom` | 5 | 11 | vectores a mano |  |
 | [`tb_mca_discriminator`](../../modulos/mca/sim/tb_mca_discriminator.sv) | `mca_discriminator` | 7 | 21 | vectores a mano |  |
-| [`tb_mca_pulse_feature`](../../modulos/mca/sim/tb_mca_pulse_feature.sv) | `mca_pulse_feature` | 17 | 161 | vectores a mano |  |
-| [`tb_mca_pulse_feature_eq`](../../modulos/mca/sim/tb_mca_pulse_feature_eq.sv) | `mca_pulse_feature_eq` | — | — | RTL de referencia `mca_pulse_feature_ref.v` instanciado al lado del DUT |  |
-| [`tb_mca_top`](../../modulos/mca/sim/tb_mca_top.sv) | `mca_top` | 9 | 82 | vectores a mano |  |
+| [`tb_mca_trap`](../../modulos/mca/sim/tb_mca_trap.sv) | `mca_trap` | — | — | vectores a mano |  |
+| [`tb_mca_multi`](../../modulos/mca/sim/tb_mca_multi.sv) | `mca_multi` | — | — | vectores a mano |  |
+| [`tb_mca_pulse_feature_evt`](../../modulos/mca/sim/tb_mca_pulse_feature_evt.sv) | `mca_pulse_feature_evt` | — | — | RTL de referencia `mca_pulse_feature_ref.v` instanciado al lado del DUT |  |
+| [`tb_mca_top`](../../modulos/mca/sim/tb_mca_top.sv) | `mca_top` | 11 | 121 | vectores a mano |  |
 
 
-**328 casos con nombre** en 7 testbenches (52 escenas). La lista completa, caso por caso, está en el plan de verificación.
+**206 casos con nombre** en 8 testbenches (37 escenas). La lista completa, caso por caso, está en el plan de verificación.
 
 > **`mca_publish` no tiene testbench propio.** Ningún `TBS` del `work/Makefile` lo instancia como DUT: lo que se verifica de este módulo es lo que arrastre el TB de otro. Es deuda de verificación, no una omisión de esta página.
 
 **Assertions** — en `sim/sva/`, enganchadas por `bind` (no tocan el RTL sintetizable).
 
-- [`mca_top_sva.sv`](../../modulos/mca/sim/sva/mca_top_sva.sv) — 64 propiedades
+- [`mca_top_sva.sv`](../../modulos/mca/sim/sva/mca_top_sva.sv) — 68 propiedades
 
 Plan de verificación, casos cubiertos y deuda: [`mca/sim/VERIFICACION.md`](../../modulos/mca/sim/VERIFICACION.md).
 <!-- /AUTO:verificacion -->

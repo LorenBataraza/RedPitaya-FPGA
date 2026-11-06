@@ -17,6 +17,7 @@
 | Archivo | [`event_stage_fifo.sv`](../../modulos/event_ring/rtl/event_stage_fifo.sv) |
 | Parámetros | 5 |
 | Puertos | 21 (13 in / 8 out) |
+| Parte | `xc7z010clg400-1` |
 
 
 ![Interfaz de event_stage_fifo](figuras/event_stage_fifo_interfaz.svg)
@@ -162,14 +163,7 @@ No hay un mapa de registros para este módulo en `docs/event_ring/`. Si es un es
 ### 1.5 Frecuencia máxima de trabajo
 
 <!-- AUTO:timing -->
-Sin datos de síntesis todavía. Correr:
-
-```bash
-make -C modulos/event_ring/work syn
-make -C modulos/event_ring/work sweep-all
-```
-
-y volver a generar esta página.
+El `metrics.txt` del módulo es de `event_ring_top`, no de `event_stage_fifo`: la síntesis OOC del módulo apunta a otro top, así que acá no hay números propios de este bloque.
 <!-- /AUTO:timing -->
 
 <!-- A mano: qué hay en el camino crítico y qué se haría para romperlo si
@@ -233,7 +227,7 @@ _Sin figuras de ondas._ Se generan con un script en `docs/event_ring/figuras/ond
 Todo corre en batch y se chequea el `RESULT: PASS` del testbench; las ondas quedan en `work/waves/<tb>.wlf`.
 
 ```bash
-make -C modulos/event_ring/work            # los 4 testbenches
+make -C modulos/event_ring/work            # los 5 testbenches
 make -C modulos/event_ring/work cov        # + cobertura
 make -C modulos/event_ring/work lint
 ```
@@ -242,11 +236,12 @@ make -C modulos/event_ring/work lint
 |---|---|---|---|---|---|
 | [`tb_event_window_capture`](../../modulos/event_ring/sim/tb_event_window_capture.sv) | `event_window_capture` | 7 | 25 | vectores a mano |  |
 | [`tb_event_stage_fifo`](../../modulos/event_ring/sim/tb_event_stage_fifo.sv) | `event_stage_fifo` | — | 26 | vectores a mano | **sí** |
-| [`tb_event_slot_writer`](../../modulos/event_ring/sim/tb_event_slot_writer.sv) | `event_slot_writer` | 9 | 32 | vectores a mano |  |
+| [`tb_event_slot_writer`](../../modulos/event_ring/sim/tb_event_slot_writer.sv) | `event_slot_writer` | 12 | 39 | vectores a mano |  |
 | [`tb_event_ring_top`](../../modulos/event_ring/sim/tb_event_ring_top.sv) | `event_ring_top` | — | 39 | vectores a mano |  |
+| [`tb_event_ring_ventana`](../../modulos/event_ring/sim/tb_event_ring_ventana.sv) | `event_ring_ventana` | 8 | 23 | vectores a mano |  |
 
 
-**122 casos con nombre** en 4 testbenches (16 escenas). La lista completa, caso por caso, está en el plan de verificación.
+**152 casos con nombre** en 5 testbenches (27 escenas). La lista completa, caso por caso, está en el plan de verificación.
 
 **Assertions** — en `sim/sva/`, enganchadas por `bind` (no tocan el RTL sintetizable).
 

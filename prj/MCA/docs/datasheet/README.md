@@ -26,6 +26,7 @@ La columna «Qué es» se copia de la cabecera del RTL. Un `—` quiere decir qu
 |---|---|---|
 | [`integration_cfg`](datasheet_integration_cfg.md) | `rtl/integration_cfg.sv` | región de TOP (integración): esclavo del bus de sistema |
 | [`dsp_tap_mux`](datasheet_dsp_tap_mux.md) | `rtl/dsp_tap_mux.sv` | elige de qué punto de la cadena DSP toma un consumidor |
+| [`mca_trap`](datasheet_mca_trap.md) | `rtl/mca_trap.sv` | conformado trapezoidal de Jordanov-Knoll, en enteros exactos: el banco del MCA (`F_TRAP`) y el disparo con polo-cero del multitrigger |
 
 ## `osc` — región del osciloscopio (slot 1)
 
@@ -42,6 +43,7 @@ La columna «Qué es» se copia de la cabecera del RTL. Un `—` quiere decir qu
 |---|---|---|
 | [`mt_trig_src`](datasheet_mt_trig_src.md) | `rtl/mt_trig_src.sv` | Selección de fuentes de 8 bits como MÁSCARA OR: |
 | [`mt_slope_trig`](datasheet_mt_slope_trig.md) | `rtl/mt_slope_trig.sv` | disparo por pendiente: trapezoidal rápido + Schmitt, fuentes 17–24 de la máscara |
+| [`mt_pz_trig`](datasheet_mt_pz_trig.md) | `rtl/mt_pz_trig.sv` | disparo con polo-cero: trapecio corto (`mca_trap`) + Schmitt, fuentes 25–28 de la máscara |
 | [`trigger_shield`](datasheet_trigger_shield.md) | `rtl/trigger_shield.sv` | Módulo que toma configuración como parámetros. |
 | [`mt_event_logic`](datasheet_mt_event_logic.md) | `rtl/mt_event_logic.v` | Este módulo tiene la tarea de dar la salida de eventos. |
 | [`mt_cfg`](datasheet_mt_cfg.md) | `rtl/mt_cfg.sv` | región de MULTITRIGGER: esclavo del bus de sistema |
@@ -55,10 +57,12 @@ La columna «Qué es» se copia de la cabecera del RTL. Un `—` quiere decir qu
 | [`mca_hist`](datasheet_mca_hist.md) | `rtl/mca_hist.sv` | motor de histograma genérico (una implementación, N instancias) |
 | [`mca_zoom`](datasheet_mca_zoom.md) | `rtl/mca_zoom.sv` | de una feature de FW bits al bin de un eje de AW bits, con zoom |
 | [`mca_discriminator`](datasheet_mca_discriminator.md) | `rtl/mca_discriminator.sv` | acepta o rechaza un evento por el valor de UNA feature. |
+| [`mca_delay`](datasheet_mca_delay.md) | `rtl/mca_delay.sv` | línea de retardo de muestras, para alinear la ventana con `trig_i` |
 | [`mca_baseline`](datasheet_mca_baseline.md) | `rtl/mca_baseline.sv` | línea de base del extractor: seguidor IIR o base fija |
-| [`mca_window`](datasheet_mca_window.md) | `rtl/mca_window.sv` | el núcleo de la ventana: segmentación, acumuladores y contabilidad del tiempo muerto |
-| [`mca_publish`](datasheet_mca_publish.md) | `rtl/mca_publish.sv` | publicación del evento: FIFO, árbitro, divisores de forma y bus de features |
-| [`mca_pulse_feature`](datasheet_mca_pulse_feature.md) | `rtl/mca_pulse_feature.sv` | segmentador de pulsos y extractor de características (cableado de los tres anteriores) |
+| [`mca_slot`](datasheet_mca_slot.md) | `rtl/mca_slot.sv` | una ranura de medición: un juego entero de acumuladores |
+| [`mca_window`](datasheet_mca_window.md) | `rtl/mca_window.sv` | el núcleo: el disparo, el asignador de ranuras y la contabilidad del tiempo muerto |
+| [`mca_publish`](datasheet_mca_publish.md) | `rtl/mca_publish.sv` | publicación del evento: cola de ranuras, divisores de forma y bus de features |
+| [`mca_pulse_feature`](datasheet_mca_pulse_feature.md) | `rtl/mca_pulse_feature.sv` | segmentador de pulsos y extractor de características (cableado de los anteriores) |
 | [`mca_top`](datasheet_mca_top.md) | `rtl/mca_top.sv` | analizador multicanal: esclavo del bus de sistema (slot 7) |
 
 ## `event_ring` — ring de slots de evento en DDR (slot 2)
@@ -72,7 +76,7 @@ La columna «Qué es» se copia de la cabecera del RTL. Un `—` quiere decir qu
 
 ---
 
-**20 páginas, las 20 con su §1.1 escrita** en [`prosa/`](prosa/): qué resuelve el bloque, cómo encaja en la cadena y las decisiones que explican su forma. Lo que sigue en `TODO` es el **esquema de laboratorio** de §1.8, que necesita los datos del banco real y no se puede derivar de nada.
+**23 páginas, las 23 con su §1.1 escrita** en [`prosa/`](prosa/): qué resuelve el bloque, cómo encaja en la cadena y las decisiones que explican su forma. Lo que sigue en `TODO` es el **esquema de laboratorio** de §1.8, que necesita los datos del banco real y no se puede derivar de nada.
 
 Tres cosas que las páginas no dicen por sí solas:
 

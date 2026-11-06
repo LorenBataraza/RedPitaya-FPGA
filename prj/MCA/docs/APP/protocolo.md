@@ -68,7 +68,7 @@ La lista viva es el dict `_OPS` de
 | `identify` | — | geometría y estado del bitstream (dos formas, abajo) |
 | `r32` | `off` | `{"val": int}` |
 | `w32` | `off`, `val` | `{}` |
-| `config.get` | — | **todos** los campos de `_CAMPOS` (hoy 34) |
+| `config.get` | — | **todos** los campos de `_CAMPOS` (35 en el MCA2) |
 | `config.set` | `fields` | la configuración **releída del hardware** |
 | `ctrl.start` | `seconds`, `clear_first` | `{"running": true, "exposure_target_s": float\|null}` |
 | `ctrl.stop` | — | `{"running": false}` |
@@ -92,9 +92,21 @@ La lista viva es el dict `_OPS` de
 | `mtrg.set` | `fields` | el `get` de vuelta |
 | `mtrg.arm` | `mask_ch0`, `mask_ch1`, `thr`, `hyst`, `delay`, `auto_rearm` | el `get` de vuelta |
 | `mtrg.disarm` | — | el `get` de vuelta |
+| `mca.disparo` | `ch`, `armar`, `L`, `G`, `thr`, `hyst`, `fuente`, `mq` | el estado del disparo del MCA2: `pendiente`, `polo_cero`, `fuente`, `or_mask`, `armado`, `we_keep`, `shield` |
+| `call` | `fn`, `a`, `k` | `{"valor": ...}` con el resultado de la función, o un arreglo **binario** (ver abajo) |
 
-`read.spectrum`, `read.map2d` y `osc.capture` son las tres que traen payload
-binario.
+`read.spectrum`, `read.map2d` y `osc.capture` traen payload binario, y `call`
+cuando la función devuelve un arreglo (`mca_read_histogram`, `mca_read_map2d`).
+
+**`mca.disparo` es la que hace medir al MCA2**: la ventana la abre sólo el
+disparo del multitrigger. Con `armar: true` corre `multitrigger_armar_mca`
+(en modo continuo, shield y `we_keep`), con `false` lo apaga (las dos fuentes) y
+sin `armar` sólo informa. `fuente` es `pendiente` (el de siempre, con `L`, `G`,
+`thr`, `hyst`) o `pz` (con polo-cero, con `mq`; `identify` dice si está en
+`has_pz`). Necesita la región propia del multitrigger (base de `SLOTS`,
+`bases.mtrg_region`) y el osciloscopio: `identify` dice si están en `has_disparo`.
+`identify` trae también `n_formas_max`: las formas del banco de trapecios, 0 sin
+banco.
 
 **Las `integracion.*`, `osc.*` y `mtrg.*` fallan si el bitstream no trae su
 bloque**, con un `RuntimeError` que lo dice. No es una condición de error del
@@ -176,24 +188,56 @@ mantenga una copia que puede quedar vieja.
 > hay un test que compara las dos listas
 > ([`test_mca_remote.py`](../../software/app/tests/test_mca_remote.py)).
 
-### `r32` / `w32`, y por qué existen
+### `call`: la API entera, en la placa
 
-Son las dos que sostienen todo lo demás. `MCARemote` hereda de `class MCA` y
-redefine sólo estas dos, así que **toda la superficie `mca_*` de `API/mca.py`
-funciona por red sin cambiar una línea**:
+Es la que sostiene todo lo demás (protocolo 2). `MCARemote` es un proxy: el
+despacho de `@_api` manda cada función de `API/mca.py` ENTERA, y el servidor la
+corre sobre su handle, bajo su lock, como un comando SCPI en Red Pitaya. **La
+superficie `mca_*` entera funciona por red sin cambiar una línea**, y el
+cliente no necesita libmca:
 
 ```python
-from API.mca import mca_set_thr, mca_get_config, mca_read_histogram
+from API.mca import mca_set_n_acc, mca_get_config, mca_read_histogram
 from API.mca_remote import MCARemote
 
 h = MCARemote.connect('10.73.28.27')
-mca_set_thr(h, 317)              # read-modify-write: 2 idas y vueltas
-cfg  = mca_get_config(h)         # 1, porque hay operación en bloque
+mca_set_n_acc(h, 4)              # read-modify-write: 1 ida y vuelta, atómica
+cfg  = mca_get_config(h)         # 1
 hist = mca_read_histogram(h)     # 1, con payload binario
 ```
 
+```
+->  {"op": "call", "args": {"fn": "mca_set_n_acc", "a": [4], "k": {}}}
+<-  {"ok": true, "result": {"valor": null}}
+```
+
+- **Lista blanca**: sólo las funciones de hardware de `API/mca.py` que `@_api`
+  registró con `remoto=True`. Las que esperan (`mca_read_acquire*`) no viajan:
+  tendrían tomado el lock y congelarían la exposición. `MCARemote` las arma
+  del lado del cliente con `start`, `sleep` y `stop` remotos, así que
+  `mca_read_acquire(h, 1.0)` funciona igual.
+- **Valores**: un arreglo vuelve como payload binario; lo demás, en
+  `{"valor": ...}`, con las tuplas marcadas (`{"__tupla__": [...]}`) para que
+  vuelvan tuplas, y los escalares de numpy como los de Python.
+- **Errores**: vuelven con su tipo, y el cliente lanza una subclase de
+  `RemoteError` **y** del tipo original (`ValueError`, `MCANotPresent`,
+  `NoRemota`, ...), con el mismo mensaje que en la placa. Los de la familia de
+  `OSError` (un `TimeoutError` del clear) quedan como `RemoteError` solo: un
+  `OSError` en el cliente quiere decir que se cayó el transporte.
+- `mca_stop` y `mca_clear` por `call` tienen sobre la exposición los mismos
+  efectos que `ctrl.stop` y `ctrl.clear`.
+
+Medido en la placa (`make bench-api-red`): ~0.6 ms por ida y vuelta; escribir
+un campo cuesta 0.77 ms (antes, `r32` + `w32`: ~1.2 ms y no atómico) y un
+espectro de 8192 canales, 3.5 ms. `app/tests/test_call.py` exige que cada
+función dé lo mismo por red que localmente.
+
+### `r32` / `w32`
+
+El acceso crudo a un registro, para depurar: `h.r32(off)`, `h.w32(off, v)`.
+
 Las demás operaciones existen sólo para ahorrar idas y vueltas (`config.get`
-son 19 registros) o para que una secuencia sea **atómica del lado de la placa**
+son 35 campos) o para que una secuencia sea **atómica del lado de la placa**
 (`ctrl.clear` poléa `clear_busy` cada milisegundo: por red serían decenas de
 vueltas, y además podría cruzarse con el hilo de exposición).
 
@@ -202,10 +246,11 @@ vueltas, y además podría cruzarse con el hilo de exposición).
 Con MCA presente:
 
 ```json
-{"presente": true, "magic": 1296253233, "caps": 3, "h_aw": 14, "h2_aw": 7,
- "psd_aw": 6, "n_channels": 16384, "map2d_shape": [128, 64], "has_2d": true,
- "hist_h": true, "hist_h_psd": true, "features": false, "running": false,
- "protocol": 1, "fake": false, "fpga_state": "operating",
+{"presente": true, "magic": 1296253234, "caps": 3, "h_aw": 13, "h2_aw": 7,
+ "psd_aw": 6, "n_channels": 8192, "map2d_shape": [128, 64], "has_2d": true,
+ "hist_h": true, "hist_h_psd": true, "trap": false, "n_acc_max": 4,
+ "features": true, "running": false, "has_disparo": true,
+ "protocol": 2, "fake": false, "fpga_state": "operating", "impl": "c",
  "bitstream": "/root/mca_red_pitaya.bit.bin"}
 ```
 
@@ -214,7 +259,7 @@ Sin MCA —bitstream equivocado o PL sin programar— **la operación no falla**
 ```json
 {"presente": false, "error": "MCANotPresent: ...", "caps": 0, "h_aw": 0,
  "h2_aw": 0, "psd_aw": 0, "n_channels": 0, "map2d_shape": [0, 0],
- "protocol": 1, "fake": false, "fpga_state": "operating"}
+ "protocol": 2, "fake": false, "fpga_state": "operating"}
 ```
 
 > **`identify` contesta siempre, y eso es deliberado.** Es lo que permite
@@ -238,8 +283,9 @@ espectro, en una sola vuelta.
  "rate_inst_hz": 3048.2, "rate_avg_hz": 3051.7,
  "counters": {"total": 41502, "accepted": 41502, "rej_amp": 0, "rej_psd": 0,
               "pileup": 0, "dropped": 4, "realtime_s": 13.83,
-              "livetime_s": 13.59, "deadtime_s": 0.245,
-              "clear_busy": false, "busy": false, "baseline_stale": false},
+              "livetime_s": 13.59, "deadtime_real_s": 0.245, "n_acc": 4,
+              "t_ocup_s": [13.59, 0.23, 0.01, 0.0, 0.0], ...,
+              "clear_busy": false, "busy": false, "puede_abrir": true},
  "exposure": {"target_s": 50.0, "left_s": 36.4, "done": false}}
 ```
 
@@ -283,7 +329,7 @@ Política del cliente, que son dos y conviene no confundirlas:
 | `OSError` (el transporte se murió)                        | **tira la conexión**: para los temporizadores y cierra el socket |
 | cualquier otra, incluidas `RemoteError` y `ProtocolError` | la reporta en la pestaña de mensajes y **sigue poleando**        |
 
-La distinción importa: un `RemoteError` por un `tail_dly` inválido no debe
+La distinción importa: un `RemoteError` por un `n_acc` inválido no debe
 cortar una medición de media hora.
 
 ### El caso `Ocupado`

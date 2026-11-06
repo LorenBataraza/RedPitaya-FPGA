@@ -1,0 +1,148 @@
+7817 trig
+7818 cap 1
+7821 ev 1
+7857 trig
+7859 busy 1
+7883 cap 2
+7884 cap 0
+7884 lvl 1
+7885 wrt 1
+7889 wrt 2
+7897 trig
+7898 cap 1
+7901 ev 2
+7956 wrt 3
+7963 cap 2
+7964 cap 0
+7964 lvl 2
+7969 trig
+7970 cap 1
+7973 ev 3
+8000 wrt 4
+8001 wrt 5
+8003 wrt 0
+8003 wr_slot 1
+8004 lvl 1
+8005 wrt 1
+8009 wrt 2
+8035 cap 2
+8036 cap 0
+8036 lvl 2
+8041 trig
+8042 cap 1
+8045 ev 4
+8076 wrt 3
+8107 cap 2
+8108 cap 0
+8108 lvl 3
+8113 trig
+8114 cap 1
+8117 ev 5
+8120 wrt 4
+8121 wrt 5
+8123 wrt 0
+8123 wr_slot 2
+8124 lvl 2
+8125 wrt 1
+8129 wrt 2
+8179 cap 2
+8180 cap 0
+8180 lvl 3
+8185 trig
+8186 cap 1
+8189 ev 6
+8196 wrt 3
+8240 wrt 4
+8241 wrt 5
+8243 wrt 0
+8243 wr_slot 3
+8244 lvl 2
+8245 wrt 1
+8249 wrt 2
+8251 cap 2
+8252 cap 0
+8252 lvl 3
+8257 trig
+8258 cap 1
+8261 ev 7
+8316 wrt 3
+8323 cap 2
+8324 cap 0
+8324 lvl 4
+8329 trig
+8331 full 1
+8360 wrt 4
+8361 wrt 5
+8363 wrt 0
+8363 wr_slot 4
+8364 lvl 3
+8365 wrt 1
+8369 wrt 2
+8401 trig
+8402 cap 1
+8405 ev 8
+8436 wrt 3
+8467 cap 2
+8468 cap 0
+8468 lvl 4
+8473 trig
+8475 full 2
+8480 wrt 4
+8481 wrt 5
+8483 wrt 0
+8483 wr_slot 5
+8484 lvl 3
+8485 wrt 1
+8489 wrt 2
+8545 trig
+8546 cap 1
+8549 ev 9
+8556 wrt 3
+8600 wrt 4
+8601 wrt 5
+8603 wrt 0
+8603 wr_slot 6
+8604 lvl 2
+8605 wrt 1
+8609 wrt 2
+8611 cap 2
+8612 cap 0
+8612 lvl 3
+8617 trig
+8618 cap 1
+8621 ev 10
+8676 wrt 3
+8683 cap 2
+8684 cap 0
+8684 lvl 4
+8689 trig
+8691 full 3
+8720 wrt 4
+8721 wrt 5
+8723 wrt 0
+8723 wr_slot 7
+8724 lvl 3
+8725 wrt 1
+8729 wrt 2
+8796 wrt 3
+8840 wrt 4
+8841 wrt 5
+8843 wrt 0
+8843 wr_slot 8
+8844 lvl 2
+8845 wrt 1
+8849 wrt 2
+8916 wrt 3
+8960 wrt 4
+8961 wrt 5
+8963 wrt 0
+8963 wr_slot 9
+8964 lvl 1
+8965 wrt 1
+8969 wrt 2
+9036 wrt 3
+9080 wrt 4
+9081 wrt 5
+9083 wrt 0
+9083 wr_slot 10
+9084 lvl 0

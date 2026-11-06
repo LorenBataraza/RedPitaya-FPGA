@@ -258,14 +258,14 @@ más rápida.
 
 ## 4. Servicios del kernel de Linux
 
-| Subsistema | Qué hace | Cómo lo usa el proyecto |
-|---|---|---|
-| **Procesos y *scheduler*** | crea los procesos e hilos y los reparte entre los dos núcleos | el servidor del MCA, los servicios del sistema y las sesiones de ssh corren en paralelo. Dentro de un proceso de Python, el GIL impide que dos hilos ejecuten Python a la vez; el paralelismo real aparece cuando un hilo espera E/S |
-| **Memoria virtual** | da a cada proceso su espacio de direcciones y administra las tablas de la MMU | es el mecanismo por el cual el proceso llega a la PL: el `mmap` de `/dev/mem` es una entrada más en la tabla de traducción |
-| **Sistema de archivos virtual (VFS)** | presenta con la misma interfaz los archivos en disco, los dispositivos y los parámetros del kernel | el acceso a la PL (`/dev/mem`), su programación (`/sys/class/fpga_manager`), los puentes AXI (`/sys/class/fpga_bridge`) y la temperatura (IIO) son todos archivos |
-| ***Page cache*** | guarda en RAM los datos de disco recientes y difiere las escrituras | una escritura vuelve antes de llegar a la microSD (12.4 MB/s medidos), lo que desacopla al software del disco |
-| **Pila de red** | implementa TCP/IP sobre el driver de Ethernet | el servidor del MCA atiende a la interfaz gráfica por TCP; el despliegue se hace por ssh y rsync |
-| **Drivers de dispositivo** | traducen las abstracciones anteriores a los periféricos concretos | los del Zynq ([apéndice A](#apéndice-a-drivers-del-zynq)); ninguno propio |
+| Subsistema                            | Qué hace                                                                                           | Cómo lo usa el proyecto                                                                                                                                                                                                              |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Procesos y *scheduler***            | crea los procesos e hilos y los reparte entre los dos núcleos                                      | el servidor del MCA, los servicios del sistema y las sesiones de ssh corren en paralelo. Dentro de un proceso de Python, el GIL impide que dos hilos ejecuten Python a la vez; el paralelismo real aparece cuando un hilo espera E/S |
+| **Memoria virtual**                   | da a cada proceso su espacio de direcciones y administra las tablas de la MMU                      | es el mecanismo por el cual el proceso llega a la PL: el `mmap` de `/dev/mem` es una entrada más en la tabla de traducción                                                                                                           |
+| **Sistema de archivos virtual (VFS)** | presenta con la misma interfaz los archivos en disco, los dispositivos y los parámetros del kernel | el acceso a la PL (`/dev/mem`), su programación (`/sys/class/fpga_manager`), los puentes AXI (`/sys/class/fpga_bridge`) y la temperatura (IIO) son todos archivos                                                                    |
+| ***Page cache***                      | guarda en RAM los datos de disco recientes y difiere las escrituras                                | una escritura vuelve antes de llegar a la microSD (12.4 MB/s medidos), lo que desacopla al software del disco                                                                                                                        |
+| **Pila de red**                       | implementa TCP/IP sobre el driver de Ethernet                                                      | el servidor del MCA atiende a la interfaz gráfica por TCP; el despliegue se hace por ssh y rsync                                                                                                                                     |
+| **Drivers de dispositivo**            | traducen las abstracciones anteriores a los periféricos concretos                                  | los del Zynq ([apéndice A](#apéndice-a-drivers-del-zynq)); ninguno propio                                                                                                                                                            |
 
 Las rutas concretas que lee y escribe el software están en
 [`API/arquitectura_software.md`](API/arquitectura_software.md) §3.
@@ -341,31 +341,36 @@ medición, el servidor del MCA, la interfaz gráfica y los *notebooks*.
 
 ### 6.1 Niveles de la pila
 
-La API no es una sola capa: se organiza en niveles, cada uno apoyado sobre el
-anterior. Lo que define los límites no es la conveniencia sino **dónde están las
-fronteras físicas**: entre los niveles 1 y 3 hay un bus AXI con reglas propias, y
-entre la aplicación y el resto puede haber una red. La figura está en
+La API no es una sola capa: se organiza en seis niveles que forman una
+**jerarquía de dependencias**. Cada nivel puede usar cualquiera de los de abajo
+y ninguno de los de arriba; no hace falta que hable sólo con el inmediato
+inferior, pero nada de abajo depende de algo de arriba. Los registros de la PL
+quedan debajo de la pila y sin número: no son software, son el contrato que
+expone el hardware, y la pila empieza donde el software los alcanza, en el
+mapeo. Lo que define los límites no es la conveniencia sino **dónde están las
+fronteras físicas**: entre los registros y el nivel 2 hay un bus AXI con reglas
+propias, y entre la aplicación y el resto puede haber una red. La figura está en
 [`API/figuras/niveles.svg`](API/figuras/niveles.svg).
 
-| # | Nivel | Qué contiene | Corre en |
-|---|---|---|---|
-| 7 | Aplicación | scripts de medición, *notebooks*, interfaz gráfica | PS o PC |
-| 6 | Fuentes y sesión | adquisición y guardado continuo de eventos (`AcquisitionSession`, `EventSource`) | PS |
-| 5 | Funciones | `mca_*`, `osciloscope_*`, `multitrigger_*`, `integration_*` | PS |
-| 4 | *Handles* | un objeto por bloque abierto: `MCA`, `Osciloscope`, `MultiTrigger`, `RingSource`, `Integration` | PS |
-| 3 | Acceso de 32 bits | `w32`, `r32` y la lectura en bloque palabra por palabra | PS |
-| 2 | Mapeo | `/dev/mem` + `mmap`, una región por *slot* del bus | PS |
-| 1 | Registros | los bloques del bus de sistema | PL |
+| #   | Nivel             | Qué contiene                                                                                                      | Corre en |
+| --- | ----------------- | ----------------------------------------------------------------------------------------------------------------- | -------- |
+| 6   | Aplicación        | scripts de medición, *notebooks*, interfaz gráfica                                                                | PS o PC  |
+| 5   | Fuentes y sesión  | adquisición y guardado continuo de eventos (`AcquisitionSession`, `EventSource`, con `BramSource` y `RingSource`) | PS       |
+| 4   | Funciones         | `mca_*`, `osciloscope_*`, `multitrigger_*`, `integration_*`                                                       | PS       |
+| 3   | *Handles*         | un objeto por bloque abierto: `MCA`, `Osciloscope`, `MultiTrigger`, `MtRegion`, `Integration`                     | PS       |
+| 2   | Acceso de 32 bits | `w32`, `r32` y la lectura en bloque palabra por palabra                                                           | PS       |
+| 1   | Mapeo             | `/dev/mem` + `mmap`, una región por *slot* del bus                                                                | PS       |
+| —   | Registros         | los bloques del bus de sistema: la base de la pila, no un nivel                                                   | PL       |
 
 Dos propiedades de esta estructura merecen destacarse:
 
-- **El nivel 3 es una frontera, no una comodidad.** Todo acceso a la PL pasa por
+- **El nivel 2 es una frontera, no una comodidad.** Todo acceso a la PL pasa por
   dos funciones, `w32` y `r32` ([`API/mca.py:292`](../software/API/mca.py#L292)),
   porque es el único lugar donde se pueden hacer cumplir las reglas del bus:
   accesos de 32 bits, alineados, de a uno (§2.6).
-- **La red se inserta en el nivel 4.** El *handle* remoto `MCARemote` es una
+- **La red se inserta en el nivel 3.** El *handle* remoto `MCARemote` es una
   subclase de `MCA` que solo redefine `r32` y `w32` para que viajen por un socket.
-  Como las funciones del nivel 5 acceden al hardware únicamente a través del
+  Como las funciones del nivel 4 acceden al hardware únicamente a través del
   *handle*, toda la API del MCA funciona igual desde una PC, sin cambiar una línea.
   Por la misma vía existen *handles* simulados (`FakeMCA`), que permiten probar
   todo lo que está arriba sin la placa.
@@ -413,16 +418,11 @@ mca_write_file_histogram(hist, 'espectro.csv')   # guardado
 | [`API.mca`](../software/API/mca.py) | analizador multicanal | `0x4070_0000` (*slot* 7) |
 | [`API.osciloscope`](../software/API/osciloscope.py) | osciloscopio de fábrica | `0x4010_0000` (*slot* 1) |
 | [`API.osciloscope_ring`](../software/API/osciloscope_ring.py) | buffer de eventos en DDR (`event_ring`) | `0x4020_0000` (*slot* 2) |
-| [`API.multitrigger`](../software/API/multitrigger.py) | máscaras de disparo, *shield* y *snapshot* | `0x4030_0000` (*slot* 3) — ver aviso |
+| [`API.multitrigger`](../software/API/multitrigger.py) | máscaras de disparo, *shield* y *snapshot* | `0x4030_0000` (*slot* 3) |
 | [`API.integration`](../software/API/integration.py) | identificación del bitstream y ruteo entre bloques | `0x4060_0000` (*slot* 6) |
 
 El nombre del módulo `osciloscope` conserva la grafía del código (en inglés
 correcto, *oscilloscope*).
-
-> ⚠️ **El multitrigger está a medio migrar.** El hardware se mudó al slot 3, pero
-> parte de [`API/multitrigger.py`](../software/API/multitrigger.py#L28) todavía
-> escribe los offsets `0x210`–`0x24C` sobre el slot 1, donde ya no los decodifica
-> nadie, y no lanza excepción. Ver el aviso de [`API/README.md`](API/README.md).
 
 ### 6.3 Supuestos de la API
 
@@ -441,7 +441,7 @@ garantizado:
 4. **La PL no se reprograma con mapeos abiertos.** Reconfigurar la PL con regiones
    mapeadas puede dejar trabado el puerto AXI hasta reiniciar la placa; por eso los
    mapeos se cierran antes de cargar un bitstream.
-5. **Todo acceso pasa por el nivel 3.** Escribir o leer el mapeo por otra vía, por
+5. **Todo acceso pasa por el nivel 2.** Escribir o leer el mapeo por otra vía, por
    ejemplo con una copia en bloque de NumPy, viola las reglas del bus.
 6. **La exposición la mide el software.** El MCA acumula en forma continua y no
    tiene un registro de tiempo de medición: la duración de una adquisición se

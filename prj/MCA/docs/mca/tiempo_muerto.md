@@ -47,6 +47,16 @@ El MCA no las necesita: ya trae contadores de 64 bits a 125 MHz
 [`mca_top.sv`](../../modulos/mca/rtl/mca_top.sv)). Esto es para el lector de
 Python, que no tiene contador en hardware.
 
+> **Con las ranuras de medición esto cambió otra vez** (ver
+> [`register_map_mca.md`](register_map_mca.md) §Relojes y §Las ranuras). El
+> Schmitt interno y el re-armado por nivel se fueron: la ventana la abre el
+> disparo por pendiente del multitrigger, que se re-arma solo, y el MCA tiene
+> varias ranuras. Ya no existe `t_rearm`: el teselado es
+> `realtime = vetotime + t_win + t_div + livetime`, el tiempo muerto es "no hay
+> ranura libre", y `t_ocup[j]` mide la ocupación. Lo que sigue es la historia de
+> cómo se llegó, y el análisis de paralizable contra no paralizable, que vale
+> para cualquier disparo.
+>
 > **Y hasta hace poco el contador del MCA mentía.** `deadtime_s` contaba
 > `feat_busy = (st != S_IDLE)`, que **no es la condición de bloqueo del
 > módulo**: el MCA tampoco puede abrir mientras el Schmitt no se re-arme, y el
@@ -538,7 +548,11 @@ así que a 100 kcps su período muerto medio no es la ventana de 5.9 µs sino
 **8.0 µs**, y el p90 son 12.6 µs. El lector de Python, que se re-arma por
 contador, sí tiene el largo fijo: su τ ≈ 250 µs es una delta.
 
-**Desde la fase 2 el MCA puede ser lo uno o lo otro.** `cfg_rearm_mode = 1` le
+**Desde la fase 2 el MCA podía ser lo uno o lo otro** (con las ranuras, el
+re-armado pasó al multitrigger, que con el `trigger_shield` y `dur = 0` re-arma
+apenas baja la pendiente).
+
+**En la fase 2.** `cfg_rearm_mode = 1` le
 da el mismo re-armado por contador que el lector de Python, y con eso su período
 muerto pasa a ser una delta en `ventana + rearm_dly` en vez de la distribución
 con átomo y cola. Esto convierte el panel (b) de la figura en una **prueba
@@ -583,24 +597,24 @@ en el mismo servicio, `≈ ρ²/2`; con `K` lugares hace falta una ráfaga de `K
 ρ<1, la pérdida es **exactamente cero**: la cola convierte el agrupamiento de
 Poisson en **demora** en vez de en pérdida.
 
-> **La FIFO de la fase 2 NO mueve el MCA de la columna `K=1` de esta tabla, y
-> conviene ser explícito porque es tentador creer que sí.** `pub_mode = 1`
-> agrega `PUB_K = 2` lugares a la **publicación**, no a la ventana: hay **un
-> solo juego de acumuladores** (`q_tot`, `q_tail`, `peak`, `len`), así que dos
-> pulsos no pueden medirse a la vez. Lo que la FIFO saca de τ son los 17 ciclos
-> en que la ventana esperaba a los divisores: **0.128 µs de 5.9**, o sea 0.7 pp
-> de pérdida a 100 kcps. Para bajar un orden la pérdida —moverse de verdad a la
-> columna `K=2`— habría que **duplicar los acumuladores**, y eso es otro costo
-> en lógica que esta fase no paga.
+> **Con las ranuras el MCA sí sale de la columna `K=1`, aunque no exactamente
+> hacia esta tabla.** La FIFO de la fase 2 agregaba lugares a la **publicación**
+> con un solo juego de acumuladores, así que dos pulsos no podían medirse a la
+> vez: solo sacaba de τ los 18 ciclos de los divisores, y con re-armado por nivel
+> ni eso, porque esos ciclos pasaban al re-armado. Las ranuras
+> (`cfg_n_acc`, ver [`register_map_mca.md`](register_map_mca.md) §Las ranuras)
+> son N juegos de acumuladores: un pulso que llega con una ventana abierta se mide
+> en otra. Eso es un sistema con **N servidores sin cola** (M/D/N/N, Erlang B),
+> no con un servidor y N−1 lugares de espera (M/D/1/N, esta tabla): un pulso no
+> puede *esperar* a que se libere una ranura, porque la señal no espera. Los dos
+> tienen pérdida de orden ρ^N/N! a ρ chico, así que la conclusión de la tabla
+> vale: cada ranura sube un orden. El MCA mide directo la distribución de
+> ocupación (`t_ocup[j]`), que es lo que el modelo de Erlang predice.
 >
-> La palanca de esta fase es la otra: `rearm_mode`, que mueve el equipo de la
-> fila *paralizable* a la fila *M/G/1/1* de la tabla de los tres modelos —45.9 %
-> → 24.2 % a 100 kcps—. **22 pp contra 0.7.**
->
-> Y el desborde de la FIFO se cuenta como tiempo muerto en `t_div`
-> (`ap_contrapresion_es_muerta`), así que lo que el árbitro bloquea no se
-> esconde: medido en simulación, la FIFO toca el tope y aporta 54 ciclos de
-> contrapresión en el caso saturado.
+> Lo que la tabla no dice es que **lo medido sobre otro pulso viene
+> contaminado**: con N ranuras se mide el pulso apilado, pero su carga incluye
+> la cola del anterior. Por eso las ventanas solapadas salen marcadas en el bus
+> de features, y la corrección es el conformado trapezoidal.
 
 Por encima de ρ=1 ninguna cola salva: el servidor no puede atender más de
 `1/τ`, todas las curvas convergen a `1 − 1/ρ`, y el tamaño de la cola sólo

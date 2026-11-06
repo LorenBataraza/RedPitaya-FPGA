@@ -1,11 +1,14 @@
-% La sesión de adquisición y lo que arma. Arriba, AcquisitionSession: recibe la
-% fuente y los annotators, deriva el esquema y el pool, y compone los dos hilos.
+% La sesión de adquisición del osciloscopio y lo que arma (el MCA no pasa por
+% acá: guarda espectros, no eventos). Arriba, AcquisitionSession: recibe la
+% fuente —cualquiera que cumpla EventSource, sin nombrar cuál— y los
+% annotators, deriva el esquema y el pool, y compone los dos hilos.
 % Al medio, el lector y el escritor pasándose EventBatch por las dos colas.
 % Abajo, los annotators (lo que se adjunta a cada evento sin definirlo) y lo
-% que queda en disco.
+% que queda en disco. Naranja = la clase ES un hilo (hereda de
+% threading.Thread); los subtítulos no nombran hilos.
 % Fuentes: software/API/osciloscope_store/session.py, reader.py, storage.py,
 % events.py, annotators.py. El texto que acompaña está en
-% docs/API/arquitectura_software.md §2 y §4. Estilo: docs/figuras/estilo_tikz.tex
+% docs/API/diseno_de_clases.md §7. Estilo: docs/figuras/estilo_tikz.tex
 % y clases_estilo.tex.
 %
 % Compilar:   pdflatex clases_sesion.tex
@@ -25,7 +28,7 @@
 
 % ================================================================ sesión ===
 \node[clase=6.0cm, anchor=north] (as) at (6.3,0) {
-  \clase{AcquisitionSession}{osciloscope_store/session.py · hilo principal}
+  \clase{AcquisitionSession}{osciloscope_store/session.py · una corrida}
   \nodepart{two}
   source · annotators · run_dir\\
   capacity · n_batches · b_ev\\
@@ -40,11 +43,13 @@
   describe(rate_hz) · summary() · _write_summary()
 };
 
-\node[modulo=3.6cm, anchor=north] (es) at (-0.5,0) {
-  {\bfseries\fontsize{7.8}{9.2}\selectfont EventSource \es{interfaz}}\\[0.8pt]
-  {\fontsize{5.6}{6.6}\selectfont sources.py · osciloscope_ring.py}\\[3pt]
-  BramSource · RingSource\\
-  FakeSource
+\node[modulo=4.7cm, anchor=north, fill=verde!45, dashed] (es) at (-0.6,0) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont la fuente \es{EventSource}}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont intercambiable · figura clases_fuentes}\\[3pt]
+  n_ch · samples · scalar_fields\\
+  arm() · close() · meta()\\
+  wait_event() · snapshot()\\
+  read_into() · rearm()
 };
 \draw[usa] (as.west |- es.east) -- (es.east) node[rol, midway, above] {source};
 
@@ -61,7 +66,7 @@
 
 % ===================================================== hilos y el batch ===
 \node[hilo=4.4cm, anchor=north] (rt) at (-0.5,-4.7) {
-  \clase{ReaderThread(Thread)}{reader.py · hilo mca-reader}
+  \clase{ReaderThread(Thread)}{osciloscope_store/reader.py}
   \nodepart{two}
   source · annotators\\
   free_q · full_q · stats\\
@@ -84,7 +89,7 @@
 };
 
 \node[hilo=4.6cm, anchor=north] (cw) at (13.0,-4.7) {
-  \clase{ChunkWriter(Thread)}{storage.py · hilo mca-writer}
+  \clase{ChunkWriter(Thread)}{osciloscope_store/storage.py}
   \nodepart{two}
   run_dir · free_q · full_q · stats\\
   meta_base · compress\\
@@ -172,9 +177,10 @@
 \draw[usa] (cw.south) -- (disco.north);
 
 % ============================================================== leyenda ===
-\leyendac{-1.8,-15.0}{17.5cm}{azul!30/clase, naranja!70/{hilo (threading.Thread)}}
+\leyendac{-1.8,-15.0}{17.5cm}{azul!30/clase, naranja!70/{es un hilo: hereda de threading.Thread}, verde!45/{interfaz}}
   {Rombo: compone. Triángulo hueco: hereda. Flecha punteada: usa. Las dos colas
-   se pasan siempre los mismos \texttt{n\_batches} objetos.}
+   se pasan siempre los mismos \texttt{n\_batches} objetos. \texttt{CachedAnnotator}
+   no es un hilo, pero lanza uno propio (\texttt{\_thread}) para \texttt{poll()}.}
 
 \end{tikzpicture}
 \end{document}
