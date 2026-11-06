@@ -21,7 +21,7 @@ extern "C" {
  * tabla de simbolos del .so, que es exactamente lo que ctypes puede llamar. */
 #define MCA_API __attribute__((visibility("default")))
 
-#define MCA_LIB_VERSION "0.3.0"
+#define MCA_LIB_VERSION "0.5.0"
 
 /* Cero es exito; todo error es negativo, como en rp-api. El binding de Python
  * traduce cada uno a la excepcion que la API de Python ya lanzaba. */
@@ -37,10 +37,23 @@ typedef enum {
     MCA_ENOMEM      =  -8,
     MCA_EBACKEND    =  -9,  /* un backend por callbacks devolvio error        */
     MCA_EVERIFY     = -10,  /* la relectura no coincide con lo escrito        */
-    MCA_E_ULTIMO    = -10,  /* el codigo mas negativo: los de abajo no existen */
+    MCA_ENOKEY      = -11,  /* un indice que no esta en la tabla del bloque   */
+    MCA_E_ULTIMO    = -11,  /* el codigo mas negativo: los de abajo no existen */
 } mca_err_t;
 
 MCA_API const char *mca_strerror(int rc);
+
+/* Una fila del mapa de registros de un bloque, como la exporta <bloque>_reg_info. */
+typedef struct { const char *nombre; uint32_t offset; } mca_reg_t;
+
+/* Una fila de la tabla de campos de un bloque (<bloque>_field_info). */
+typedef struct {
+    const char *nombre;
+    uint32_t    offset;
+    uint32_t    shift;
+    uint32_t    mascara;
+    int32_t     bandera;        /* 1: set(v) escribe v != 0 */
+} mca_field_t;
 
 /* "0.1.0". Va en la metadata de cada medicion (api_impl, libmca_version). */
 MCA_API const char *mca_lib_version(void);

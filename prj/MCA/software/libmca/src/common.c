@@ -20,6 +20,7 @@ const char *mca_strerror(int rc)
     case MCA_ENOMEM:      return "sin memoria";
     case MCA_EBACKEND:    return "el backend devolvio error";
     case MCA_EVERIFY:     return "la relectura no coincide con lo escrito";
+    case MCA_ENOKEY:      return "indice fuera de la tabla del bloque";
     default:              return "codigo de error desconocido";
     }
 }

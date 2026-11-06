@@ -21,51 +21,29 @@
 #include <errno.h>
 #include <inttypes.h>
 #include <math.h>
-#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
+#include "bloque.h"
 #include "mca.h"
 
-#define LARGO_ERROR 400
-
 struct mca_h {
-    mca_bus *bus;
-    int propio;                 /* cerrar el bus en mca_close */
+    mca_bloque b;               /* primer miembro: ver bloque.h */
     uint32_t caps, h_aw, h2_aw, psd_aw;
-    char error[LARGO_ERROR];
 };
 
-/* El detalle de un mca_open* que fallo, cuando todavia no hay handle. */
-static _Thread_local char error_apertura[LARGO_ERROR];
-
-/* Deja el detalle en h (o en error_apertura) y devuelve rc. Preserva errno:
- * con MCA_EOPEN el binding arma el OSError con el errno de open()/mmap(). */
-static int fallar(mca_h *h, int rc, const char *fmt, ...)
-{
-    int e = errno;
-    va_list ap;
-    va_start(ap, fmt);
-    vsnprintf(h ? h->error : error_apertura, LARGO_ERROR, fmt, ap);
-    va_end(ap);
-    errno = e;
-    return rc;
-}
-
-#define TRY(x) do { int rc_ = (x); if (rc_ != MCA_OK) return rc_; } while (0)
-#define INICIO(h) do { if ((h) == NULL) return MCA_EINVAL;                  \
-                       (h)->error[0] = '\0'; } while (0)
+#define fallar(h, ...) bloque_fallar((mca_bloque *)(h), __VA_ARGS__)
 
 static int rd(mca_h *h, uint32_t off, uint32_t *v)
 {
-    return mca_bus_r32(h->bus, off, v);
+    return mca_bus_r32(h->b.bus, off, v);
 }
 
 static int wr(mca_h *h, uint32_t off, uint32_t v)
 {
-    return mca_bus_w32(h->bus, off, v);
+    return mca_bus_w32(h->b.bus, off, v);
 }
 
 /* El valor pedido, enmascarado como lo hace `v & mascara` en Python: sobre el
@@ -486,8 +464,8 @@ int mca_wrap(mca_h **h, mca_bus *bus, int propio, uint32_t caps, uint32_t h_aw,
     mca_h *n = calloc(1, sizeof(*n));
     if (n == NULL)
         return MCA_ENOMEM;
-    n->bus = bus;
-    n->propio = propio;
+    n->b.bus = bus;
+    n->b.propio = propio;
     n->caps = caps;
     n->h_aw = h_aw;
     n->h2_aw = h2_aw;
@@ -503,7 +481,7 @@ static int abrir_sobre(mca_h **h, mca_bus *bus, int propio, int check_magic,
     if (h == NULL || bus == NULL)
         return MCA_EINVAL;
     *h = NULL;
-    error_apertura[0] = '\0';
+    bloque_limpiar_apertura();
 
     uint32_t magic, caps, widths;
     TRY(mca_bus_r32(bus, MCA_R_MAGIC, &magic));
@@ -536,13 +514,10 @@ int mca_open(mca_h **h, uint32_t phys, uint32_t size, int check_magic)
         return MCA_EINVAL;
     *h = NULL;
     mca_bus *b;
-    int rc = mca_bus_open_devmem(&b, phys, size);
-    if (rc != MCA_OK)
-        return fallar(NULL, rc, "/dev/mem @ 0x%" PRIx32 ": %s", phys,
-                      strerror(errno));
+    TRY(bloque_abrir_devmem(&b, phys, size));
     char donde[16];
     snprintf(donde, sizeof(donde), "0x%" PRIx32, phys);
-    rc = abrir_sobre(h, b, 1, check_magic, donde);
+    int rc = abrir_sobre(h, b, 1, check_magic, donde);
     if (rc != MCA_OK)
         mca_bus_close(b);
     return rc;
@@ -552,14 +527,14 @@ void mca_close(mca_h *h)
 {
     if (h == NULL)
         return;
-    if (h->propio)
-        mca_bus_close(h->bus);
+    if (h->b.propio)
+        mca_bus_close(h->b.bus);
     free(h);
 }
 
 const char *mca_last_error(const mca_h *h)
 {
-    return h ? h->error : error_apertura;
+    return bloque_ultimo_error((const mca_bloque *)h);
 }
 
 int mca_get_geometry(const mca_h *h, uint32_t *caps, uint32_t *h_aw,
@@ -593,7 +568,7 @@ int mca_w32(mca_h *h, uint32_t off, uint32_t v)
 int mca_read_words(mca_h *h, uint32_t off, uint32_t n, uint32_t *dst)
 {
     INICIO(h);
-    return mca_bus_read_words(h->bus, off, n, dst);
+    return mca_bus_read_words(h->b.bus, off, n, dst);
 }
 
 static int r64(mca_h *h, uint32_t lo, uint32_t hi, uint64_t *v)
@@ -1077,7 +1052,7 @@ int mca_configure(mca_h *h, const mca_config_t *c)
             v[n_v].n = "n_formas"; v[n_v].off = MCA_R_N_FORMAS; v[n_v].sh = 0;
             v[n_v].esp = c->n_formas; v[n_v].m = 0x7; n_v++;
         }
-        char det[LARGO_ERROR] = "";
+        char det[MCA_LARGO_ERROR] = "";
         size_t largo = 0;
         for (size_t i = 0; i < n_v; i++) {
             uint32_t leido;
@@ -1206,7 +1181,7 @@ int mca_read_histogram(mca_h *h, uint32_t *dst, uint32_t n)
     if (dst == NULL || n != esp)
         return fallar(h, MCA_EINVAL, "el buffer tiene %" PRIu32 " canales y el "
                       "espectro %" PRIu32, n, esp);
-    return mca_bus_read_words(h->bus, MCA_APERTURE_H, n, dst);
+    return mca_bus_read_words(h->b.bus, MCA_APERTURE_H, n, dst);
 }
 
 int mca_read_map2d(mca_h *h, uint32_t *dst, uint32_t n)
@@ -1219,7 +1194,7 @@ int mca_read_map2d(mca_h *h, uint32_t *dst, uint32_t n)
     if (dst == NULL || n != esp)
         return fallar(h, MCA_EINVAL, "el buffer tiene %" PRIu32 " celdas y el "
                       "mapa %" PRIu32, n, esp);
-    return mca_bus_read_words(h->bus, MCA_APERTURE_2D, n, dst);
+    return mca_bus_read_words(h->b.bus, MCA_APERTURE_2D, n, dst);
 }
 
 int mca_read_last_event(mca_h *h, mca_last_event_t *ev)

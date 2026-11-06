@@ -197,13 +197,6 @@ MCA_API int mca_set_sel_2dy(mca_h *h, int32_t f);    /* default: psd       */
 MCA_API int mca_set_discr_sel(mca_h *h, int32_t f);  /* default: pico      */
 
 /* La tabla, para quien quiera recorrerla (y para el test de consistencia). */
-typedef struct {
-    const char *nombre;
-    uint32_t    offset;
-    uint32_t    shift;
-    uint32_t    mascara;
-    int32_t     bandera;        /* 1: set(v) escribe v != 0 */
-} mca_field_t;
 
 MCA_API int32_t mca_field_count(void);
 MCA_API const mca_field_t *mca_field_info(int32_t i);     /* NULL fuera de rango */
@@ -213,7 +206,6 @@ MCA_API int mca_set_field(mca_h *h, int32_t i, uint32_t v);
 /* Todos los campos, en el orden de la tabla. n tiene que ser mca_field_count(). */
 MCA_API int mca_get_config(mca_h *h, uint32_t *vals, int32_t n);
 
-typedef struct { const char *nombre; uint32_t offset; } mca_reg_t;
 MCA_API int32_t mca_reg_count(void);
 MCA_API const mca_reg_t *mca_reg_info(int32_t i);
 
