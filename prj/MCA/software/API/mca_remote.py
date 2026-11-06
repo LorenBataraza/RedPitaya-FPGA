@@ -1,24 +1,33 @@
 #!/usr/bin/env python3
 """El MCA por socket (`MCARemote`) y un MCA simulado (`FakeMCA`).
 
-Los dos son `class MCA`: mismo handle, mismos métodos, misma geometría leída
+Los dos son un `MCA`: mismo handle, mismos métodos, misma geometría leída
 del hardware. Eso es lo que hace que **toda la superficie `mca_*` de API/mca.py
-funcione sin tocar una línea**, porque esas funciones acceden al hardware sólo
-a través de `h.r32()`, `h.w32()` y los métodos del handle::
+funcione sin tocar una línea**::
 
-    from API.mca import mca_set_thr, mca_get_config, mca_read_histogram
+    from API.mca import mca_set_n_acc, mca_get_config, mca_read_histogram
     from API.mca_remote import MCARemote
 
     h = MCARemote.connect('10.73.28.27')
-    mca_set_thr(h, 317)              # read-modify-write, 2 idas y vueltas
-    cfg  = mca_get_config(h)         # 1 ida y vuelta (operación en bloque)
-    hist = mca_read_histogram(h)     # 1, con payload binario de 64 KB
+    mca_set_n_acc(h, 4)              # 1 ida y vuelta: corre ENTERA en la placa
+    cfg  = mca_get_config(h)         # 1
+    hist = mca_read_histogram(h)     # 1, con payload binario
 
 Es el mismo patrón con el que `RingSource` es drop-in de `BramSource`: la
 interfaz la fija el consumidor, no el transporte.
 
 `FakeMCA` no toca nada y simula un fotopico que crece: sirve para desarrollar
 la GUI entera en la PC, como `FakeSource` para el pipeline del osciloscopio.
+
+Desde que la API pasó a C (libmca), los dos se enchufan distinto:
+
+  FakeMCA     hereda de `API.mca.MCA` y su modelo de registros (Python) entra a
+              libmca por el backend de callbacks: la lógica que se prueba
+              contra el simulador es la MISMA de C que corre en la placa.
+  MCARemote   es un proxy, como un cliente SCPI de Red Pitaya: `_via =
+              'remoto'`, y cada función `mca_*` sale ENTERA por la op `call` y
+              corre en la placa, bajo el lock del servidor. No abre libmca: la
+              PC no necesita la biblioteca.
 """
 
 import threading
@@ -26,17 +35,31 @@ import time
 
 import numpy as np
 
-from API.mca import (CAP_HIST_H, CAP_HIST_H_PSD, FS_HZ, MCA,
+from API.mca import (AMP_W, APERTURE_2D, APERTURE_H, CAP_HIST_H,
+                     MCANotPresent, R_MAGIC as _R_MAGIC,
+                     CAP_HIST_H_PSD, CAP_TRAP, FS_HZ, MAGIC, MCA,
                      R_AMP_MAX, R_AMP_MIN, R_AMP_SRC, R_BASELINE,
                      R_BASELINE_NOW, R_BL_CTRL, R_CAPS, R_CNT_ACCEPTED,
-                     R_CNT_DROPPED, R_CNT_PILEUP, R_CNT_REJ_AMP, R_CNT_REJ_PSD,
-                     R_CNT_TOTAL, R_CTRL, R_DEADTIME_HI, R_DEADTIME_LO, R_DEC,
-                     R_GATE_LEN, R_GATE_MODE, R_H2_SHIFT, R_H_SHIFT, R_HYST,
+                     R_CNT_CROSS, R_CNT_DROPPED, R_CNT_OPEN, R_CNT_PILEUP,
+                     R_CNT_REJ_AMP, R_CNT_REJ_PSD, R_CNT_TOTAL, R_CNT_TRIG,
+                     R_CNT_WIN, R_CTRL, R_DEADTIME_HI, R_DEADTIME_LO, R_DEC,
+                     R_DISCR_MAX, R_FORMA1_KM, R_FORMA1_MED, R_FORMA1_UMBR,
+                     R_FORMA2_KM, R_FORMA2_MED, R_FORMA2_UMBR, R_FORMA3_KM,
+                     R_FORMA3_MED, R_FORMA3_UMBR, R_GATE_LEN, R_HIST_CTRL, R_HIST_SEL,
                      R_LAST_AMP, R_LAST_PSD, R_LAST_QTAIL, R_LAST_QTOT,
-                     R_LIVETIME_HI, R_LIVETIME_LO, R_MAGIC, R_MAXLEN,
-                     R_REALTIME_HI, R_REALTIME_LO, R_STATUS, R_TAIL_DLY,
-                     R_THR, R_WIDTHS, MAGIC)
+                     R_LIVETIME_HI, R_LIVETIME_LO, R_MAGIC, R_N_ACC,
+                     R_N_ACC_MAX, R_N_FORMAS, R_PRE_DLY, R_PUB_STATE, R_REALTIME_HI,
+                     R_REALTIME_LO, R_STATUS, R_T_CLEAR_HI, R_T_CLEAR_LO,
+                     R_T_DIV_HI, R_T_DIV_LO, R_T_OCUP, R_T_WIN_HI, R_T_WIN_LO,
+                     R_TRAP_KM, R_TRAP_MED, R_TRAP_MQ, R_TRAP_UMBR, R_VETOTIME_HI,
+                     R_VETOTIME_LO, R_WIDTHS, R_ZOOM_1D, R_ZOOM_2DX, TRAP_LAT)
 from API.mca_net import PORT_DEFAULT, Channel, RemoteError, array_desde
+from API.multitrigger import (CAPS_HAS_PZ, CAPS_HAS_SLOPE, MTRG_MAGIC, R3_CAPS,
+                              R3_FLAGS, MtRegion,
+                              R_FLAGS, R_OR_MASK_CH0, R_OR_MASK_CH1, R_SHIELD_CFG,
+                              R_SHIELD_RUN, R_TRIG_SNAP)
+from API.mca_net import a_json, de_json
+from API._despacho import NoRemota
 # Sólo la escala del ADC, para que el osciloscopio simulado devuelva volts con
 # la MISMA constante que usa el real y no con una copia que puede divergir.
 # `API/osciloscope.py` es importable en la PC (la librería `rp` se carga
@@ -48,26 +71,59 @@ from API.osciloscope import ADC_CNT_PER_V
 # Handle remoto
 # =============================================================================
 
+# Los tipos con que una excepción del servidor vuelve a lanzarse en el cliente:
+# una subclase de RemoteError Y del tipo original, así sirven `except
+# ValueError` (como en la placa) y `except RemoteError` (como antes). Los de la
+# familia de OSError NO: un OSError en el cliente quiere decir que se cayó el
+# transporte, y la GUI corta la conexión (un TimeoutError del clear queda como
+# RemoteError, con `.error == 'TimeoutError'`).
+_TIPOS_REMOTOS = {t.__name__: t for t in (
+    ValueError, TypeError, KeyError, IndexError, NotImplementedError,
+    RuntimeError, MemoryError, MCANotPresent, NoRemota)}
+_CLASES_REMOTAS = {}
+
+
+def excepcion_remota(error, msg, hint=None):
+    """La excepción de un `call` que falló en el servidor."""
+    base = _TIPOS_REMOTOS.get(error)
+    if base is None:
+        return RemoteError(error, msg, hint)
+    cls = _CLASES_REMOTAS.get(error)
+    if cls is None:
+        cls = _CLASES_REMOTAS[error] = type(f'Remoto{error}', (RemoteError, base),
+                                            {'__module__': __name__})
+    return cls(error, msg, hint)
+
+
 class MCARemote(MCA):
-    """`class MCA` cuyos accesos van por socket en vez de por /dev/mem.
+    """Un MCA cuyo hardware está del otro lado del socket.
 
-    Se redefinen `r32`/`w32` (que es lo que hace andar el resto heredado) y,
-    por eficiencia, las operaciones que si no costarían muchas idas y vueltas:
+    Es un proxy: hereda los métodos del binding (`configure`, `counters`,
+    `spectrum`, ...), que llaman a las funciones `mca_*`, y con `_via =
+    'remoto'` el despacho de `@_api` las manda enteras al servidor por la op
+    `call`. Cada una es UNA ida y vuelta y corre en la placa bajo el lock del
+    servidor, así que un read-modify-write es atómico (antes eran dos idas y
+    vueltas, y se podía cruzar con el hilo de exposición).
 
-      spectrum/map2d   payload binario en una vuelta, en vez de 16384
-      counters         12 registros en una
-      configure        19 escrituras + la relectura de verificación, en una
-      clear            el poll de clear_busy ocurre en la placa
-      start/stop       atómicos bajo el lock del servidor: un read-modify-write
-                       por red podría cruzarse con el hilo de exposición
+    No llama al constructor del binding: ése abriría libmca, y el cliente
+    remoto no la necesita (igual que un cliente SCPI no corre librp).
 
-    Se hereda intacto todo lo demás: identify, running, channel, last_event,
-    acquire, acquire_chunks y los autoscale.
+    Lo que espera (`acquire`, `acquire_chunks`, `autoscale_q_shift`) no viaja
+    por `call`: tendría tomado el lock del servidor. Se arma acá con start,
+    sleep y stop remotos, así un script que los use sigue andando.
     """
 
+    impl = 'remoto'
+    _via = 'remoto'
+
     def __init__(self, canal, info):
-        super().__init__(None, -1, info['caps'],
-                         info['h_aw'], info['h2_aw'], info['psd_aw'])
+        self._mmap, self._fd, self._c, self._bus = None, -1, None, None
+        self.caps = info['caps']
+        self.h_aw, self.h2_aw, self.psd_aw = (info['h_aw'], info['h2_aw'],
+                                              info['psd_aw'])
+        self._has_2d = bool(self.caps & CAP_HIST_H_PSD)
+        # La de la placa: es la que corre lo que llega por `call`.
+        self.libmca_version = info.get('libmca_version')
         self._canal = canal
         self._lock = threading.Lock()
         self.info = info
@@ -85,7 +141,14 @@ class MCARemote(MCA):
         except Exception:
             canal.close()
             raise
-        return cls(canal, obj['result'])
+        info = obj['result']
+        if info.get('protocol', 1) < 2:
+            canal.close()
+            raise RemoteError('ProtocolError', 'el servidor habla el protocolo '
+                              f"{info.get('protocol', 1)} y este cliente "
+                              'necesita el 2 (la op call)',
+                              'actualizar el software de la placa: make placa-sync')
+        return cls(canal, info)
 
     # ---------- transporte ----------
 
@@ -95,10 +158,25 @@ class MCARemote(MCA):
         with self._lock:
             return _pedir_en(self._canal, op, **args)
 
-    def close(self):
-        self._canal.close()
+    def call(self, nombre, *a, **k):
+        """Una función de API/mca.py, entera, en la placa (op `call`)."""
+        try:
+            obj, payload = self._pedir('call', fn=nombre, a=a_json(list(a)),
+                                       k=a_json(k))
+        except RemoteError as e:
+            raise excepcion_remota(e.error, e.msg, e.hint) from None
+        if payload is not None:
+            return array_desde(obj, payload)
+        return de_json(obj['result']['valor'])
 
-    # ---------- acceso, redefinido ----------
+    def close(self):
+        canal, self._canal = getattr(self, '_canal', None), None
+        if canal is not None:
+            canal.close()
+
+    # ---------- acceso crudo ----------
+    #
+    # El binding los resuelve en C (libmca); acá van por las ops r32/w32.
 
     def w32(self, off, v):
         self._pedir('w32', off=int(off), val=int(v) & 0xFFFFFFFF)
@@ -106,33 +184,71 @@ class MCARemote(MCA):
     def r32(self, off):
         return int(self._pedir('r32', off=int(off))[0]['result']['val'])
 
-    # ---------- operaciones en bloque ----------
+    def _r64(self, off_lo, off_hi):
+        lo = self.r32(off_lo)                   # LO primero: congela la HI
+        return (self.r32(off_hi) << 32) | lo
 
-    def spectrum(self):
-        obj, payload = self._pedir('read.spectrum')
-        return array_desde(obj, payload)
+    def _read_words(self, offset, n):
+        return np.array([self.r32(offset + 4 * i) for i in range(n)],
+                        dtype=np.uint32)
 
-    def map2d(self):
-        obj, payload = self._pedir('read.map2d')
-        return array_desde(obj, payload)
+    def tiene_features(self):
+        return self.r32(_R_MAGIC) == MAGIC
 
-    def counters(self):
-        return self._pedir('status')[0]['result']['counters']
+    def exigir_features(self):
+        if not self.tiene_features():
+            raise MCANotPresent('el bitstream de la placa no es el "MCA2"')
+        return True
 
-    def configure(self, **kw):
-        """Escribe el bloque entero. Los campos que no se pasen toman los
-        valores por defecto de `MCA.configure`, que es quien los aplica del
-        lado de la placa: así la semántica es exactamente la misma."""
-        self._pedir('config.set', fields=kw)
+    # ---------- lo que espera: no viaja por `call` ----------
 
-    def clear(self, timeout_s=1.0):
-        self._pedir('ctrl.clear', timeout_s=timeout_s)
+    def en_el_cliente(self, nombre):
+        """Las funciones que esperan, armadas acá: el despacho de `@_api` las
+        pide en vez de mandarlas por `call` (`mca_read_acquire(h, ...)` anda
+        igual que `h.acquire(...)`)."""
+        return {'mca_read_acquire': self.acquire,
+                'mca_read_acquire_chunks': self.acquire_chunks}.get(nombre)
 
-    def start(self):
-        self._pedir('ctrl.start')
+    def acquire(self, seconds, clear_first=True):
+        """(espectro, mapa2d|None, contadores) de `seconds` de reloj de pared.
 
-    def stop(self):
-        self._pedir('ctrl.stop')
+        start, sleep y stop van cada uno por `call` (atómicos en la placa); el
+        tiempo lo mide el cliente, con la latencia de la red en los bordes.
+        Para exposiciones por tiempo VIVO, `ctrl.start` con `seconds`.
+        """
+        if clear_first:
+            self.stop()
+            self.clear()
+        self.start()
+        time.sleep(seconds)
+        self.stop()
+        time.sleep(0.01)          # las ranuras abiertas cierran y publican
+        m2d = self.map2d() if self._has_2d else None
+        return self.spectrum(), m2d, self.counters()
+
+    def acquire_chunks(self, seconds, chunk_s, on_chunk=None):
+        self.stop()
+        self.clear()
+        n = max(1, int(round(seconds / max(chunk_s, 1e-3))))
+        for k in range(n):
+            self.start()
+            time.sleep(chunk_s)
+            self.stop()
+            time.sleep(0.01)
+            if on_chunk is not None and k < n - 1:
+                on_chunk(k)
+        m2d = self.map2d() if self._has_2d else None
+        return self.spectrum(), m2d, self.counters()
+
+    def autoscale_q_shift(self, target_channel=8000, seconds=0.5, **cfg):
+        if cfg:
+            self.configure(**cfg)
+        self.acquire(seconds)
+        q = self.last_event()['q_tot']
+        if q <= 0:
+            return None
+        shift = int(round(np.log2(max(q / max(target_channel, 1), 1e-9))))
+        return int(np.clip(shift, 0, 31))
 
     # ---------- extras que sólo tienen sentido por red ----------
 
@@ -145,10 +261,10 @@ class MCARemote(MCA):
         return self._pedir('status')[0]['result']
 
     def config(self):
-        """Los 19 campos en una ida y vuelta.
+        """Todos los campos de configuración en una ida y vuelta.
 
-        `mca_get_config(h)` da lo mismo pero son 19, una por campo: para el
-        poleo de una GUI conviene ésta.
+        `mca_get_config(h)` da lo mismo, también en una ida y vuelta (`call`):
+        ésta es la op que la GUI ya usaba.
         """
         return self._pedir('config.get')[0]['result']
 
@@ -215,42 +331,92 @@ def _pedir_en(canal, op, **args):
 # MCA simulado
 # =============================================================================
 #
-# Reproduce el mapa de registros, no una API paralela: `_CAMPOS` y sus
-# read-modify-write, la geometría publicada en WIDTHS, el barrido de clear y
-# el registro sombra de los relojes de 64 bits. Si algo anda contra FakeMCA y
-# no contra la placa, la diferencia está en el hardware, no en el simulador.
+# Reproduce el mapa "MCA2", no una API paralela: los campos y sus
+# read-modify-write, la geometría publicada en WIDTHS, N_ACC, el barrido de
+# clear y el registro sombra de los relojes de 64 bits. Si algo anda contra
+# FakeMCA y no contra la placa, la diferencia está en el hardware, no en el
+# simulador.
 
-_DEFAULTS_RESET = {          # los del RTL, mca_top.sv:246-256
-    R_CTRL:      0,
-    R_THR:       100,
-    R_HYST:      50,
-    R_BASELINE:  0,
-    R_BL_CTRL:   6 << 4,     # bl_k=6, auto=0
-    R_MAXLEN:    1024,
-    R_TAIL_DLY:  4,
-    R_AMP_MIN:   0,
-    R_AMP_MAX:   0xFFFF,
-    R_AMP_SRC:   0,
-    R_H_SHIFT:   0,
-    R_H2_SHIFT:  0,
-    R_DEC:       1,
-    R_GATE_MODE: 0,
-    R_GATE_LEN:  (384 << 16) | 32,
+_DEFAULTS_RESET = {          # los del RTL, mca_top.sv (reset de la config)
+    R_CTRL:       0,
+    R_BASELINE:   0,
+    R_BL_CTRL:    6 << 4,                     # bl_k=6, auto=0
+    R_AMP_MIN:    0,
+    R_AMP_MAX:    0xFFFF,
+    R_AMP_SRC:    0,
+    R_DEC:        1,
+    R_GATE_LEN:   (384 << 16) | 32,
+    R_HIST_SEL:   0x200,                      # pico, pico, psd
+    R_DISCR_MAX:  0xFFFF,
+    R_HIST_CTRL:  0,
+    R_N_ACC:      1,
+    R_PRE_DLY:    11,
+    R_TRAP_KM:    (32 << 16) | 64,
+    R_TRAP_MQ:    0,
+    R_TRAP_MED:   (7 << 24) | (4 << 16) | 72,
+    R_N_FORMAS:   1,
+    # El banco: cada forma, la mitad de la anterior (mca_top.sv, reset).
+    R_FORMA1_KM:  (16 << 16) | 32,
+    R_FORMA1_MED: (6 << 24) | (3 << 16) | 40,
+    R_FORMA2_KM:  (8 << 16) | 16,
+    R_FORMA2_MED: (5 << 24) | (2 << 16) | 22,
+    R_FORMA3_KM:  (4 << 16) | 8,
+    R_FORMA3_MED: (4 << 24) | (1 << 16) | 13,
+}
+
+# Los relojes de 64 b del modelo: (LO, HI) -> nombre del atributo que da
+# segundos. t_ocup[j] va aparte.
+_RELOJES = {
+    R_REALTIME_LO: (R_REALTIME_HI, '_realtime'),
+    R_LIVETIME_LO: (R_LIVETIME_HI, '_livetime'),
+    R_DEADTIME_LO: (R_DEADTIME_HI, '_muerto'),
+    R_T_WIN_LO:    (R_T_WIN_HI, '_muerto'),
+    R_VETOTIME_LO: (R_VETOTIME_HI, None),
+    R_T_DIV_LO:    (R_T_DIV_HI, None),
+    R_T_CLEAR_LO:  (R_T_CLEAR_HI, None),
+}
+
+_CONTADORES = {
+    R_CNT_TOTAL: 'total', R_CNT_ACCEPTED: 'accepted', R_CNT_REJ_AMP: 'rej_amp',
+    R_CNT_REJ_PSD: 'rej_psd', R_CNT_PILEUP: 'pileup', R_CNT_DROPPED: 'dropped',
+    R_CNT_CROSS: 'total', R_CNT_OPEN: 'total', R_CNT_WIN: 'total',
+    R_CNT_TRIG: 'total',
 }
 
 
-class FakeMCA(MCA):
-    """Un MCA que no existe: fotopico gaussiano que crece con el tiempo vivo.
+_MED_DE_FORMA = (R_TRAP_MED, R_FORMA1_MED, R_FORMA2_MED, R_FORMA3_MED)
+_UMBR_DE_FORMA = (R_TRAP_UMBR, R_FORMA1_UMBR, R_FORMA2_UMBR, R_FORMA3_UMBR)
 
-    Respeta la ventana de aceptación `amp_min`/`amp_max`, así que moverla desde
-    la GUI recorta el pico de verdad y `rej_amp` sube. Es lo que permite probar
-    los controles sin placa.
+
+class FakeMCA(MCA):
+    """Un MCA2 que no existe: fotopico gaussiano que crece con el tiempo vivo.
+
+    Respeta la ventana de aceptación `amp_min`/`amp_max` (sobre la feature de
+    16 b, como el RTL) y el zoom del eje 1D, así que moverlos desde la GUI
+    recorta y corre el pico de verdad. `centro` y `sigma` están en canales del
+    eje 1D a fondo de escala. Las ranuras no se modelan: no hay pérdidas ni
+    solapes, y todo el tiempo ocupado cae en `t_ocup[1]`.
+
+    Con `trap=True` tiene los registros del banco de trapecios como el RTL
+    (`N_FORMAS`, `umbr_ok` y el ok de cada forma, de sólo lectura), para que la
+    validación y los avisos se puedan probar; el espectro no cambia. Sin el
+    trapecio 0x134 lee cero, como un bitstream sin banco.
+
+    Sólo redefine el acceso: `r32`, `w32` y `_leer_bloque` (las aperturas del
+    histograma). `MCA.__init__` los entrega a libmca como backend de
+    callbacks, así que configure(), counters() y el resto son el código de C,
+    corriendo contra este modelo. Necesita libmca compilada (`make -C libmca`).
     """
 
+    impl = 'fake'
+    N_ACC = 4
+    N_FORMAS = 4
+
     def __init__(self, h_aw=14, h2_aw=7, psd_aw=6,
-                 rate_hz=1000.0, centro=8000.0, sigma=45.0, semilla=0):
-        super().__init__(None, -1, CAP_HIST_H | CAP_HIST_H_PSD,
-                         h_aw, h2_aw, psd_aw)
+                 rate_hz=1000.0, centro=8000.0, sigma=45.0, semilla=0,
+                 trap=False):
+        caps = CAP_HIST_H | CAP_HIST_H_PSD | (CAP_TRAP if trap else 0)
+        super().__init__(None, -1, caps, h_aw, h2_aw, psd_aw)
         self._reg = dict(_DEFAULTS_RESET)
         self._sombra = {}
         self._rng = np.random.default_rng(semilla)
@@ -281,25 +447,21 @@ class FakeMCA(MCA):
         if n == 0:
             return
 
-        h_shift = (self._reg[R_H_SHIFT] >> 0) & 0x1F
-        h2_shift = (self._reg[R_H2_SHIFT] >> 0) & 0x1F
         amp_min = self._reg[R_AMP_MIN] & 0xFFFF
         amp_max = self._reg[R_AMP_MAX] & 0xFFFF
 
-        amp = self._rng.normal(self._centro, self._sigma, n)
-        # np.intp, NO np.int64: `amp` termina usándose como array de ÍNDICES
-        # (bincount, y la fila de np.add.at más abajo). En la Pitaya —armv7l, 32
-        # bits— np.intp es int32, y numpy rechaza indexar con int64 por casting
-        # "safe": "Cannot cast array data from dtype('int64') to dtype('int32')".
-        # En la PC no se nota porque ahí intp ya es int64. Las amplitudes son
-        # 0..0xFFFF, así que int32 sobra.
-        amp = np.clip(amp, 0, 0xFFFF).astype(np.intp)
+        # La feature de amplitud, de 16 b alineada a la izquierda: el canal a
+        # fondo de escala son sus h_aw bits altos.
+        corr = AMP_W - self.h_aw
+        canal = self._rng.normal(self._centro, self._sigma, n)
+        # np.intp, NO np.int64: termina usándose como array de ÍNDICES
+        # (bincount, np.add.at). En la Pitaya —armv7l, 32 bits— np.intp es
+        # int32 y numpy rechaza indexar con int64 por casting "safe".
+        amp = np.clip(canal * (1 << corr), 0, 0xFFFF).astype(np.intp)
 
-        # Apilamiento: un puñado de eventos se cierran por maxlen y no entran.
-        n_pile = int(self._rng.binomial(n, 0.01))
-        if n_pile:
-            amp = amp[n_pile:]
-        self._cnt['pileup'] += n_pile
+        # Un puñado de ventanas con otro disparo adentro: se marcan y se
+        # histogramean igual (en el MCA2 el corte lo hace el discriminador).
+        self._cnt['pileup'] += int(self._rng.binomial(n, 0.01))
         self._cnt['total'] += n
 
         dentro = (amp >= amp_min) & (amp <= amp_max)
@@ -308,9 +470,8 @@ class FakeMCA(MCA):
         if amp.size == 0:
             return
 
-        canal = np.clip(amp >> h_shift, 0, self._hist.size - 1)
-        self._hist += np.bincount(canal, minlength=self._hist.size
-                                  ).astype(np.uint32)
+        self._hist += np.bincount(self._canal(amp, R_ZOOM_1D, self.h_aw),
+                                  minlength=self._hist.size).astype(np.uint32)
         self._cnt['accepted'] += int(amp.size)
 
         # Mapa 2D: dos poblaciones en el eje de forma, para que la FOM dé algo.
@@ -319,17 +480,32 @@ class FakeMCA(MCA):
                        self._rng.normal(0.25 * n2, 0.05 * n2, amp.size),
                        self._rng.normal(0.65 * n2, 0.05 * n2, amp.size))
         psd = np.clip(psd, 0, n2 - 1).astype(np.intp)   # índice: intp, ver arriba
-        fila = np.clip(amp >> max(h2_shift, 9), 0, self._m2d.shape[0] - 1)
+        fila = self._canal(amp, R_ZOOM_2DX, self.h2_aw)
         np.add.at(self._m2d, (fila, psd), 1)
 
         self._ultimo = {'amp': int(amp[-1]), 'psd': int(psd[-1]),
                         'q_tot': int(amp[-1]) * 8, 'q_tail': int(amp[-1])}
+
+    def _canal(self, amp, off_zoom, aw):
+        """El zoom del MCA2 sobre la feature de 16 b, vectorizado: la ventana
+        [k*2^(16-z), (k+1)*2^(16-z)), saturando en los bordes."""
+        z = min(self._reg.get(off_zoom, 0) & 0xF, max(0, AMP_W - aw))
+        k = ((self._reg.get(off_zoom, 0) >> 8) & 0xFF) & ((1 << z) - 1)
+        ancho = 1 << (AMP_W - z)
+        rel = amp - k * ancho
+        c = rel >> (AMP_W - z - aw)
+        c = np.where(rel < 0, 0, np.where(rel >= ancho, (1 << aw) - 1, c))
+        return c.astype(np.intp)
 
     @property
     def _livetime(self):
         # Una fracción de tiempo muerto proporcional a la tasa, para que
         # livetime y deadtime no sean números decorativos.
         return self._realtime * (1.0 - min(0.3, self._rate * 20e-6))
+
+    @property
+    def _muerto(self):
+        return self._realtime - self._livetime
 
     # ---------- acceso ----------
 
@@ -349,6 +525,11 @@ class FakeMCA(MCA):
                     self._cnt[k] = 0
                 self._realtime = 0.0
                 v &= ~(1 << 1)
+        if off == R_AMP_SRC:
+            # Como el RTL: escribir amp_src mueve los selectores de amplitud.
+            f = 1 if v & 1 else 0
+            sel = self._reg.get(R_HIST_SEL, 0x200)
+            self._reg[R_HIST_SEL] = (sel & ~0xFF) | (f << 4) | f
         self._reg[off] = v
 
     def r32(self, off):
@@ -359,28 +540,34 @@ class FakeMCA(MCA):
             return self.caps
         if off == R_WIDTHS:
             return (self.psd_aw << 16) | (self.h2_aw << 8) | self.h_aw
-        if off == R_STATUS:
+        if off == R_N_ACC_MAX:
+            return self.N_ACC
+        if self.caps & CAP_TRAP:
+            if off == R_N_FORMAS:
+                return self._estado_banco()
+            if off in _MED_DE_FORMA:
+                return (self._reg[off] & 0x7FFFFFFF) | (self._forma_ok(off) << 31)
+        elif off == R_N_FORMAS:
             return 0
+        if off == R_STATUS:
+            return 1 << 5                          # puede_abrir, nada ocupado
         if off == R_BASELINE_NOW:
             return 0
+        if off == R_PUB_STATE:
+            return ((self._cnt['total'] & 0xFFFF) << 16) | (1 << 8)
+        if off in _CONTADORES:
+            return self._cnt[_CONTADORES[off]] & 0xFFFFFFFF
 
-        cnt = {R_CNT_TOTAL: 'total', R_CNT_ACCEPTED: 'accepted',
-               R_CNT_REJ_AMP: 'rej_amp', R_CNT_REJ_PSD: 'rej_psd',
-               R_CNT_PILEUP: 'pileup', R_CNT_DROPPED: 'dropped'}
-        if off in cnt:
-            return self._cnt[cnt[off]] & 0xFFFFFFFF
-
-        relojes = {R_REALTIME_LO: (R_REALTIME_HI, self._realtime),
-                   R_LIVETIME_LO: (R_LIVETIME_HI, self._livetime),
-                   R_DEADTIME_LO: (R_DEADTIME_HI,
-                                   self._realtime - self._livetime)}
-        if off in relojes:
-            hi_off, seg = relojes[off]
-            ciclos = int(seg * FS_HZ)
-            self._sombra[hi_off] = (ciclos >> 32) & 0xFFFFFFFF   # leer LO congela HI
-            return ciclos & 0xFFFFFFFF
-        if off in (R_REALTIME_HI, R_LIVETIME_HI, R_DEADTIME_HI):
-            return self._sombra.get(off, 0)
+        # t_ocup: lo libre en j=0, lo ocupado en j=1.
+        if R_T_OCUP <= off < R_T_OCUP + 8 * (self.N_ACC + 1) and off % 8 == 0:
+            j = (off - R_T_OCUP) // 8
+            seg = self._livetime if j == 0 else self._muerto if j == 1 else 0.0
+            return self._reloj(off + 4, seg)
+        if off in _RELOJES:
+            hi_off, attr = _RELOJES[off]
+            return self._reloj(hi_off, getattr(self, attr) if attr else 0.0)
+        if off in self._sombra:
+            return self._sombra[off]
 
         ult = {R_LAST_AMP: 'amp', R_LAST_PSD: 'psd',
                R_LAST_QTOT: 'q_tot', R_LAST_QTAIL: 'q_tail'}
@@ -389,20 +576,41 @@ class FakeMCA(MCA):
 
         return self._reg.get(off, 0)
 
-    def spectrum(self):
-        self._avanzar()
-        return self._hist.copy()
+    def _estado_banco(self):
+        # {umbr_ok, N_FORMAS, n_formas}: los umbrales de las formas en uso.
+        gate = self._reg[R_GATE_LEN] >> 16
+        nf = self._reg[R_N_FORMAS] & 7
+        nf = min(nf or 1, self.N_FORMAS)
+        umbr_ok = all((self._reg.get(_UMBR_DE_FORMA[f], 0) >> 16) <= gate
+                      for f in range(nf))
+        return (int(umbr_ok) << 31) | (self.N_FORMAS << 8) | (self._reg[R_N_FORMAS] & 7)
 
-    def map2d(self):
+    def _forma_ok(self, off_med):
+        # trap_ok de mca_top.sv: off + TRAP_LAT + 2^lw <= gate_long.
+        v = self._reg[off_med]
+        fin = (v & 0xFFFF) + TRAP_LAT + (1 << ((v >> 16) & 7))
+        return int(fin <= (self._reg[R_GATE_LEN] >> 16))
+
+    def _reloj(self, hi_off, seg):
+        ciclos = int(seg * FS_HZ)
+        self._sombra[hi_off] = (ciclos >> 32) & 0xFFFFFFFF   # leer LO congela HI
+        return ciclos & 0xFFFFFFFF
+
+    def _leer_bloque(self, off, n):
+        """La lectura en bloque que pide libmca: las dos aperturas salen del
+        histograma simulado, de una vez; el resto, registro por registro."""
         self._avanzar()
-        return self._m2d.copy()
+        if off == APERTURE_H:
+            return self._hist[:n]
+        if off == APERTURE_2D:
+            return self._m2d.ravel()[:n]
+        return [self.r32(off + 4 * i) for i in range(n)]
 
     def close(self):
         self._t_ref = None
+        super().close()
 
 
-# =============================================================================
-# Osciloscopio y multitrigger simulados
 # =============================================================================
 #
 # Mismo criterio que `FakeMCA`: que la GUI se pueda desarrollar y probar sin
@@ -504,14 +712,14 @@ class FakeOsc:
 class FakeMultiTrigger:
     """Registros del multitrigger que retienen lo escrito, y un snapshot fijo."""
 
-    _DEFAULTS = {0x210: 0, 0x214: 0, 0x21C: 0,
-                 0x240: 0xFFFFFFFF, 0x244: 0xFFFFFFFF}
+    _DEFAULTS = {R_SHIELD_CFG: 0, R_SHIELD_RUN: 0, R_FLAGS: 0,
+                 R_OR_MASK_CH0: 0xFFFFFFFF, R_OR_MASK_CH1: 0xFFFFFFFF}
 
     def __init__(self):
         self._reg = dict(self._DEFAULTS)
 
     def r32(self, off):
-        if off == 0x218:                 # snapshot: sw + flanco positivo ch0
+        if off == R_TRIG_SNAP:           # snapshot: sw + flanco positivo ch0
             return 0b11
         return self._reg.get(off, 0)
 
@@ -519,10 +727,39 @@ class FakeMultiTrigger:
         self._reg[off] = int(v) & 0xFFFFFFFF
 
     def read_snapshot_raw(self):
-        return self.r32(0x218)
+        return self.r32(R_TRIG_SNAP)
 
     def get_flags(self):
-        return self.r32(0x21C)
+        return self.r32(R_FLAGS)
+
+    def close(self):
+        pass
+
+
+class FakeMtRegion(MtRegion):
+    """La región propia del multitrigger, simulada: registros que retienen lo
+    escrito, con el disparo por pendiente presente.
+
+    `we_keep` vive en el slot 1 (el scope), así que FLAGS lo toma del
+    `FakeOsc` que se le pase: es lo que hace que `multitrigger_armar_mca`
+    compruebe en el simulador lo mismo que en la placa.
+    """
+
+    def __init__(self, osc=None):
+        super().__init__(None, -1)
+        self._reg = {0x000: MTRG_MAGIC,
+                     R3_CAPS: CAPS_HAS_PZ | CAPS_HAS_SLOPE | (2 << 12) | 2}
+        self._osc = osc
+
+    def r32(self, off):
+        if off == R3_FLAGS:
+            arm = getattr(self._osc, '_reg', {}).get(0x000, 0)
+            # we_keep es el bit 3 de cada byte de 0x000 del scope.
+            return sum(1 << (4 + c) for c in range(2) if (arm >> (8 * c + 3)) & 1)
+        return self._reg.get(off, 0)
+
+    def w32(self, off, v):
+        self._reg[off] = int(v) & 0xFFFFFFFF
 
     def close(self):
         pass

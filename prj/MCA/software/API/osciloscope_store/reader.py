@@ -29,7 +29,7 @@ class ReaderThread(threading.Thread):
     """
 
     def __init__(self, source, free_q, full_q, stats, annotators=(),
-                 poll_timeout_s=1.0, name='mca-reader'):
+                 poll_timeout_s=1.0, name='osc-reader'):
         super().__init__(name=name, daemon=True)
         self.source     = source
         self.free_q     = free_q

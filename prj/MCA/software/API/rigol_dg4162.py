@@ -629,7 +629,18 @@ class RigolDG4162:
         # Se usan 4 decimales en vez de 5 para acortar el comando sin perder
         # resolución útil: el DAC del instrumento es de 14 bits (~6e-5).
         cuerpo = ','.join(f'{x:.4f}' for x in v)
-        self.write(f':SOURce{ch}:DATA VOLATILE,{cuerpo}')
+        cmd = f':SOURce{ch}:DATA VOLATILE,{cuerpo}'
+        # Este firmware (00.01.05) se cuelga si el comando mide un múltiplo exacto
+        # de 1536 bytes, sin contar el '\n' que agrega `write`: no procesa el comando
+        # ni contesta nada hasta un *RST.
+        # Medido contra el instrumento (2026-11-05, los 33 múltiplos de 512 entre
+        # 115 KB y 131 KB): cuelgan k*512 con k múltiplo de 3, siempre, y ningún
+        # otro largo probado. Depende del texto, así que le toca a 1 forma de cada
+        # 1536, con el mismo síntoma que un timeout. Un espacio al final lo evita;
+        # un '\n' no.
+        if len(cmd) % 1536 == 0:
+            cmd += ' '
+        self.write(cmd)
         if check_errors:
             self.assert_ok(f'load_arb(ch={ch}, n={v.size})')
         return v.size

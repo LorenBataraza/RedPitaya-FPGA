@@ -46,15 +46,19 @@ SCOPE_PHYS = 0x4010_0000
 SCOPE_SIZE = 0x1000
 S_CTRL, S_TRIG_SW, S_TRIG_DIS_CLR = 0x00, 0x04, 0x94
 S_THR0, S_THR1, S_DLY0, S_DLY1 = 0x08, 0x0C, 0x10, 0x110
-S_HYST0, S_HYST1, S_SHIELD = 0x20, 0x24, 0x210
-S_MASK0, S_MASK1 = 0x240, 0x244
+S_HYST0, S_HYST1 = 0x20, 0x24
 BIT_SW = 1 << 0
+
+# --- slot 3: la region del multitrigger ---
+MTRG_PHYS = 0x4030_0000
+MTRG_SIZE = 0x1000
+M_SHIELD, M_MASK0, M_MASK1 = 0x010, 0x040, 0x044
 
 SLOT_SHIFT = 9
 PRE, POST = 8, 24
 
 
-def scope_setup(sc):
+def scope_setup(sc, mt):
     """Deja el scope emitiendo trigger_event con cada escritura a 0x04.
 
     we_keep=1 para que la máscara NO se auto-limpie en single-shot, y el
@@ -66,20 +70,20 @@ def scope_setup(sc):
     w32(sc, S_THR0, 0); w32(sc, S_THR1, 0)
     w32(sc, S_HYST0, 80); w32(sc, S_HYST1, 80)
     w32(sc, S_DLY0, 1);  w32(sc, S_DLY1, 1)   # set_dly nunca puede ser 0
-    w32(sc, S_SHIELD, (0 << 16) | (0x3 << 8) | 0x3)   # auto-rearm inmediato
+    w32(mt, M_SHIELD, (0 << 16) | (0x3 << 8) | 0x3)   # auto-rearm inmediato
     w32(sc, S_CTRL, 0x0909)              # arm + we_keep, ch0+ch1
     # SOLO ch0 en la máscara. trigger_event es el OR de los adc_trig de TODOS
     # los canales (mt_event_logic.v:123-127), asi que con los dos
     # canales enmascarados una sola escritura a 0x04 produce DOS pulsos de
     # trigger (llegan con un ciclo de diferencia). Eso rompe la cuenta exacta de
     # triggers inyectados, que es justamente lo que este test necesita.
-    w32(sc, S_MASK0, BIT_SW)             # máscara DESPUÉS del arm
-    w32(sc, S_MASK1, 0)
+    w32(mt, M_MASK0, BIT_SW)             # máscara DESPUÉS del arm
+    w32(mt, M_MASK1, 0)
 
 
-def scope_off(sc):
+def scope_off(sc, mt):
     w32(sc, S_CTRL, 0)
-    w32(sc, S_SHIELD, 0)
+    w32(mt, M_SHIELD, 0)
     w32(sc, S_TRIG_DIS_CLR, 0x0000_0101)
     w32(sc, S_CTRL, 0x0000_0202)
 
@@ -127,6 +131,7 @@ def main(argv):
         print("el bitstream cargado no tiene el event_ring")
         return 2
     sc = _open_mem(SCOPE_PHYS, SCOPE_SIZE)
+    mt = _open_mem(MTRG_PHYS, MTRG_SIZE)
     mem = _open_mem(base, size)
     ok = True
 
@@ -136,7 +141,7 @@ def main(argv):
     # ---------------------------------------------------------------- A
     print(f"\n[A] {n} triggers espaciados, el PS drena")
     ring_setup(rg, base, size)
-    scope_setup(sc)
+    scope_setup(sc, mt)
     n_slots = r32(rg, R_N_SLOTS)
     for i in range(n):
         w32(sc, S_TRIG_SW, 0x1)
@@ -171,7 +176,7 @@ def main(argv):
     # justamente ver el freno. 64 slots se llenan en 64 triggers.
     small = 64 * (1 << SLOT_SHIFT)
     ring_setup(rg, base, small)
-    scope_setup(sc)
+    scope_setup(sc, mt)
     n_small = r32(rg, R_N_SLOTS)
     n_b = n_small + 50
     print(f"\n[B] ráfaga SIN drenar: {n_b} triggers, {n_small} créditos "
@@ -203,7 +208,7 @@ def main(argv):
     ok &= (after - before) == 10
 
     w32(rg, R_CTRL, 0)
-    scope_off(sc)
+    scope_off(sc, mt)
     print("\nRESULT:", "PASS" if ok else "FAIL")
     return 0 if ok else 1
 

@@ -10,6 +10,7 @@ formato del slot **antes** de confiar en el ring para tomar datos.
 | `ring_format.py` | módulo | no — es la definición del layout del lado software |
 | `test_ring_format.py` | PC | **no** |
 | `hw_ring_plumbing.py` | Red Pitaya, como root | sí |
+| `hw_ring_swtrig.py` | Red Pitaya, como root, o contra el RTL con `make -C prj/MCA/sim tb_ring_sistema` | no, con esa simulación |
 | `ring_dump.hex` | generado por la simulación | no |
 
 ## Tests offline (PC)

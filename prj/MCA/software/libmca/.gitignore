@@ -1,0 +1,2 @@
+# Lo arma `make -C libmca`; se regenera siempre desde src/.
+build/

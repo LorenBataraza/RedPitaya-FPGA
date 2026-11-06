@@ -463,6 +463,71 @@ def deadtime_fit(rate_in, rate_out):
     }
 
 
+def erlang_b(n, rho):
+    """Pérdida de un sistema de `n` ranuras sin cola con carga ofrecida `rho`.
+
+    Es el modelo del MCA2 con arribos de Poisson: un disparo que no encuentra
+    ranura libre se pierde (M/G/n/n, que no depende de la forma del servicio).
+    Con n = 1 es `rho/(1+rho)`, el servidor único no paralizable. `rho` es la
+    tasa de disparos por el tiempo que una ventana ocupa su ranura.
+    """
+    b = 1.0
+    for k in range(1, int(n) + 1):
+        b = rho * b / (k + rho * b)
+    return b
+
+
+def perdida_ranuras(t_disparo, n, ocupa, serv=18, periodo=None, n_ciclos=1,
+                    desde=0):
+    """Pérdida y ocupación de `n` ranuras con un publicador compartido.
+
+    Simula el asignador del MCA2 sobre los instantes `t_disparo` (en ciclos):
+    cada disparo toma una ranura libre, la ocupa `ocupa` ciclos midiendo
+    (`gate_long + 1`), espera al publicador, que atiende de a uno en orden, y
+    publica en `serv` ciclos. Sin ranura libre, se pierde. Es el M/D/n/n de
+    `test_mca2_placa.py`, con el publicador que Erlang B no tiene: a tasa alta
+    la espera del publicador alarga la ocupación.
+
+    Con `periodo` el patrón se repite `n_ciclos` veces (el ARB del generador) y
+    sólo cuentan los disparos desde el ciclo `desde`, cuando ya se llegó al
+    régimen. Devuelve `(pérdida, fracción del tiempo con j ranuras ocupadas)`.
+    """
+    t = np.sort(np.asarray(t_disparo, dtype=float))
+    if periodo is not None:
+        t = (t[None, :] + periodo * np.arange(n_ciclos)[:, None]).ravel()
+    t0 = desde * periodo if periodo is not None else (t[0] if t.size else 0.0)
+    t1 = n_ciclos * periodo if periodo is not None else (t[-1] if t.size else 0.0)
+    libre = [-np.inf] * int(n)
+    pub = -np.inf
+    abiertos = perdidos = 0
+    intervalos = []
+    for x in t:
+        i = min(range(int(n)), key=lambda j: libre[j])
+        if libre[i] <= x:
+            ini = max(x + ocupa, pub)
+            pub = ini + serv
+            libre[i] = pub
+            if x >= t0:
+                abiertos += 1
+            intervalos.append((x, pub))
+        elif x >= t0:
+            perdidos += 1
+    ev = []
+    for a, b in intervalos:
+        a, b = max(a, t0), min(b, t1)
+        if b > a:
+            ev += [(a, 1), (b, -1)]
+    ev.sort()
+    occ = np.zeros(int(n) + 1)
+    j, tp = 0, t0
+    for x, d in ev:
+        occ[j] += x - tp
+        j, tp = j + d, x
+    occ[j] += max(t1 - tp, 0.0)
+    total = occ.sum()
+    return perdidos / max(abiertos + perdidos, 1), (occ / total if total > 0 else occ)
+
+
 # =============================================================================
 # Tiempo muerto inferido de los intervalos entre eventos
 # =============================================================================

@@ -12,8 +12,17 @@ Pasos, del menos al más sospechoso:
     sweep     barrido de ~650 direcciones, incluidas no mapeadas
     bulk      lectura masiva del espectro con copia numpy   <-- principal sospechoso
     word      el mismo espectro pero palabra por palabra, de a 32 bits
+    wordc     las mismas 16384 palabras, en C (libmca), comparadas bit a bit
+              contra la referencia Python si el MCA está parado
     clear     barrido de borrado
     counters  relojes y contadores
+
+`bulk` llama a `spectrum()`. Cuando se escribió este script eso era una copia
+numpy y reiniciaba la placa; desde entonces `spectrum()` lee de a una palabra
+(hoy, en C), así que el paso ya no reproduce el fallo: documenta que la API
+dejó de emitirlo. `wordc` es el paso de libmca: si alguna vez reinicia, el
+lazo de C está emitiendo algo que no es un `ldr` de 32 b, y `make -C libmca
+check-bus` tendría que haberlo visto.
 """
 
 import os
@@ -26,6 +35,8 @@ while _RAIZ != '/' and not os.path.isfile(os.path.join(_RAIZ, 'API', 'mca.py')):
     _RAIZ = os.path.dirname(_RAIZ)          # sube hasta software/
 sys.path.insert(0, _RAIZ)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import numpy as np
 
 import mca_utils as mu
 
@@ -46,8 +57,9 @@ def main():
 
     if paso == 'regs':
         for i in range(200):
-            m.w32(mu.R_THR, 100 + (i & 0xFF))
-            assert m.r32(mu.R_THR) & 0x3FFF == 100 + (i & 0xFF)
+            m.w32(mu.R_AMP_MAX, 100 + (i & 0xFF))
+            assert m.r32(mu.R_AMP_MAX) & 0xFFFF == 100 + (i & 0xFF)
+        m.w32(mu.R_AMP_MAX, 0xFFFF)
         print(f'    200 ciclos de escritura+lectura OK')
 
     elif paso == 'sweep':
@@ -77,6 +89,29 @@ def main():
             acc += m.r32(mu.APERTURE_H + 4 * i)
         print(f'    16384 lecturas de 32 b OK, suma={acc}, '
               f'{1e6*(time.time()-t0)/16384:.1f} us cada una')
+
+    elif paso == 'wordc':
+        n = 1 << m.h_aw
+        t1 = time.time()
+        w = m._read_words(mu.APERTURE_H, n)
+        dt = time.time() - t1
+        print(f'    {n} lecturas de 32 b en C OK, suma={int(w.sum())}, '
+              f'{1e6*dt/n:.3f} us cada una ({1e3*dt:.2f} ms en total)')
+        if m.running:
+            print('    MCA corriendo: no se compara contra Python (cambia entre '
+                  'una lectura y otra)')
+        else:
+            from API.ref_py.mca2 import MCA as Referencia
+            r = Referencia.open()
+            t1 = time.time()
+            py = r._read_words(mu.APERTURE_H, n)
+            dt_py = time.time() - t1
+            r.close()
+            print(f'    referencia Python: {1e3*dt_py:.1f} ms, '
+                  f'{"IGUAL" if np.array_equal(w, py) else "DISTINTO"} bit a bit')
+            if not np.array_equal(w, py):
+                m.close()
+                return 1
 
     elif paso == 'clear':
         m.stop()

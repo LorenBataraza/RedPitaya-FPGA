@@ -288,6 +288,41 @@ def test_dnl_envolvente():
           0.5 < d3['dnl_rms_pct'] < 1.6, f'({d3["dnl_rms_pct"]:.2f}%)')
 
 
+def test_load_arb_largo():
+    print('\n[9] load_arb esquiva el largo que cuelga al firmware')
+
+    class Transporte:
+        def __init__(self):
+            self.escrito = []
+
+        def write(self, b):
+            self.escrito.append(b)
+
+        def read(self, n=4096, timeout=None):
+            return b'0,"No error"'
+
+    t = Transporte()
+    g = rg.RigolDG4162(t)
+    prefijo = len(':SOURce1:DATA VOLATILE,')
+    n = 16384
+    base = prefijo + 6 * n + (n - 1)         # todos "0.0000"; cada "-0.0000" suma uno
+    falta = (-base) % 1536
+
+    def carga(k):
+        v = np.zeros(n)
+        v[:k] = -1e-6
+        t.escrito.clear()
+        g.load_arb(v, ch=1, check_errors=False, normalize=False)
+        return t.escrito[0].decode()
+
+    c = carga(falta)
+    check('con un largo multiplo de 1536 agrega un espacio',
+          len(c) == base + falta + 2 and c.endswith(' \n') and (len(c) - 2) % 1536 == 0, f'({len(c)})')
+    c = carga(falta + 1)
+    check('con cualquier otro largo no toca el comando',
+          len(c) == base + falta + 2 and c.endswith('0\n'), f'({len(c)})')
+
+
 def main():
     test_ancho_y_tasa()
     test_contra_el_metodo_viejo()
@@ -297,6 +332,7 @@ def main():
     test_normalizacion()
     test_dnl_rechaza_lineas_discretas()
     test_dnl_envolvente()
+    test_load_arb_largo()
     print('\nRESULT:', 'PASS' if not FAILS else f'FAIL ({len(FAILS)}): {FAILS}')
     sys.exit(1 if FAILS else 0)
 

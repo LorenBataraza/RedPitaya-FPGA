@@ -38,14 +38,24 @@ nombres. Las tres capas gobiernan la API de *hardware*.
 
 | Fichero | Bloque | Base |
 |---|---|---|
-| `mca.py` | analizador multicanal | `0x4070_0000` |
+| `mca.py` | analizador multicanal con ranuras ("MCA2") | `0x4070_0000` |
 | `osciloscope.py` | osciloscopio clásico | `0x4010_0000` |
-| `multitrigger.py` | máscaras OR, shield, snapshot | `0x4010_0000` (`0x210`–`0x24C`) |
+| `multitrigger.py` | máscaras OR, shield, snapshot; la región propia (pendiente) y el disparo del MCA2 (`multitrigger_armar_mca`) | `0x4010_0000` (`0x210`–`0x24C`), `0x4030_0000` |
 | `osciloscope_ring.py` | event_ring en DDR | `0x4020_0000` |
 | `osciloscope_store/` | guardado continuo del flujo de eventos | — |
 | `analisis.py` | helpers puros, sin hardware | — |
 | `fpga.py` | bring-up de la PL | — |
 | `rigol_dg4162.py` | generador externo | — |
+| `_libmca.py` | carga de [`libmca`](../libmca/) (la API en C) y su `Bus` | — |
+| `_despacho.py` | el decorador `@_api`: cada llamada va a C, a la referencia o a la red | — |
+| `ref_py/` | la implementación Python **congelada**: base de benchmarks y de la equivalencia. `mca2.py` es la del MCA2; `mca.py`, la del MCA1 | — |
+
+**El MCA está en C** desde la fase 1 de libmca: cada `mca_*` es una llamada por
+ctypes a la función homónima de `libmca/include/mca.h`, que habla el mapa
+"MCA2". `mca_open(impl='py')` abre la implementación Python para comparar (y
+es la única que abre el bitstream MCA1). **Sin el disparo del multitrigger
+armado el MCA2 no mide**: `multitrigger_armar_mca(osc, mtr)`. Ver
+[`docs/API/diseno_de_clases.md`](../../docs/API/diseno_de_clases.md) §3 y §4.
 
 ## Compatibilidad
 

@@ -180,11 +180,13 @@ R_CANON_MAGIC = 0x01000
 R_CANON_CAPS  = 0x01004           # {RSZ[21:16], DW[13:8], N_CH[3:0]}
 MAGIC_OSC     = 0x4F53_4331       # "OSC1"; los bitstreams pre-refactor no lo tienen
 
-# `decode_snap` decodifica el snapshot de 0x218, que es un registro del
+# `decode_snap` decodifica el snapshot, que es un registro del
 # multitrigger: la definición única vive allá. Acá se importa porque los dos
 # volcados de diagnóstico (`debug_trigger`, `debug_dump`) imprimen registros de
 # los dos bloques. No hay ciclo: API.multitrigger sólo importa mmap/os/struct.
-from API.multitrigger import decode_snap                            # noqa: E402,F401
+from API.multitrigger import (                                      # noqa: E402,F401
+    BIT_SW, MultiTrigger, R_FLAGS, R_OR_MASK_CH0, R_OR_MASK_CH1, R_SHIELD_CFG,
+    R_SHIELD_RUN, R_TRIG_SNAP, decode_snap)
 
 
 def _fb_to_np(fb, n):
@@ -212,6 +214,16 @@ class Osciloscope:
         self._mmap = scope_mmap
         self._fd   = fd
         self._geo  = None
+        self._mt   = None           # lo abre `mt`, recién si hace falta
+
+    @property
+    def mt(self):
+        """El multitrigger, para lo de acá que lo cruza (snapshot, máscara de la
+        captura por software, diagnóstico). Vive en otra región, así que tiene su
+        mapeo, y se abre la primera vez: quien no lo usa no lo necesita presente."""
+        if self._mt is None:
+            self._mt = MultiTrigger.open()
+        return self._mt
 
     @classmethod
     def open(cls, phys=SCOPE_PHYS, size=SCOPE_SIZE, check_pl=True):
@@ -326,11 +338,14 @@ class Osciloscope:
         new = cls.open(phys, size)
         if verbose:
             print(f'bitstream recargado: {info["path"]}  state={info["state"]}')
-            print(f'  cfg sanity: trg_src ch0 @0x240 = {new.r32(0x240):#010x} '
+            print(f'  cfg sanity: OR_MASK ch0 = {new.mt.r32(R_OR_MASK_CH0):#010x} '
                   f'(esperado tras reset: 0)')
         return new
 
     def close(self):
+        if self._mt is not None:
+            self._mt.close()
+            self._mt = None
         try:
             self._mmap.close()
         finally:
@@ -364,49 +379,53 @@ class Osciloscope:
         print(f'  set_tresh ch0/ch1 @0x08/0x0C = {self.r32(0x08):#010x} / {self.r32(0x0C):#010x}')
         print(f'  set_hyst  ch0/ch1 @0x20/0x24 = {self.r32(0x20):#010x} / {self.r32(0x24):#010x}')
         print(f'  set_deb_len       @0x90     = {self.r32(0x90):#010x}')
-        print(f'  trg_src_stored ch0/ch1 @0x240/0x244 = {self.r32(0x240):#010x} / {self.r32(0x244):#010x}')
-        print(f'  shield_cfg            @0x210 = {self.r32(0x210):#010x}')
+        mt = self.mt
+        print(f'  OR_MASK ch0/ch1 (mtrg) = {mt.r32(R_OR_MASK_CH0):#010x} / {mt.r32(R_OR_MASK_CH1):#010x}')
+        print(f'  shield_cfg      (mtrg) = {mt.r32(R_SHIELD_CFG):#010x}')
         print('--- run-time (status / debug) ---')
         print(f'  adc_state         @0x00 = {self.r32(0x00):#010x}  (config + trigger_status por canal)')
         print(f'  trg_state         @0x04 = {self.r32(0x04):#010x}  (set_trig_src[7:0] activo por canal en bytes)')
-        print(f'  shield runtime    @0x214 = {self.r32(0x214):#010x}  ({{active, cnt[15:0]}})')
-        snap = self.r32(0x218)
-        print(f'  snapshot          @0x218 = {snap:#010x}  -> {decode_snap(snap)}')
-        dis_we = self.r32(0x21C)
-        print(f'  dis+we_keep       @0x21C = {dis_we:#010x}  dis_act={dis_we & 0xF:#x} we_keep={(dis_we>>4) & 0xF:#x}')
+        print(f'  shield runtime  (mtrg) = {mt.r32(R_SHIELD_RUN):#010x}  ({{active, cnt[15:0]}})')
+        snap = mt.r32(R_TRIG_SNAP)
+        print(f'  snapshot        (mtrg) = {snap:#010x}  -> {decode_snap(snap)}')
+        dis_we = mt.r32(R_FLAGS)
+        print(f'  dis+we_keep     (mtrg) = {dis_we:#010x}  dis_act={dis_we & 0xF:#x} we_keep={(dis_we>>4) & 0xF:#x}')
         print(f'  wp_trig ch0/ch1   @0x1C/0x11C = {self.r32(0x1C):#010x} / {self.r32(0x11C):#010x}')
         print(f'  wp_cur  ch0/ch1   @0x18/0x118 = {self.r32(0x18):#010x} / {self.r32(0x118):#010x}')
 
     def debug_dump(self):
         """Versión corta — solo lo más relevante por captura."""
-        snap = self.r32(0x218)
-        print(f'  snapshot @0x218 = {snap:#010x}  -> {decode_snap(snap)}')
-        print(f'  dis_act  @0x21C = {self.r32(0x21C):#010x}')
-        print(f'  mask act ch0/ch1 = {self.r32(0x240):#010x} / {self.r32(0x244):#010x}')
+        mt = self.mt
+        snap = mt.r32(R_TRIG_SNAP)
+        print(f'  snapshot = {snap:#010x}  -> {decode_snap(snap)}')
+        print(f'  dis_act  = {mt.r32(R_FLAGS):#010x}')
+        print(f'  mask act ch0/ch1 = {mt.r32(R_OR_MASK_CH0):#010x} / {mt.r32(R_OR_MASK_CH1):#010x}')
         print(f'  wp_trig ch0/ch1 = {self.r32(0x1C):#010x} / {self.r32(0x11C):#010x}')
-        print(f'  shield   @0x214 = {self.r32(0x214):#010x}')
+        print(f'  shield   = {mt.r32(R_SHIELD_RUN):#010x}')
 
     # ---------- verificación del bitstream ----------
 
-    def _probe_rw(self, off, patterns, mask=0xFFFFFFFF):
+    def _probe_rw(self, off, patterns, mask=0xFFFFFFFF, dev=None):
         """Escribe cada patrón en `off` y lo lee de vuelta (comparando solo los
         bits de `mask`, para registros con nibbles no almacenados). Restaura
         siempre el valor original. Devuelve (ok, orig).
 
         Es la prueba fuerte de que un registro R/W EXISTE: una dirección
-        read-only o no decodificada no retiene lo escrito.
+        read-only o no decodificada no retiene lo escrito. `dev` es el bloque a
+        probar, si no es el osciloscopio.
         """
-        orig = self.r32(off)
+        dev = self if dev is None else dev
+        orig = dev.r32(off)
         ok = True
         try:
             for p in patterns:
-                self.w32(off, p)
-                got = self.r32(off) & mask
+                dev.w32(off, p)
+                got = dev.r32(off) & mask
                 if got != (p & mask):
                     ok = False
                     break
         finally:
-            self.w32(off, orig)          # restaurar sí o sí
+            dev.w32(off, orig)           # restaurar sí o sí
         return ok, orig
 
     def verify_bitstream(self, verbose=True, raise_on_fail=False):
@@ -419,12 +438,12 @@ class Osciloscope:
            stock leen su valor de reset. Detecta "no hay bitstream / región
            equivocada / bus muerto", pero NO distingue este diseño del stock.
         2. **Fingerprint** (decisivo): readback R/W sobre los registros que el
-           scope original NO tiene — OR_MASK (0x240/0x244) y trigger_shield
-           (0x210). Si retienen patrones escritos, el cfg multitrigger está
+           scope original NO tiene — OR_MASK y trigger_shield, en la región del
+           multitrigger. Si retienen patrones escritos, el multitrigger está
            cargado. No destructivo: restaura los valores originales.
 
-        Correr ANTES de armar (los probes tocan 0x210/0x240, que set_or_mask /
-        arm reescriben igual). Devuelve dict con 'ok', 'sanity_ok',
+        Correr ANTES de armar (los probes tocan la máscara y el shield, que
+        set_or_mask / arm reescriben igual). Devuelve dict con 'ok', 'sanity_ok',
         'fingerprint_ok' y 'checks' (lista de (nombre, esperado, obtenido, ok)).
         """
         checks = []   # (nombre, esperado_str, obtenido, ok, tipo)
@@ -440,28 +459,37 @@ class Osciloscope:
 
         # 2) fingerprint: R/W readback en registros multitrigger-only.
         #    patrones = dos valores distintos + limpieza a 0.
-        #    0x210 tiene nibbles [15:12] y [7:4] no almacenados -> mask 0xFFFF0F0F.
-        for name, off, pats, mask in (
-            ('OR_MASK ch0 @0x240', 0x240, (0xA5A5_5A5A, 0x0000_FFFF, 0x0), 0xFFFF_FFFF),
-            ('OR_MASK ch1 @0x244', 0x244, (0x5A5A_A5A5, 0xFFFF_0000, 0x0), 0xFFFF_FFFF),
-            ('shield_cfg  @0x210', 0x210, (0x1234_050A, 0x0),             0xFFFF_0F0F),
-        ):
-            ok, _orig = self._probe_rw(off, pats, mask)
-            checks.append((name, 'R/W latch', self.r32(off), ok, 'fingerprint'))
+        #    El shield tiene nibbles [15:12] y [7:4] no almacenados -> mask 0xFFFF0F0F.
+        #    Un bitstream sin la región falla acá, sin levantar la excepción.
+        dis_we = 0
+        try:
+            mt = self.mt
+        except RuntimeError as e:
+            mt = None
+            checks.append(('región multitrigger', 'MAGIC MTRG', 0, False, 'fingerprint'))
+            if verbose:
+                print(f'  {e}')
+        if mt is not None:
+            for name, off, pats, mask in (
+                ('OR_MASK ch0', R_OR_MASK_CH0, (0xA5A5_5A5A, 0x0000_FFFF, 0x0), 0xFFFF_FFFF),
+                ('OR_MASK ch1', R_OR_MASK_CH1, (0x5A5A_A5A5, 0xFFFF_0000, 0x0), 0xFFFF_FFFF),
+                ('shield_cfg',  R_SHIELD_CFG,  (0x1234_050A, 0x0),              0xFFFF_0F0F),
+            ):
+                ok, _orig = self._probe_rw(off, pats, mask, dev=mt)
+                checks.append((name, 'R/W latch', mt.r32(off), ok, 'fingerprint'))
+            # info suave (dependiente de estado, no afecta el veredicto)
+            dis_we = mt.r32(R_FLAGS)
 
         sanity_ok = all(ok for _, _, _, ok, t in checks if t == 'sanity')
         fp_ok     = all(ok for _, _, _, ok, t in checks if t == 'fingerprint')
         ok        = sanity_ok and fp_ok
-
-        # info suave (dependiente de estado, no afecta el veredicto)
-        dis_we = self.r32(0x21C)
 
         if verbose:
             print('=== verify_bitstream ===')
             for name, exp, got, cok, t in checks:
                 flag = 'OK ' if cok else 'FAIL'
                 print(f'  [{flag}] {name:22s} esperado={exp:12s} leido={got:#010x}  ({t})')
-            print(f'  info: 0x21C dis+we_keep = {dis_we:#010x} '
+            print(f'  info: dis+we_keep = {dis_we:#010x} '
                   f'(dis={dis_we & 0xF:#x} we_keep={(dis_we >> 4) & 0xF:#x}; '
                   f'0 esperado recién cargado)')
             if ok:
@@ -631,13 +659,13 @@ class Osciloscope:
         # Limpiar adc_trg_dis si quedó pegado de una corrida anterior. Sin esto,
         # src_mask = set_trig_src & {!adc_trg_dis} = 0 y el SW pulse no firma.
         self.w32(0x94, 0x0000_0101)
-        self.set_or_mask(BIT_SW, BIT_SW)
+        self.mt.set_or_mask(BIT_SW, BIT_SW)
         self.w32(0x00, 0x0000_0101)     # arm ch0+ch1 (single-shot, sin we_keep)
         time.sleep(0.01)
         self.w32(0x04, 0x0000_0101)     # pulso adc_trig_sw[0] y [1]
         self.wait_fill(timeout_ms=timeout_ms)
         d1, d2 = self.read_buffers(self.n_buf)
-        return d1, d2, self.r32(0x218)
+        return d1, d2, self.mt.r32(R_TRIG_SNAP)
 
     def capture_n_events(self, n=100, timeout_ms=2000, wp_addr=0x1C,
                           clear_both=True, read_snap=False, deadline_every=256):
@@ -663,7 +691,7 @@ class Osciloscope:
         - el deadline se chequea cada `deadline_every` vueltas y no en cada una
           (`perf_counter_ns` cuesta casi tanto como la lectura);
         - se acumula en listas planas y los dicts se arman al final;
-        - `read_snap=False` (default) ahorra la lectura extra de 0x218 por
+        - `read_snap=False` (default) ahorra la lectura extra del snapshot por
           evento; el snapshot queda en 0. Ponerlo en True sólo si el análisis
           necesita saber QUÉ fuente disparó cada evento.
 
@@ -676,6 +704,7 @@ class Osciloscope:
         self.w32(0x94, clear_mask)
 
         mem         = self._mmap
+        mem_mt      = self.mt._mmap if read_snap else None
         unpack_from = _U32.unpack_from
         pc          = time.perf_counter_ns
         ts, wps, snaps = [], [], []
@@ -695,7 +724,7 @@ class Osciloscope:
                 ts.append(pc())
                 wps.append(wp_cur)
                 if read_snap:
-                    snaps.append(unpack_from(mem, 0x218)[0])
+                    snaps.append(unpack_from(mem_mt, R_TRIG_SNAP)[0])
                 wp_prev = wp_cur
                 count += 1
         dur_s = (pc() - t0) / 1e9

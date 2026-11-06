@@ -58,7 +58,7 @@ class ChunkWriter(threading.Thread):
     def __init__(self, run_dir, free_q, full_q, stats, meta_base=None,
                  compress=False, wave_dtype=np.int16, wave_scale=8192,
                  min_free_mb=MIN_FREE_MB, disk_check_every=8,
-                 name='mca-writer'):
+                 name='osc-writer'):
         super().__init__(name=name, daemon=True)
         self.run_dir    = str(run_dir)
         self.free_q     = free_q

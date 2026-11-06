@@ -64,6 +64,10 @@ FOOTER_BYTES = 8
 # 64 KB fue el óptimo medido en placa (ver el docstring del módulo).
 MAX_BATCH_BYTES = 64 * 1024
 
+# Lo que construye event_ring_red_pitaya_top: PRE_AW = 11 y DATA_AW = 12.
+PRE_BUF_WORDS = 1 << 11     # pre-buffer de la captura, palabras de N_CH muestras
+STAGE_SAMPLES = 1 << 12     # cola de muestras del stage
+
 _U32 = struct.Struct("<I")
 _U64 = struct.Struct("<Q")
 
@@ -85,6 +89,19 @@ class RingSource:
         self._mem = ddr_mem            # mmap de la región reservada
         self.ddr_phys = ddr_phys
         self.ddr_size = ddr_size
+
+        # El hardware no verifica ninguna de las dos. Si el rezago llega al tamaño del
+        # pre-buffer, las muestras se pisan sin ningún error ni contador; si la ventana
+        # no entra en el stage, se descartan todos los eventos.
+        rezago = (pre + post) * n_ch - post
+        if rezago >= PRE_BUF_WORDS:
+            raise ValueError(
+                f"pre={pre}, post={post}: el rezago de la captura es {rezago} y tiene "
+                f"que ser menor que {PRE_BUF_WORDS} (con 2 canales, 2·pre + post)")
+        if (pre + post) * n_ch > STAGE_SAMPLES:
+            raise ValueError(
+                f"pre={pre}, post={post}: la ventana ocupa {(pre + post) * n_ch} "
+                f"muestras y el stage tiene {STAGE_SAMPLES}")
 
         self.pre = pre
         self.post = post

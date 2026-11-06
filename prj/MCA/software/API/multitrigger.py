@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """Multitrigger: máscaras OR, trigger_shield y snapshot de fuentes.
 
-Es el bloque que el proyecto AÑADIÓ al scope original de RedPitaya, en los
-registros 0x210-0x24C del slot 1 (0x4010_0000). El osciloscopio clásico
-(umbral, decimación, delay, histéresis, filtros, calibración, BRAM) vive en
-`API/osciloscope.py`: son dos APIs sobre el mismo bloque físico.
+Es el bloque que el proyecto AÑADIÓ al scope original de RedPitaya. Vive en su
+región propia, el slot 3 (0x4030_0000), y `mt_cfg.sv` es su esclavo. El
+osciloscopio clásico (umbral, decimación, delay, histéresis, filtros, calibración,
+BRAM) vive en el slot 1 y en `API/osciloscope.py`.
 
     from API.osciloscope import Osciloscope
     from API.multitrigger import MultiTrigger, multitrigger_arm, BIT_ADC_P0
 
     osc = Osciloscope.open()
-    mt  = MultiTrigger.open(osc=osc)        # comparte el mmap del osciloscopio
+    mt  = MultiTrigger.open()
     multitrigger_arm(osc, mt, mask_ch0=BIT_ADC_P0, thr=0.5)
 
 `multitrigger_arm()` recibe LOS DOS handles a propósito: la secuencia de armado
@@ -19,14 +19,21 @@ de la función). Con la firma explícita la dependencia se ve; escondida dentro
 de una clase sería accidental.
 """
 
+import math
 import mmap
 import os
 import struct
 
 _U32 = struct.Struct('<I')
 
-SCOPE_PHYS = 0x4010_0000        # el multitrigger comparte slot con el scope
+SCOPE_PHYS = 0x4010_0000        # el osciloscopio; acá sólo para compatibilidad
 SCOPE_SIZE = 0x30000
+
+# La región propia del multitrigger. En el top del MCA está en el slot 3; en
+# red_pitaya_top en el 7: `Integration.base('mtrg')` da la del bitstream cargado.
+MTRG_PHYS  = 0x4030_0000
+MTRG_SIZE  = 0x1000
+MTRG_MAGIC = 0x4D54_5247        # "MTRG"
 
 # ---------- bits de la OR_MASK (matchean trg_src_bits de mt_trig_src.sv) ----------
 
@@ -59,9 +66,18 @@ BIT_SLOPE_N0 = 1 << 21
 BIT_SLOPE_N1 = 1 << 22
 BIT_SLOPE_N2 = 1 << 23
 BIT_SLOPE_N3 = 1 << 24
+# Disparo con POLO-CERO (mt_pz_trig): un trapecio corto con polo-cero y un
+# Schmitt, solo positivo. Es el disparo del banco de trapecios del MCA: separa
+# pares desde 7-8 muestras y no queda ciego en la cola de un pulso grande
+# (docs/mca/pruebas_banco_trapecios.md). Se configura en el slot 3 (ver
+# MtRegion.set_pz).
+BIT_PZ_P0    = 1 << 25
+BIT_PZ_P1    = 1 << 26
+BIT_PZ_P2    = 1 << 27
+BIT_PZ_P3    = 1 << 28
 
 
-# ---------- decoder del snapshot @0x218 ----------
+# ---------- decoder del snapshot (R_TRIG_SNAP) ----------
 
 _SNAP_NAMES = [
     'sw_any',
@@ -69,16 +85,16 @@ _SNAP_NAMES = [
     'adc_n0', 'adc_n1', 'adc_n2', 'adc_n3',
     'ext_p', 'ext_n', 'asg_p', 'asg_n',
     'trig_ch0', 'trig_ch1', 'trig_ch2', 'trig_ch3',
-    # bits 17..24: mismo lugar que en la OR_MASK. Solo los ve el SNAPSHOT del
-    # slot 3 (MtRegion.read_snapshot): el espejo de 0x218 y el event ring
-    # guardan 17 bits.
+    # bits 17..24: mismo lugar que en la OR_MASK. El event ring guarda 17 bits.
     'slope_p0', 'slope_p1', 'slope_p2', 'slope_p3',
     'slope_n0', 'slope_n1', 'slope_n2', 'slope_n3',
+    # bits 25..28: el polo-cero
+    'pz_p0', 'pz_p1', 'pz_p2', 'pz_p3',
 ]
 
 
 def decode_snap(s):
-    """Lista de nombres de fuentes activas en un snapshot @0x218."""
+    """Lista de nombres de fuentes activas en un snapshot (R_TRIG_SNAP)."""
     return [n for i, n in enumerate(_SNAP_NAMES) if s & (1 << i)]
 
 
@@ -90,38 +106,38 @@ def decode_snap(s):
 # literal hex inline (`self.w32(0x240, mask)`). Nombrarlas es lo que permite
 # que API/tests/test_compat_api.py verifique los valores contra el baseline.
 
-R_CMD         = 0x000           # compartido con el scope: arm / rst / we_keep
-R_TRIG_DIS_CLR = 0x094          # compartido: desbloquea adc_trg_dis
-R_SHIELD_CFG  = 0x210           # {dur[31:16], dst[12:8], src[6:0]}
-R_SHIELD_RUN  = 0x214           # {mca_veto[17], active[16], cnt[15:0]} (R)
-R_TRIG_SNAP   = 0x218           # snapshot de 17 b, sticky (R)
-R_FLAGS       = 0x21C           # dis_act / we_keep (R)
-R_OR_MASK_CH0 = 0x240
-R_OR_MASK_CH1 = 0x244
-R_OR_MASK_CH2 = 0x248
-R_OR_MASK_CH3 = 0x24C
+# Son de la región propia. Antes vivían en 0x210-0x24C del slot 1, 0x200 más
+# arriba: ese espejo ya no existe (osc_cfg.sv sólo sigue decodificando 0x004 y
+# 0x094), y lo que se escribía ahí se perdía sin ningún error.
+
+R_CMD         = 0x000           # del SCOPE, no de esta región: arm / rst / we_keep
+R_TRIG_DIS_CLR = 0x094          # del SCOPE: desbloquea adc_trg_dis
+R_SHIELD_CFG  = 0x010           # {dur[31:16], dst[12:8], src[6:0]}
+R_SHIELD_RUN  = 0x014           # {mca_veto[17], active[16], cnt[15:0]} (R)
+R_TRIG_SNAP   = 0x018           # snapshot de 29 b, sticky (R)
+R_FLAGS       = 0x01C           # dis_act / we_keep (R)
+R_OR_MASK_CH0 = 0x040
+R_OR_MASK_CH1 = 0x044
+R_OR_MASK_CH2 = 0x048
+R_OR_MASK_CH3 = 0x04C
 
 
 class MultiTrigger:
-    """Acceso al bloque multitrigger por /dev/mem.
+    """Máscaras OR, shield y snapshot, por /dev/mem, en la región propia.
 
-    Abre su propio mapeo salvo que se le pase un `Osciloscope`, en cuyo caso
-    reutiliza el suyo: son la misma región física (0x4010_0000) y dos mapeos
-    de memoria de dispositivo no dan problema de coherencia, pero un fd de
-    menos es un fd de menos.
+    El disparo por pendiente y el polo-cero están en `MtRegion`, sobre los mismos
+    registros. `open` comprueba el MAGIC: un bitstream sin esta región falla acá,
+    en vez de que las máscaras se escriban al vacío.
     """
 
-    def __init__(self, scope_mmap, fd):
-        self._mmap = scope_mmap
+    def __init__(self, mem, fd):
+        self._mmap = mem
         self._fd   = fd
         self._propio = fd >= 0
 
     @classmethod
-    def open(cls, osc=None, phys=SCOPE_PHYS, size=SCOPE_SIZE):
-        if osc is not None:
-            # Comparte el mmap del osciloscopio; fd=-1 marca "no es mío, no lo
-            # cierres" (close() del dueño es el que libera).
-            return cls(osc._mmap, -1)
+    def open(cls, osc=None, phys=MTRG_PHYS, size=MTRG_SIZE, check_magic=True):
+        """`osc` se acepta y no se usa: antes compartían mapeo, y ya no."""
         fd = os.open('/dev/mem', os.O_RDWR | os.O_SYNC)
         try:
             m = mmap.mmap(fd, size, mmap.MAP_SHARED,
@@ -129,11 +145,19 @@ class MultiTrigger:
         except Exception:
             os.close(fd)
             raise
-        return cls(m, fd)
+        r = cls(m, fd)
+        if check_magic and r.r32(0x000) != MTRG_MAGIC:
+            leido = r.r32(0x000)
+            r.close()
+            raise RuntimeError(
+                f'{phys:#010x} no es la región del multitrigger (MAGIC '
+                f'{leido:#010x} != {MTRG_MAGIC:#010x}). '
+                f"Integration.base('mtrg') da el slot de este bitstream.")
+        return r
 
     def close(self):
         if not self._propio:
-            return                      # el mmap es prestado del osciloscopio
+            return                      # el mmap es prestado (fd = -1)
         try:
             self._mmap.close()
         finally:
@@ -156,13 +180,13 @@ class MultiTrigger:
         return _U32.unpack_from(self._mmap, off)[0]
 
     def set_or_mask(self, mask_ch0=OR_MASK_ALL, mask_ch1=None):
-        """Escribe la máscara en 0x240/0x244 con assert de readback."""
+        """Escribe la máscara de los dos canales, con assert de readback."""
         if mask_ch1 is None:
             mask_ch1 = mask_ch0
-        self.w32(0x240, mask_ch0)
-        self.w32(0x244, mask_ch1)
-        rb0 = self.r32(0x240)
-        rb1 = self.r32(0x244)
+        self.w32(R_OR_MASK_CH0, mask_ch0)
+        self.w32(R_OR_MASK_CH1, mask_ch1)
+        rb0 = self.r32(R_OR_MASK_CH0)
+        rb1 = self.r32(R_OR_MASK_CH1)
         assert rb0 == mask_ch0, f'OR_MASK ch0 no latcheada: {rb0:#010x} != {mask_ch0:#010x}'
         assert rb1 == mask_ch1, f'OR_MASK ch1 no latcheada: {rb1:#010x} != {mask_ch1:#010x}'
 
@@ -174,14 +198,14 @@ class MultiTrigger:
 
         channels: bits de los canales a auto-rearmar (0x3 = ch0+ch1).
         dur:      ciclos de ADC de holdoff antes del clear (0 = inmediato).
-        Layout 0x210: {dur[31:16], 4'h0, dst[11:8], 4'h0, src[3:0]}.
+        Layout: {dur[31:16], 4'h0, dst[11:8], 4'h0, src[3:0]}.
         """
         word = ((dur & 0xFFFF) << 16) | ((channels & 0xF) << 8) | (channels & 0xF)
-        self.w32(0x210, word)
+        self.w32(R_SHIELD_CFG, word)
 
     def disable_shield(self):
         """Apaga el shield (vuelve al modo SW-clear manual de 0x94)."""
-        self.w32(0x210, 0)
+        self.w32(R_SHIELD_CFG, 0)
     # ---------- estatus ----------
 
     def get_or_mask(self, ch=0):
@@ -210,27 +234,61 @@ class MultiTrigger:
 # Región propia del multitrigger (slot 3): disparo por pendiente
 # =============================================================================
 #
-# MultiTrigger habla con el espejo legacy del slot 1. Los registros del disparo
-# por pendiente existen SOLO en la región propia (mt_cfg.sv), así que tienen su
-# handle. En el top del MCA está en el slot 3; en red_pitaya_top en el 7:
-# `Integration.base('mtrg')` da la base real del bitstream cargado.
+# La misma región que MultiTrigger, con el disparo por pendiente y el polo-cero.
 
-MTRG_PHYS  = 0x4030_0000
-MTRG_SIZE  = 0x1000
-MTRG_MAGIC = 0x4D54_5247        # "MTRG"
-
-R3_CAPS       = 0x004           # {HAS_SLOPE[16], SHIELD_N[15:12], SRC_W[11:4], N_CH[3:0]}
-R3_SNAPSHOT   = 0x018           # 25 b, sticky
+R3_CAPS       = 0x004           # {HAS_PZ[17], HAS_SLOPE[16], SHIELD_N[15:12], SRC_W[11:4], N_CH[3:0]}
+R3_SHIELD     = R_SHIELD_CFG    # {dur[31:16], dst[12:8], src[6:0]}
+R3_SNAPSHOT   = 0x018           # 29 b, sticky
+R3_FLAGS      = 0x01C           # {we_keep[7:4], dis_act[3:0]}
+R3_OR_MASK    = 0x040           # +4·ch: la máscara con los 29 bits (pendiente y polo-cero)
 R3_SLOPE_CFG  = 0x060           # +4·ch: {en[31], G[12:8], L[4:0]}
 R3_SLOPE_THR  = 0x070           # +4·ch: umbral sobre |s|
 R3_SLOPE_HYST = 0x080           # +4·ch: histéresis
+R3_PZ_CFG     = 0x090           # +4·ch: {en[31], sh[29:24], m[12:8], k[4:0]}
+R3_PZ_MQ      = 0x0A0           # +4·ch: constante polo-cero, M·16
+R3_PZ_THR     = 0x0B0           # +4·ch: umbral sobre la salida del trapecio
+R3_PZ_HYST    = 0x0C0           # +4·ch: histéresis
 
 CAPS_HAS_SLOPE = 1 << 16
+CAPS_HAS_PZ    = 1 << 17
 
 # Rangos de mt_slope_trig con los parámetros del top (LMAX=16, GMAX=31, DW=14).
 SLOPE_LMAX = 16
 SLOPE_GMAX = 31
 SLOPE_TMAX = (1 << 18) - 1
+
+# Rangos de mt_pz_trig con los parámetros del top (DAW=5, KW=5, MW=20, TW=18):
+# las líneas de retardo tienen 32 muestras, así que k + m <= 31.
+PZ_LMAX = 31
+PZ_MQMAX = (1 << 20) - 1
+PZ_TMAX = (1 << 18) - 1
+
+
+def pz_ganancia(k=2, m=1, mq=3992, sh=10, tr10=1.2):
+    """Altura de la salida de mt_pz_trig por cuenta de amplitud del pulso, para
+    poner el umbral en cuentas: el valor en el medio de la meseta de un pulso
+    con subida 10-90 % de `tr10` muestras, la cola que cancela `mq` y el pie en
+    una muestra entera. Es la ganancia del modelo con el que se validó el
+    disparo (pruebas_banco.ganancia): con k = 2 y m = 1 la meseta es de una
+    muestra y la subida no llega entera, así que sale ~10 % debajo de la ideal
+    16·k·(1 + M) / 2^sh (7.07 contra 7.83 con el Mq nominal de 3992)."""
+    M = mq / 16.0
+    tau = 1.0 / math.log(1.0 + 1.0 / M) if M > 0 else float('inf')
+    tr = tr10 / 2.197
+    n = 2 * (k + m) + 8
+    x = [0.0] + [(1.0 - math.exp(-t / tr)) * math.exp(-t / tau) for t in range(1, n)]
+
+    def v(i):
+        return x[i] if i >= 0 else 0.0
+
+    p = s = 0.0
+    out = []
+    for i in range(n):
+        d = v(i) - v(i - k) - v(i - k - m) + v(i - 2 * k - m)
+        p += d
+        s += 16.0 * p + mq * d
+        out.append(s / 2.0 ** sh)
+    return out[k + m // 2]
 
 
 def slope_pico(L, G, escalon=None, pendiente=None):
@@ -339,8 +397,87 @@ class MtRegion:
     def disable_slope(self, ch):
         self.w32(R3_SLOPE_CFG + 4 * ch, 0)
 
+    # ---------- disparo con polo-cero ----------
+
+    def has_pz(self):
+        return bool(self.r32(R3_CAPS) & CAPS_HAS_PZ)
+
+    def set_pz(self, ch, k, m, mq, sh, thr, hyst, en=True):
+        """Configura el disparo con polo-cero del canal `ch`.
+
+        k, m: subida y meseta del trapecio (k >= 1, k + m <= 31). mq: la
+        constante polo-cero M·16 (la misma que el MCA, que sale de ajustar la
+        cola en la placa). sh: corrimiento de la salida. thr, hyst: en unidades
+        de la salida (ver `pz_ganancia`); hyst < thr o el Schmitt no re-arma.
+        Para dispararlo hay que poner además BIT_PZ_P<ch> en la OR_MASK.
+        """
+        if not 0 <= ch <= 3:
+            raise ValueError(f'canal {ch} fuera de 0..3')
+        if not (1 <= k and 0 <= m and k + m <= PZ_LMAX):
+            raise ValueError(f'k={k}, m={m}: hace falta k >= 1 y k + m <= {PZ_LMAX}')
+        if not 0 <= mq <= PZ_MQMAX:
+            raise ValueError(f'mq={mq} fuera de 0..{PZ_MQMAX}')
+        if not 0 <= sh <= 63:
+            raise ValueError(f'sh={sh} fuera de 0..63')
+        if not 0 <= thr <= PZ_TMAX or not 0 <= hyst <= PZ_TMAX:
+            raise ValueError(f'thr/hyst fuera de 0..{PZ_TMAX}')
+        if en and hyst >= thr:
+            raise ValueError(f'hyst={hyst} >= thr={thr}: no re-arma nunca')
+        if not self.has_pz():
+            raise RuntimeError('el bitstream cargado no tiene disparo con '
+                               'polo-cero (CAPS[17] = 0)')
+        cfg = (int(bool(en)) << 31) | (sh << 24) | (m << 8) | k
+        # Umbrales y M primero: el trapecio se habilita ya configurado (cambiar
+        # k, m o M con el habilitado lo re-arranca igual, pero asi no hay un
+        # arranque con la configuracion vieja).
+        for off, v in ((R3_PZ_THR, thr), (R3_PZ_HYST, hyst), (R3_PZ_MQ, mq),
+                       (R3_PZ_CFG, cfg)):
+            self.w32(off + 4 * ch, v)
+            leido = self.r32(off + 4 * ch)
+            if leido != v:
+                raise RuntimeError(f'el registro {off + 4*ch:#05x} no retuvo '
+                                   f'lo escrito: {leido:#010x} != {v:#010x}')
+
+    def get_pz(self, ch):
+        cfg = self.r32(R3_PZ_CFG + 4 * ch)
+        return {'en':   bool(cfg >> 31),
+                'k':    cfg & 0x1F,
+                'm':    (cfg >> 8) & 0x1F,
+                'sh':   (cfg >> 24) & 0x3F,
+                'mq':   self.r32(R3_PZ_MQ + 4 * ch),
+                'thr':  self.r32(R3_PZ_THR + 4 * ch),
+                'hyst': self.r32(R3_PZ_HYST + 4 * ch)}
+
+    def disable_pz(self, ch):
+        self.w32(R3_PZ_CFG + 4 * ch, 0)
+
+    # ---------- máscara, shield y flags de la región propia ----------
+    #
+    def set_or_mask(self, ch, mascara):
+        self.w32(R3_OR_MASK + 4 * ch, mascara)
+
+    def get_or_mask(self, ch):
+        return self.r32(R3_OR_MASK + 4 * ch)
+
+    def set_shield(self, src, dst, dur=0):
+        """`src`/`dst` son máscaras (SRC_*/DST_*); `dur` el holdoff en ciclos."""
+        self.w32(R3_SHIELD, ((dur & 0xFFFF) << 16) | ((dst & 0x1F) << 8)
+                            | (src & 0x7F))
+
+    def get_shield(self):
+        w = self.r32(R3_SHIELD)
+        return {'dur': (w >> 16) & 0xFFFF, 'dst': (w >> 8) & 0x1F,
+                'src': w & 0x7F}
+
+    def get_flags(self):
+        """{'dis_act': [4 bool], 'we_keep': [4 bool]} por canal."""
+        w = self.r32(R3_FLAGS)
+        return {'dis_act': [bool((w >> c) & 1) for c in range(4)],
+                'we_keep': [bool((w >> (4 + c)) & 1) for c in range(4)]}
+
     def read_snapshot(self):
-        """El snapshot completo de 25 bits, incluidas las fuentes de pendiente."""
+        """El snapshot completo de 29 bits, con las fuentes de pendiente y de
+        polo-cero."""
         return decode_snap(self.r32(R3_SNAPSHOT))
 
 
@@ -424,6 +561,10 @@ BITS_OR_MASK = (
     ('slope_n1', BIT_SLOPE_N1, 'pendiente negativa, canal 1'),
     ('slope_n2', BIT_SLOPE_N2, 'pendiente negativa, canal 2'),
     ('slope_n3', BIT_SLOPE_N3, 'pendiente negativa, canal 3'),
+    ('pz_p0',    BIT_PZ_P0,    'polo-cero, canal 0'),
+    ('pz_p1',    BIT_PZ_P1,    'polo-cero, canal 1'),
+    ('pz_p2',    BIT_PZ_P2,    'polo-cero, canal 2'),
+    ('pz_p3',    BIT_PZ_P3,    'polo-cero, canal 3'),
 )
 
 
@@ -492,10 +633,10 @@ def multitrigger_arm(osc, mt, mask_ch0=BIT_ADC_P0, mask_ch1=BIT_ADC_P0,
 
     Recibe LOS DOS handles porque la secuencia los cruza: histéresis y arm son
     registros del osciloscopio (0x20/0x24, 0x00), shield y máscara OR son del
-    multitrigger (0x210, 0x240/0x244).
+    multitrigger (R_SHIELD_CFG, R_OR_MASK_CH*).
 
     ORDEN CRÍTICO (arm ANTES de la máscara): se arma la bram_sm (0x00) y RECIÉN
-    DESPUÉS se habilita la OR-mask (0x240/0x244). Es la misma convención que la
+    DESPUÉS se habilita la OR-mask. Es la misma convención que la
     API de RedPitaya (rp_AcqStart antes de rp_AcqSetTriggerSrc). Si se hiciera
     al revés, con una señal viva un flanco de ADC puede disparar en la ventana
     pre-arm: engancha adc_trg_dis y (en single-shot) auto-limpia set_trig_src
@@ -537,3 +678,124 @@ def multitrigger_disarm(osc, mt):
     mt.disable_shield()
     osc.w32(0x94, 0x0000_0101)
     osc.w32(0x00, 0x0000_0202)
+
+
+# =============================================================================
+# El disparo del MCA2
+# =============================================================================
+#
+# En el MCA2 la ventana la abre SÓLO el disparo del multitrigger (`trig_i`): sin
+# esto el MCA no mide nada. Lo que necesita es un disparo por pulso sin que el
+# software intervenga entre uno y otro (docs/mca/register_map_mca.md, "Cómo
+# configurar el multitrigger para el MCA"):
+#
+#   1. modo continuo: `we_keep` (bit 3 de 0x000 del scope) hace que la máscara
+#      sobreviva al disparo;
+#   2. re-armado por el shield: fuente y destino en el canal, dur = 0;
+#   3. disparo por pendiente (`mt_slope_trig`) y su bit en la máscara de la
+#      región propia: su Schmitt es el que re-arma, también con un pulso montado
+#      sobre la cola de otro.
+#
+# La secuencia es la de `test_mca2_placa.py` (`Pendiente.armar`), validada en la
+# placa, y `test_disparo_mca.py` exige que sea la misma escritura por escritura.
+
+# El disparo con polo-cero que se validó para el banco: k = 2, m = 1, umbral
+# en 50 cuentas de amplitud y re-armado en 25 (pruebas_banco_trapecios.md §4).
+PZ_DEFAULT = dict(k=2, m=1, sh=10, thr_cuentas=50.0, hyst_cuentas=25.0)
+
+
+def multitrigger_armar_mca(osc, mtr, ch=0, L=8, G=4, thr=600, hyst=300,
+                           fuente='pendiente', mq=3992, k=2, m=1, sh=10,
+                           thr_cuentas=50.0, hyst_cuentas=25.0):
+    """Arma el disparo del canal `ch` en modo continuo, para el MCA.
+
+    `osc` es el handle del slot 1 (el scope: arm y `we_keep`) y `mtr` la región
+    propia del multitrigger (`MtRegion`, slot 3 en el top del MCA).
+
+    fuente='pendiente' (el de siempre): `thr` y `hyst` están en unidades de la
+    pendiente s (ver `slope_pico`): para un escalón de alto A, s = L·A. Los
+    defaults son los de la campaña, medidos en la placa con el pulso de 2 us
+    del Rigol.
+
+    fuente='pz': el disparo con polo-cero, el del banco de trapecios. `mq` es
+    la constante polo-cero, la MISMA que el MCA (la del ajuste de la cola en la
+    placa); `k`, `m` y `sh` la forma (k = 2, m = 1 para el Rigol); el umbral y
+    el re-armado van en cuentas de amplitud y se convierten con `pz_ganancia`.
+
+    No veta al MCA (el shield no lleva DST_MCA). RuntimeError si `we_keep` no
+    quedó puesto: sin él el disparo se apaga después del primer pulso.
+    """
+    if not 0 <= ch <= 3:
+        raise ValueError(f'canal {ch} fuera de 0..3')
+    if fuente not in ('pendiente', 'pz'):
+        raise ValueError(f"fuente {fuente!r}: 'pendiente' o 'pz'")
+    mtr.set_or_mask(ch, 0)
+    if fuente == 'pendiente':
+        mtr.disable_slope(ch)
+        mtr.set_slope(ch, L, G, thr, hyst)
+        bit = BIT_SLOPE_P0 << ch
+    else:
+        g = pz_ganancia(k, m, mq, sh)
+        mtr.disable_pz(ch)
+        mtr.set_pz(ch, k, m, mq, sh, int(round(thr_cuentas * g)), int(round(hyst_cuentas * g)))
+        bit = BIT_PZ_P0 << ch
+    mtr.set_shield(src=1 << ch, dst=1 << ch, dur=0)
+    osc.w32(0x094, 0x0000_0101)                 # limpia adc_trg_dis
+    # arm + we_keep en los dos canales, y DESPUÉS la máscara (arm antes que la
+    # fuente: docs/osc/orden_arm_trigger_captura.md).
+    osc.w32(0x000, 0x0000_0909)
+    mtr.set_or_mask(ch, bit)
+    if not mtr.get_flags()['we_keep'][ch]:
+        raise RuntimeError(f'we_keep no quedó puesto en el canal {ch}: el '
+                           f'disparo se apagaría después del primer pulso '
+                           f'(flags {mtr.r32(R3_FLAGS):#x})')
+
+
+def multitrigger_desarmar_mca(osc, mtr, ch=0):
+    """Apaga el disparo del MCA: máscara, las fuentes, shield y `we_keep`.
+
+    Apaga las dos fuentes, no la que diga la máscara: con la máscara ya en cero
+    (un `armar` que falló a mitad de camino, otro `desarmar`) no se podría saber
+    cuál quedó encendida.
+    """
+    mtr.set_or_mask(ch, 0)
+    mtr.disable_slope(ch)
+    if mtr.has_pz():
+        mtr.disable_pz(ch)
+    mtr.w32(R3_SHIELD, 0)
+    osc.w32(0x000, 0)
+    osc.w32(0x094, 0x0000_0101)
+    osc.w32(0x000, 0x0000_0202)
+
+
+def multitrigger_armar_banco(h, osc, mtr, mq, ch=0, pre_dly=16, formas=None,
+                             n_acc=4, k=2, m=1, sh=10, thr_cuentas=50.0,
+                             hyst_cuentas=25.0, **config):
+    """El banco de trapecios y su disparo con polo-cero, con el MISMO `mq`.
+
+    `mq` (M*16) está dos veces en el hardware, en el MCA y en el disparo, y tiene
+    que ser la misma: la del ajuste de la cola en la placa. No tiene default a
+    propósito. El resto de `config` va a `mca_configure` (por ejemplo
+    `sel_1d='trapecio'`); deja el MCA parado, y el disparo armado.
+    """
+    from API.mca import BANCO_PZ, mca_banco_config, mca_configure
+    mca_configure(h, n_acc=n_acc,
+                  **mca_banco_config(mq, pre_dly=pre_dly,
+                                     formas=BANCO_PZ if formas is None else formas),
+                  **config)
+    multitrigger_armar_mca(osc, mtr, ch=ch, fuente='pz', mq=mq, k=k, m=m, sh=sh,
+                           thr_cuentas=thr_cuentas, hyst_cuentas=hyst_cuentas)
+
+
+def multitrigger_disparo_mca(mtr, ch=0):
+    """El estado del disparo del MCA en el canal `ch`, para mostrarlo."""
+    mascara = mtr.get_or_mask(ch)
+    fuente = ('pz' if mascara & (BIT_PZ_P0 << ch)
+              else 'pendiente' if mascara & (BIT_SLOPE_P0 << ch) else None)
+    return {'pendiente': mtr.get_slope(ch),
+            'polo_cero': mtr.get_pz(ch) if mtr.has_pz() else None,
+            'fuente': fuente,
+            'or_mask': mascara,
+            'armado': fuente is not None,
+            'we_keep': mtr.get_flags()['we_keep'][ch],
+            'shield': mtr.get_shield()}

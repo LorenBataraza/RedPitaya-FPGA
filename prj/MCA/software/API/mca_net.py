@@ -31,7 +31,8 @@ import socket
 import numpy as np
 
 PORT_DEFAULT = 1001
-PROTOCOL_VERSION = 1
+# 2: la op `call` (una función entera de la API, ejecutada en la placa).
+PROTOCOL_VERSION = 2
 
 # Una cabecera es una línea de JSON con un puñado de claves. Si llegan 64 KB
 # sin un '\n', del otro lado no hay un cliente de este protocolo.
@@ -42,11 +43,12 @@ MAX_HEADER_BYTES = 1 << 16
 # Operaciones
 # =============================================================================
 #
-# `r32`/`w32` son las que sostienen todo lo demás: con esas dos, la subclase
-# MCARemote hereda de `class MCA` el resto de la API sin reimplementarla. Las
-# otras existen sólo para ahorrar idas y vueltas (config.get son 19 registros)
-# o para que una secuencia sea atómica del lado de la placa (ctrl.clear poléa
-# clear_busy cada 1 ms: por red serían decenas de vueltas).
+# `call` es la que sostiene la API por red: manda una función ENTERA de
+# API/mca.py (`mca_set_n_acc`, `mca_read_histogram`, ...) y el servidor la
+# corre sobre su handle, bajo su lock. Un read-modify-write es así una sola ida
+# y vuelta, y atómico en la placa. `r32`/`w32` quedan para el acceso crudo; las
+# demás, para lo que no es una función de la API (el estado de la exposición,
+# la GUI, los otros bloques).
 
 OPS = (
     'identify',             # -> caps, widths, n_channels, map2d_shape, fpga_state
@@ -78,6 +80,10 @@ OPS = (
     'mtrg.set',             # fields         -> el get de vuelta
     'mtrg.arm',             # mask_ch0, mask_ch1, thr, hyst, delay, auto_rearm
     'mtrg.disarm',
+    # --- el disparo del MCA2: sin él la ventana no abre ---
+    'mca.disparo',          # ch, armar (True|False|None), L, G, thr, hyst -> estado
+    # --- una función de API/mca.py entera, en la placa (como un comando SCPI) ---
+    'call',                 # fn, a, k  -> el resultado (o un arreglo, binario)
 )
 
 
@@ -208,3 +214,42 @@ def array_desde(obj, payload):
         raise ProtocolError('el payload no declara dtype/shape')
     a = np.frombuffer(payload, dtype=np.dtype(obj['dtype']))
     return a.reshape(obj['shape']).copy()
+
+
+# =============================================================================
+# Valores de la op `call`
+# =============================================================================
+#
+# Los argumentos y los resultados de una función de la API viajan en JSON, que
+# no tiene tuplas ni tipos de numpy. Las tuplas importan (un zoom es `(z, k)`,
+# `map2d_shape` es una tupla) porque la misma función tiene que devolver lo
+# mismo en la placa que en la PC: se marcan y se reconstruyen. Los escalares de
+# numpy pasan a los de Python. Un float va con su repr, que vuelve exacto.
+
+_TUPLA = '__tupla__'
+
+
+def a_json(x):
+    """Un valor de la API -> algo que json.dumps acepta, reversible con de_json."""
+    if isinstance(x, tuple):
+        return {_TUPLA: [a_json(v) for v in x]}
+    if isinstance(x, list):
+        return [a_json(v) for v in x]
+    if isinstance(x, dict):
+        return {str(k): a_json(v) for k, v in x.items()}
+    if isinstance(x, np.generic):
+        return x.item()
+    if isinstance(x, np.ndarray):
+        raise TypeError('un arreglo viaja como payload binario, no adentro del JSON')
+    return x
+
+
+def de_json(x):
+    """La inversa de a_json."""
+    if isinstance(x, dict):
+        if set(x) == {_TUPLA}:
+            return tuple(de_json(v) for v in x[_TUPLA])
+        return {k: de_json(v) for k, v in x.items()}
+    if isinstance(x, list):
+        return [de_json(v) for v in x]
+    return x

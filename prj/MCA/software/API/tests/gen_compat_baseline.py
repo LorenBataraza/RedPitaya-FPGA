@@ -337,9 +337,24 @@ def traza_scope():
 
     out = {}
 
+    class EnElEspejo(mt.MultiTrigger):
+        """El multitrigger se mudó de 0x2xx del slot 1 a 0x0xx de su región. Acá
+        escribe sobre la MISMA traza y con los offsets de antes, y así el baseline
+        sigue vigilando lo que importa: los valores y el orden que cruza los dos
+        bloques (arm ANTES de la máscara). Que la mudanza es -0x200 lo fijan las
+        constantes (bloque B)."""
+
+        def w32(self, off, v):
+            super().w32(off + 0x200, v)
+
+        def r32(self, off):
+            return super().r32(off + 0x200)
+
     def nuevo():
         m = FakeMmap(mt.SCOPE_SIZE)
-        return m, mt.MultiTriggerScope(m, -1)
+        sc = mt.MultiTriggerScope(m, -1)
+        sc._mt = EnElEspejo(m, -1)
+        return m, sc
 
     m, sc = nuevo()
     _capturar(out, 'scope_acq_base', m, sc.acq_base, thr=0.35, delay=12, decim=64)

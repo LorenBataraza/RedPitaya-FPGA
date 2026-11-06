@@ -46,6 +46,7 @@ def _handle():
     m.poke(A.R_MAGIC, A.MAGIC)
     m.poke(A.R_CAPS, A.CAP_HIST_H | A.CAP_HIST_H_PSD)
     m.poke(A.R_WIDTHS, (8 << 16) | (8 << 8) | 14)      # psd_aw, h2_aw, h_aw
+    m.poke(A.R_N_ACC_MAX, 4)                           # ranuras del RTL
     return m, A.MCA(m, -1, A.CAP_HIST_H | A.CAP_HIST_H_PSD, 14, 8, 8)
 
 
@@ -105,12 +106,12 @@ def test_get_config_cubre_todos_los_campos():
 
 def test_metadata_lleva_config_contadores_y_geometria():
     _, h = _handle()
-    A.mca_set_thr(h, 317)
+    A.mca_set_n_acc(h, 3)
     meta = A.mca_get_metadata(h)
-    for clave in ('schema_version', 'thr', 'gate_long', 'h_aw', 'total',
+    for clave in ('schema_version', 'n_acc', 'gate_long', 'h_aw', 'total',
                   'livetime_s', 'n_channels', 'adc_cnt_per_V', 't_wall'):
         assert clave in meta, f'falta {clave!r} en la metadata'
-    assert meta['thr'] == 317
+    assert meta['n_acc'] == 3 and meta['mapa'] == 'MCA2' 
     assert meta['n_channels'] == 1 << 14
 
 
@@ -118,7 +119,7 @@ def test_roundtrip_de_los_tres_formatos():
     """El formato es una decisión de almacenamiento: los tres tienen que
     devolver el mismo histograma y la misma metadata."""
     _, h = _handle()
-    A.mca_set_thr(h, 317)
+    A.mca_set_n_acc(h, 3)
     A.mca_set_gate_long(h, 400)
     meta = A.mca_get_metadata(h)
     hist = (np.arange(256, dtype=np.uint32) * 7) % 1000
@@ -133,7 +134,7 @@ def test_roundtrip_de_los_tres_formatos():
             leido, meta2 = A.mca_load_file(ruta)
 
             assert np.array_equal(leido, hist), f'{ext}: el histograma no vuelve igual'
-            for clave in ('thr', 'gate_long', 'schema_version', 'n_channels'):
+            for clave in ('n_acc', 'gate_long', 'schema_version', 'n_channels'):
                 assert int(meta2[clave]) == int(meta[clave]), (
                     f'{ext}: la metadata {clave!r} volvió como {meta2[clave]!r}')
 

@@ -24,8 +24,8 @@ import os
 import subprocess
 import sys
 
-SCOPE_PHYS = 0x4010_0000
-OFF        = 0x240          # OR_MASK ch0: R/W y sin efecto sobre la adquisicion
+MTRG_PHYS  = 0x4030_0000    # la region del multitrigger
+OFF        = 0x040          # OR_MASK ch0: R/W y sin efecto sobre la adquisicion
 PATRON     = 0xA5A5_5A5A
 
 CHILD = '''
@@ -45,7 +45,7 @@ try:
     print(hex(rb))
 finally:
     m[{off}:{off}+4] = U32.pack(orig)                # restaurar siempre
-'''.format(phys=hex(SCOPE_PHYS), off=hex(OFF), pat=hex(PATRON))
+'''.format(phys=hex(MTRG_PHYS), off=hex(OFF), pat=hex(PATRON))
 
 
 def run(metodo):
@@ -65,7 +65,7 @@ def main():
         print('SKIP: esto corre en la Pitaya'); return 0
 
     fails = 0
-    print(f'escribiendo {PATRON:#x} en {SCOPE_PHYS + OFF:#x} (OR_MASK ch0)\n')
+    print(f'escribiendo {PATRON:#x} en {MTRG_PHYS + OFF:#x} (OR_MASK ch0)\n')
 
     ok, det = run('slice')
     print(f'  [{"PASS" if ok else "FAIL"}] slice  m[o:o+4] = pack(v)   -> {det}')

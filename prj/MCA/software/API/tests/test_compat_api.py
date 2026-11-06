@@ -53,7 +53,26 @@ import gen_compat_baseline as gen                                  # noqa: E402
 # motivo. Lo que NO esté acá listado sigue siendo un fallo — la lista es un
 # registro que se lee en el diff del commit, no una alfombra para esconder
 # regresiones.
+# El mapa "MCA2" (las ranuras de medición) sacó del RTL el Schmitt interno, la
+# histéresis, maxlen, tail_dly, el modo de compuerta y el re-armado, y cambió el
+# magic. La API sigue al hardware: lo que ya no existe se fue, configure() tiene
+# la firma del MCA2 y su traza es otra. La equivalencia de configure contra la
+# referencia del MCA2 la cubre test_libmca_equivalencia.py; el MCA1 se sigue
+# abriendo con mca_open(impl='py'). Ver docs/mca/register_map_mca.md.
+_MCA2 = ('mapa "MCA2": lo sacó o lo cambió el RTL de las ranuras (ver el '
+         'comentario de _MCA2 en este fichero).')
+
 DESVIACIONES = {
+    **{('mca_utils', n): _MCA2 for n in (
+        'R_THR', 'R_HYST', 'R_MAXLEN', 'R_TAIL_DLY', 'R_GATE_MODE', 'MAGIC',
+        'MCA.configure', 'MCA.autoscale_h2_shift')},
+    ('traza', 'mca_configure'): _MCA2,
+    **{('mca', n): (
+        'el nombre por defecto del hilo pasó de mca-reader/mca-writer a '
+        'osc-reader/osc-writer: el pipeline es del osciloscopio, no del MCA, '
+        'y el nombre viejo sugería lo contrario. Sólo cambia lo que muestra '
+        'threading.enumerate(); quien pasa name= no ve nada.')
+       for n in ('ReaderThread.__init__', 'ChunkWriter.__init__')},
     ('multitrigger_utils', 'rp'): (
         'era el módulo `rp` importado a nivel de módulo; ahora es un proxy que '
         'lo importa en el primer uso. Sin esto API/osciloscope.py entero era '
@@ -173,20 +192,23 @@ def bloque_superficie(r):
                 ok, por_que = _firma_compatible(esp.get('sig'), got.get('sig'))
                 r.check(ok, f'[A] {mod}.{nombre} cambió de firma de forma '
                             f'INCOMPATIBLE ({por_que})',
-                        f'era  {esp.get("sig")}\n    ahora {got.get("sig")}')
+                        f'era  {esp.get("sig")}\n    ahora {got.get("sig")}',
+                        desviacion=(mod, nombre))
             elif esp['kind'] == 'class':
                 for m, msp in esp.get('methods', {}).items():
                     if m in _METODOS_DEL_INTERPRETE:
                         continue
                     mgot = got.get('methods', {}).get(m)
                     if not r.check(mgot is not None,
-                                   f'[A] {mod}.{nombre}.{m}() desapareció'):
+                                   f'[A] {mod}.{nombre}.{m}() desapareció',
+                                   desviacion=(mod, f'{nombre}.{m}')):
                         continue
                     ok, por_que = _firma_compatible(msp.get('sig'),
                                                     mgot.get('sig'))
                     r.check(ok, f'[A] {mod}.{nombre}.{m}() cambió de firma de '
                                 f'forma INCOMPATIBLE ({por_que})',
-                            f'era  {msp.get("sig")}\n    ahora {mgot.get("sig")}')
+                            f'era  {msp.get("sig")}\n    ahora {mgot.get("sig")}',
+                            desviacion=(mod, f'{nombre}.{m}'))
 
 
 # =============================================================================
@@ -211,7 +233,8 @@ def bloque_constantes(r):
             detalle = None
             if isinstance(ev, int) and isinstance(gv, int):
                 detalle = f'esperado {ev:#x}, obtenido {gv:#x}'
-            r.check(ev == gv, f'[B] {mod}.{nombre} cambió de valor', detalle)
+            r.check(ev == gv, f'[B] {mod}.{nombre} cambió de valor', detalle,
+                    desviacion=(mod, nombre))
     return n
 
 
@@ -306,6 +329,8 @@ def bloque_trazas(r):
             continue
         obtenida = np.asarray(obtenida)
         nombre = k[len('traza.'):]
+        desv = ('traza', nombre[:-len('.__exc__')] if nombre.endswith('.__exc__')
+                else nombre)
 
         if k.endswith('.__exc__'):
             # Una secuencia que antes corría limpia y ahora lanza (o al revés)
@@ -314,18 +339,21 @@ def bloque_trazas(r):
             if esp == got:
                 r.check(True, '')
             elif not esp:
-                r.check(False, f'[C] {nombre[:-8]} ahora falla y antes no', got)
+                r.check(False, f'[C] {nombre[:-8]} ahora falla y antes no', got,
+                        desviacion=desv)
             elif not got:
-                r.check(False, f'[C] {nombre[:-8]} ya no lanza el error esperado', esp)
+                r.check(False, f'[C] {nombre[:-8]} ya no lanza el error esperado',
+                        esp, desviacion=desv)
             else:
                 r.check(False, f'[C] {nombre[:-8]} cambió de error',
-                        f'era  {esp}\n    ahora {got}')
+                        f'era  {esp}\n    ahora {got}', desviacion=desv)
             continue
 
         igual = _es_subsecuencia(esperada, obtenida)
         r.check(igual,
                 f'[C] la secuencia de escrituras de {nombre} cambió',
-                _diff_traza(esperada, obtenida) if not igual else None)
+                _diff_traza(esperada, obtenida) if not igual else None,
+                desviacion=desv)
     return sum(1 for k in claves if not k.endswith('.__exc__'))
 
 

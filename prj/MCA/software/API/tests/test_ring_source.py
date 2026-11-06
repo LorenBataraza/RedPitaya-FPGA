@@ -124,6 +124,34 @@ def test_slot_que_no_entra_es_rechazado():
                    pre=200, post=200, n_ch=2, slot_shift=SLOT_SHIFT)
 
 
+@pytest.mark.parametrize("pre, post, sh, entra", [
+    (32, 992, 13, True),        # 1024 muestras, slot de 8 KB
+    (1023, 1, 13, True),        # 1024 con el rezago más grande
+    (512, 1023, 14, True),      # 2·pre + post = 2047: el borde exacto del RTL
+    (512, 1024, 14, False),     # 2048: el RTL pisa muestras sin avisar
+    (0, 2048, 14, False),       # no entra en el pre-buffer
+])
+def test_ventana_contra_el_limite_del_pre_buffer(pre, post, sh, entra):
+    regs = FakeRegs(0x1000)
+    struct.pack_into("<I", regs, R_MAGIC, MAGIC)
+    def crear():
+        return RingSource(FakeScope(), regs, bytearray(1 << 16), DDR_PHYS, 1 << 16,
+                          pre=pre, post=post, n_ch=2, slot_shift=sh)
+    if entra:
+        assert crear().samples == pre + post
+    else:
+        with pytest.raises(ValueError, match="rezago"):
+            crear()
+
+
+def test_1024_muestras_eligen_un_slot_de_8_kb():
+    regs = FakeRegs(0x1000)
+    struct.pack_into("<I", regs, R_MAGIC, MAGIC)
+    src = RingSource(FakeScope(), regs, bytearray(1 << 16), DDR_PHYS, 1 << 16,
+                     pre=32, post=992, n_ch=2)
+    assert src.slot_sz == 8192
+
+
 def test_sin_eventos_devuelve_none():
     src, _, _ = make_src()
     assert src.wait_event(0) is None

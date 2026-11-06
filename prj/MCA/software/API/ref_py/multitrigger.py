@@ -1,0 +1,541 @@
+#!/usr/bin/env python3
+# CONGELADO: copia de API/multitrigger.py en el commit 06fffdd. NO EDITAR: es la referencia
+# de rendimiento y de comportamiento de la implementacion Python (ver ref_py/__init__.py).
+"""Multitrigger: máscaras OR, trigger_shield y snapshot de fuentes.
+
+Es el bloque que el proyecto AÑADIÓ al scope original de RedPitaya, en los
+registros 0x210-0x24C del slot 1 (0x4010_0000). El osciloscopio clásico
+(umbral, decimación, delay, histéresis, filtros, calibración, BRAM) vive en
+`API/osciloscope.py`: son dos APIs sobre el mismo bloque físico.
+
+    from API.osciloscope import Osciloscope
+    from API.multitrigger import MultiTrigger, multitrigger_arm, BIT_ADC_P0
+
+    osc = Osciloscope.open()
+    mt  = MultiTrigger.open(osc=osc)        # comparte el mmap del osciloscopio
+    multitrigger_arm(osc, mt, mask_ch0=BIT_ADC_P0, thr=0.5)
+
+`multitrigger_arm()` recibe LOS DOS handles a propósito: la secuencia de armado
+cruza registros de ambos módulos y su orden es load-bearing (ver el docstring
+de la función). Con la firma explícita la dependencia se ve; escondida dentro
+de una clase sería accidental.
+"""
+
+import mmap
+import os
+import struct
+
+_U32 = struct.Struct('<I')
+
+SCOPE_PHYS = 0x4010_0000        # el multitrigger comparte slot con el scope
+SCOPE_SIZE = 0x30000
+
+# ---------- bits de la OR_MASK (matchean trg_src_bits de mt_trig_src.sv) ----------
+
+OR_MASK_ALL = 0xFFFF_FFFF
+
+BIT_SW       = 1 << 0
+BIT_ADC_P0   = 1 << 1
+BIT_ADC_N0   = 1 << 2
+BIT_ADC_P1   = 1 << 3
+BIT_ADC_N1   = 1 << 4
+BIT_ADC_P2   = 1 << 5
+BIT_ADC_N2   = 1 << 6
+BIT_ADC_P3   = 1 << 7
+BIT_ADC_N3   = 1 << 8
+BIT_EXT_P    = 1 << 9
+BIT_EXT_N    = 1 << 10
+BIT_ASG_P    = 1 << 11
+BIT_ASG_N    = 1 << 12
+BIT_TRIG_CH0 = 1 << 13
+BIT_TRIG_CH1 = 1 << 14
+BIT_TRIG_CH2 = 1 << 15
+BIT_TRIG_CH3 = 1 << 16
+# Disparo por PENDIENTE (mt_slope_trig): p = flanco de subida, n = de bajada.
+# Se configuran en el slot 3 (ver MtRegion.set_slope), no en el slot 1.
+BIT_SLOPE_P0 = 1 << 17
+BIT_SLOPE_P1 = 1 << 18
+BIT_SLOPE_P2 = 1 << 19
+BIT_SLOPE_P3 = 1 << 20
+BIT_SLOPE_N0 = 1 << 21
+BIT_SLOPE_N1 = 1 << 22
+BIT_SLOPE_N2 = 1 << 23
+BIT_SLOPE_N3 = 1 << 24
+
+
+# ---------- decoder del snapshot @0x218 ----------
+
+_SNAP_NAMES = [
+    'sw_any',
+    'adc_p0', 'adc_p1', 'adc_p2', 'adc_p3',
+    'adc_n0', 'adc_n1', 'adc_n2', 'adc_n3',
+    'ext_p', 'ext_n', 'asg_p', 'asg_n',
+    'trig_ch0', 'trig_ch1', 'trig_ch2', 'trig_ch3',
+    # bits 17..24: mismo lugar que en la OR_MASK. Solo los ve el SNAPSHOT del
+    # slot 3 (MtRegion.read_snapshot): el espejo de 0x218 y el event ring
+    # guardan 17 bits.
+    'slope_p0', 'slope_p1', 'slope_p2', 'slope_p3',
+    'slope_n0', 'slope_n1', 'slope_n2', 'slope_n3',
+]
+
+
+def decode_snap(s):
+    """Lista de nombres de fuentes activas en un snapshot @0x218."""
+    return [n for i, n in enumerate(_SNAP_NAMES) if s & (1 << i)]
+
+
+# =============================================================================
+# Registros del bloque multitrigger
+# =============================================================================
+#
+# El fichero original no tenía constantes de offset: cada dirección era un
+# literal hex inline (`self.w32(0x240, mask)`). Nombrarlas es lo que permite
+# que API/tests/test_compat_api.py verifique los valores contra el baseline.
+
+R_CMD         = 0x000           # compartido con el scope: arm / rst / we_keep
+R_TRIG_DIS_CLR = 0x094          # compartido: desbloquea adc_trg_dis
+R_SHIELD_CFG  = 0x210           # {dur[31:16], dst[12:8], src[6:0]}
+R_SHIELD_RUN  = 0x214           # {mca_veto[17], active[16], cnt[15:0]} (R)
+R_TRIG_SNAP   = 0x218           # snapshot de 17 b, sticky (R)
+R_FLAGS       = 0x21C           # dis_act / we_keep (R)
+R_OR_MASK_CH0 = 0x240
+R_OR_MASK_CH1 = 0x244
+R_OR_MASK_CH2 = 0x248
+R_OR_MASK_CH3 = 0x24C
+
+
+class MultiTrigger:
+    """Acceso al bloque multitrigger por /dev/mem.
+
+    Abre su propio mapeo salvo que se le pase un `Osciloscope`, en cuyo caso
+    reutiliza el suyo: son la misma región física (0x4010_0000) y dos mapeos
+    de memoria de dispositivo no dan problema de coherencia, pero un fd de
+    menos es un fd de menos.
+    """
+
+    def __init__(self, scope_mmap, fd):
+        self._mmap = scope_mmap
+        self._fd   = fd
+        self._propio = fd >= 0
+
+    @classmethod
+    def open(cls, osc=None, phys=SCOPE_PHYS, size=SCOPE_SIZE):
+        if osc is not None:
+            # Comparte el mmap del osciloscopio; fd=-1 marca "no es mío, no lo
+            # cierres" (close() del dueño es el que libera).
+            return cls(osc._mmap, -1)
+        fd = os.open('/dev/mem', os.O_RDWR | os.O_SYNC)
+        try:
+            m = mmap.mmap(fd, size, mmap.MAP_SHARED,
+                          mmap.PROT_READ | mmap.PROT_WRITE, offset=phys)
+        except Exception:
+            os.close(fd)
+            raise
+        return cls(m, fd)
+
+    def close(self):
+        if not self._propio:
+            return                      # el mmap es prestado del osciloscopio
+        try:
+            self._mmap.close()
+        finally:
+            os.close(self._fd)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+    def w32(self, off, v):
+        # Asignación por slice, NO struct.pack_into: pack_into hace un memset
+        # previo que sobre memoria de dispositivo sale como stores de a byte,
+        # el esclavo AXI no los reconoce y el puente GP0 tira un external abort
+        # -> SIGBUS. Ver API/tests/placa/test_rw_dev_mem.py.
+        self._mmap[off:off+4] = _U32.pack(v & 0xFFFFFFFF)
+
+    def r32(self, off):
+        return _U32.unpack_from(self._mmap, off)[0]
+
+    def set_or_mask(self, mask_ch0=OR_MASK_ALL, mask_ch1=None):
+        """Escribe la máscara en 0x240/0x244 con assert de readback."""
+        if mask_ch1 is None:
+            mask_ch1 = mask_ch0
+        self.w32(0x240, mask_ch0)
+        self.w32(0x244, mask_ch1)
+        rb0 = self.r32(0x240)
+        rb1 = self.r32(0x244)
+        assert rb0 == mask_ch0, f'OR_MASK ch0 no latcheada: {rb0:#010x} != {mask_ch0:#010x}'
+        assert rb1 == mask_ch1, f'OR_MASK ch1 no latcheada: {rb1:#010x} != {mask_ch1:#010x}'
+
+    def configure_shield_autorearm(self, channels=0x3, dur=0):
+        """Configura el trigger_shield para clear automático del adc_trg_dis.
+        Con dur=0 el clear se emite en el MISMO ciclo del trigger (ver
+        trigger_shield.sv:44-48), lo que reemplaza el pulso manual a 0x94
+        después de cada disparo y permite re-triggering a velocidad de HW.
+
+        channels: bits de los canales a auto-rearmar (0x3 = ch0+ch1).
+        dur:      ciclos de ADC de holdoff antes del clear (0 = inmediato).
+        Layout 0x210: {dur[31:16], 4'h0, dst[11:8], 4'h0, src[3:0]}.
+        """
+        word = ((dur & 0xFFFF) << 16) | ((channels & 0xF) << 8) | (channels & 0xF)
+        self.w32(0x210, word)
+
+    def disable_shield(self):
+        """Apaga el shield (vuelve al modo SW-clear manual de 0x94)."""
+        self.w32(0x210, 0)
+    # ---------- estatus ----------
+
+    def get_or_mask(self, ch=0):
+        return self.r32((R_OR_MASK_CH0, R_OR_MASK_CH1,
+                         R_OR_MASK_CH2, R_OR_MASK_CH3)[ch])
+
+    def get_shield(self):
+        palabra = self.r32(R_SHIELD_CFG)
+        return {'dur': (palabra >> 16) & 0xFFFF,
+                'dst': (palabra >> 8) & 0x1F,
+                'src': palabra & 0x7F,
+                'runtime': self.r32(R_SHIELD_RUN)}
+
+    def read_snapshot(self):
+        """Fuentes que dispararon, decodificadas. El registro es STICKY."""
+        return decode_snap(self.r32(R_TRIG_SNAP))
+
+    def read_snapshot_raw(self):
+        return self.r32(R_TRIG_SNAP)
+
+    def get_flags(self):
+        return self.r32(R_FLAGS)
+
+
+# =============================================================================
+# Región propia del multitrigger (slot 3): disparo por pendiente
+# =============================================================================
+#
+# MultiTrigger habla con el espejo legacy del slot 1. Los registros del disparo
+# por pendiente existen SOLO en la región propia (mt_cfg.sv), así que tienen su
+# handle. En el top del MCA está en el slot 3; en red_pitaya_top en el 7:
+# `Integration.base('mtrg')` da la base real del bitstream cargado.
+
+MTRG_PHYS  = 0x4030_0000
+MTRG_SIZE  = 0x1000
+MTRG_MAGIC = 0x4D54_5247        # "MTRG"
+
+R3_CAPS       = 0x004           # {HAS_SLOPE[16], SHIELD_N[15:12], SRC_W[11:4], N_CH[3:0]}
+R3_SNAPSHOT   = 0x018           # 25 b, sticky
+R3_SLOPE_CFG  = 0x060           # +4·ch: {en[31], G[12:8], L[4:0]}
+R3_SLOPE_THR  = 0x070           # +4·ch: umbral sobre |s|
+R3_SLOPE_HYST = 0x080           # +4·ch: histéresis
+
+CAPS_HAS_SLOPE = 1 << 16
+
+# Rangos de mt_slope_trig con los parámetros del top (LMAX=16, GMAX=31, DW=14).
+SLOPE_LMAX = 16
+SLOPE_GMAX = 31
+SLOPE_TMAX = (1 << 18) - 1
+
+
+def slope_pico(L, G, escalon=None, pendiente=None):
+    """Valor de s que produce un escalón o una rampa, para elegir el umbral.
+
+    Escalón de alto A (más rápido que L+G muestras): s llega a L·A.
+    Rampa de m cuentas/muestra: s = L·(L+G)·m.
+    El ruido blanco σ da σ_s = σ·√(2L).
+    """
+    if (escalon is None) == (pendiente is None):
+        raise ValueError('pasar escalon o pendiente, uno solo')
+    if escalon is not None:
+        return L * escalon
+    return L * (L + G) * pendiente
+
+
+class MtRegion:
+    """La región propia del multitrigger (mt_cfg.sv), por /dev/mem."""
+
+    def __init__(self, mem, fd):
+        self._mmap = mem
+        self._fd   = fd
+
+    @classmethod
+    def open(cls, phys=MTRG_PHYS, size=MTRG_SIZE, check_magic=True):
+        fd = os.open('/dev/mem', os.O_RDWR | os.O_SYNC)
+        try:
+            m = mmap.mmap(fd, size, mmap.MAP_SHARED,
+                          mmap.PROT_READ | mmap.PROT_WRITE, offset=phys)
+        except Exception:
+            os.close(fd)
+            raise
+        r = cls(m, fd)
+        if check_magic and r.r32(0x000) != MTRG_MAGIC:
+            leido = r.r32(0x000)
+            r.close()
+            raise RuntimeError(
+                f'{phys:#010x} no es la región del multitrigger (MAGIC '
+                f'{leido:#010x} != {MTRG_MAGIC:#010x}). '
+                f"Integration.base('mtrg') da el slot de este bitstream.")
+        return r
+
+    def close(self):
+        try:
+            self._mmap.close()
+        finally:
+            os.close(self._fd)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+    def w32(self, off, v):
+        # Por slice, no struct.pack_into: ver MultiTrigger.w32.
+        self._mmap[off:off+4] = _U32.pack(v & 0xFFFFFFFF)
+
+    def r32(self, off):
+        return _U32.unpack_from(self._mmap, off)[0]
+
+    # ---------- disparo por pendiente ----------
+
+    def has_slope(self):
+        return bool(self.r32(R3_CAPS) & CAPS_HAS_SLOPE)
+
+    def set_slope(self, ch, L, G, thr, hyst, en=True):
+        """Configura el trapezoidal rápido del canal `ch`.
+
+        L: muestras de cada suma (1..16). G: separación entre sumas (0..31).
+        thr, hyst: en unidades de s (ver `slope_pico`); hyst < thr o el
+        Schmitt no re-arma en s=0. Para dispararlo hay que poner además
+        BIT_SLOPE_P<ch> / BIT_SLOPE_N<ch> en la OR_MASK.
+        """
+        if not 0 <= ch <= 3:
+            raise ValueError(f'canal {ch} fuera de 0..3')
+        if not 1 <= L <= SLOPE_LMAX:
+            raise ValueError(f'L={L} fuera de 1..{SLOPE_LMAX}')
+        if not 0 <= G <= SLOPE_GMAX:
+            raise ValueError(f'G={G} fuera de 0..{SLOPE_GMAX}')
+        if not 0 <= thr <= SLOPE_TMAX or not 0 <= hyst <= SLOPE_TMAX:
+            raise ValueError(f'thr/hyst fuera de 0..{SLOPE_TMAX}')
+        if en and hyst >= thr:
+            raise ValueError(f'hyst={hyst} >= thr={thr}: no re-arma nunca')
+        if not self.has_slope():
+            raise RuntimeError('el bitstream cargado no tiene disparo por '
+                               'pendiente (CAPS[16] = 0)')
+        cfg = (int(bool(en)) << 31) | (G << 8) | L
+        # Umbrales primero: el filtro se habilita con el Schmitt ya configurado.
+        for off, v in ((R3_SLOPE_THR, thr), (R3_SLOPE_HYST, hyst),
+                       (R3_SLOPE_CFG, cfg)):
+            self.w32(off + 4 * ch, v)
+            leido = self.r32(off + 4 * ch)
+            if leido != v:
+                raise RuntimeError(f'el registro {off + 4*ch:#05x} no retuvo '
+                                   f'lo escrito: {leido:#010x} != {v:#010x}')
+
+    def get_slope(self, ch):
+        cfg = self.r32(R3_SLOPE_CFG + 4 * ch)
+        return {'en':   bool(cfg >> 31),
+                'L':    cfg & 0x1F,
+                'G':    (cfg >> 8) & 0x1F,
+                'thr':  self.r32(R3_SLOPE_THR + 4 * ch),
+                'hyst': self.r32(R3_SLOPE_HYST + 4 * ch)}
+
+    def disable_slope(self, ch):
+        self.w32(R3_SLOPE_CFG + 4 * ch, 0)
+
+    def read_snapshot(self):
+        """El snapshot completo de 25 bits, incluidas las fuentes de pendiente."""
+        return decode_snap(self.r32(R3_SNAPSHOT))
+
+
+# =============================================================================
+# Configuración en bloque
+# =============================================================================
+#
+# Misma forma que `_CAMPOS` de `API/mca.py` y de `API/osciloscope.py`:
+# campo -> (offset, shift, máscara). Es lo que permite releer en una operación
+# lo que se escribió, que es de lo que depende el anti-eco de la GUI.
+
+_CAMPOS = {
+    'or_mask_ch0': (R_OR_MASK_CH0, 0, 0xFFFFFFFF),
+    'or_mask_ch1': (R_OR_MASK_CH1, 0, 0xFFFFFFFF),
+    # Layout: {dur[31:16], 3'h0, dst[12:8], 1'b0, src[6:0]}. `src` y `dst` son
+    # máscaras, no índices: los 4 bits bajos de cada una son los canales del
+    # scope (0x3 = ch0+ch1); arriba, `src` tiene la entrada externa cruda
+    # (flancos y NIVEL) y `dst` tiene al MCA, como VETO. Ver BITS_SHIELD_*.
+    'shield_src':  (R_SHIELD_CFG,  0, 0x7F),
+    'shield_dst':  (R_SHIELD_CFG,  8, 0x1F),
+    'shield_dur':  (R_SHIELD_CFG, 16, 0xFFFF),
+}
+
+# ---------- bits de shield_src / shield_dst (trigger_shield.sv) ----------
+#
+# Con SRC_EXT_LVL y dur=0 el veto ES el nivel de DIO0_P (sincronizado); con
+# dur>0 se extiende dur ciclos despues de que baje la linea. Con SRC_EXT_P es
+# una ventana de dur ciclos tras el flanco. En los dos casos hace falta
+# DST_MCA para que llegue al analizador; sin el, el escudo corre pero no veta.
+SRC_CH0, SRC_CH1, SRC_CH2, SRC_CH3 = 1 << 0, 1 << 1, 1 << 2, 1 << 3
+SRC_EXT_P   = 1 << 4
+SRC_EXT_N   = 1 << 5
+SRC_EXT_LVL = 1 << 6
+DST_CH0, DST_CH1, DST_CH2, DST_CH3 = 1 << 0, 1 << 1, 1 << 2, 1 << 3
+DST_MCA     = 1 << 4
+
+BITS_SHIELD_SRC = (
+    ('ch0',     SRC_CH0,     'disparo del canal 0 del scope'),
+    ('ch1',     SRC_CH1,     'disparo del canal 1'),
+    ('ch2',     SRC_CH2,     'disparo del canal 2'),
+    ('ch3',     SRC_CH3,     'disparo del canal 3'),
+    ('ext_p',   SRC_EXT_P,   'entrada externa (DIO0_P), flanco positivo: ventana de `dur`'),
+    ('ext_n',   SRC_EXT_N,   'entrada externa, flanco negativo'),
+    ('ext_lvl', SRC_EXT_LVL, 'entrada externa, NIVEL: veto mientras esté alta, más `dur`'),
+)
+BITS_SHIELD_DST = (
+    ('ch0', DST_CH0, 'escudar el canal 0 del scope (holdoff del re-arme)'),
+    ('ch1', DST_CH1, 'escudar el canal 1'),
+    ('ch2', DST_CH2, 'escudar el canal 2'),
+    ('ch3', DST_CH3, 'escudar el canal 3'),
+    ('mca', DST_MCA, 'VETO al MCA: no abre pulsos y para el reloj de tiempo vivo'),
+)
+
+# Los bits de la OR_MASK, en orden, para que la GUI dibuje casillas con nombre
+# en vez de pedir un hexadecimal. El orden es el de `trg_src_bits` del RTL y el
+# mismo de `_SNAP_NAMES`, así que una casilla y su fuente en el snapshot se
+# corresponden posicionalmente.
+BITS_OR_MASK = (
+    ('sw',       BIT_SW,       'disparo por software (registro 0x004)'),
+    ('adc_p0',   BIT_ADC_P0,   'flanco positivo del ADC, canal 0'),
+    ('adc_n0',   BIT_ADC_N0,   'flanco negativo del ADC, canal 0'),
+    ('adc_p1',   BIT_ADC_P1,   'flanco positivo del ADC, canal 1'),
+    ('adc_n1',   BIT_ADC_N1,   'flanco negativo del ADC, canal 1'),
+    ('adc_p2',   BIT_ADC_P2,   'flanco positivo del ADC, canal 2'),
+    ('adc_n2',   BIT_ADC_N2,   'flanco negativo del ADC, canal 2'),
+    ('adc_p3',   BIT_ADC_P3,   'flanco positivo del ADC, canal 3'),
+    ('adc_n3',   BIT_ADC_N3,   'flanco negativo del ADC, canal 3'),
+    ('ext_p',    BIT_EXT_P,    'entrada externa, flanco positivo'),
+    ('ext_n',    BIT_EXT_N,    'entrada externa, flanco negativo'),
+    ('asg_p',    BIT_ASG_P,    'generador interno, flanco positivo'),
+    ('asg_n',    BIT_ASG_N,    'generador interno, flanco negativo'),
+    ('trig_ch0', BIT_TRIG_CH0, 'trigger del canal 0'),
+    ('trig_ch1', BIT_TRIG_CH1, 'trigger del canal 1'),
+    ('trig_ch2', BIT_TRIG_CH2, 'trigger del canal 2'),
+    ('trig_ch3', BIT_TRIG_CH3, 'trigger del canal 3'),
+    ('slope_p0', BIT_SLOPE_P0, 'pendiente positiva, canal 0 (MtRegion.set_slope)'),
+    ('slope_p1', BIT_SLOPE_P1, 'pendiente positiva, canal 1'),
+    ('slope_p2', BIT_SLOPE_P2, 'pendiente positiva, canal 2'),
+    ('slope_p3', BIT_SLOPE_P3, 'pendiente positiva, canal 3'),
+    ('slope_n0', BIT_SLOPE_N0, 'pendiente negativa, canal 0'),
+    ('slope_n1', BIT_SLOPE_N1, 'pendiente negativa, canal 1'),
+    ('slope_n2', BIT_SLOPE_N2, 'pendiente negativa, canal 2'),
+    ('slope_n3', BIT_SLOPE_N3, 'pendiente negativa, canal 3'),
+)
+
+
+def multitrigger_get_config(mt):
+    """Todos los campos de `_CAMPOS`."""
+    return {campo: (mt.r32(off) >> shift) & mask
+            for campo, (off, shift, mask) in _CAMPOS.items()}
+
+
+def multitrigger_configure(mt, **campos):
+    """Escribe campos por nombre, agrupando los que comparten registro.
+
+    Los tres campos del shield viven en la misma palabra, así que escribirlos
+    de a uno haría que el segundo leyera lo que el primero acaba de cambiar.
+    """
+    desconocidos = set(campos) - set(_CAMPOS)
+    if desconocidos:
+        raise ValueError(f'campos desconocidos: {sorted(desconocidos)}; '
+                         f'hay: {sorted(_CAMPOS)}')
+    por_registro = {}
+    for campo, valor in campos.items():
+        off, shift, mask = _CAMPOS[campo]
+        por_registro.setdefault(off, []).append((shift, mask, int(valor)))
+
+    for off, partes in por_registro.items():
+        w = mt.r32(off)
+        for shift, mask, valor in partes:
+            w = (w & ~(mask << shift)) | ((valor & mask) << shift)
+        mt.w32(off, w)
+        # Readback de verdad, no `assert`: con python -O los assert desaparecen
+        # y una máscara que no latchea es exactamente el fallo que deja el scope
+        # sin disparar, sin ningún síntoma más que "no llegan eventos".
+        leido = mt.r32(off)
+        if leido != w:
+            raise RuntimeError(
+                f'el registro {off:#05x} no retuvo lo escrito: '
+                f'{leido:#010x} != {w:#010x}. ¿Es este el bitstream correcto?')
+
+
+def multitrigger_get_status(mt):
+    """Snapshot, flags y runtime del shield. Sólo lectura.
+
+    `mca_veto` es el nivel que el shield le está mandando al MCA ahora mismo:
+    con `shield_dst` sin DST_MCA es siempre False aunque el escudo corra.
+    """
+    # Por r32 y no por los metodos de la clase: asi sirve para cualquier
+    # objeto con r32/w32, que es el contrato de todas las funciones de aca.
+    crudo = mt.r32(R_TRIG_SNAP)
+    runtime = mt.r32(R_SHIELD_RUN)
+    return {'snapshot': crudo,
+            'fuentes': decode_snap(crudo),
+            'flags': mt.r32(R_FLAGS),
+            'shield_runtime': runtime,
+            'shield_active': bool(runtime & (1 << 16)),
+            'mca_veto': bool(runtime & (1 << 17))}
+
+
+# =============================================================================
+# Secuencias que cruzan los dos módulos
+# =============================================================================
+
+def multitrigger_arm(osc, mt, mask_ch0=BIT_ADC_P0, mask_ch1=BIT_ADC_P0,
+                     thr=0.0, hyst=0.01, delay=0, we_keep_both=True,
+                     auto_rearm=True):
+    """Arma el scope para trigger por flanco del ADC.
+
+    Recibe LOS DOS handles porque la secuencia los cruza: histéresis y arm son
+    registros del osciloscopio (0x20/0x24, 0x00), shield y máscara OR son del
+    multitrigger (0x210, 0x240/0x244).
+
+    ORDEN CRÍTICO (arm ANTES de la máscara): se arma la bram_sm (0x00) y RECIÉN
+    DESPUÉS se habilita la OR-mask (0x240/0x244). Es la misma convención que la
+    API de RedPitaya (rp_AcqStart antes de rp_AcqSetTriggerSrc). Si se hiciera
+    al revés, con una señal viva un flanco de ADC puede disparar en la ventana
+    pre-arm: engancha adc_trg_dis y (en single-shot) auto-limpia set_trig_src
+    ANTES de que la bram_sm esté armada, dejándola esperando un trigger
+    imposible (wp_trig=0 permanente). El SW trigger es inmune porque adc_trig_sw
+    es pasivo hasta el pulso 0x04. Ver docs/osc/orden_arm_trigger_captura.md.
+
+    auto_rearm=True (default): activa el trigger_shield para clear automático
+        de adc_trg_dis (dur=0, inmediato) Y sobreescribe set_dly raw para
+        eliminar los 65 us de offset que mete rp_AcqSetTriggerDelay. Baja el
+        dead-time del sistema de ~65 us a ~us.
+    auto_rearm=False: comportamiento legacy, el SW pulsa 0x94 entre triggers.
+
+    `delay` se respeta en los dos modos; delay=0 se traduce a 1 sample, que es
+    el mínimo que no cae en el caso degenerado del bram_sm (con set_dly=0 la
+    FSM se saltea la espera de trigger y los ignora). OJO: el post-trigger
+    delay ES dead-time real.
+    """
+    osc.acq_base(thr=thr, delay=delay)
+    hyst_cnt = max(1, int(abs(hyst) * 8192))        # 14 b signed, escala 8192
+    osc.w32(0x20, hyst_cnt)
+    osc.w32(0x24, hyst_cnt)
+    if auto_rearm:
+        mt.configure_shield_autorearm(channels=0x3, dur=0)
+        osc.set_raw_delay(delay or 1)
+    else:
+        mt.disable_shield()
+    # arm (bit0) + we_keep (bit3) en una sola escritura, ch0 byte0 + ch1 byte1.
+    # PRIMERO armar...
+    b = 0x09 if we_keep_both else 0x01
+    osc.w32(0x00, (b << 8) | b)
+    # ...y DESPUES habilitar la mascara (arm-antes-de-fuente, ver docstring).
+    mt.set_or_mask(mask_ch0, mask_ch1)
+
+
+def multitrigger_disarm(osc, mt):
+    """Apaga we_keep, limpia el shield y adc_trg_dis, resetea el FSM."""
+    osc.w32(0x00, 0x0000_0000)
+    mt.disable_shield()
+    osc.w32(0x94, 0x0000_0101)
+    osc.w32(0x00, 0x0000_0202)

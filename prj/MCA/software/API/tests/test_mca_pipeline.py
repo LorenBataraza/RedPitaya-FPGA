@@ -8,6 +8,7 @@ Cubren la mecanica que no depende del hardware:
   3. descartes        con el escritor frenado, los gap>0 caen donde deben
   4. esquema dinamico n_ch=4 y un annotator producen las columnas esperadas
   5. atomicidad       no quedan .tmp; todo .npz visible se puede abrir
+  6. un canal         n_ch=1 (--channels 1) guarda solo IN1
 
 Uso:
     python3 test_mca_pipeline.py
@@ -36,6 +37,9 @@ def check(name, cond, extra=''):
     print(f'  [{"PASS" if cond else "FAIL"}] {name}{("  " + extra) if extra else ""}')
     if not cond:
         FAILS.append(name)
+        # pytest no mira FAILS: sin esto, `make verificar` pasa aunque falle.
+        if 'pytest' in sys.modules:
+            raise AssertionError(f'{name} {extra}')
 
 
 def run_session(tmp, n_events, rate_hz=20000.0, capacity=64, n_ch=2,
@@ -218,11 +222,35 @@ def test_colision_de_columnas():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+# ---------------------------------------------------------------- 6
+
+def test_un_canal():
+    """Lo que elige `--channels 1` con un detector: sin fila ni vista de IN2."""
+    print('\n[6] un canal')
+    tmp = tempfile.mkdtemp(prefix='mca_test_')
+    try:
+        s = run_session(tmp, 128, capacity=64, n_ch=1)
+        files = chunks_of(tmp)
+        check('escribio con n_ch=1', len(files) > 0)
+        check('no se perdio ningun evento',
+              s.stats['n_read'] + s.stats['n_dropped'] == 128, str(s.stats))
+        arr, meta = load_chunk(files[0])
+        check('wave tiene 1 canal', arr['wave'].shape[1:] == (1, 32),
+              str(arr['wave'].shape))
+        check('meta lista solo el canal 1', meta['channels'] == [1],
+              str(meta['channels']))
+        check('load_chunk expone d1 y no d2', 'd1' in arr and 'd2' not in arr,
+              str(sorted(arr)))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main():
     test_contabilidad_e_integridad()
     test_descartes()
     test_esquema_dinamico()
     test_colision_de_columnas()
+    test_un_canal()
     print('\nRESULT:', 'PASS' if not FAILS else f'FAIL ({len(FAILS)}): {FAILS}')
     sys.exit(1 if FAILS else 0)
 

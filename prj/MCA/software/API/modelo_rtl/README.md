@@ -55,8 +55,9 @@ cuenta al elegirlo.
 `estimadores.segmentar_rtl()` es una réplica ciclo a ciclo de
 `mca_pulse_feature.sv`. Se valida por dos caminos independientes:
 
-1. **Contra el testbench de RTL**: reproduce los valores exactos que ya verifica
-   [`tb_mca_pulse_feature.sv`](../../../sim/tb_mca_pulse_feature.sv) — pulso
+1. **Contra el testbench de RTL**: reproduce los valores exactos que verificaba
+   `tb_mca_pulse_feature.sv` (la ventana única con Schmitt, retirada con las
+   ranuras; está en git hasta el commit 06fffdd) — pulso
    rectangular de 20×500, `thr=100`, `hyst=50`, `tail_dly=1` → `q_tot = 10000`,
    `q_tail = 9500`, `psd = 60`. Más el clamp a ≥0, el pico estricto y la muestra
    de cierre que no se acumula.
