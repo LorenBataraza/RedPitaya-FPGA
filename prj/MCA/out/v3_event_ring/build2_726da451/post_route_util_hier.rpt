@@ -1,0 +1,150 @@
+Copyright 1986-2020 Xilinx, Inc. All Rights Reserved.
+-------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2020.1 (lin64) Build 2902540 Wed May 27 19:54:35 MDT 2020
+| Date         : Sun Nov  8 17:48:11 2026
+| Host         : LoloVictus running 64-bit Ubuntu 20.04.3 LTS
+| Command      : report_utilization -hierarchical -hierarchical_depth 4 -file out/v3_event_ring/post_route_util_hier.rpt
+| Design       : event_ring_red_pitaya_top
+| Device       : 7z010clg400-1
+| Design State : Routed
+-------------------------------------------------------------------------------------------------------------------------
+
+Utilization Design Information
+
+Table of Contents
+-----------------
+1. Utilization by Hierarchy
+
+1. Utilization by Hierarchy
+---------------------------
+
++----------------------------------------------------+---------------------------------------------------------------+------------+------------+---------+------+-------+--------+--------+------------+
+|                      Instance                      |                             Module                            | Total LUTs | Logic LUTs | LUTRAMs | SRLs |  FFs  | RAMB36 | RAMB18 | DSP Blocks |
++----------------------------------------------------+---------------------------------------------------------------+------------+------------+---------+------+-------+--------+--------+------------+
+| event_ring_red_pitaya_top                          |                                                         (top) |      14404 |      14009 |     212 |  183 | 15369 |     27 |     14 |         10 |
+|   (event_ring_red_pitaya_top)                      |                                                         (top) |         56 |         56 |       0 |    0 |    42 |      0 |      0 |          0 |
+|   i_ams                                            |                                                red_pitaya_ams |         29 |         29 |       0 |    0 |    41 |      0 |      0 |          0 |
+|   i_daisy                                          |                                              red_pitaya_daisy |        204 |        201 |       0 |    3 |   581 |      0 |      0 |          0 |
+|     (i_daisy)                                      |                                              red_pitaya_daisy |        124 |        124 |       0 |    0 |   248 |      0 |      0 |          0 |
+|     genblk3[0].i_test                              |                                         red_pitaya_daisy_test |         39 |         37 |       0 |    2 |   214 |      0 |      0 |          0 |
+|     i_rx                                           |                                           red_pitaya_daisy_rx |         34 |         33 |       0 |    1 |    98 |      0 |      0 |          0 |
+|     i_tx                                           |                                           red_pitaya_daisy_tx |         14 |         14 |       0 |    0 |    21 |      0 |      0 |          0 |
+|   i_event_ring                                     |                                                event_ring_top |       1100 |       1040 |      60 |    0 |  1047 |      5 |      0 |          0 |
+|     (i_event_ring)                                 |                                                event_ring_top |        456 |        456 |       0 |    0 |   337 |      0 |      0 |          0 |
+|     i_axi_fifo                                     |                                                   axi_wr_fifo |        248 |        248 |       0 |    0 |   178 |      1 |      0 |          0 |
+|     i_capture                                      |                                          event_window_capture |         84 |         84 |       0 |    0 |   154 |      2 |      0 |          0 |
+|     i_stage                                        |                                              event_stage_fifo |        104 |         44 |      60 |    0 |    57 |      2 |      0 |          0 |
+|     i_writer                                       |                                             event_slot_writer |        212 |        212 |       0 |    0 |   321 |      0 |      0 |          0 |
+|   i_hk                                             |                                                 red_pitaya_hk |        115 |        115 |       0 |    0 |   281 |      0 |      0 |          0 |
+|     (i_hk)                                         |                                                 red_pitaya_hk |         99 |         99 |       0 |    0 |   158 |      0 |      0 |          0 |
+|     i_freq_meter                                   |                                                    freq_meter |         16 |         16 |       0 |    0 |   123 |      0 |      0 |          0 |
+|   i_integration                                    |                                               integration_cfg |         64 |         64 |       0 |    0 |    50 |      0 |      0 |          0 |
+|   i_mca                                            |                                                       mca_top |       7642 |       7582 |       0 |   60 |  6541 |     16 |     12 |          4 |
+|     (i_mca)                                        |                                                       mca_top |       1923 |       1923 |       0 |    0 |  2237 |      0 |      0 |          0 |
+|     g_hist_2d.i_hist_2d                            |                                                      mca_hist |        109 |        109 |       0 |    0 |   218 |      8 |      0 |          0 |
+|     g_hist_h.i_hist_h                              |                                                   mca_hist__1 |        109 |        109 |       0 |    0 |   218 |      8 |      0 |          0 |
+|     i_discr                                        |                                             mca_discriminator |         81 |         81 |       0 |    0 |     0 |      0 |      0 |          0 |
+|     i_dly                                          |                                                     mca_delay |         81 |         21 |       0 |   60 |    15 |      0 |      0 |          0 |
+|     i_feat                                         |                                             mca_pulse_feature |       5176 |       5176 |       0 |    0 |  3853 |      0 |     12 |          4 |
+|       i_bl                                         |                                                  mca_baseline |        158 |        158 |       0 |    0 |    91 |      0 |      0 |          0 |
+|       i_pub                                        |                                                   mca_publish |        782 |        782 |       0 |    0 |   507 |      0 |      0 |          0 |
+|         (i_pub)                                    |                                                   mca_publish |        569 |        569 |       0 |    0 |   297 |      0 |      0 |          0 |
+|         g_div.i_div                                |                                            mca_div_restore__1 |        110 |        110 |       0 |    0 |   106 |      0 |      0 |          0 |
+|         g_div.i_div_w                              |                                               mca_div_restore |        109 |        109 |       0 |    0 |   104 |      0 |      0 |          0 |
+|       i_win                                        |                                                    mca_window |       4238 |       4238 |       0 |    0 |  3255 |      0 |     12 |          4 |
+|         (i_win)                                    |                                                    mca_window |        354 |        354 |       0 |    0 |   695 |      0 |      0 |          0 |
+|         g_forma[0].g_trap.i_trap                   |                                   mca_trap__parameterized0__1 |        374 |        374 |       0 |    0 |   239 |      0 |      3 |          1 |
+|         g_forma[1].g_trap.i_trap                   |                                   mca_trap__parameterized0__2 |        373 |        373 |       0 |    0 |   239 |      0 |      3 |          1 |
+|         g_forma[2].g_trap.i_trap                   |                                   mca_trap__parameterized0__3 |        374 |        374 |       0 |    0 |   239 |      0 |      3 |          1 |
+|         g_forma[3].g_trap.i_trap                   |                                      mca_trap__parameterized0 |        374 |        374 |       0 |    0 |   239 |      0 |      3 |          1 |
+|         g_slot[0].i_slot                           |                                                   mca_slot__1 |        600 |        600 |       0 |    0 |   401 |      0 |      0 |          0 |
+|         g_slot[1].i_slot                           |                                                   mca_slot__2 |        600 |        600 |       0 |    0 |   401 |      0 |      0 |          0 |
+|         g_slot[2].i_slot                           |                                                   mca_slot__3 |        599 |        599 |       0 |    0 |   401 |      0 |      0 |          0 |
+|         g_slot[3].i_slot                           |                                                      mca_slot |        601 |        601 |       0 |    0 |   401 |      0 |      0 |          0 |
+|     i_zoom_1d                                      |                                                      mca_zoom |         35 |         35 |       0 |    0 |     0 |      0 |      0 |          0 |
+|     i_zoom_2dx                                     |                                      mca_zoom__parameterized0 |         69 |         69 |       0 |    0 |     0 |      0 |      0 |          0 |
+|     i_zoom_2dy                                     |                                      mca_zoom__parameterized1 |         75 |         75 |       0 |    0 |     0 |      0 |      0 |          0 |
+|   i_scope                                          |                                               rp_scope_mt_com |       4072 |       3924 |      72 |   76 |  4749 |      6 |      2 |          6 |
+|     (i_scope)                                      |                                               rp_scope_mt_com |          3 |          3 |       0 |    0 |     0 |      0 |      0 |          0 |
+|     genblk1[0].i_acq_bram                          |                                                rp_acq_bram__1 |          4 |          4 |       0 |    0 |    26 |      3 |      1 |          0 |
+|     genblk1[0].i_bram_sm                           |                                                 rp_bram_sm__1 |         59 |         59 |       0 |    0 |   109 |      0 |      0 |          0 |
+|     genblk1[0].i_calib_ch                          |                                             rp_scope_calib__1 |         72 |         72 |       0 |    0 |   154 |      0 |      0 |          2 |
+|     genblk1[0].i_dec                               |                                                   rp_decim__1 |        292 |        292 |       0 |    0 |   369 |      0 |      0 |          0 |
+|       (genblk1[0].i_dec)                           |                                                   rp_decim__1 |        127 |        127 |       0 |    0 |   181 |      0 |      0 |          0 |
+|       dec_avg_div                                  |                                                     divide__1 |        165 |        165 |       0 |    0 |   188 |      0 |      0 |          0 |
+|         (dec_avg_div)                              |                                                     divide__1 |        129 |        129 |       0 |    0 |   188 |      0 |      0 |          0 |
+|         inst_loop[0].radix2_inst_blk.i_div_add_sub |                                           div_add_sub_rad2__3 |         18 |         18 |       0 |    0 |     0 |      0 |      0 |          0 |
+|         inst_loop[1].radix2_inst_blk.i_div_add_sub |                                           div_add_sub_rad2__2 |         18 |         18 |       0 |    0 |     0 |      0 |      0 |          0 |
+|     genblk1[0].i_dly                               |                                                      rp_delay |         12 |          4 |       0 |    8 |    25 |      0 |      0 |          0 |
+|     genblk1[0].i_tap_mca                           |                                                dsp_tap_mux__1 |         15 |         15 |       0 |    0 |     0 |      0 |      0 |          0 |
+|     genblk1[0].i_tap_mtrg                          |                                                dsp_tap_mux__5 |         15 |         15 |       0 |    0 |     0 |      0 |      0 |          0 |
+|     genblk1[0].i_tap_osc                           |                                                   dsp_tap_mux |         15 |         15 |       0 |    0 |     0 |      0 |      0 |          0 |
+|     genblk1[1].i_acq_bram                          |                                                   rp_acq_bram |          5 |          5 |       0 |    0 |    26 |      3 |      1 |          0 |
+|     genblk1[1].i_bram_sm                           |                                                    rp_bram_sm |         58 |         58 |       0 |    0 |   109 |      0 |      0 |          0 |
+|     genblk1[1].i_calib_ch                          |                                                rp_scope_calib |         72 |         72 |       0 |    0 |   154 |      0 |      0 |          2 |
+|     genblk1[1].i_dec                               |                                                      rp_decim |        294 |        294 |       0 |    0 |   369 |      0 |      0 |          0 |
+|       (genblk1[1].i_dec)                           |                                                      rp_decim |        127 |        127 |       0 |    0 |   181 |      0 |      0 |          0 |
+|       dec_avg_div                                  |                                                        divide |        167 |        167 |       0 |    0 |   188 |      0 |      0 |          0 |
+|         (dec_avg_div)                              |                                                        divide |        131 |        131 |       0 |    0 |   188 |      0 |      0 |          0 |
+|         inst_loop[0].radix2_inst_blk.i_div_add_sub |                                           div_add_sub_rad2__1 |         18 |         18 |       0 |    0 |     0 |      0 |      0 |          0 |
+|         inst_loop[1].radix2_inst_blk.i_div_add_sub |                                              div_add_sub_rad2 |         18 |         18 |       0 |    0 |     0 |      0 |      0 |          0 |
+|     genblk1[1].i_dly                               |                                                   rp_delay__1 |         12 |          4 |       0 |    8 |    25 |      0 |      0 |          0 |
+|     genblk1[1].i_tap_mca                           |                                                dsp_tap_mux__4 |         15 |         15 |       0 |    0 |     0 |      0 |      0 |          0 |
+|     genblk1[1].i_tap_mtrg                          |                                                dsp_tap_mux__3 |         15 |         15 |       0 |    0 |     0 |      0 |      0 |          0 |
+|     genblk1[1].i_tap_osc                           |                                                dsp_tap_mux__2 |         15 |         15 |       0 |    0 |     0 |      0 |      0 |          0 |
+|     i_mt                                           |                                                        mt_top |       2011 |       1879 |      72 |   60 |  2108 |      0 |      0 |          2 |
+|       (i_mt)                                       |                                                        mt_top |          2 |          2 |       0 |    0 |     2 |      0 |      0 |          0 |
+|       g_ch[0].i_adc_trig                           |                                                rp_adc_trig__1 |         59 |         59 |       0 |    0 |    34 |      0 |      0 |          0 |
+|       g_ch[0].i_pz_trig                            |                                                 mt_pz_trig__1 |        438 |        402 |      36 |    0 |   381 |      0 |      0 |          1 |
+|         (g_ch[0].i_pz_trig)                        |                                                 mt_pz_trig__1 |         96 |         96 |       0 |    0 |   117 |      0 |      0 |          0 |
+|         i_trap                                     |                                                   mca_trap__1 |        342 |        306 |      36 |    0 |   264 |      0 |      0 |          1 |
+|       g_ch[0].i_slope_trig                         |                                              mt_slope_trig__1 |        222 |        192 |       0 |   30 |   235 |      0 |      0 |          0 |
+|       g_ch[1].i_adc_trig                           |                                                   rp_adc_trig |         59 |         59 |       0 |    0 |    34 |      0 |      0 |          0 |
+|       g_ch[1].i_pz_trig                            |                                                    mt_pz_trig |        437 |        401 |      36 |    0 |   381 |      0 |      0 |          1 |
+|         (g_ch[1].i_pz_trig)                        |                                                    mt_pz_trig |         96 |         96 |       0 |    0 |   117 |      0 |      0 |          0 |
+|         i_trap                                     |                                                      mca_trap |        341 |        305 |      36 |    0 |   264 |      0 |      0 |          1 |
+|       g_ch[1].i_slope_trig                         |                                                 mt_slope_trig |        221 |        191 |       0 |   30 |   235 |      0 |      0 |          0 |
+|       i_event_logic                                |                                                mt_event_logic |        106 |        106 |       0 |    0 |    86 |      0 |      0 |          0 |
+|         (i_event_logic)                            |                                                mt_event_logic |         17 |         17 |       0 |    0 |    26 |      0 |      0 |          0 |
+|         g_trig_src[0].i_trig_src                   |                                                   mt_trig_src |         20 |         20 |       0 |    0 |    20 |      0 |      0 |          0 |
+|         g_trig_src[1].i_trig_src                   |                                   mt_trig_src__parameterized0 |         20 |         20 |       0 |    0 |    20 |      0 |      0 |          0 |
+|         i_shield                                   |                                                trigger_shield |         49 |         49 |       0 |    0 |    20 |      0 |      0 |          0 |
+|       i_ext_trig                                   |                                                   rp_ext_trig |         55 |         55 |       0 |    0 |    47 |      0 |      0 |          0 |
+|       i_mtrg_cfg                                   |                                                        mt_cfg |        420 |        420 |       0 |    0 |   673 |      0 |      0 |          0 |
+|     i_osc_cfg                                      |                                                       osc_cfg |       1102 |       1102 |       0 |    0 |  1275 |      0 |      0 |          0 |
+|   pdm                                              |                                                red_pitaya_pdm |         57 |         57 |       0 |    0 |    64 |      0 |      0 |          0 |
+|   pll                                              |                                                red_pitaya_pll |          0 |          0 |       0 |    0 |     0 |      0 |      0 |          0 |
+|   ps                                               |                                                 red_pitaya_ps |        830 |        706 |      80 |   44 |  1287 |      0 |      0 |          0 |
+|     (ps)                                           |                                                 red_pitaya_ps |          0 |          0 |       0 |    0 |     0 |      0 |      0 |          0 |
+|     axi_master_0                                   |                                                    axi_master |         16 |         16 |       0 |    0 |    18 |      0 |      0 |          0 |
+|     axi_master_1                                   |                                    axi_master__parameterized0 |         16 |         16 |       0 |    0 |    18 |      0 |      0 |          0 |
+|     axi_master_2                                   |                                    axi_master__parameterized1 |        132 |         52 |      80 |    0 |   149 |      0 |      0 |          0 |
+|     axi_master_3                                   |                                    axi_master__parameterized2 |         16 |         16 |       0 |    0 |    18 |      0 |      0 |          0 |
+|     axi_slave_gp0                                  |                                                    axi4_slave |         38 |         38 |       0 |    0 |   151 |      0 |      0 |          0 |
+|     system_i                                       |                                                        system |        613 |        569 |       0 |   44 |   933 |      0 |      0 |          0 |
+|       (system_i)                                   |                                                        system |          0 |          0 |       0 |    0 |     0 |      0 |      0 |          0 |
+|       axi_protocol_converter_0                     |                             system_axi_protocol_converter_0_0 |        346 |        303 |       0 |   43 |   446 |      0 |      0 |          0 |
+|         inst                                       |         axi_protocol_converter_v2_1_21_axi_protocol_converter |        346 |        303 |       0 |   43 |   446 |      0 |      0 |          0 |
+|       axi_register_slice_0                         |                                 system_axi_register_slice_0_0 |         46 |         46 |       0 |    0 |   208 |      0 |      0 |          0 |
+|         inst                                       | axi_register_slice_v2_1_21_axi_register_slice__parameterized1 |         46 |         46 |       0 |    0 |   208 |      0 |      0 |          0 |
+|       proc_sys_reset                               |                                       system_proc_sys_reset_0 |         20 |         19 |       0 |    1 |    37 |      0 |      0 |          0 |
+|         U0                                         |                                                proc_sys_reset |         20 |         19 |       0 |    1 |    37 |      0 |      0 |          0 |
+|       processing_system7                           |                                   system_processing_system7_0 |          0 |          0 |       0 |    0 |     0 |      0 |      0 |          0 |
+|         (processing_system7)                       |                                   system_processing_system7_0 |          0 |          0 |       0 |    0 |     0 |      0 |      0 |          0 |
+|         inst                                       |                    processing_system7_v5_5_processing_system7 |          0 |          0 |       0 |    0 |     0 |      0 |      0 |          0 |
+|       xadc                                         |                                                 system_xadc_0 |        205 |        205 |       0 |    0 |   242 |      0 |      0 |          0 |
+|         inst                                       |                                        system_xadc_0_axi_xadc |        205 |        205 |       0 |    0 |   242 |      0 |      0 |          0 |
+|   sys_bus_interconnect                             |                                          sys_bus_interconnect |        270 |        270 |       0 |    0 |   686 |      0 |      0 |          0 |
+|     (sys_bus_interconnect)                         |                                          sys_bus_interconnect |         74 |         74 |       0 |    0 |     0 |      0 |      0 |          0 |
+|     for_bus[0].inst_sys_bus_cdc                    |                                                sys_bus_cdc__1 |         27 |         27 |       0 |    0 |    76 |      0 |      0 |          0 |
+|     for_bus[1].inst_sys_bus_cdc                    |                                                sys_bus_cdc__2 |         27 |         27 |       0 |    0 |   100 |      0 |      0 |          0 |
+|     for_bus[2].inst_sys_bus_cdc                    |                                                sys_bus_cdc__3 |         27 |         27 |       0 |    0 |   100 |      0 |      0 |          0 |
+|     for_bus[3].inst_sys_bus_cdc                    |                                                sys_bus_cdc__4 |         27 |         27 |       0 |    0 |   100 |      0 |      0 |          0 |
+|     for_bus[4].inst_sys_bus_cdc                    |                                                sys_bus_cdc__5 |         15 |         15 |       0 |    0 |    52 |      0 |      0 |          0 |
+|     for_bus[5].inst_sys_bus_cdc                    |                                                sys_bus_cdc__6 |         27 |         27 |       0 |    0 |    87 |      0 |      0 |          0 |
+|     for_bus[6].inst_sys_bus_cdc                    |                                                sys_bus_cdc__7 |         27 |         27 |       0 |    0 |    71 |      0 |      0 |          0 |
+|     for_bus[7].inst_sys_bus_cdc                    |                                                   sys_bus_cdc |         27 |         27 |       0 |    0 |   100 |      0 |      0 |          0 |
++----------------------------------------------------+---------------------------------------------------------------+------------+------------+---------+------+-------+--------+--------+------------+
+* Note: The sum of lower-level cells may be larger than their parent cells total, due to cross-hierarchy LUT combining
+
+

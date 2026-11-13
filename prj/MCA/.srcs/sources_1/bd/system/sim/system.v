@@ -1,7 +1,7 @@
 //Copyright 1986-2020 Xilinx, Inc. All Rights Reserved.
 //--------------------------------------------------------------------------------
 //Tool Version: Vivado v.2020.1 (lin64) Build 2902540 Wed May 27 19:54:35 MDT 2020
-//Date        : Tue Oct 27 21:41:09 2026
+//Date        : Tue Nov  3 15:31:56 2026
 //Host        : LoloVictus running 64-bit Ubuntu 20.04.3 LTS
 //Command     : generate_target system.bd
 //Design      : system
@@ -1110,7 +1110,7 @@ module system
   assign s_axi_hp3_1_WVALID = S_AXI_HP3_wvalid;
   assign s_axi_hp3_aclk = S_AXI_HP3_aclk;
   system_axi_protocol_converter_0_0 axi_protocol_converter_0
-       (.aclk(processing_system7_0_fclk_clk3),
+       (.aclk(processing_system7_0_fclk_clk0),
         .aresetn(proc_sys_reset_0_interconnect_aresetn),
         .m_axi_araddr(axi_protocol_converter_0_M_AXI_ARADDR),
         .m_axi_arready(axi_protocol_converter_0_M_AXI_ARREADY),
@@ -1168,7 +1168,7 @@ module system
         .s_axi_wstrb(axi_register_slice_0_M_AXI_WSTRB),
         .s_axi_wvalid(axi_register_slice_0_M_AXI_WVALID));
   system_axi_register_slice_0_0 axi_register_slice_0
-       (.aclk(processing_system7_0_fclk_clk3),
+       (.aclk(processing_system7_0_fclk_clk0),
         .aresetn(proc_sys_reset_0_interconnect_aresetn),
         .m_axi_araddr(axi_register_slice_0_M_AXI_ARADDR),
         .m_axi_arburst(axi_register_slice_0_M_AXI_ARBURST),
@@ -1253,7 +1253,7 @@ module system
         .interconnect_aresetn(proc_sys_reset_0_interconnect_aresetn),
         .mb_debug_sys_rst(1'b0),
         .peripheral_aresetn(proc_sys_reset_0_peripheral_aresetn),
-        .slowest_sync_clk(processing_system7_0_fclk_clk3));
+        .slowest_sync_clk(processing_system7_0_fclk_clk0));
   system_processing_system7_0 processing_system7
        (.CAN0_PHY_RX(processing_system7_CAN_0_RX),
         .CAN0_PHY_TX(processing_system7_CAN_0_TX),
@@ -1328,7 +1328,7 @@ module system
         .M_AXI_GP0_WREADY(processing_system7_0_M_AXI_GP0_WREADY),
         .M_AXI_GP0_WSTRB(processing_system7_0_M_AXI_GP0_WSTRB),
         .M_AXI_GP0_WVALID(processing_system7_0_M_AXI_GP0_WVALID),
-        .M_AXI_GP1_ACLK(processing_system7_0_fclk_clk3),
+        .M_AXI_GP1_ACLK(processing_system7_0_fclk_clk0),
         .M_AXI_GP1_ARADDR(processing_system7_0_M_AXI_GP1_ARADDR),
         .M_AXI_GP1_ARBURST(processing_system7_0_M_AXI_GP1_ARBURST),
         .M_AXI_GP1_ARCACHE(processing_system7_0_M_AXI_GP1_ARCACHE),
@@ -1579,7 +1579,7 @@ module system
         .USB0_VBUS_PWRFAULT(1'b0));
   system_xadc_0 xadc
        (.ip2intc_irpt(xadc_ip2intc_irpt),
-        .s_axi_aclk(processing_system7_0_fclk_clk3),
+        .s_axi_aclk(processing_system7_0_fclk_clk0),
         .s_axi_araddr(axi_protocol_converter_0_M_AXI_ARADDR[10:0]),
         .s_axi_aresetn(proc_sys_reset_0_peripheral_aresetn),
         .s_axi_arready(axi_protocol_converter_0_M_AXI_ARREADY),
