@@ -42,6 +42,10 @@ module mt_event_logic #(
   input  [        4-1: 0]        slope_p_i        ,  // pendiente positiva por canal
   input  [        4-1: 0]        slope_n_i        ,  // pendiente negativa por canal
   input  [        4-1: 0]        pz_p_i           ,  // polo-cero por canal
+  // Estado de re-armado de los Schmitt, por canal: 1 = el próximo cruce dispara
+  input  [        4-1: 0]        slope_arm_p_i    ,
+  input  [        4-1: 0]        slope_arm_n_i    ,
+  input  [        4-1: 0]        pz_arm_i         ,
 
   // Shield config - Control Signals
   input  [SHIELD_SRC-1: 0]       shield_src_i     ,
@@ -56,6 +60,7 @@ module mt_event_logic #(
   output                         event_arm_o      ,
   output                         trigger_event_o  ,  // evento conjunto -> bram_sm/axi_sm
   output                         mca_veto_o       ,  // nivel: el MCA no abre pulsos
+  output reg                     trig_arm_o       ,  // nivel: algún canal puede disparar
 
   // State
   output [DURATION_W-1: 0]       shield_cnt_o     ,  // contador del shield
@@ -65,6 +70,22 @@ module mt_event_logic #(
 
 wire [ 4-1: 0] adc_trig    ;  // trigger por canal
 wire [ 4-1: 0] trig_dis_clr;  // clear (escudo) por canal
+wire [ 4-1: 0] puede       ;  // el canal puede disparar en este ciclo
+
+// ARMADO POR FUENTE, con los bits de la máscara OR (ver mt_trig_src). Es lo que
+// el MCA necesita para su tiempo de re-armado: un pulso que llega con el
+// disparo desarmado no genera flanco y el MCA no lo ve, así que lo único que se
+// puede medir es CUÁNTO TIEMPO estuvo desarmado.
+//   - pendiente y polo-cero: el estado de su Schmitt (0 hasta bajar del re-armado)
+//   - nivel (bits 1..8): rp_adc_trig es el de Red Pitaya y no expone su estado,
+//     así que cuenta como siempre armado. Para el MCA no se usa.
+//   - SW, externo, ASG y cadena: no tienen re-armado propio, siempre armados.
+wire [SRC_W-1: 0] armado;
+assign armado[16:0]        = {17{1'b1}};
+assign armado[20:17]       = slope_arm_p_i;
+assign armado[24:21]       = slope_arm_n_i;
+assign armado[28:25]       = pz_arm_i;
+assign armado[SRC_W-1:29]  = {(SRC_W-29){1'b0}};
 
 // El escudo afecta el disable de cada mt_trig_src, y da el veto al
 // MCA. Sus fuentes son los disparos por canal MAS la entrada externa cruda
@@ -120,10 +141,12 @@ mt_trig_src #(
   .slope_p_i      ( slope_p_i                                  ),
   .slope_n_i      ( slope_n_i                                  ),
   .pz_p_i         ( pz_p_i                                     ),
+  .armado_i       ( armado                                     ),
 
   .trg_state_o    ( trg_state_o[(GV+1)*SRC_W-1:GV*SRC_W]       ),
   .adc_trg_dis_o  ( adc_trg_dis_o[GV]                          ),
-  .adc_trig_o     ( adc_trig[GV]                               )
+  .adc_trig_o     ( adc_trig[GV]                               ),
+  .puede_o        ( puede[GV]                                  )
 );
 end
 endgenerate
@@ -134,11 +157,22 @@ generate
 for (GM = N_CH; GM < 4; GM = GM + 1) begin : g_pad
    assign adc_trig[GM]       = 1'b0;
    assign adc_trg_dis_o[GM]  = 1'b0;
+   assign puede[GM]          = 1'b0;
 end
 endgenerate
 
 // Un OR entre todas las fuentes (los canales no usados están en 0).
 wire event_signal = |adc_trig;
+
+// El disparo conjunto puede salir si algún canal puede. Registrado, como
+// adc_trig: el estado que lo baja (el Schmitt que sube) es el mismo flanco que
+// arma el pulso, así que baja 1 ciclo antes de que el disparo llegue al MCA.
+// Es un ciclo por evento sobre un re-armado de decenas: no se compensa.
+always @(posedge adc_clk_i)
+if (adc_rstn_i == 1'b0)
+   trig_arm_o <= 1'b0 ;
+else
+   trig_arm_o <= |puede ;
 
 assign trigger_event_o = event_signal;
 assign event_arm_o     = event_signal;

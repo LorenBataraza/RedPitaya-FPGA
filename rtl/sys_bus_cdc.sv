@@ -37,7 +37,7 @@ reg reg_do      ;
 reg reg_done    ;
 wire reg_we;
 wire reg_re;
-
+reg  [32-1:0] reg_rdata ;  // el dato leido, congelado en el ack del esclavo (abajo)
 
 (* ASYNC_REG = "TRUE" *)
 reg [1:0] reg_we_csff ;
@@ -71,7 +71,7 @@ assign ctrl_ack    = ctrl_done_csff[1] != ctrl_done_csff[2] ;
 
 assign bus_s.ack   = pll_locked_i ? ctrl_ack                 : 1'b1;
 assign bus_s.err   = pll_locked_i ? 1'b0                     : 1'b1;
-assign bus_s.rdata = pll_locked_i ? bus_m.rdata              : 32'hDEADBEEF;
+assign bus_s.rdata = pll_locked_i ? reg_rdata                : 32'hDEADBEEF;
 
 // latch control
 always @ (posedge bus_s.clk)
@@ -143,5 +143,18 @@ assign reg_read_synced  = (reg_do != reg_done) && reg_re_csff[1] ;
 
 assign bus_m.wen   = reg_write ;
 assign bus_m.ren   = reg_read ;
+
+// El dato leido se congela en el ack del esclavo, en bus_m.clk, y recien
+// despues cruza. Antes bus_s.rdata era bus_m.rdata crudo, y los esclavos
+// recalculan sys_rdata todos los ciclos: un registro que cambiaba mientras se
+// lo leia (un contador, un puntero) llegaba a axi4_slave con bits de antes y
+// de despues del cambio (medido en la placa: ~1 de cada 1000 lecturas).
+// reg_done se actualiza en el mismo flanco y cruza por ctrl_done_csff, asi que
+// axi4_slave registra RDATA por lo menos dos ciclos de bus_s.clk despues.
+always @ (posedge bus_m.clk)
+begin
+   if (reg_read && bus_m.ack)
+      reg_rdata <= bus_m.rdata ;
+end
 
 endmodule: sys_bus_cdc

@@ -14,7 +14,13 @@
 // Se instancian DOS DUT con parámetros distintos (con y sin el motor 2D) para
 // verificar que un motor no construido tampoco puede colgar el bus.
 //============================================================================
-module tb_mca_top;
+module tb_mca_top #(
+  // Las ranuras y las formas con las que los tops instancian mca_top: 3 y 3 desde
+  // el recorte del 2026-11-09. Con -gN_ACC=4 -gN_FORMAS=4 corre la configuracion
+  // de antes, que es tambien el default del modulo.
+  parameter integer N_ACC    = 3,
+  parameter integer N_FORMAS = 3
+);
 
   // Anchos chicos: el barrido de borrado dura 2^H_AW ciclos.
   localparam integer DW     = 14;
@@ -58,23 +64,28 @@ module tb_mca_top;
 
   reg veto = 1'b0;                 // veto externo, solo en dut_a
   reg trig = 1'b0;                 // trigger externo (Fase 2), solo en dut_a
+  reg trig_arm = 1'b1;             // el multitrigger puede disparar, solo en dut_a
 
   mca_top #(
     .DW(DW), .EN_HIST_H(1), .H_AW(H_AW),
-    .EN_HIST_H_PSD(1), .H2_AW(H2_AW), .PSD_AW(PSD_AW)
+    .EN_HIST_H_PSD(1), .H2_AW(H2_AW), .PSD_AW(PSD_AW),
+    .N_ACC(N_ACC), .N_FORMAS(N_FORMAS)
   ) dut_a (
     .adc_clk_i(clk), .adc_rstn_i(rstn),
     .mca_dat_i(mca_dat), .mca_val_i(mca_val), .veto_i(veto), .trig_i(trig),
+    .trig_arm_i(trig_arm),
     .sys_addr(a_addr), .sys_wdata(a_wdata), .sys_wen(a_wen), .sys_ren(a_ren),
     .sys_rdata(a_rdata), .sys_err(a_err), .sys_ack(a_ack)
   );
 
   mca_top #(
     .DW(DW), .EN_HIST_H(1), .H_AW(H_AW),
-    .EN_HIST_H_PSD(0), .H2_AW(H2_AW), .PSD_AW(PSD_AW)
+    .EN_HIST_H_PSD(0), .H2_AW(H2_AW), .PSD_AW(PSD_AW),
+    .N_ACC(N_ACC), .N_FORMAS(N_FORMAS)
   ) dut_b (
     .adc_clk_i(clk), .adc_rstn_i(rstn),
     .mca_dat_i(mca_dat), .mca_val_i(mca_val), .veto_i(1'b0), .trig_i(1'b0),
+    .trig_arm_i(1'b1),
     .sys_addr(b_addr), .sys_wdata(b_wdata), .sys_wen(b_wen), .sys_ren(b_ren),
     .sys_rdata(b_rdata), .sys_err(b_err), .sys_ack(b_ack)
   );
@@ -265,13 +276,19 @@ module tb_mca_top;
     bus_a_read(20'h00130, d);
     checkv("reset: ventana de la meseta (ok, sh, lw, off)", d, {1'b1, 1'b0, 6'd7, 5'd0, 3'd4, 16'd72});
 
-    // el banco: cuatro formas, una en uso, umbrales en cero; la forma 0 es la
-    // de 0x128/0x130 y las otras, la mitad de la anterior
+    // el banco: N_FORMAS formas, una en uso, umbrales en cero; la forma 0 es la
+    // de 0x128/0x130 y las otras, la mitad de la anterior. Las que no estan
+    // (f >= N_FORMAS, hasta 4 en el mapa) leen 0.
     bus_a_read(20'h00134, d);
-    checkv("reset: banco (umbr_ok, N_FORMAS = 4, n_formas = 1)", d, {1'b1, 20'h0, 3'd4, 5'd0, 3'd1});
+    checkv($sformatf("reset: banco (umbr_ok, N_FORMAS = %0d, n_formas = 1)", N_FORMAS), d,
+           {1'b1, 20'h0, N_FORMAS[2:0], 5'd0, 3'd1});
     bus_a_read(20'h00180, d); checkv("reset: FORMA_KM 0 = 0x128", d, {16'd32, 16'd64});
     bus_a_read(20'h00184, d); checkv("reset: FORMA_MED 0 = 0x130", d, {1'b1, 1'b0, 6'd7, 5'd0, 3'd4, 16'd72});
-    for (i = 1; i < 4; i++) begin
+    for (i = N_FORMAS; i < 4; i++) begin
+      bus_a_read(20'h00180 + 16*i, d); checkv($sformatf("forma %0d inexistente: KM lee 0", i), d, 0);
+      bus_a_read(20'h00184 + 16*i, d); checkv($sformatf("forma %0d inexistente: MED lee 0", i), d, 0);
+    end
+    for (i = 1; i < N_FORMAS; i++) begin
       bus_a_read(20'h00180 + 16*i, d);
       checkv($sformatf("reset: FORMA_KM %0d", i), d, {16'd32 >> i, 16'd64 >> i});
       bus_a_read(20'h00184 + 16*i, d);
@@ -314,7 +331,7 @@ module tb_mca_top;
     bus_a_write(20'h00124, 32'd45);   bus_a_read(20'h00124, d);
     checkv("RW cfg_pre_dly",  d[6:0],  45);
     bus_a_read(20'h0011C, d);
-    checkv("N_ACC publicado", d, 4);
+    checkv("N_ACC publicado", d, N_ACC);
     bus_a_write(20'h00128, {16'd200, 16'd700}); bus_a_read(20'h00128, d);
     checkv("RW trapecio k", d[9:0],   700);
     checkv("RW trapecio m", d[25:16], 200);
@@ -335,7 +352,7 @@ module tb_mca_top;
     bus_a_write(20'h00130, {2'b0, 6'd7, 5'd0, 3'd4, 16'd72});
 
     // el banco: escritura y relectura de los tres registros de cada forma
-    for (i = 0; i < 4; i++) begin
+    for (i = 0; i < N_FORMAS; i++) begin
       bus_a_write(20'h00180 + 16*i, {16'd100 + i[15:0], 16'd200 + i[15:0]});
       bus_a_read (20'h00180 + 16*i, d);
       checkv($sformatf("RW FORMA_KM %0d", i), d, {16'd100 + i[15:0], 16'd200 + i[15:0]});
@@ -345,6 +362,10 @@ module tb_mca_top;
       bus_a_write(20'h00188 + 16*i, {16'd300 + i[15:0], 16'd400 + i[15:0]});
       bus_a_read (20'h00188 + 16*i, d);
       checkv($sformatf("RW FORMA_UMBR %0d", i), d, {16'd300 + i[15:0], 16'd400 + i[15:0]});
+    end
+    for (i = N_FORMAS; i < 4; i++) begin
+      bus_a_write(20'h00180 + 16*i, 32'h0055_0066); bus_a_read(20'h00180 + 16*i, d);
+      checkv($sformatf("forma %0d inexistente: la escritura no queda", i), d, 0);
     end
     bus_a_read(20'h00128, d); checkv("alias: 0x128 es FORMA_KM 0", d, {16'd100, 16'd200});
     bus_a_read(20'h00130, d); checkv("alias: 0x130 es FORMA_MED 0", d[15:0], 50);
@@ -373,10 +394,10 @@ module tb_mca_top;
     checkv("n_formas = 2: el de la forma 1 no entra (umbr_ok = 0)", {d[31], d[2:0]}, {1'b0, 3'd2});
     bus_a_write(20'h00134, 32'd7);
     bus_a_read(20'h00134, d); checkv("RW n_formas (3 bits)", d[2:0], 7);
-    checkv("N_FORMAS es de solo lectura", d[10:8], 4);
+    checkv("N_FORMAS es de solo lectura", d[10:8], N_FORMAS);
     // de vuelta al reset
     bus_a_write(20'h0004C, d2);
-    for (i = 0; i < 4; i++) begin
+    for (i = 0; i < N_FORMAS; i++) begin
       bus_a_write(20'h00180 + 16*i, {16'd32 >> i, 16'd64 >> i});
       bus_a_write(20'h00184 + 16*i, {2'b0, 6'd7 - i[5:0], 5'd0, 3'd4 - i[2:0],
                                      (i == 0) ? 16'd72 : 16'd4 + (16'd64 >> i) + ((16'd32 >> i) - (16'd16 >> i)) / 16'd2});
@@ -551,16 +572,17 @@ module tb_mca_top;
     settle;
     bus_a_write(20'h0000C, 32'h00000000);      // run = 0: congela los relojes
     begin
-      reg [31:0] rt_lo, rt_hi, lt_lo, dt_lo, vt_lo, tw_lo, td_lo, suma;
+      reg [31:0] rt_lo, rt_hi, lt_lo, dt_lo, vt_lo, tw_lo, td_lo, tr_lo, suma;
       reg [31:0] cruces, open_c, l_veto, per, mx, ext, o0, o1;
       bus_a_read(20'h00068, rt_lo); bus_a_read(20'h0006C, rt_hi);
       bus_a_read(20'h00070, lt_lo); bus_a_read(20'h00078, dt_lo);
       bus_a_read(20'h000C0, vt_lo); bus_a_read(20'h000C8, tw_lo);
-      bus_a_read(20'h000D0, td_lo);
-      suma = vt_lo + tw_lo + td_lo + lt_lo;
+      bus_a_read(20'h000D0, td_lo); bus_a_read(20'h000D8, tr_lo);
+      suma = vt_lo + tw_lo + td_lo + tr_lo + lt_lo;
       checkv("teselado: la palabra alta de realtime es 0", rt_hi, 0);
       check ("teselado: realtime avanzo", rt_lo > 0);
-      checkv("teselado: realtime = veto + win + div + live", rt_lo, suma);
+      checkv("teselado: disparo siempre armado, t_rearm en 0", tr_lo, 0);
+      checkv("teselado: realtime = veto + win + div + rearm + live", rt_lo, suma);
       checkv("una ranura: deadtime (0x078) = t_win + t_div", dt_lo, tw_lo + td_lo);
       // La ranura queda ocupada midiendo gate_long + 1 ciclos: el ciclo
       // siguiente a la decision ya esta reservada, y procesa cada muestra un
@@ -598,11 +620,11 @@ module tb_mca_top;
       reg [31:0] d9, rt, vt, tw, td, lt, cr, op, la, lv, o_sum;
       bus_a_write(20'h0000C, 32'h00000003);    // clear
       repeat (2*(1<<H_AW)) @(negedge clk);
-      bus_a_write(20'h00120, 32'd4);           // cuatro ranuras
+      bus_a_write(20'h00120, N_ACC);           // todas las ranuras
       bus_a_write(20'h0004C, {16'd40, 16'd4}); // larga = 40
       bus_a_write(20'h0000C, 32'h00000001);    // run
 
-      // seis disparos separados 5 muestras: abren cuatro, se pierden dos
+      // seis disparos separados 5 muestras: abren N_ACC, se pierden los demas
       for (i = 0; i < 30; i = i + 1) begin
         push(300);
         trig = ((i % 5) == 0);
@@ -614,26 +636,26 @@ module tb_mca_top;
       settle;
       bus_a_write(20'h0000C, 32'h00000000);    // stop
 
-      bus_a_read(20'h00110, d9); checkv("ranuras: cuatro ventanas abiertas", d9, 4);
-      bus_a_read(20'h000F4, la); checkv("ranuras: dos perdidas con todas midiendo", la, 2);
-      bus_a_read(20'h00054, d9); checkv("ranuras: cuatro eventos publicados", d9, 4);
+      bus_a_read(20'h00110, d9); checkv("ranuras: N_ACC ventanas abiertas", d9, N_ACC);
+      bus_a_read(20'h000F4, la); checkv("ranuras: el resto, perdidas con todas midiendo", la, 6 - N_ACC);
+      bus_a_read(20'h00054, d9); checkv("ranuras: N_ACC eventos publicados", d9, N_ACC);
       bus_a_read(20'h0010C, d9);
       // la cola cuenta las ranuras CERRADAS, incluida la que se esta publicando
-      checkv("ranuras: la cola llego a las cuatro cerradas", d9[15:8], 4);
+      checkv("ranuras: la cola llego a las N_ACC cerradas", d9[15:8], N_ACC);
       bus_a_read(20'h000EC, cr); bus_a_read(20'h000B4, op); bus_a_read(20'h000F8, lv);
       checkv("ranuras: atribucion (cross = open + active + veto + busy)", cr, op + la + lv);
 
       bus_a_read(20'h00068, rt); bus_a_read(20'h000C0, vt);
       bus_a_read(20'h000C8, tw); bus_a_read(20'h000D0, td); bus_a_read(20'h00070, lt);
       checkv("ranuras: el teselado sigue cerrando", rt, vt + tw + td + lt);
-      check ("ranuras: hubo tiempo con las cuatro ocupadas", tw > 0);
+      check ("ranuras: hubo tiempo con todas ocupadas", tw > 0);
       o_sum = 0;
-      for (i = 0; i <= 4; i = i + 1) begin
+      for (i = 0; i <= N_ACC; i = i + 1) begin
         bus_a_read(20'h00140 + 8*i, d9); o_sum = o_sum + d9;
       end
       checkv("ranuras: la ocupacion tesela el tiempo sin veto", o_sum, rt - vt);
-      bus_a_read(20'h00160, d9);
-      check ("ranuras: t_ocup[4] > 0", d9 > 0);
+      bus_a_read(20'h00140 + 8*N_ACC, d9);
+      check ("ranuras: t_ocup[N_ACC] > 0", d9 > 0);
 
       // (b) el disparo SOSTENIDO 5 muestras abre UNA ventana, no cinco
       bus_a_write(20'h0000C, 32'h00000003);    // clear
@@ -672,6 +694,57 @@ module tb_mca_top;
       bus_a_write(20'h0000C, 32'h00000000);    // stop
       bus_a_write(20'h00120, 32'd1);
       bus_a_write(20'h0000C, 32'h00000003);    // clear
+      repeat (2*(1<<H_AW)) @(negedge clk);
+    end
+
+    //-----------------------------------------------------------------------
+    // 9b) EL RE-ARMADO DEL DISPARO (trig_arm_i, del multitrigger)
+    //
+    //    Con el disparo desarmado y una ranura libre, un pulso no generaria
+    //    flanco: el tiempo va a t_rearm y no a livetime. Va DESPUES de t_win y
+    //    t_div, asi que con la ranura ocupada ganan ellos y la ventana mide lo
+    //    mismo que con el disparo armado (11 + 18 ciclos, como en la 8).
+    //-----------------------------------------------------------------------
+    begin
+      reg [31:0] st, rt, vt, tw, td, tr, tr_hi, lt, lt0, lt1, op;
+      bus_a_write(20'h0004C, {16'd10, 16'd4});   // larga = 10, corta = 4
+      bus_a_write(20'h0000C, 32'h00000002);      // clear, parado
+      repeat (2*(1<<H_AW)) @(negedge clk);
+      bus_a_write(20'h0000C, 32'h00000001);      // run
+      bus_a_read(20'h00010, st);
+      check("re-armado: bit 4 en 0 con el disparo armado", st[4] == 1'b0);
+
+      // (a) 37 ciclos desarmado, sin nada abierto ni bus: exactamente 37
+      @(negedge clk); trig_arm = 1'b0;
+      repeat (37) @(negedge clk);
+      trig_arm = 1'b1;
+      repeat (5) @(negedge clk);
+      bus_a_read(20'h000D8, tr); bus_a_read(20'h000DC, tr_hi);
+      checkv("re-armado: 37 ciclos desarmado van a t_rearm", tr, 37);
+      checkv("re-armado: palabra alta de t_rearm en 0", tr_hi, 0);
+
+      // (b) desarmado con una ventana abierta: ganan t_win y t_div
+      trig_arm = 1'b0;
+      bus_a_read(20'h00010, st);
+      check("re-armado: bit 4 (rearm_pend) en 1 con el disparo desarmado", st[4] == 1'b1);
+      bus_a_read(20'h00070, lt0);
+      pulse_trig(200, 30);
+      for (i = 0; i < 40; i = i + 1) push(0);
+      settle;
+      bus_a_read(20'h00070, lt1);
+      checkv("re-armado: livetime NO avanza con el disparo desarmado", lt1, lt0);
+      trig_arm = 1'b1;
+      bus_a_write(20'h0000C, 32'h00000000);      // stop
+      bus_a_read(20'h00068, rt); bus_a_read(20'h000C0, vt);
+      bus_a_read(20'h000C8, tw); bus_a_read(20'h000D0, td);
+      bus_a_read(20'h000D8, tr); bus_a_read(20'h00070, lt);
+      bus_a_read(20'h000B4, op);
+      checkv("re-armado: el disparo igual abre (trig_arm no bloquea)", op, 1);
+      checkv("re-armado: la ventana sigue en t_win (compuerta + 1)", tw, 11);
+      checkv("re-armado: la espera sigue en t_div", td, 18);
+      check ("re-armado: el resto del desarme fue a t_rearm", tr > 37);
+      checkv("re-armado: realtime = veto + win + div + rearm + live", rt, vt + tw + td + tr + lt);
+      bus_a_write(20'h0000C, 32'h00000002);      // clear, parado
       repeat (2*(1<<H_AW)) @(negedge clk);
     end
 

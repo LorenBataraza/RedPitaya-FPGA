@@ -609,6 +609,7 @@ module tb_mca_multi;
   `PAR(p4, "N=4, 4 formas", 4, 1, 4)
   `PAR(p1, "N=1, 1 forma", 1, 1, 1)
   `PAR(p3, "N=3, 2 formas", 3, 1, 2)
+  `PAR(p33, "N=3, 3 formas (la de los tops)", 3, 1, 3)
   `PAR(p2, "N=2 sin PSD ni trapecio", 2, 0, 0)
 
   integer NCYC, SEED, DBG;
@@ -879,12 +880,13 @@ module tb_mca_multi;
     end
 
     repeat (2000) @(posedge clk);
-    total_err = p4.errores + p1.errores + p3.errores + p2.errores;
-    p4.informe(); p1.informe(); p3.informe(); p2.informe();
+    total_err = p4.errores + p1.errores + p3.errores + p33.errores + p2.errores;
+    p4.informe(); p1.informe(); p3.informe(); p33.informe(); p2.informe();
     $display("  epocas: %0d aleatorias, %0d vacias, %0d con dos cierres, %0d en rafaga, %0d al borde, %0d saturadas",
              n_esc[0], n_esc[1], n_esc[2], n_esc[3], n_esc[4], n_esc[5]);
     cob_ok = (p4.cobertura() == p4.cobertura_req()) && (p1.cobertura() == p1.cobertura_req())
-          && (p3.cobertura() == p3.cobertura_req()) && (p2.cobertura() == p2.cobertura_req());
+          && (p3.cobertura() == p3.cobertura_req()) && (p33.cobertura() == p33.cobertura_req())
+          && (p2.cobertura() == p2.cobertura_req());
     if (total_err == 0 && cob_ok) $display("RESULT: PASS");
     else begin
       if (!cob_ok) $display("  cobertura incompleta");

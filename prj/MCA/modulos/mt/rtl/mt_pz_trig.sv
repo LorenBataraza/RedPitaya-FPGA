@@ -74,7 +74,11 @@ module mt_pz_trig #(
   input      [TW-1: 0]  cfg_thr_i  ,  // umbral (magnitud)
   input      [TW-1: 0]  cfg_hyst_i ,  // histeresis del re-armado
 
-  output reg            pz_p_o        // pulso de 1 ciclo
+  output reg            pz_p_o     ,  // pulso de 1 ciclo
+  // 1 = re-armado: el próximo cruce de thr dispara. Es el estado del Schmitt,
+  // sin registro extra; lo usa mt_event_logic para el tiempo de re-armado del
+  // MCA. Vale 0 mientras no hay trapecio (cfg_en = 0 o llenando).
+  output                armado_o
 );
 
 localparam integer LAT  = 8;                    // la de mca_trap
@@ -181,5 +185,7 @@ end else begin
   end
   pz_p_o <= st && !st_q;
 end
+
+assign armado_o = !st;
 
 endmodule

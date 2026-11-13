@@ -581,7 +581,7 @@ wire [16-1:0] axi_state_ch_2_3 = 16'h0;
 
 // Defino con la misma interface que el scope original
 
-rp_scope_multitrigger_com#(
+rp_scope_mt_com#(
   .CHN(0),
   .N_CH(SCOPE_N_CH),
   .DW(SCOPE_DW),
@@ -599,6 +599,7 @@ rp_scope_multitrigger_com#(
   .trig_ext_asg_i(trig_ext_asg01),
   .daisy_trig_o  (scope_trigo ),
   .mca_veto_o    (            ),  // sin MCA en este top
+  .trig_arm_o    (            ),  // sin MCA en este top
 
   .adc_state_o   (adc_state_ch_0_1),
   .adc_state_i   (adc_state_ch_2_3),

@@ -10,43 +10,124 @@
  *
  * Top module connects PS part with rest of Red Pitaya applications.  
  *
- *                   /-------\      
- *   PS DDR <------> |  PS   |      AXI <-> custom bus
- *   PS MIO <------> |   /   | <------------+
- *   PS CLK -------> |  ARM  |              |
- *                   \-------/              |
- *                                          |
- *                            /-------\     |
- *                         -> | SCOPE | <---+
- *                         |  \-------/     |
- *                         |                |
- *            /--------\   |   /-----\      |
- *   ADC ---> |        | --+-> |     |      |
- *            | ANALOG |       | PID | <----+
- *   DAC <--- |        | <---- |     |      |
- *            \--------/   ^   \-----/      |
- *                         |                |
- *                         |  /-------\     |
- *                         -- |  ASG  | <---+ 
- *                            \-------/     |
- *                                          |
- *             /--------\                   |
- *    RX ----> |        |                   |
- *   SATA      | DAISY  | <-----------------+
- *    TX <---- |        | 
- *             \--------/ 
- *               |    |
- *               |    |
- *               (FREE)
+ *            #== mca_red_pitaya_top (xc7z010) ==============================================#
+ *            #                                                                              #
+ *            #   /-- red_pitaya_ps ---------------------------------\                       #
+ *            #   |   /---------\                                    |                       #
+ *     PS DDR #======>|  ZYNQ   | AXI-HP0/1  /--------------\        |                       #
+ *     PS MIO #------>|   PS    | <----------|  axi_master  |        |                       #
+ *     PS CLK #------>|  (ARM   |   64 b     |     x 4      |<-------+ axi0_sys, axi1_sys    #
+ *            #   |   | + DDRC) |            \--------------/        | (64 b, del scope)     #
+ *            #   |   |         |                                    |                       #
+ *            #   |   |         | M_AXI_GP0  /--------------\        |                       #
+ *            #   |   |         | ---------->|  axi4_slave  |        |                       #
+ *            #   |   |         | AXI4-Lite  \--------------/        |                       #
+ *            #   |   |         |                   |                |                       #
+ *            #   |   \---------/                   | ps_sys (32 b)  |                       #
+ *            #   \------|--------------------------|----------------/                       #
+ *            #          \--> fclk[0..3], frstn[0..3]                                        #
+ *            #                                     v                                        #
+ *            #                          /----------------------------------\                #
+ *            #                          |      sys_bus_interconnect        |                #
+ *            #                          |   1 maestro  ->  8 slots de 1 MiB|                #
+ *            #                          |   + CDC  fclk[0]  <->  adc_clk   |                #
+ *            #                          \----------------------------------/                #
+ *            #                                            | sys[0..7], addr 20 b            #
+ *            #                                            +---------------------+           #
+ *            #                                                                  |           #
+ *            #      /------------------\                                        |           #
+ *    DIO exp #<====>|    HK     slot 0 |<---------------------------------------+           #
+ *        LED #<-----| led_o, dig_loop  |                                        |           #
+ *            #      \------------------/                                        |           #
+ *            #                                                                  |           #
+ *            #      /------------------\                                        |           #
+ *   XADC vin #----->|   AMS     slot 4 |<---------------------------------------+           #
+ *            #      \------------------/                                        |           #
+ *            #            | pdm_cfg                                             |           #
+ *            #            v                                                     |           #
+ *            #      /-----------\                                               |           #
+ *    PWM DAC #<-----|    PDM    |                                               |           #
+ *            #      \-----------/                                               |           #
+ *            #                                                                  |           #
+ *            #      /------------------\                                        |           #
+ *    SATA RX #----->|  DAISY    slot 5 |<---------------------------------------+           #
+ *    SATA TX #<-----|  par_dat   16 b  |                                        |           #
+ *            #      \------------------/                                        |           #
+ *            #                                                                  |           #
+ *            #      (slot 2: gen_pulsos -> asg_dat, trig_asg)                   |           #
+ *            #                                                                  |           #
+ *            #      /------------------\                                        |           #
+ *            #      | integration_cfg  |<---------------------------------------+           #
+ *            #      |   slot 6 = TOP   |                                        |           #
+ *            #      \------------------/                                        |           #
+ *            #          | route_{osc,mtrg,mca}_tap/_en                          |           #
+ *            #          +--------------------------------v                      |           #
+ *            #      /------------\        /-----------------------------\       |           #
+ *            #      |   ANALOG   |------->|  rp_scope_mt_com  |       |           #
+ *        ADC #----->| ADC u -> 2c| 14 b   |   OSC  slot 1  0x4010_0000  |<------+           #
+ *        DAC #<-----| DAC 2c -> u|        |   MTRG slot 3  0x4030_0000  |<------+           #
+ *            #      \------------/        \-----------------------------/       |           #
+ *            #            ^  asg: gen_pulsos  |      |        \--> axi0/1_sys   |           #
+ *            #               (pid = 0)        |      \--> scope_trigo --> DIO0  |           #
+ *            #                                | mca_{dat,val,veto}, trig        |           #
+ *            #                                v                                 |           #
+ *            #                      /------------------------------\            |           #
+ *            #                      |   mca_top        slot 7      |<-----------+           #
+ *            #                      |  hist 8192 ch + PSD 128x64   |                        #
+ *            #                      \------------------------------/                        #
+ *            #==============================================================================#
  *
- * Inside analog module, ADC data is translated from unsigned neg-slope into
- * two's complement. Similar is done on DAC data.
+ * La caja exterior es el modulo: lo que queda a su izquierda son pines
+ * fisicos de la placa (PS DDR/MIO/CLK, ADC, DAC, XADC, DIO, SATA, LED), lo de
+ * adentro es la logica que instancia este archivo.
  *
- * Scope module stores data from ADC into RAM, arbitrary signal generator (ASG)
- * sends data from RAM to DAC. MIMO PID uses ADC ADC as input and DAC as its output.
+ * EL PUENTE AXI <-> BUS CUSTOM (todo dentro de red_pitaya_ps)
  *
- * Daisy chain connects with other boards with fast serial link. Data which is
- * send and received is at the moment undefined. This is left for the user.
+ *   Camino de control (lento, lo maneja el ARM):
+ *     M_AXI_GP0 -> axi4_slave -> ps_sys -> sys_bus_interconnect -> sys[0..7]
+ *   `axi4_slave` traduce AXI4-Lite de 32 b al handshake simple del bus custom
+ *   (addr/wdata/wen/ren/rdata/err/ack), y `sys_bus_interconnect` parte
+ *   0x4000_0000 en 8 regiones de 1 MiB -- sys[i] vive en 0x40i0_0000 -- y
+ *   cruza de fclk[0] a adc_clk. Las 32 restricciones CDC del XDC enganchan por
+ *   el nombre de instancia `sys_bus_interconnect`, de ahi que no se renombre.
+ *
+ *   Camino de datos (rapido, sin pasar por el ARM):
+ *     i_scope -> axi0_sys/axi1_sys -> axi_master -> S_AXI_HP0/HP1 -> DDR
+ *   `axi_master` convierte las escrituras del bus custom en bursts AXI4 de
+ *   64 b contra los puertos HP del PS. Hay cuatro instancias; HP2/HP3 eran del
+ *   ASG y quedan atadas a cero (ver mas abajo).
+ *
+ * QUE HAY EN CADA SLOT
+ *
+ *   0  red_pitaya_hk        LED, digital_loop, daisy_mode, DIO
+ *   1  OSC      (i_scope)   adquisicion y decimacion
+ *   2  gen_pulsos           0x4021_0000: pulsos al DAC, en el lugar del ASG
+ *   3  MTRG     (i_scope)   logica de disparo multitrigger
+ *   4  red_pitaya_ams       PDM -> dac_pwm_o
+ *   5  red_pitaya_daisy     enlace serie por SATA
+ *   6  integration_cfg      ID del bitstream + ruteo del datapath
+ *   7  mca_top              histograma 1D y mapa 2D
+ *
+ *   Los slots 1 y 3 son dos buses de la MISMA instancia: rp_scope_mt_com
+ *   expone sys_osc_* y sys_mtrg_* por separado.
+ *
+ * NOTAS DEL DATAPATH
+ *
+ * En ANALOG el dato del ADC pasa de unsigned con pendiente negativa a
+ * complemento a dos, y al reves en el DAC. Al DAC llega asg_dat, que ahora
+ * maneja gen_pulsos (mudo mientras no se prende), y pid_dat en cero: sin PID
+ * no hay lazo. El estimulo entra por el ADC desde el generador externo o, con
+ * digital_loop[0], desde gen_pulsos sin pasar por el analogico.
+ *
+ * `i_scope` publica la muestra acondicionada (post-calibracion, pre-decimacion,
+ * 125 MSPS) por mca_dat/mca_val, el veto por mca_veto y el OR de todas las
+ * fuentes de disparo por scope_trigo -- que alimenta a la vez DIO0, el daisy y
+ * el trig_i del MCA.
+ *
+ * `integration_cfg` (slot 6) no es housekeeping: identifica el bitstream, dice
+ * que modulos trae y en que slot vive cada uno, y maneja el ruteo del datapath
+ * via route_{osc,mtrg,mca}_tap/_en. Sus ctrl_{run,clear,srst} todavia no tienen
+ * consumidor: se cablean a top_run/top_clear/top_srst y ahi terminan.
  */
 
 // =============================================================================
@@ -56,7 +137,8 @@
 //   1. mca_top nuevo en el slot 7 del bus (0x4070_0000)
 //   2. i_scope con EN_FILT(0): sin el ecualizador osc_filter, cuyo lazo IIR
 //      no cierra timing (137 de los 221 endpoints en falla, -1.820 ns)
-//   3. sin red_pitaya_asg (slot 2): libera ~17 RAMB36, HP2/HP3 y logica
+//   3. sin red_pitaya_asg (slot 2): libera ~17 RAMB36, HP2/HP3 y logica. En
+//      su lugar, gen_pulsos (0x4021_0000), que maneja asg_dat y trig_asg_out
 //   4. sin red_pitaya_pid (slot 3): sin uso en este flujo
 //
 // Conserva a proposito la lista de puertos y los nombres de instancia i_ams y
@@ -262,6 +344,7 @@ logic         top_run, top_clear, top_srst;
 
 logic [2*14-1:0]         mca_dat_bus;   // muestra acondicionada -> MCA
 logic                    mca_veto;      // trigger_shield (dst=mca) -> MCA
+logic                    trig_arm;      // multitrigger -> MCA: el disparo puede salir
 logic [2-1:0]            mca_val_bus;
 
 // PID
@@ -470,9 +553,18 @@ logic [2-1:0] [ADW-1:0] adc_dat_raw;
 
 // IO block registers should be used here
 // lowest 2 bits reserved for 16bit ADC
-
-assign adc_dat_raw[0] = adc_dat_i[0][16-1 -: ADW];
-assign adc_dat_raw[1] = adc_dat_i[1][16-1 -: ADW];
+//
+// El dato crudo se registra solo, para que el flop entre en el IOB (IOB TRUE en
+// sdc/red_pitaya.xdc): la captura queda pegada al pad, con la misma demora en
+// todos los bits. Antes el primer flop era el del mux de digital_loop, y entraba
+// en el IOB solo porque dac_a era constante (sin ASG). Con gen_pulsos manejando
+// dac_a el mux es real y Vivado dejaba el flop en la fabrica (Place 30-722):
+// timeado por el set_input_delay de 3.4 ns, pero con la demora del ruteo.
+// Cuesta un ciclo del ADC a adc_dat; el lazo digital sigue en uno.
+always @(posedge adc_clk) begin
+  adc_dat_raw[0] <= adc_dat_i[0][16-1 -: ADW];
+  adc_dat_raw[1] <= adc_dat_i[1][16-1 -: ADW];
+end
 
 // transform into 2's complement (negative slope)
 always @(posedge adc_clk) begin
@@ -609,7 +701,7 @@ wire [16-1:0] axi_state_ch_2_3 = 16'h0;
 
 // Defino con la misma interface que el scope original
 
-rp_scope_multitrigger_com#(
+rp_scope_mt_com#(
   .CHN(0),
   .N_CH(SCOPE_N_CH),
   .DW(SCOPE_DW),
@@ -632,6 +724,7 @@ rp_scope_multitrigger_com#(
   .trig_ext_asg_i(trig_ext_asg01),
   .daisy_trig_o  (scope_trigo ),
   .mca_veto_o    (mca_veto    ),  // veto externo hacia el MCA
+  .trig_arm_o    (trig_arm    ),  // re-armado del disparo hacia el MCA
 
   .adc_state_o   (adc_state_ch_0_1),
   .adc_state_i   (adc_state_ch_2_3),
@@ -681,17 +774,54 @@ rp_scope_multitrigger_com#(
 ////////////////////////////////////////////////////////////////////////////////
 
 
-// --- ASG ELIMINADO -------------------------------------------------------
+// --- ASG ELIMINADO, GENERADOR DE PULSOS EN SU LUGAR ----------------------
 // Un MCA no necesita generador arbitrario, y sacarlo libera ~17 RAMB36 (dos
 // tablas de onda de 16384x14b mas los FIFOs), los puertos HP2/HP3 y bastante
-// logica. El estimulo de las pruebas viene del Rigol DG4162 por USB.
-// Consecuencias: las salidas del DAC quedan mudas y desaparece trig_asg_out,
-// o sea las fuentes de disparo BIT_ASG_P/BIT_ASG_N del OR-mask del scope.
-sys_bus_stub sys_bus_stub_2 (sys[2]);
+// logica. En su lugar va gen_pulsos: pulsos de preamplificador con disparos
+// periodicos o de Poisson y amplitudes de una tabla, para probar el
+// multitrigger y el MCA sin el Rigol, con un estimulo que el software conoce
+// bit a bit (docs/gen_eventos/generador_pulsos.md). Toma lo que era del ASG:
+//   - asg_dat, la entrada del DAC. Con digital_loop[0] (HK 0x4000_000C) vuelve
+//     por adc_dat y todo el datapath ve los pulsos; si no, salen por OUT1/2.
+//   - trig_asg_out, la fuente ASG del OR_MASK del multitrigger (bits 11 y 12).
+//     Pasa por el antirrebote de rp_ext_trig, que comparte su largo con el
+//     disparo externo: para el generador, en 0.
+//   - el slot 2, que reparte con el event_ring (sys_bus_split): 0x4020_0000
+//     es del ring (aca un stub; el ring vive en event_ring_red_pitaya_top) y
+//     0x4021_0000 del generador.
+// Como el ASG, corre en adc_clk. Apagado (CTRL.en = 0, el reset), asg_dat y
+// trig_asg_out quedan en cero, como antes.
+sys_bus_if sys2_ring (.clk (adc_clk), .rstn (adc_rstn));   // 0x4020_0000
+sys_bus_if sys2_pul  (.clk (adc_clk), .rstn (adc_rstn));   // 0x4021_0000
 
-assign asg_dat[0]   = '0;
-assign asg_dat[1]   = '0;
-assign trig_asg_out = 1'b0;
+sys_bus_split #(.SEL_B (4'h1)) i_slot2 (
+  .s_addr  (sys[2].addr    ), .s_wdata (sys[2].wdata   ),
+  .s_wen   (sys[2].wen     ), .s_ren   (sys[2].ren     ),
+  .s_rdata (sys[2].rdata   ), .s_err   (sys[2].err     ), .s_ack (sys[2].ack   ),
+  .a_addr  (sys2_ring.addr ), .a_wdata (sys2_ring.wdata),
+  .a_wen   (sys2_ring.wen  ), .a_ren   (sys2_ring.ren  ),
+  .a_rdata (sys2_ring.rdata), .a_err   (sys2_ring.err  ), .a_ack (sys2_ring.ack),
+  .b_addr  (sys2_pul.addr  ), .b_wdata (sys2_pul.wdata ),
+  .b_wen   (sys2_pul.wen   ), .b_ren   (sys2_pul.ren   ),
+  .b_rdata (sys2_pul.rdata ), .b_err   (sys2_pul.err   ), .b_ack (sys2_pul.ack )
+);
+
+sys_bus_stub sys_bus_stub_2 (sys2_ring);   // sin event_ring en este top
+
+gen_pulsos #(.DW (14)) i_gen_pulsos (
+  .clk_i     (adc_clk          ),
+  .rstn_i    (adc_rstn         ),
+  .dat_a_o   (asg_dat[0]       ),
+  .dat_b_o   (asg_dat[1]       ),
+  .trig_o    (trig_asg_out     ),
+  .sys_addr  (sys2_pul.addr    ),
+  .sys_wdata (sys2_pul.wdata   ),
+  .sys_wen   (sys2_pul.wen     ),
+  .sys_ren   (sys2_pul.ren     ),
+  .sys_rdata (sys2_pul.rdata   ),
+  .sys_err   (sys2_pul.err     ),
+  .sys_ack   (sys2_pul.ack     )
+);
 
 // Los puertos AXI-HP del ASG se atan para que su axi_master quede inactivo.
 assign axi2_sys.waddr = '0;  assign axi3_sys.waddr = '0;
@@ -832,6 +962,8 @@ integration_cfg #(
   // sin event_ring (ese vive en event_ring_red_pitaya_top)
   .EN_OSC(1), .EN_MTRG(1), .EN_MCA(1), .EN_RING(0), .EN_ASG(0), .EN_PID(0),
   .SLOT_OSC(1), .SLOT_RING(2), .SLOT_MTRG(3), .SLOT_TOP(6), .SLOT_MCA(7),
+  // el generador de pulsos, en 0x1_0000 del slot 2 (sys_bus_split)
+  .EN_PULSOS(1), .SLOT_PULSOS(2),
   // parametros con los que se instanciaron los bloques, para que el software
   // los descubra en vez de hardcodearlos
   .N_CH(SCOPE_N_CH), .DW(SCOPE_DW), .RSZ(SCOPE_RSZ), .EN_FILT(0),
@@ -881,13 +1013,34 @@ mca_top #(
   // bits de mas no compraban nada medible. Libera 8 RAMB36 de 16, que es lo que
   // habilita un segundo MCA. Ver docs/mca/limites_resolucion_y_deriva.md §2.
   .EN_HIST_H     (1), .H_AW (13),        // espectro 1D: 8192 canales
-  .EN_HIST_H_PSD (1), .H2_AW(7), .PSD_AW(6)  // mapa 2D: 128 x 64
+  .EN_HIST_H_PSD (1), .H2_AW(7), .PSD_AW(6),  // mapa 2D: 128 x 64
+  // 3 ranuras y 3 formas (64/48, 32/24, 8/8), no 4 y 4: libera ~1230 LUT y
+  // ~980 FF (OOC) en un bitstream que estaba al 99.86 % de los slices. El golden
+  // model sobre el tren de Poisson capturado en la placa da 647 buenos/s a 1 Mcps,
+  // contra 650 con 4 y 4, e igual a 300 kcps. La forma que se va es la 16/12: sus
+  // pulsos pasan a la 8/8, que cuenta igual con un 40 % mas de ruido. La 8/8 no
+  // se puede sacar (-20 % a 1 Mcps). Ver docs/mca/pruebas_banco_trapecios.md §7.
+  .N_ACC         (3), .N_FORMAS (3)
 ) i_mca (
   .adc_clk_i   (adc_clk     ),
   .adc_rstn_i  (adc_rstn    ),
   .mca_dat_i   (mca_dat_bus ),
   .mca_val_i   (mca_val_bus ),
   .veto_i      (mca_veto    ),
+  // Nivel del multitrigger: algun canal puede disparar. Con 0 el tiempo va a
+  // t_rearm (el disparo esperando re-armar), no a livetime.
+  .trig_arm_i  (trig_arm    ),
+  // FASE 2: apertura de ventana por trigger externo. Este top no tiene
+  // event_ring, asi que la fuente es `scope_trigo` — que es el MISMO
+  // `event_signal` del multitrigger que alla sale por event_trig_o
+  // (mt_event_logic ata trigger_event_o y daisy_trig_o a la misma
+  // senal), o sea el OR de todas las fuentes de disparo del scope.
+  //
+  // El MCA lo toma por FLANCO internamente, asi que compartirlo con
+  // trig_output_sel no cambia nada: es un fanout de lectura.
+  //
+  // No cambia nada por si solo: con cfg_trig_src = 0 (el default) no se mira.
+  .trig_i      (scope_trigo ),
   // System bus
   .sys_addr    (sys[7].addr ),
   .sys_wdata   (sys[7].wdata),

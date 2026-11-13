@@ -2,6 +2,26 @@
 
 DUT principal: `osc_cfg`
 
+Sigue las cinco etapas de
+[`docs/etapas_de_validacion.md`](../../../docs/etapas_de_validacion.md). La etapa 2,
+la verificación, va completa. De las otras cuatro dice qué corre, dónde está y qué dio.
+
+| Etapa | Qué hay para el osciloscopio | Estado |
+|---|---|---|
+| [1. Simulación](#1-simulación) | — | no hay modelo propio |
+| [2. Verificación](#2-verificación) | los testbenches de `sim/` | en verde |
+| [3. Generación interna](#3-generación-interna) | registros y BRAM con el disparo por software | C = Python, palabra por palabra |
+| [4. Generación externa controlada](#4-generación-externa-controlada) | el orden armar/disparar; el lector con el tren del Rigol | techo del lector de Python de ~3.7 kev/s |
+| [5. Medición con setup experimental](#5-medición-con-setup-experimental) | — | sin hacer |
+
+# 1. Simulación
+
+No hay un modelo propio del osciloscopio. El tiempo muerto del lector que lo lee se
+modela en [`tiempo_muerto.md`](../../../docs/mca/tiempo_muerto.md) (K = 1, periódico
+contra Poisson).
+
+# 2. Verificación
+
 ## Cómo se corre
 
 ```
@@ -71,3 +91,28 @@ En `sim/sva/`, enganchadas por `bind` (no tocan el RTL sintetizable).
 
 Las metas son del código del módulo (`files.f`), no del RTL del repo raíz que
 arrastre por `extra.f`.
+
+# 3. Generación interna
+
+Sin generador: la captura es por software.
+
+| Prueba | Qué mide | Resultado |
+|---|---|---|
+| [`test_osciloscope_hw.py`](../../../software/API/tests/placa/test_osciloscope_hw.py) (`make verificar-placa-osciloscope`) | C contra Python en los registros del slot 1, y un buffer congelado por software leído de la BRAM palabra por palabra | 53 PASS (2026-11-09) |
+| [`test_capture_window_np.py`](../../../software/API/tests/placa/test_capture_window_np.py) (`make verificar-placa-buffer`) | el mismo buffer congelado, leído por `rp` y por libmca, con la calibración | 11 de 11 (2026-11-09) |
+
+# 4. Generación externa controlada
+
+El estímulo es el Rigol DG4162 en IN1. Qué condiciona el instrumento está en
+[`resultados_validacion_hw.md` §20](../../../docs/resultados_validacion_hw.md#20-el-generador-externo-qué-condicionó-el-dg4162--2026-11-11).
+
+| Campaña | Dónde | Resultado |
+|---|---|---|
+| el disparo por flanco del ADC, con la señal viva a 100 kHz | [`orden_arm_trigger_captura.md`](../../../docs/osc/orden_arm_trigger_captura.md) | con la OR-mask habilitada antes de armar, el buffer no se congelaba nunca: hay que armar la `bram_sm` primero |
+| el lector de Python (`BramSource`) con el tren periódico | [`arquitectura_adquisicion_software.md`](../../../docs/API/arquitectura_adquisicion_software.md) | techo de ~3.7 kev/s; el ajuste da τ = 250 ± 2 µs, igual que la atribución por fases. El 99 % de eficiencia a 2 kHz es del estímulo periódico |
+| el mismo lector con arribos de Poisson (`run_poisson_loss.py`) | ídem | las pérdidas por ρ contra `ρ/(1+ρ)`, y lo que cuesta escribir `.npz` o LH5 mientras se lee (2026-11-07 y 2026-11-08) |
+| el lector con datos reales hasta el disco (`make verificar-placa-e2e`) | [`test_mca_e2e.py`](../../../software/API/tests/placa/test_mca_e2e.py) | deja las capturas en `software/datos/e2e_*` |
+
+# 5. Medición con setup experimental
+
+Sin hacer.

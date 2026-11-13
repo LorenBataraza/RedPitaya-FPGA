@@ -79,7 +79,18 @@ module rp_scope_mt_com #(
   // usa 0, porque para espectroscopia el ecualizador no hace falta (ademas
   // con los coeficientes de reset es un pass-through) y asi ese bitstream
   // queda libre del camino critico.
-  parameter EN_FILT = 1
+  parameter EN_FILT = 1,
+  // EN_AXI=0 saca la captura a DDR por AXI (un rp_axi_sm por canal): las
+  // salidas axi_* quedan en cero, y con ellas se podan los axi_master de
+  // HP0/HP1. Los registros de esa captura siguen en osc_cfg; AXI_WP_CUR y
+  // AXI_WP_TRIG leen cero.
+  //
+  // Lo usa event_ring_red_pitaya_top, donde el event_ring ocupa su lugar:
+  // en el MCA del 2026-11-03 los dos rp_axi_sm son 758 LUT, 878 FF y 2 RAMB36,
+  // y los dos axi_master 265 LUT (un axi_master atado a cero queda en ~18).
+  // Sin ella no anda rp_AcqAxi* de librp; el software de este proyecto no la
+  // usa. El default es 1: los demas tops no cambian.
+  parameter EN_AXI = 1
 )(
    // ADC
    input      [N_CH   -1: 0] adc_clk_i      ,  // ADC clock
@@ -116,6 +127,7 @@ module rp_scope_mt_com #(
    input      [      4-1: 0] trig_ext_asg_i ,  // input External and ASG trigger 
    output                    daisy_trig_o   ,  // trigger for daisy chaining
    output                    mca_veto_o     ,  // nivel del trigger_shield hacia el MCA
+   output                    trig_arm_o     ,  // nivel: el disparo puede salir (re-armado del MCA)
    
    // axi master
    output     [N_CH   -1: 0] axi_clk_o      ,  // global clock
@@ -288,6 +300,7 @@ mt_top #(
   .trigger_event_o       ( trigger_event       ),
   .daisy_trig_o          ( daisy_trig_o        ),
   .mca_veto_o            ( mca_veto_o          ),
+  .trig_arm_o            ( trig_arm_o          ),
   .event_snap_o          ( event_snap_o        ),
 
   .trig_dis_clr_o        ( trig_dis_clr        ),
@@ -550,7 +563,9 @@ rp_acq_bram #(
   .bram_ack_o     ( bram_ack[GV]                    )
 );
 
-// Datapath a la escritura del RAM?
+// La captura a DDR por AXI. Con EN_AXI=0 no está: ver la cabecera.
+if (EN_AXI != 0) begin : g_axi
+
 rp_axi_sm #(
   .DW  (  DW    )
 ) i_axi_sm (
@@ -587,6 +602,21 @@ rp_axi_sm #(
   .axi_trig_o       ( axi_trig[GV]                      ), // Trig_0
   .axi_state_o      ( axi_state[(GV+1)*8-1:GV*8]        )  // Axi_state?
 );
+
+end else begin : g_noaxi
+  // El maestro ve wvalid en cero para siempre: no emite nada y se poda.
+  assign axi_waddr_o[(GV+1)*32-1:GV*32] = 32'h0;
+  assign axi_wdata_o[(GV+1)*64-1:GV*64] = 64'h0;
+  assign axi_wsel_o [(GV+1)*8 -1:GV*8 ] =  8'h0;
+  assign axi_wvalid_o[GV]               =  1'b0;
+  assign axi_wlen_o [(GV+1)*4 -1:GV*4 ] =  4'h0;
+  assign axi_wfixed_o[GV]               =  1'b0;
+  assign axi_wp_trig[(GV+1)*32-1:GV*32] = 32'h0;
+  assign axi_wp_cur [(GV+1)*32-1:GV*32] = 32'h0;
+  assign axi_trig[GV]                   =  1'b0;
+  assign axi_state[(GV+1)*8-1:GV*8]     =  8'h0;
+end
+
 end
 endgenerate
 

@@ -3,7 +3,7 @@
 // tb_slots_integration — las tres regiones cableadas como en el top.
 //
 // Replica el cableado de mca_red_pitaya_top: integration_cfg (slot 6) manda
-// los ROUTE_* a rp_scope_multitrigger_com, que expone el bus del OSC (slot 1)
+// los ROUTE_* a rp_scope_mt_com, que expone el bus del OSC (slot 1)
 // y el del multitrigger (slot 3).
 //
 // Verifica lo que ningún TB de módulo suelto puede ver:
@@ -69,7 +69,7 @@ module tb_slots_integration;
   wire [N_CH*DW-1:0] mca_dat;
   wire [N_CH   -1:0] mca_val;
 
-  rp_scope_multitrigger_com #(
+  rp_scope_mt_com #(
     .CHN(0), .N_CH(N_CH), .DW(DW), .RSZ(RSZ), .EN_FILT(0)
   ) i_scope (
     .adc_clk_i({2{clk}}), .adc_rstn_i({2{rstn}}),
@@ -167,7 +167,7 @@ module tb_slots_integration;
     osc_read (20'h1000, d); checkv("slot 1: MAGIC de OSC",         d, 32'h4F534331);
 
     // El slot 6 dice dónde vive cada módulo
-    top_read(20'h024, d); checkv("SLOTS describe el sistema", d, 32'h0007_6321);
+    top_read(20'h024, d); checkv("SLOTS describe el sistema", d, 32'h0027_6321);
 
     // Escribir en un slot no toca a los otros
     osc_read(20'h008, d);  checkv("umbral ch0 en su valor de reset", d, 32'h0000_1388);

@@ -59,6 +59,7 @@ module tb_mt_top;
   reg         wen = 0, ren = 0;
   wire [31:0] rdata;
   wire        err, ack;
+  wire        trig_arm;     // el disparo puede salir (hacia el MCA)
 
   mt_top #(.N_CH(N_CH), .DW(DW)) dut (
     .adc_clk_i({N_CH{clk}}), .adc_rstn_i({N_CH{rstn}}),
@@ -72,6 +73,7 @@ module tb_mt_top;
     .trig_ext_asg_o(trig_ext_asg), .trig_ext_asg_i(trig_ext_asg),
     .trig_ch_i(trig_ch_i), .trig_ch_o(trig_ch_o),
     .trigger_event_o(trigger_event), .daisy_trig_o(daisy), .mca_veto_o(veto),
+    .trig_arm_o(trig_arm),
     .event_snap_o(event_snap),
     .trig_dis_clr_o(trig_dis_clr), .trg_src_o(trg_src),
     .new_trg_src_o(new_trg_src), .trg_state_o(trg_state),
@@ -267,9 +269,14 @@ module tb_mt_top;
     repeat (40) @(negedge clk);                         // el arranque
     bus_write(20'h040, 32'h1 << 26);                    // bit 26: pz_p ch1
     no_event(20, quiet); check("polo-cero sin pulso: quieto", quiet);
+    check("trig_arm: polo-cero armado en la mascara", trig_arm === 1'b1);
+    bus_read(20'h014, d); check("SHIELD_STAT: bit 18 (trig_arm) en 1", d[18]);
     set_ch(1, 500);
     wait_event(50, got); check("evento por polo-cero en ch1", got);
     repeat (3) @(negedge clk);
+    // disparo unico: tras el evento el canal queda deshabilitado y sin mascara
+    check("trig_arm: tras el disparo unico, no puede disparar", trig_arm === 1'b0);
+    bus_read(20'h014, d); check("SHIELD_STAT: bit 18 (trig_arm) en 0", !d[18]);
     bus_read(20'h018, d); checkv("SNAPSHOT: solo pz_p[1] (bit 26)", d, 32'h1 << 26);
     check ("event_snap_o no tiene los bits de polo-cero", event_snap === d[16:0]);
     set_ch(1, 0);

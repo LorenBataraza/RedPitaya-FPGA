@@ -22,6 +22,7 @@ module tb_mt_event_logic;
   reg                dly_do=0, ext_p=0, ext_n=0, asg_p=0, asg_n=0;
   reg  [3:0]         dly_valp=4'hF;
   reg  [3:0]         slope_p=0, slope_n=0, pz_p=0;
+  reg  [3:0]         slope_arm_p=4'hF, slope_arm_n=4'hF, pz_arm=4'hF;   // Schmitt armados
   reg  [N_CH*32-1:0] set_src=0;
   reg  [6:0]         sh_src=0;
   reg  [4:0]         sh_dst=0;
@@ -33,6 +34,7 @@ module tb_mt_event_logic;
   wire               daisy, arm, trigger_event;
   wire [15:0]        sh_cnt;
   wire               sh_active;
+  wire               trig_arm, veto;
   wire [28:0]        snapshot;
 
   mt_event_logic #(.N_CH(N_CH)) dut (
@@ -45,9 +47,11 @@ module tb_mt_event_logic;
     .ext_lvl_i(1'b0),
     .trig_ch_i(trig_ch),
     .slope_p_i(slope_p), .slope_n_i(slope_n), .pz_p_i(pz_p),
+    .slope_arm_p_i(slope_arm_p), .slope_arm_n_i(slope_arm_n), .pz_arm_i(pz_arm),
     .shield_src_i(sh_src), .shield_dst_i(sh_dst), .shield_dur_i(sh_dur),
     .trig_ch_o(trig_ch_o), .trg_state_o(trg_state), .adc_trg_dis_o(dis),
     .daisy_trig_o(daisy), .event_arm_o(arm), .trigger_event_o(trigger_event),
+    .mca_veto_o(veto), .trig_arm_o(trig_arm),
     .shield_cnt_o(sh_cnt), .shield_active_o(sh_active), .trig_snapshot_o(snapshot)
   );
 
@@ -74,6 +78,11 @@ module tb_mt_event_logic;
       snap_en_flanco <= snapshot;
     end
   end
+
+  // Ciclos con el disparo desarmado, como los cuenta t_rearm en el MCA.
+  reg     contar_desarme = 0;
+  integer ciclos_desarme = 0;
+  always @(posedge clk) if (contar_desarme && !trig_arm) ciclos_desarme = ciclos_desarme + 1;
 
   task automatic reset_dut;
     begin
@@ -166,6 +175,64 @@ module tb_mt_event_logic;
       check($sformatf("snapshot en el flanco, vuelta %0d: adc_n0 (bit5)", vuelta),
             snap_en_flanco==(29'h1 << 5));
     end
+    sh_src=0; sh_dst=0;
+
+    // 9) trig_arm: el disparo puede salir. Modo del MCA (multitrigger_armar_mca):
+    //    continuo, escudo src = dst = ch0 con dur = 0, y en la mascara de ch0 el
+    //    polo-cero de ch0 (bit 25).
+    reset_dut;
+    we_keep=4'hF; sh_src=7'h1; sh_dst=5'h1; sh_dur=0;
+    pz_arm=4'hF; slope_arm_p=4'hF; slope_arm_n=4'hF;
+    @(negedge clk); @(negedge clk);
+    check("trig_arm: mascaras vacias, no puede disparar", trig_arm==1'b0);
+    load_mask(32'h1 << 25, 32'h0);
+    @(negedge clk);
+    check("trig_arm: polo-cero de ch0 armado", trig_arm==1'b1);
+    pz_arm[1] = 1'b0;
+    repeat(2) @(negedge clk);
+    check("trig_arm: el polo-cero de ch1 no esta en la mascara, no cuenta", trig_arm==1'b1);
+    pz_arm[1] = 1'b1;
+
+    // un disparo como lo da mt_pz_trig: el Schmitt se desarma en t, el pulso
+    // sale en t+1, y re-arma 10 ciclos despues. El disable del escudo (un
+    // ciclo, en t+3) cae adentro: son 10 ciclos desarmado, ni uno mas.
+    ciclos_desarme = 0; contar_desarme = 1; ev_flancos = 0;
+    @(negedge clk); pz_arm[0] = 1'b0;
+    @(negedge clk); pz_p[0] = 1'b1;
+    @(negedge clk); pz_p[0] = 1'b0;
+    repeat(8) @(negedge clk);
+    pz_arm[0] = 1'b1;
+    repeat(6) @(negedge clk);
+    contar_desarme = 0;
+    check("trig_arm: el disparo sale (un evento)", ev_flancos==1);
+    check($sformatf("trig_arm: 10 ciclos desarmado por el re-armado del Schmitt (%0d)", ciclos_desarme),
+          ciclos_desarme==10);
+
+    // re-armado instantaneo: lo que queda es el disable del escudo, un ciclo
+    ciclos_desarme = 0; contar_desarme = 1; ev_flancos = 0;
+    @(negedge clk); pz_p[0] = 1'b1;
+    @(negedge clk); pz_p[0] = 1'b0;
+    repeat(8) @(negedge clk);
+    contar_desarme = 0;
+    check("trig_arm: sin Schmitt desarmado, un evento", ev_flancos==1);
+    check($sformatf("trig_arm: solo el ciclo del disable del escudo (%0d)", ciclos_desarme),
+          ciclos_desarme==1);
+
+    // una fuente sin re-armado (SW) en la mascara: siempre puede
+    load_mask((32'h1 << 25) | 32'h1, 32'h0);
+    pz_arm[0] = 1'b0;
+    repeat(2) @(negedge clk);
+    check("trig_arm: con SW en la mascara puede aunque el polo-cero no", trig_arm==1'b1);
+    pz_arm[0] = 1'b1;
+
+    // pendiente negativa de ch1 en la mascara de ch1
+    load_mask(32'h0, 32'h1 << 22);
+    repeat(2) @(negedge clk);
+    check("trig_arm: pendiente n de ch1 armada", trig_arm==1'b1);
+    slope_arm_n[1] = 1'b0;
+    repeat(2) @(negedge clk);
+    check("trig_arm: pendiente n de ch1 desarmada", trig_arm==1'b0);
+    slope_arm_n[1] = 1'b1;
     sh_src=0; sh_dst=0;
 
     $display("---------------------------------------------");

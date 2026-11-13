@@ -152,8 +152,8 @@ module tb_integration_cfg;
 
     // MODULES: OSC(b0) + MTRG(b1) + MCA(b2) presentes; RING/ASG/PID no.
     bus_read(20'h020, d); checkv("MODULES", d, 32'h0000_0007);
-    // SLOTS: {MCA=7, TOP=6, MTRG=3, RING=2, OSC=1}
-    bus_read(20'h024, d); checkv("SLOTS",   d, 32'h0007_6321);
+    // SLOTS: {PULSOS=2, MCA=7, TOP=6, MTRG=3, RING=2, OSC=1}
+    bus_read(20'h024, d); checkv("SLOTS",   d, 32'h0027_6321);
     // CAPS0: EN_FILT=0, RSZ=14, DW=14, N_CH=2
     bus_read(20'h028, d); checkv("CAPS0",   d, {7'h0, 1'b0, 2'h0, 6'd14, 2'h0, 6'd14, 4'h0, 4'd2});
     // CAPS1: PSD_AW=6, H2_AW=7, H_AW=14

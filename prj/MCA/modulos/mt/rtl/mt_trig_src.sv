@@ -40,11 +40,18 @@ module mt_trig_src #(
   input  [ 4-1: 0]      slope_p_i       , // pendiente positiva por canal (mt_slope_trig)
   input  [ 4-1: 0]      slope_n_i       , // pendiente negativa por canal
   input  [ 4-1: 0]      pz_p_i          , // polo-cero por canal (mt_pz_trig)
+  // Por fuente, con los mismos bits que la máscara: 1 = esa fuente puede
+  // disparar ya. Los Schmitt (pendiente, polo-cero) dan su estado de re-armado;
+  // el resto, 1. Ver mt_event_logic.
+  input  [ SRC_W-1: 0]  armado_i        ,
 
    // Salidas
   output [ SRC_W-1: 0]  trg_state_o     , // máscara activa (set_trig_src), 32 b
   output                adc_trg_dis_o   , // bit de disable (separado)
-  output                adc_trig_o        // trigger en sí (registrado)
+  output                adc_trig_o      , // trigger en sí (registrado)
+  // 1 = el canal puede disparar en este ciclo: no está deshabilitado y alguna
+  // fuente habilitada está armada. Combinacional; lo registra mt_event_logic.
+  output                puede_o
 );
 
 reg   [ SRC_W-1: 0] set_trig_src  ;
@@ -135,5 +142,10 @@ else
 assign adc_trig_o    = adc_trig;       // trigger registrado
 assign trg_state_o   = set_trig_src;   // máscara activa (32 b)
 assign adc_trg_dis_o = adc_trg_dis;    // bit de disable
+
+// Lo mismo que trig_comb pero con el estado de cada fuente en vez de su pulso:
+// la máscara sin el disable, y de ella alguna armada. Una máscara vacía no
+// puede disparar nunca, y lo dice.
+assign puede_o       = |(src_mask & armado_i);
 
 endmodule

@@ -40,6 +40,10 @@
 //     o sea que nunca mira bus_m.err: el unico err que el software puede ver
 //     es el de "PLL sin enganchar". Un slot vacio es indistinguible de uno
 //     ocupado por el err; hay que usar el valor magico del offset 0.
+//  7. UN REGISTRO QUE CAMBIA SALE ENTERO. Con un contador libre en el slot 5,
+//     el dato tiene que llevar un ciclo de clk_ps quieto cuando axi4_slave lo
+//     registra: el CDC lo congela en el ack del esclavo (reg_rdata). Sin eso,
+//     en la placa salian bits mezclados (2026-11-08).
 //
 // dbg_showcase marca las transacciones que las figuras dibujan, asi que el
 // script no necesita tiempos hardcodeados:
@@ -90,12 +94,31 @@ module tb_sys_bus_proto;
     .bus_s        (sys)
   );
 
-  // Los siete slots que no son el MCA quedan terminados, como en el top.
+  // Los slots que no son el MCA quedan terminados, como en el top, salvo
+  // SLOT_CNT: un esclavo con un registro que cambia solo (seccion 7).
+  localparam integer SLOT_CNT = 5;
   generate
     for (genvar s = 0; s < SLOT_MCA; s++) begin : g_stub
-      sys_bus_stub i_stub (.bus (sys[s]));
+      if (s != SLOT_CNT) begin : g_s
+        sys_bus_stub i_stub (.bus (sys[s]));
+      end
     end
   endgenerate
+
+  // El esclavo de SLOT_CNT hace lo que event_ring_top: recalcula sys_rdata
+  // TODOS los ciclos (aca, un contador libre de adc_clk, como su TS_LO) y da
+  // el ack 4 ciclos despues del enable. El contador corre solo en la seccion
+  // 7: si no, llena el VCD de las figuras con 32 bits cambiando cada ciclo.
+  bit        cnt_corre  = 1'b0;
+  reg [31:0] cnt_libre  = 32'h0;
+  reg [3:0]  cnt_ack_sr = 4'h0;
+  always @(posedge clk_adc) begin
+    if (cnt_corre) cnt_libre <= cnt_libre + 32'd1;
+    sys[SLOT_CNT].rdata <= cnt_libre;
+    cnt_ack_sr          <= {cnt_ack_sr[2:0], sys[SLOT_CNT].wen | sys[SLOT_CNT].ren};
+    sys[SLOT_CNT].ack   <= cnt_ack_sr[2];
+  end
+  assign sys[SLOT_CNT].err = 1'b0;
 
   // Anchos chicos a proposito: el barrido de borrado del histograma dura
   // 2^H_AW ciclos y aca no interesa el datapath, interesa el bus.
@@ -109,7 +132,7 @@ module tb_sys_bus_proto;
     .EN_HIST_H_PSD(1), .H2_AW(H2_AW), .PSD_AW(PSD_AW)
   ) i_mca (
     .adc_clk_i (clk_adc), .adc_rstn_i (rstn_adc),
-    .mca_dat_i ('0), .mca_val_i ('0), .veto_i (1'b0),
+    .mca_dat_i ('0), .mca_val_i ('0), .veto_i (1'b0), .trig_i (1'b0), .trig_arm_i (1'b1),
     .sys_addr  (sys[SLOT_MCA].addr ), .sys_wdata (sys[SLOT_MCA].wdata),
     .sys_wen   (sys[SLOT_MCA].wen  ), .sys_ren   (sys[SLOT_MCA].ren  ),
     .sys_rdata (sys[SLOT_MCA].rdata), .sys_err   (sys[SLOT_MCA].err  ),
@@ -273,6 +296,27 @@ module tb_sys_bus_proto;
   end
 
   //--------------------------------------------------------------------------
+  // Chequeo del dato leido: cuando axi4_slave lo registra (RDATA <= bus.rdata
+  // en el flanco de clk_ps que sigue al ciclo del ack), el valor tiene que
+  // llevar por lo menos un ciclo de clk_ps sin moverse. Si no, en la placa se
+  // muestrea un dato de adc_clk mientras cambia y salen bits mezclados.
+  //--------------------------------------------------------------------------
+  bit      mirar_rdata = 1'b0;   // solo en la seccion 7
+  realtime t_rdata     = 0.0;    // ultimo cambio de rdata, del lado del master
+  bit      ack_medio   = 1'b0;
+  integer  rdata_movida = 0;
+  always @(ps_sys.rdata) t_rdata = $realtime;
+  always @(negedge clk_ps) ack_medio <= ps_sys.ack;
+  always @(posedge clk_ps) if (mirar_rdata && ack_medio) begin
+    if ($realtime - t_rdata < PER_PS) begin
+      if (rdata_movida < 4)
+        $display("    rdata cambio %0.1f ns antes de que axi4_slave lo registre",
+                 $realtime - t_rdata);
+      rdata_movida = rdata_movida + 1;
+    end
+  end
+
+  //--------------------------------------------------------------------------
   // Resultado
   //--------------------------------------------------------------------------
   integer pass_cnt = 0, fail_cnt = 0;
@@ -299,7 +343,7 @@ module tb_sys_bus_proto;
   localparam [19:0] OFS_MAGIC   = 20'h00000;
   localparam [19:0] OFS_AMP_MAX = 20'h00034;
   localparam [19:0] OFS_LIBRE   = 20'h00F00;   // no mapeada: cae en el default
-  localparam [31:0] MAGIC_MCA   = 32'h4D434131;   // "MCA1"
+  localparam [31:0] MAGIC_MCA   = 32'h4D434132;   // "MCA2": el mapa de las ranuras
   localparam [31:0] VALOR       = 32'h0000_1234;
 
   reg [31:0] rd;
@@ -408,6 +452,35 @@ module tb_sys_bus_proto;
     repeat (8) @(posedge clk_ps);
 
     //----------------------------------------------------------------------
+    // 7) UN REGISTRO QUE CAMBIA MIENTRAS SE LO LEE
+    //
+    // Un contador, un puntero, WR_SLOT del ring: el esclavo los recalcula
+    // todos los ciclos. El dato tiene que congelarse en el ack del esclavo,
+    // en adc_clk, y recien despues cruzar. Si cruza crudo, axi4_slave lo
+    // muestrea mientras cambia: en la placa eso dio ~1 de cada 1000 lecturas
+    // de wp_cur con bits mezclados (2026-11-08).
+    //----------------------------------------------------------------------
+    $display("=== un registro que cambia: el contador libre del slot %0d ===", SLOT_CNT);
+    begin
+      reg [31:0] prev;
+      integer    no_crece;
+      no_crece = 0;
+      cnt_corre = 1'b1;
+      bus_read_slot(SLOT_CNT[2:0], 20'h00000, prev);
+      mirar_rdata = 1'b1;
+      for (int i = 0; i < 16; i++) begin
+        bus_read_slot(SLOT_CNT[2:0], 20'h00000, rd);
+        if (rd <= prev) no_crece = no_crece + 1;
+        prev = rd;
+      end
+      mirar_rdata = 1'b0;
+      cnt_corre = 1'b0;
+      checkv("el dato no se mueve cuando axi4_slave lo registra", rdata_movida, 32'd0);
+      checkv("las lecturas del contador crecen", no_crece, 32'd0);
+    end
+    repeat (8) @(posedge clk_ps);
+
+    //----------------------------------------------------------------------
     $display("=== cierre ===");
     checkv("no hubo ningun timeout de ack", ack_timeouts, 32'd0);
     checkv("el ack siempre duro un solo ciclo", ack_largo, 32'd0);
@@ -422,7 +495,7 @@ module tb_sys_bus_proto;
   end
 
   initial begin
-    #50us;
+    #100us;
     $display("RESULT: FAIL  (timeout global del testbench)");
     $finish;
   end

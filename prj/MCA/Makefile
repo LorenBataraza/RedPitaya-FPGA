@@ -39,10 +39,10 @@ VIVADO ?= vivado
 
 # Módulos con RTL propio. Es la misma lista que consume rtl_files.tcl para
 # armar el bitstream; si agregás uno, va en los dos lados.
-MODS := comun osc multitrigger mca event_ring
+MODS := comun mt osc mca gen_eventos event_ring
 
 .DEFAULT_GOAL := help
-.PHONY: help rtl rtl-todos $(addprefix rtl-,$(MODS)) wave verificar verificar-placa \
+.PHONY: help rtl rtl-todos $(addprefix rtl-,$(MODS)) wave tops verificar verificar-placa \
         montecarlo campanas app app-demo placa-estado ring-dump todo limpiar \
         bitstream bitstream-event-ring bitstreams datasheets
 
@@ -66,6 +66,7 @@ rtl:               ## todos los testbenches de RTL (QuestaSim, batch)
 	   $(MAKE) --no-print-directory -C $(MODULOS)/$$m/work || fail="$$fail $$m"; \
 	 done; \
 	 $(MAKE) --no-print-directory -C $(SIM) || fail="$$fail integracion"; \
+	 $(MAKE) --no-print-directory tops || fail="$$fail tops"; \
 	 echo ""; \
 	 if [ -n "$$fail" ]; then echo "MODULOS CON FALLAS:$$fail"; exit 1; \
 	 else echo "TODO OK: $(words $(MODS)) módulos + integración"; fi
@@ -75,6 +76,9 @@ $(addprefix rtl-,$(MODS)):   ## un módulo entero: make rtl-mca
 
 rtl-integracion:   ## sólo los testbenches que cruzan módulos
 	$(MAKE) -C $(SIM)
+
+tops:              ## ¿el top del ring es el que sale del top del MCA? (gen_event_ring_top.py)
+	python3 rtl/mine/tops/gen_event_ring_top.py --check
 
 # Un TB suelto sin tener que acordarse de en qué módulo quedó.
 rtl-%:             ## un testbench: make rtl-tb_event_ring_top
@@ -130,17 +134,38 @@ todo: rtl verificar  ## RTL + software offline (todo lo que corre sin placa)
 
 # ~35 min cada uno. El log queda en out/ al lado del bitstream; el script
 # aborta solo si bootgen no regeneró el .bit.bin (quedaría el viejo en la placa).
+#
+# El `tee` va a RUTA ABSOLUTA ($(CURDIR), que es este directorio) a propósito.
+# Con `out/...` relativo el log caía en $(REPO)/out/ por el `cd $(REPO)` que
+# abre la receta, y ese directorio no existe: `tee` fallaba, la receta daba
+# error 1 con el bitstream ya generado y correcto, y —peor— el `grep bootgen`
+# de la línea siguiente leía el log de la corrida ANTERIOR, que sí decía
+# "bootgen OK". O sea que la guarda contra cargar un .bit.bin viejo en la placa
+# nunca se ejecutó contra la corrida en curso: era exactamente el fallo que
+# dice estar previniendo. Encontrado el 2026-10-22 al sintetizar las fases 1-2.
+#
+# `grep -m1 -A2` y no `-A3`: en el reporte los valores están DOS líneas después
+# del encabezado (encabezado, guiones, valores), así que `-A3 | tail -1` tomaba
+# la línea de después —vacía— y el WNS nunca se imprimió. El `-m1` es porque el
+# resumen repite el encabezado por grupo de reloj.
+WNS_AWK := '{ printf "  WNS %s ns  (endpoints que fallan: %s)\n", $$1, $$3; \
+              if ($$1+0 < 0) print "  OJO: el diseño NO cumple timing" }'
+
 bitstream:         ## sintetiza el MCA: out/mca_red_pitaya_Z10_2CH.bit.bin (~35 min)
 	cd $(REPO) && $(VIVADO) -nojournal -nolog -mode batch \
-	  -source red_pitaya_vivado_Z10_mca.tcl -tclargs MCA 2>&1 | tee out/build_Z10_2CH.log
+	  -source red_pitaya_vivado_Z10_mca.tcl -tclargs MCA 2>&1 \
+	  | tee $(CURDIR)/out/build_Z10_2CH.log
 	@grep -q "bootgen OK" out/build_Z10_2CH.log
-	@grep -A3 "WNS(ns)" out/post_route_timing_summary.rpt | tail -1 | awk '{print "  WNS " $$1 " ns  (endpoints que fallan: " $$3 ")"}'
+	@grep -m1 -A2 "WNS(ns)" out/post_route_timing_summary.rpt | tail -1 | awk $(WNS_AWK)
 
 bitstream-event-ring:  ## sintetiza el top con event_ring: out/v3_event_ring/event_ring_red_pitaya_Z10_2CH.bit.bin
+	@mkdir -p out/v3_event_ring
+	python3 rtl/mine/tops/gen_event_ring_top.py
 	cd $(REPO) && $(VIVADO) -nojournal -nolog -mode batch \
-	  -source red_pitaya_vivado_Z10_v3_event_ring.tcl -tclargs MCA 2>&1 | tee out/v3_event_ring/build_Z10_2CH.log
+	  -source red_pitaya_vivado_Z10_v3_event_ring.tcl -tclargs MCA 2>&1 \
+	  | tee $(CURDIR)/out/v3_event_ring/build_Z10_2CH.log
 	@grep -q "bootgen OK" out/v3_event_ring/build_Z10_2CH.log
-	@grep -A3 "WNS(ns)" out/v3_event_ring/post_route_timing_summary.rpt | tail -1 | awk '{print "  WNS " $$1 " ns  (endpoints que fallan: " $$3 ")"}'
+	@grep -m1 -A2 "WNS(ns)" out/v3_event_ring/post_route_timing_summary.rpt | tail -1 | awk $(WNS_AWK)
 
 # En serie a propósito: los dos generan el block design en el mismo .srcs/.
 bitstreams: bitstream bitstream-event-ring  ## todos los bitstreams que entran en la release

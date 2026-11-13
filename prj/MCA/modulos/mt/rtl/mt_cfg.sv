@@ -80,6 +80,7 @@ module mt_cfg #(
   input      [  16  -1:0]  shield_cnt_i       ,
   input                    shield_active_i    ,
   input                    mca_veto_i         , // nivel de veto hacia el MCA
+  input                    trig_arm_i         , // nivel: algún canal puede disparar
   input      [  29  -1:0]  trig_snapshot_i    ,
 
   // --- puente legacy desde osc_cfg (offsets 0x004 y 0x094 del slot 1) ---
@@ -354,7 +355,7 @@ always @(posedge adc_clk_i) begin
       20'h00010 : sys_rdata <= {shield_dur,
                                 {(8-SHIELD_DST){1'b0}}, shield_dst,
                                 {(8-SHIELD_SRC){1'b0}}, shield_src};
-      20'h00014 : sys_rdata <= {{32-18{1'b0}}, mca_veto_i, shield_active_i, shield_cnt_i};
+      20'h00014 : sys_rdata <= {{32-19{1'b0}}, trig_arm_i, mca_veto_i, shield_active_i, shield_cnt_i};
 
       // --- snapshot y flags ---
       20'h00018 : sys_rdata <= {{32-29{1'b0}}, trig_snapshot_i};

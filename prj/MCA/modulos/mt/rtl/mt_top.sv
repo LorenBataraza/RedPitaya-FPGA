@@ -80,6 +80,9 @@ module mt_top #(
   output                    trigger_event_o      ,  // dispara la captura de todos los canales
   output                    daisy_trig_o         ,
   output                    mca_veto_o           ,
+  // nivel: algún canal puede disparar ya (ningún Schmitt habilitado esperando
+  // re-armar, sin disable). El MCA lo usa para su tiempo de re-armado.
+  output                    trig_arm_o           ,
   output     [     17-1: 0] event_snap_o         ,  // snapshot hacia el event_ring
 
   // --- hacia la captura del scope ---
@@ -132,6 +135,9 @@ wire [       4-1: 0] adc_trig_n        ; // flanco negativo de nivel
 wire [       4-1: 0] slope_p           ; // pendiente positiva (mt_slope_trig)
 wire [       4-1: 0] slope_n           ; // pendiente negativa
 wire [       4-1: 0] pz_p              ; // polo-cero (mt_pz_trig)
+wire [       4-1: 0] slope_arm_p       ; // estado de re-armado de cada Schmitt
+wire [       4-1: 0] slope_arm_n       ;
+wire [       4-1: 0] pz_arm            ;
 wire [       4-1: 0] adc_trig_sw       ; // SW
 
 // estado de trigger del event_logic: solo la máscara activa set_trig_src[31:0]
@@ -198,7 +204,9 @@ mt_slope_trig #(
   .cfg_thr_i      ( slope_thr [GV*SLOPE_TW +: SLOPE_TW]     ),
   .cfg_hyst_i     ( slope_hyst[GV*SLOPE_TW +: SLOPE_TW]     ),
   .slope_p_o      ( slope_p[GV]                             ),
-  .slope_n_o      ( slope_n[GV]                             )
+  .slope_n_o      ( slope_n[GV]                             ),
+  .armado_p_o     ( slope_arm_p[GV]                         ),
+  .armado_n_o     ( slope_arm_n[GV]                         )
 );
 
 // Disparo con POLO-CERO: un trapecio corto (mca_trap) y un Schmitt, sobre el
@@ -221,7 +229,8 @@ mt_pz_trig #(
   .cfg_sh_i       ( pz_sh  [GV*6 +: 6]                      ),
   .cfg_thr_i      ( pz_thr [GV*PZ_TW +: PZ_TW]              ),
   .cfg_hyst_i     ( pz_hyst[GV*PZ_TW +: PZ_TW]              ),
-  .pz_p_o         ( pz_p[GV]                                )
+  .pz_p_o         ( pz_p[GV]                                ),
+  .armado_o       ( pz_arm[GV]                              )
 );
 
 // Empaqueta el estado por canal en el bus trg_state de 8 b/canal: los 8 bits
@@ -239,6 +248,9 @@ assign adc_trig_n[GV]               = 1'b0;
 assign slope_p[GV]                  = 1'b0;
 assign slope_n[GV]                  = 1'b0;
 assign pz_p[GV]                     = 1'b0;
+assign slope_arm_p[GV]              = 1'b0;   // un canal que no existe no dispara
+assign slope_arm_n[GV]              = 1'b0;
+assign pz_arm[GV]                   = 1'b0;
 assign trg_state_o[(GV+1)*8-1:GV*8] = 8'h0;
 end
 endgenerate
@@ -299,6 +311,9 @@ mt_event_logic #(
   .slope_p_i        ( slope_p             ),
   .slope_n_i        ( slope_n             ),
   .pz_p_i           ( pz_p                ),
+  .slope_arm_p_i    ( slope_arm_p         ),
+  .slope_arm_n_i    ( slope_arm_n         ),
+  .pz_arm_i         ( pz_arm              ),
 
   .shield_src_i     ( shield_src          ),
   .shield_dst_i     ( shield_dst          ),
@@ -311,6 +326,7 @@ mt_event_logic #(
   .event_arm_o      (                     ),  // redundante con trigger_event_o
   .trigger_event_o  ( trigger_event_o     ),
   .mca_veto_o       ( mca_veto_o          ),
+  .trig_arm_o       ( trig_arm_o          ),
 
   // Debug
   .shield_cnt_o     ( shield_cnt          ),
@@ -354,6 +370,7 @@ mt_cfg #(
   .shield_cnt_i       ( shield_cnt      ),
   .shield_active_i    ( shield_active   ),
   .mca_veto_i         ( mca_veto_o      ),
+  .trig_arm_i         ( trig_arm_o      ),
   .trig_snapshot_i    ( trig_snapshot   ),
 
   .legacy_trig_sw_i      ( legacy_trig_sw_i      ),

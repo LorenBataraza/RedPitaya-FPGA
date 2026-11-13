@@ -80,7 +80,12 @@ module mt_slope_trig #(
   input      [TW-1: 0]  cfg_hyst_i ,  // histéresis del re-armado
 
   output reg            slope_p_o  ,  // pendiente positiva, 1 ciclo
-  output reg            slope_n_o     // pendiente negativa, 1 ciclo
+  output reg            slope_n_o  ,  // pendiente negativa, 1 ciclo
+  // 1 = re-armado: el próximo cruce de thr (o de -thr) dispara. Es el estado
+  // del Schmitt, sin registro extra; lo usa mt_event_logic para el tiempo de
+  // re-armado del MCA. Vale 0 mientras la ventana no está llena.
+  output                armado_p_o ,
+  output                armado_n_o
 );
 
 localparam integer DEPTH = 2*LMAX + GMAX;          // toma más vieja
@@ -246,5 +251,8 @@ end else begin
   slope_p_o <= scht_p[0] && !scht_p[1] ;  // pulso de 1 ciclo
   slope_n_o <= scht_n[0] && !scht_n[1] ;
 end
+
+assign armado_p_o = !scht_p[0] ;
+assign armado_n_o = !scht_n[0] ;
 
 endmodule

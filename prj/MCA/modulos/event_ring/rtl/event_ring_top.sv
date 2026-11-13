@@ -42,7 +42,11 @@ module event_ring_top #(
   parameter integer S_AW    = 11,
   parameter integer DATA_AW = 12,   // stage: 4096 muestras (~2 RAMB36)
   parameter integer E       = 4,    // eventos en vuelo en el stage
-  parameter integer FIFO_FW = 8     // profundidad del axi_wr_fifo (2^FW)
+  parameter integer FIFO_FW = 8,    // profundidad del axi_wr_fifo (2^FW)
+  // El generador de disparos y de dato conocido (modulos/gen_eventos), para
+  // probar el ring a la tasa que se quiera: registros desde 0x100. Apagado es
+  // un cable, asi que con 1 el ring se comporta igual que con 0.
+  parameter integer EN_GEN  = 1
 )(
   input                    adc_clk_i,
   input                    adc_rstn_i,
@@ -123,6 +127,32 @@ module event_ring_top #(
   wire        credit_ok = (occupied < n_slots);
 
   //--------------------------------------------------------------------------
+  // El generador: entre la entrada y la captura
+  //--------------------------------------------------------------------------
+  wire [N_CH*DW-1:0] g_dat;
+  wire               g_dv, g_trig;
+  wire [16:0]        g_snap;
+  wire [31:0]        gen_rdata;
+  wire               gen_sel = (sys_addr[19:8] == 12'h001);   // 0x100 .. 0x1FF
+
+  generate if (EN_GEN) begin : g_gen
+    wire gen_err, gen_ack;            // el ack es el del ring (latencia fija, mayor)
+    gen_eventos #(.N_CH(N_CH), .DW(DW), .TS_W(64)) i_gen (
+      .clk_i(adc_clk_i), .rstn_i(adc_rstn_i),
+      .dat_i(dat_i), .dv_i(dv_i), .trig_i(trig_i), .snap_i(snapshot_i),
+      .ts_i(ts_cnt), .run_i(gst == G_RUNNING),
+      .dat_o(g_dat), .dv_o(g_dv), .trig_o(g_trig), .snap_o(g_snap),
+      .sys_addr(sys_addr), .sys_wdata(sys_wdata),
+      .sys_wen(sys_wen && gen_sel), .sys_ren(sys_ren && gen_sel),
+      .sys_rdata(gen_rdata), .sys_err(gen_err), .sys_ack(gen_ack)
+    );
+  end else begin : g_sin_gen
+    assign g_dat = dat_i;  assign g_dv = dv_i;
+    assign g_trig = trig_i; assign g_snap = snapshot_i;
+    assign gen_rdata = 32'h0;
+  end endgenerate
+
+  //--------------------------------------------------------------------------
   // Captura de ventana
   //--------------------------------------------------------------------------
   wire            cap_sof, cap_eof, cap_val;
@@ -141,8 +171,8 @@ module event_ring_top #(
     // trunca la ventana en vuelo.
     .run_i(gst != G_STOPPED), .accept_trig_i(gst == G_RUNNING),
     .pre_i(pre_n), .post_i(post_n),
-    .dat_i(dat_i), .dv_i(dv_i),
-    .trig_i(trig_i), .snapshot_i(snapshot_i), .ts_i(ts_cnt),
+    .dat_i(g_dat), .dv_i(g_dv),
+    .trig_i(g_trig), .snapshot_i(g_snap), .ts_i(ts_cnt),
     .m_sof_o(cap_sof), .m_eof_o(cap_eof), .m_val_o(cap_val), .m_dat_o(cap_dat),
     .m_accept_i(stg_accept),
     .m_ts_o(cap_ts), .m_snap_o(cap_snap), .m_nsamp_o(cap_nsamp),
@@ -299,7 +329,14 @@ module event_ring_top #(
       G_RUNNING:  if (!cfg_run) gst <= G_DRAINING;
       // DRAINING existe para no cortar un slot por la mitad: espera a que la
       // captura y el writer terminen lo que tienen en vuelo.
-      G_DRAINING: if (!wr_busy && !cap_busy && !stg_meta_val) gst <= G_STOPPED;
+      // fifo_occ == 0: las ultimas palabras del ultimo slot (el footer, que es
+      // el commit) tienen que haber salido del axi_wr_fifo, porque STOPPED es
+      // `flush` y el clear del FIFO tira lo que quede adentro. Sin esto el
+      // ultimo evento de cada adquisicion quedaba sin footer en la DDR (lo
+      // encontro tb_event_ring_gen, 2026-11-09). El FIFO larga solo lo que le
+      // queda cuando deja de entrar dato (fifo_flush_cond), asi que no traba.
+      G_DRAINING: if (!wr_busy && !cap_busy && !stg_meta_val && (fifo_occ == '0))
+                    gst <= G_STOPPED;
       default:    gst <= G_STOPPED;
     endcase
   end
@@ -379,7 +416,7 @@ module event_ring_top #(
       20'h44:  sys_rdata <= ts_cnt[63:32];
       20'h48:  sys_rdata <= axi_cur_addr;
       20'h50:  sys_rdata <= MAGIC;
-      default: sys_rdata <= 32'h0;
+      default: sys_rdata <= gen_sel ? gen_rdata : 32'h0;   // el generador, o 0
     endcase
   end
 

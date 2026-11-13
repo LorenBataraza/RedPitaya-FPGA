@@ -8,3 +8,5 @@ rtl/interface/sys_bus_if.sv
 rtl/sys_bus_cdc.sv
 rtl/sys_bus_interconnect.sv
 rtl/sys_bus_stub.sv
+# El master del puerto HP2: lo necesita tb_ring_sistema.
+rtl/classic/axi_master.v

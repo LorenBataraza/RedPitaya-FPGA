@@ -13,10 +13,11 @@ modulos/
 │   ├── plot_sweep.py       barrido -> PNG
 │   └── datasheet.py        RTL -> diagrama de interfaz + datasheet.md
 ├── scripts/create_module.py   generador de módulos nuevos
-├── comun/                  integration_cfg, dsp_tap_mux (región de TOP, slot 6)
+├── comun/                  integration_cfg, dsp_tap_mux (región de TOP, slot 6), sys_bus_split (el reparto del slot 2)
 ├── mt/                     mt_* + trigger_shield (multitrigger, slot 3)
 ├── osc/                    osc_cfg (slot 1) + osc_filter + el datapath del scope (rp_scope_mt_com)
 ├── mca/                    cadena de análisis de altura de pulso (slot 7)
+├── gen_eventos/            los generadores de estímulo: de eventos para el ring (lo instancia event_ring) y de pulsos en el lugar del ASG (lo instancia el top)
 └── event_ring/             ring de slots de evento en DDR
 ```
 
@@ -277,6 +278,13 @@ escritos; lo único que faltaba era juntarlos.
 O sea que para documentar un caso nuevo alcanza con **nombrar bien el
 `check()`** en el testbench. Lo que queda a mano es lo que no es derivable:
 casos borde conocidos, deuda y metas de cobertura.
+
+El plan está ordenado por las cinco etapas de
+[`../docs/etapas_de_validacion.md`](../docs/etapas_de_validacion.md): la tabla
+generada va en «# 2. Verificación», bajo `## Casos cubiertos`, y las etapas 1, 3, 4 y 5
+(simulación, generación interna, generación externa controlada y setup experimental)
+son a mano. El encabezado `## Casos cubiertos` tiene que quedar así: es el ancla donde
+`datasheet.py` inserta la tabla si todavía no hay marca.
 
 Se reconocen también las tareas que chequean por indirección: `tb_osc_filter`
 no llama a `check()` desde el cuerpo principal sino a `run_case("nombre")`, que

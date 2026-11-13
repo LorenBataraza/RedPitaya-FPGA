@@ -2,6 +2,25 @@
 
 DUT principal: `integration_cfg`
 
+Sigue las cinco etapas de
+[`docs/etapas_de_validacion.md`](../../../docs/etapas_de_validacion.md). La etapa 2,
+la verificación, va completa. De las otras cuatro dice qué corre, dónde está y qué dio.
+
+| Etapa | Qué hay para comun | Estado |
+|---|---|---|
+| [1. Simulación](#1-simulación) | — | no hay modelo propio |
+| [2. Verificación](#2-verificación) | los testbenches de `sim/` | en verde |
+| [3. Generación interna](#3-generación-interna) | la región de TOP, el reparto del slot 2 y el bus del top | pasan |
+| [4. Generación externa controlada](#4-generación-externa-controlada) | — | no aplica |
+| [5. Medición con setup experimental](#5-medición-con-setup-experimental) | — | no aplica |
+
+# 1. Simulación
+
+No hay modelo propio: `integration_cfg`, `sys_bus_split` y `dsp_tap_mux` son registros
+y ruteo.
+
+# 2. Verificación
+
 ## Cómo se corre
 
 ```
@@ -95,3 +114,23 @@ En `sim/sva/`, enganchadas por `bind` (no tocan el RTL sintetizable).
 
 Las metas son del código del módulo (`files.f`), no del RTL del repo raíz que
 arrastre por `extra.f`.
+
+# 3. Generación interna
+
+Sin señal: son registros, ruteo y el bus.
+
+| Prueba | Qué mide | Resultado |
+|---|---|---|
+| [`test_integration_hw.py`](../../../software/API/tests/placa/test_integration_hw.py) (`make verificar-placa-integration`) | la región de TOP (slot 6): C contra Python, y cada consumidor por todos los taps | 27 PASS (2026-11-09) |
+| `make verificar-placa-generadores`, parte A | el reparto del slot 2 por `sys_bus_split`: el generador en `0x4021_0000` con el ring en `0x4020_0000`, el bit 6 de `MODULES` y `SLOTS[23:20]` | pasa (2026-11-09 y 2026-11-12) |
+| [`test_bus_lectura_viva.py`](../../../software/API/tests/placa/test_bus_lectura_viva.py) (`make verificar-placa-bus`) | que un registro que cambia mientras se lo lee llegue entero. Es el `rdata` del CDC del top (`rtl/sys_bus_cdc.sv`, verificado en `sim/tb_sys_bus_proto.sv`), no de este módulo | antes del arreglo, ~1 de cada 1000 lecturas de `wp_cur` rotas. Con los bitstreams del 2026-11-09: 0 en el del ring, y en el del MCA (6156e5a3) 1 aislada en 14 millones, que no es una mezcla ([`bus_sistema_redpitaya.md`](../../../docs/TOP/bus_sistema_redpitaya.md)) |
+| [`test_rw_dev_mem.py`](../../../software/API/tests/placa/test_rw_dev_mem.py) (`make verificar-placa-mem`) | regresión: una escritura angosta por `/dev/mem` tira SIGBUS, una de 32 bits alineada no | pasa (2026-11-09) |
+
+# 4. Generación externa controlada
+
+No aplica: el módulo no procesa la señal. El ruteo de taps lo ejercitan las campañas del
+MCA y del multitrigger.
+
+# 5. Medición con setup experimental
+
+No aplica.

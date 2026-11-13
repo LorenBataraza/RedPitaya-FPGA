@@ -36,6 +36,7 @@ module mca_top_sva #(
     // --- control y veto ---
     input logic        cfg_run,
     input logic        veto_i,
+    input logic        trig_arm_i,      // el disparo puede salir (multitrigger)
     input logic        clr_pulse,
     input logic [2:0]  cfg_n_acc,
 
@@ -55,6 +56,7 @@ module mca_top_sva #(
     input logic [63:0] vetotime_cnt,
     input logic [63:0] t_win_cnt,
     input logic [63:0] t_div_cnt,
+    input logic [63:0] t_rearm_cnt,
     input logic [63:0] t_ocup_cnt [0:N_ACC],
 
     // --- distribucion del periodo muerto ---
@@ -118,11 +120,24 @@ module mca_top_sva #(
   ) else $error("puede_abrir no es el complemento de los casilleros");
 
   // LA INVARIANTE CENTRAL. Cada ciclo con cfg_run suma a exactamente uno de los
-  // cuatro relojes, asi que la suma cierra en todo ciclo.
+  // cinco relojes, asi que la suma cierra en todo ciclo.
   ap_suma_relojes: assert property (
-    realtime_cnt == vetotime_cnt + t_win_cnt + t_div_cnt + livetime_cnt
-  ) else $error("los relojes no teselan realtime: rt=%0d vt=%0d win=%0d div=%0d lt=%0d",
-                realtime_cnt, vetotime_cnt, t_win_cnt, t_div_cnt, livetime_cnt);
+    realtime_cnt == vetotime_cnt + t_win_cnt + t_div_cnt + t_rearm_cnt + livetime_cnt
+  ) else $error("los relojes no teselan realtime: rt=%0d vt=%0d win=%0d div=%0d rearm=%0d lt=%0d",
+                realtime_cnt, vetotime_cnt, t_win_cnt, t_div_cnt, t_rearm_cnt, livetime_cnt);
+
+  // t_rearm solo crece cuando el MCA PODIA abrir y el disparo no podia salir:
+  // va despues del veto y de los dos casilleros del MCA. Si creciera con una
+  // ranura libre y el disparo armado, livetime estaria perdiendo ciclos.
+  ap_rearm_causa: assert property (
+    (t_rearm_cnt != $past(t_rearm_cnt)) && !$past(clr_pulse) |->
+      $past(cfg_run && !veto_i && !dt_win && !dt_div && !trig_arm_i)
+  ) else $error("t_rearm crecio sin ser su casillero");
+
+  // Y livetime solo con el disparo armado: es lo que un pulso ve de verdad.
+  ap_live_armado: assert property (
+    (livetime_cnt != $past(livetime_cnt)) && !$past(clr_pulse) |-> $past(trig_arm_i)
+  ) else $error("livetime crecio con el disparo desarmado");
 
   // La OCUPACION tambien tesela: cada ciclo con run y sin veto suma a
   // exactamente un t_ocup[j], el de las ranuras ocupadas en ese ciclo.
@@ -250,6 +265,7 @@ module mca_top_sva #(
   cp_varias:      cover property (n_ocup >= 2);
   cp_dt_win:      cover property (dt_win);
   cp_dt_div:      cover property (dt_div);
+  cp_rearm:       cover property (cfg_run && !veto_i && puede_abrir && !trig_arm_i);
   cp_lost_active: cover property ($changed(c_lost_active));
   cp_lost_busy:   cover property ($changed(c_lost));
   cp_lost_veto:   cover property ($changed(c_lost_veto));

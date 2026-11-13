@@ -14,6 +14,10 @@
 #   4. hp2_clk_freq 125 MHz (era 250): HP2 ahora lo maneja el event_ring, que
 #      vive entero en adc_clk. Ver la nota de dominios abajo.
 #   5. XDC propio del v3, ademas del del MCA (el MCA sigue en el diseno, slot 7)
+#   6. report_utilization jerarquico, para ver el costo del ring
+#
+# El top lo genera prj/MCA/rtl/mine/tops/gen_event_ring_top.py desde el del
+# MCA; make bitstream-event-ring lo regenera antes de llamar a este script.
 #
 # DOMINIOS DE RELOJ — la razon del punto 4.
 # axi2_sys estaba declarado con .clk(dac_axi_clk) (fclk1, 250 MHz) porque HP2
@@ -158,8 +162,9 @@ report_power             -file    $path_out/post_synth_power.rpt
 # place
 ################################################################################
 
-opt_design
-power_opt_design
+# Por area, como en red_pitaya_vivado_Z10_mca.tcl (punto 8): con el flujo de
+# upstream el MCA ya no empaca, y este top es el MCA mas el ring.
+opt_design -directive ExploreArea
 place_design
 phys_opt_design
 write_checkpoint         -force   $path_out/post_place
@@ -185,6 +190,9 @@ report_timing_summary    -file    $path_out/post_route_timing_summary.rpt
 report_timing            -file    $path_out/post_route_timing.rpt -sort_by group -max_paths 100 -path_type summary
 report_clock_utilization -file    $path_out/clock_util.rpt
 report_utilization       -file    $path_out/post_route_util.rpt
+# Por instancia: es la forma de saber cuanto cuesta el ring dentro del bitstream.
+report_utilization -hierarchical -hierarchical_depth 4 \
+                         -file    $path_out/post_route_util_hier.rpt
 report_power             -file    $path_out/post_route_power.rpt
 report_drc               -file    $path_out/post_imp_drc.rpt
 report_io                -file    $path_out/post_imp_io.rpt

@@ -44,16 +44,18 @@ module tb_mt_pz_trig;
   reg  [5:0]          sh = 10;
   reg  [17:0]         thr = 353, hyst = 177;
   wire                pz_p;
+  wire                pz_arm;        // estado de re-armado del Schmitt
 
   mt_pz_trig #(.DW(DW)) dut (
     .adc_clk_i(clk), .adc_rstn_i(rstn),
     .adc_dat_i(x), .adc_dv_i(dv),
     .cfg_en_i(en), .cfg_k_i(k), .cfg_m_i(m), .cfg_mq_i(mq), .cfg_sh_i(sh),
     .cfg_thr_i(thr), .cfg_hyst_i(hyst),
-    .pz_p_o(pz_p)
+    .pz_p_o(pz_p), .armado_o(pz_arm)
   );
 
   integer pass_cnt = 0, fail_cnt = 0, err_y = 0, err_p = 0, comp_y = 0, comp_p = 0;
+  integer err_arm = 0, arm_bajo = 0;
   task automatic check(input string name, input bit cond);
     if (cond) begin pass_cnt++; $display("  PASS: %s", name); end
     else begin fail_cnt++; $display("  FAIL: %s", name); end
@@ -155,6 +157,12 @@ module tb_mt_pz_trig;
       err_y++;
       if (err_y <= 10) $display("  FAIL y: DUT=%0d modelo=%0d (muestra %0d)", dut.y, y_modelo(), outs.size());
     end
+    // el armado es el complemento del estado del Schmitt de referencia
+    if (pz_arm !== !ref_st) begin
+      err_arm++;
+      if (err_arm <= 10) $display("  FAIL armado: DUT=%b ref=%b @%0t", pz_arm, !ref_st, $time);
+    end
+    if (!pz_arm) arm_bajo++;
     comp_p++;
     if (pz_p !== ref_p) begin
       err_p++;
@@ -368,6 +376,9 @@ module tb_mt_pz_trig;
     midiendo = 0;
     check($sformatf("trapecio bit a bit (%0d comparaciones, %0d errores)", comp_y, err_y), err_y == 0);
     check($sformatf("Schmitt contra la referencia (%0d ciclos, %0d errores)", comp_p, err_p), err_p == 0);
+    check($sformatf("armado contra la referencia (%0d ciclos desarmado, %0d errores)", arm_bajo, err_arm),
+          err_arm == 0 && arm_bajo > 0 && arm_bajo < comp_p);
+    check("en = 0: desarmado", pz_arm === 1'b0);
 
     $display("---------------------------------------------");
     $display("tb_mt_pz_trig: %0d PASS, %0d FAIL", pass_cnt, fail_cnt);

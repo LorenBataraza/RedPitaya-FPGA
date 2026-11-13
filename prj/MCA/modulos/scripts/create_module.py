@@ -148,6 +148,24 @@ def verificacion_md(mod: str, top: str) -> str:
 
 DUT principal: `{top}`
 
+Sigue las cinco etapas de
+[`docs/etapas_de_validacion.md`](../../../docs/etapas_de_validacion.md). La etapa 2,
+la verificación, va completa. De las otras cuatro dice qué corre, dónde está y qué dio.
+
+| Etapa | Qué hay para {mod} | Estado |
+|---|---|---|
+| [1. Simulación](#1-simulación) | | |
+| [2. Verificación](#2-verificación) | los testbenches de `sim/` | |
+| [3. Generación interna](#3-generación-interna) | | |
+| [4. Generación externa controlada](#4-generación-externa-controlada) | | |
+| [5. Medición con setup experimental](#5-medición-con-setup-experimental) | | |
+
+# 1. Simulación
+
+Los modelos y Monte Carlo que cubren el módulo, sin el RTL.
+
+# 2. Verificación
+
 ## Cómo se corre
 
 ```
@@ -196,6 +214,18 @@ En `sim/sva/`, enganchadas por `bind` (no tocan el RTL sintetizable).
 
 Las metas son del código del módulo (`files.f`), no del RTL del repo raíz que
 arrastre por `extra.f`.
+
+# 3. Generación interna
+
+En la placa, con la señal generada por la FPGA (o sin señal: registros y bus).
+
+# 4. Generación externa controlada
+
+En la placa, con el Rigol DG4162 en IN1.
+
+# 5. Medición con setup experimental
+
+Con un detector.
 """
 
 

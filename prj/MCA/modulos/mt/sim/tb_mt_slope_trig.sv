@@ -31,13 +31,15 @@ module tb_mt_slope_trig;
   reg         [   4:0] len = 1, gap = 0;
   reg         [TW-1:0] thr = 0, hyst = 0;
   wire                 sp, sn;
+  wire                 ap, an;        // estado de re-armado de cada Schmitt
 
   mt_slope_trig #(.DW(DW), .LMAX(LMAX), .GMAX(GMAX)) dut (
     .adc_clk_i(clk), .adc_rstn_i(rstn),
     .adc_dat_i(x), .adc_dv_i(dv),
     .cfg_en_i(en), .cfg_len_i(len), .cfg_gap_i(gap),
     .cfg_thr_i(thr), .cfg_hyst_i(hyst),
-    .slope_p_o(sp), .slope_n_o(sn)
+    .slope_p_o(sp), .slope_n_o(sn),
+    .armado_p_o(ap), .armado_n_o(an)
   );
 
   integer pass_cnt = 0, fail_cnt = 0;
@@ -88,6 +90,18 @@ module tb_mt_slope_trig;
   always @(posedge clk) if (rstn) begin
     if (sp) np++;
     if (sn) nn++;
+  end
+
+  // El armado contra los pulsos, en toda la corrida: cada pulso sale con el
+  // Schmitt recien desarmado (armado en 1 dos ciclos antes, en 0 desde el
+  // ciclo anterior), que es lo que el MCA necesita para su t_rearm.
+  reg     ap_d1 = 0, ap_d2 = 0, an_d1 = 0, an_d2 = 0;
+  integer arm_np = 0, arm_nn = 0, arm_vp = 0, arm_vn = 0;
+  always @(posedge clk) if (rstn) begin
+    if (sp) begin arm_np++; if (!(!ap && !ap_d1 && ap_d2)) arm_vp++; end
+    if (sn) begin arm_nn++; if (!(!an && !an_d1 && an_d2)) arm_vn++; end
+    ap_d2 <= ap_d1; ap_d1 <= ap;
+    an_d2 <= an_d1; an_d1 <= an;
   end
 
   //--------------------------------------------------------------------------
@@ -185,6 +199,7 @@ module tb_mt_slope_trig;
     check("escalon de bajada: exactamente 1 pulso n", nn == 1);
     check($sformatf("pico de s = L*A = 1600 (medido %0d)", s_max), s_max == 1600);
     check("modelo == RTL en el escalon", mism == 0);
+    check("tras los dos escalones los dos Schmitt re-armaron", ap === 1'b1 && an === 1'b1);
 
     //----------------------------------------------------------------------
     // 5) Continua grande y rampa lenta: no disparan
@@ -237,6 +252,11 @@ module tb_mt_slope_trig;
     for (k = 0; k < 5; k++) begin hold(2000, 40); hold(0, 40); end
     check("cfg_en=0: sin pulsos", np == 0 && nn == 0);
     check("cfg_en=0: s queda en 0", dut.s == 0);
+    check("cfg_en=0: desarmado (no puede disparar)", ap === 1'b0 && an === 1'b0);
+    check($sformatf("armado_p: los %0d pulsos p salen con el Schmitt recien desarmado", arm_np),
+          arm_vp == 0 && arm_np > 20);
+    check($sformatf("armado_n: los %0d pulsos n salen con el Schmitt recien desarmado", arm_nn),
+          arm_vn == 0 && arm_nn > 20);
 
     $display("---------------------------------------------");
     $display("tb_mt_slope_trig: %0d PASS, %0d FAIL", pass_cnt, fail_cnt);

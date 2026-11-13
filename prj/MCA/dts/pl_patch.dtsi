@@ -4,7 +4,10 @@
 
 &xadc {
         compatible = "xlnx,axi-xadc-1.00.a";
-        clocks = <&clkc 18>;
+        /* fclk0 (125 MHz): el AXI del XADC va en FCLK_CLK0 y no en FCLK_CLK3,
+           ver ip/systemZ10.tcl. El driver usa esta frecuencia para elegir el
+           divisor de ADCCLK. */
+        clocks = <&clkc 15>;
         xlnx,channels {
                 #address-cells = <1>;
                 #size-cells = <0>;

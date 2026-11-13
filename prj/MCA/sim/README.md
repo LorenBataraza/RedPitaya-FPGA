@@ -11,7 +11,7 @@ la vez, no pertenece a ninguno y va acá.
 | `tb_slots_integration` | comun + multitrigger + mca |
 | `tb_trig_capture` | multitrigger + `rtl/classic/rp_bram_sm.v` (repo raíz) |
 | `tb_osc_cfg` | osc contra multitrigger (diferencial) |
-| `tb_sys_bus_proto` | mca + el bus del repo raíz (`sys_bus_interconnect`, `sys_bus_cdc`, `sys_bus_stub`) |
+| `tb_sys_bus_proto` | mca + el bus del repo raíz (`sys_bus_interconnect`, `sys_bus_cdc`, `sys_bus_stub`), y un esclavo con un contador vivo en el slot 5 para el dato que cruza el CDC |
 
 ## Requisitos
 
@@ -56,9 +56,9 @@ para cuando el chequeo falla, el tiempo que hay que mirar ya pasó. Se abren con
 | Testbench | Qué verifica |
 |-----------|--------------|
 | `tb_slots_integration` | las tres regiones cableadas como en el top: independencia entre slots y **ruteo del datapath de punta a punta** (con `TAP_ADC` el MCA ve la muestra cruda, no la calibrada). |
-| `tb_osc_cfg` | **diferencial contra `multitrigger_rp_scope_cfg`**: mismo estímulo por los offsets legacy, salidas idénticas. Más el alias legacy↔canónico y la regresión del cuelgue de `ack` en las aperturas de canales no construidos. |
+| `tb_osc_cfg` | **diferencial contra `mt_rp_scope_cfg`**: mismo estímulo por los offsets legacy, salidas idénticas. Más el alias legacy↔canónico y la regresión del cuelgue de `ack` en las aperturas de canales no construidos. |
 | `tb_sys_bus_proto` | **el protocolo del bus, con el RTL de verdad**: el único TB del árbol que instancia `sys_bus_interconnect` (con su `sys_bus_cdc` por slot) en vez de un BFM que lo imita, y el único con dos dominios de reloj asíncronos. Mide la vuelta completa contra el timeout de 32 ciclos de `axi4_slave`, verifica que el `ack` es un pulso de un ciclo, que una dirección no mapeada también hace `ack` (el deadlock de slot de [`../docs/TOP/bus_sistema_redpitaya.md`](../docs/TOP/bus_sistema_redpitaya.md) §7.1) y que sin PLL enganchado se lee `0xDEADBEEF`. De sus ondas salen los [diagramas de tiempo del protocolo](../docs/TOP/figuras/bus_sistema/README.md). |
-| `tb_trig_capture` | **centro del debug del race arm-vs-máscara**: `event_logic` + `rp_bram_sm` como en `rp_scope_multitrigger_com`. Escenario A (máscara-antes-de-arm + flanco pre-arm) → **deadlock** (`wp_trig=0`, `adc_trg_rd=0`); escenario B (arm-antes-de-máscara) → **captura**; escenario C (SW trigger) → captura (inmune al orden). Ver [`../docs/multitrigger/orden_arm_trigger_captura.md`](../docs/multitrigger/orden_arm_trigger_captura.md). |
+| `tb_trig_capture` | **centro del debug del race arm-vs-máscara**: `event_logic` + `rp_bram_sm` como en `rp_scope_mt_com`. Escenario A (máscara-antes-de-arm + flanco pre-arm) → **deadlock** (`wp_trig=0`, `adc_trg_rd=0`); escenario B (arm-antes-de-máscara) → **captura**; escenario C (SW trigger) → captura (inmune al orden). Ver [`../docs/osc/orden_arm_trigger_captura.md`](../docs/osc/orden_arm_trigger_captura.md). |
 
 ## Fuentes bajo test
 
@@ -77,7 +77,7 @@ ningún módulo y sólo las usa `tb_sys_bus_proto`.
 |--------|-------------|
 | [`comun`](../modulos/comun/sim/) | `tb_integration_cfg` |
 | [`osc`](../modulos/osc/sim/) | `tb_osc_filter` |
-| [`multitrigger`](../modulos/multitrigger/sim/) | `tb_multitrigger_cfg`, `tb_multitrigger_trig_src`, `tb_multitrigger_event_logic`, `tb_trigger_shield` |
+| [`mt`](../modulos/mt/sim/) | `tb_mt_cfg`, `tb_mt_trig_src`, `tb_mt_event_logic`, `tb_trigger_shield` |
 | [`mca`](../modulos/mca/sim/) | `tb_mca_div_restore`, `tb_mca_hist`, `tb_mca_zoom`, `tb_mca_discriminator`, `tb_mca_pulse_feature`, `tb_mca_top` |
 | [`event_ring`](../modulos/event_ring/sim/) | `tb_event_window_capture`, `tb_event_stage_fifo`, `tb_event_slot_writer`, `tb_event_ring_top` |
 

@@ -13,6 +13,7 @@
 #   5. add_files del XDC propio del MCA (sdc/red_pitaya_mca.xdc)
 #   6. bootgen para generar el .bit.bin que carga fpgautil
 #   7. phys_opt_design POST-ROUTE, solo si la ruta dejo slack negativo
+#   8. opt_design -directive ExploreArea y SIN power_opt_design (por area)
 #
 # Los tres ultimos evitan que este build PISE los artefactos del scope: el
 # original escribe siempre red_pitaya.bit y red_pitaya.sysdef. Con los nombres
@@ -33,7 +34,12 @@
 #   vivado -nojournal -mode batch -source red_pitaya_vivado_Z10_mca.tcl -tclargs MCA
 #
 # NO hace falta regenerar FSBL ni device tree: ambos salen de la configuracion
-# del PS7 (ip/systemZ10.tcl), que es la MISMA que la de red_pitaya_top.
+# del PS7 (ip/systemZ10.tcl), que es la MISMA que la de red_pitaya_top. La
+# unica diferencia del block design es de conexion, no del PS7: el AXI del XADC
+# va en FCLK_CLK0 (125 MHz) en vez de FCLK_CLK3. El device tree del sistema de
+# la placa sigue diciendo fclk3, y el driver del XADC elige su divisor como si
+# fueran 200 MHz: la conversion queda mas lenta (~300 kHz en vez de 480 kHz),
+# no fuera de rango. dts/pl_patch.dtsi ya dice fclk0.
 ################################################################################
 
 set prj_name [lindex $argv 0]
@@ -178,8 +184,14 @@ report_power             -file    $path_out/post_synth_power.rpt
 # write checkpoint design
 ################################################################################
 
-opt_design
-power_opt_design
+# 8) Por area. Con el banco de trapecios y el disparo con polo-cero (2026-11-03)
+#    el diseno sale de la sintesis con 15 300 LUT (87 %), y con el flujo de
+#    upstream (opt_design + power_opt_design) el placer no lo empaca: faltaban
+#    31 slices. power_opt_design agrega clock enables, o sea control sets, que
+#    es justo lo que no entra; ExploreArea re-sintetiza para area. Con los dos
+#    cambios quedan 14 257 LUT (81 %) y cierra. No cambia la funcion: power_opt
+#    solo baja el consumo dinamico.
+opt_design -directive ExploreArea
 place_design
 phys_opt_design
 write_checkpoint         -force   $path_out/post_place

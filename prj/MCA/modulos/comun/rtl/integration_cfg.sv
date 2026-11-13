@@ -40,6 +40,7 @@ module integration_cfg #(
   parameter integer EN_RING  = 0,
   parameter integer EN_ASG   = 0,
   parameter integer EN_PID   = 0,
+  parameter integer EN_PULSOS = 0,   // gen_pulsos, en el lugar del ASG
 
   // --- en qué slot vive cada uno (nibble por módulo en SLOTS) ---
   parameter integer SLOT_OSC  = 1,
@@ -47,6 +48,7 @@ module integration_cfg #(
   parameter integer SLOT_MTRG = 3,
   parameter integer SLOT_TOP  = 6,
   parameter integer SLOT_MCA  = 7,
+  parameter integer SLOT_PULSOS = 2, // en 0x1_0000 de su slot (sys_bus_split)
 
   // --- parámetros de síntesis que el software necesita conocer ---
   parameter integer N_CH    = 2,
@@ -132,11 +134,13 @@ wire wr_stb = sys_wen && !en_sr[0];
 //=============================================================================
 // Palabras de sólo lectura derivadas de parámetros
 //=============================================================================
-wire [31:0] w_modules = {26'h0, EN_PID[0], EN_ASG[0],
+wire [31:0] w_modules = {25'h0, EN_PULSOS[0], EN_PID[0], EN_ASG[0],
                                 EN_RING[0], EN_MCA[0], EN_MTRG[0], EN_OSC[0]};
 
-wire [31:0] w_slots   = {12'h0, SLOT_MCA[3:0],  SLOT_TOP[3:0],
-                                SLOT_MTRG[3:0], SLOT_RING[3:0], SLOT_OSC[3:0]};
+// El generador de pulsos comparte el slot 2 con el ring: vive 0x1_0000 mas
+// arriba de la base de su slot.
+wire [31:0] w_slots   = {8'h0, SLOT_PULSOS[3:0], SLOT_MCA[3:0],  SLOT_TOP[3:0],
+                               SLOT_MTRG[3:0],   SLOT_RING[3:0], SLOT_OSC[3:0]};
 
 wire [31:0] w_caps0   = {7'h0, EN_FILT[0], 2'h0, RSZ[5:0],
                                2'h0, DW[5:0], 4'h0, N_CH[3:0]};

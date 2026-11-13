@@ -30,9 +30,10 @@ module tb_mt_trig_src;
   reg  [3:0]       trig_p=0, trig_n=0, trig_ch=0;
   reg  [3:0]       slope_p=0, slope_n=0, pz_p=0;
   reg              ext_p=0, ext_n=0, asg_p=0, asg_n=0;
+  reg  [SRC_W-1:0] armado={SRC_W{1'b1}};   // estado de cada fuente
 
   wire [SRC_W-1:0] trg_state;
-  wire             adc_trg_dis, adc_trig;
+  wire             adc_trg_dis, adc_trig, puede;
 
   mt_trig_src #(.CHN(0), .SRC_W(SRC_W)) dut (
     .adc_clk_i(clk), .adc_rstn_i(rstn),
@@ -45,7 +46,9 @@ module tb_mt_trig_src;
     .asg_trig_p_i(asg_p), .asg_trig_n_i(asg_n),
     .trig_ch_i(trig_ch),
     .slope_p_i(slope_p), .slope_n_i(slope_n), .pz_p_i(pz_p),
-    .trg_state_o(trg_state), .adc_trg_dis_o(adc_trg_dis), .adc_trig_o(adc_trig)
+    .armado_i(armado),
+    .trg_state_o(trg_state), .adc_trg_dis_o(adc_trg_dis), .adc_trig_o(adc_trig),
+    .puede_o(puede)
   );
 
   integer pass_cnt=0, fail_cnt=0;
@@ -150,6 +153,25 @@ module tb_mt_trig_src;
     @(negedge clk); pz_p=4'b1111; slope_p=4'b1111; slope_n=4'b1111; trig_p=4'b1111;
     @(negedge clk); pz_p=0; slope_p=0; slope_n=0; trig_p=0;
     check("bits 29..31 reservados: no disparan", adc_trig==1'b0);
+
+    // 8) puede_o: la mascara (sin el disable) contra el armado de cada fuente
+    reset_dut; we_keep=1; armado={SRC_W{1'b1}};
+    @(negedge clk);
+    check("puede: mascara vacia no puede disparar", puede==1'b0);
+    load_mask(BIT_SLOPE_P0 | (32'h1 << 26));    // pendiente ch0 y polo-cero ch1
+    check("puede: con las dos fuentes armadas", puede==1'b1);
+    armado[17] = 1'b0;
+    #1 check("puede: con una de las dos desarmada", puede==1'b1);
+    armado[26] = 1'b0;
+    #1 check("puede: con las dos desarmadas, no", puede==1'b0);
+    armado[25] = 1'b1; armado[18] = 1'b1;
+    #1 check("puede: una fuente armada FUERA de la mascara no cuenta", puede==1'b0);
+    armado[17] = 1'b1;
+    @(negedge clk); slope_p=4'b0001; @(negedge clk); slope_p=0;
+    @(negedge clk);
+    check("puede: el disable tras un disparo lo baja", adc_trg_dis==1'b1 && puede==1'b0);
+    @(negedge clk); dis_clr=1; @(negedge clk); dis_clr=0;
+    check("puede: el re-arm (trig_dis_clr) lo vuelve a subir", adc_trg_dis==1'b0 && puede==1'b1);
 
     $display("---------------------------------------------");
     $display("tb_mt_trig_src: %0d PASS, %0d FAIL", pass_cnt, fail_cnt);

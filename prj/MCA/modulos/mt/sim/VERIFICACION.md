@@ -2,6 +2,27 @@
 
 DUT principal: `mt_cfg`
 
+Sigue las cinco etapas de
+[`docs/etapas_de_validacion.md`](../../../docs/etapas_de_validacion.md). La etapa 2,
+la verificación, va completa. De las otras cuatro dice qué corre, dónde está y qué dio.
+
+| Etapa | Qué hay para el multitrigger | Estado |
+|---|---|---|
+| [1. Simulación](#1-simulación) | el modelo del disparo por pendiente; los dos disparos en la réplica del MCA2 | hechos |
+| [2. Verificación](#2-verificación) | los testbenches de `sim/` y el disparo con polo-cero contra modelos | en verde |
+| [3. Generación interna](#3-generación-interna) | registros sin señal; los tres disparos con `gen_pulsos` | placa = simulación |
+| [4. Generación externa controlada](#4-generación-externa-controlada) | tiempo muerto y par-pulso con el Rigol; el disparo con polo-cero con la subida del Rigol | separa pares desde 9–10 muestras, no 7–8 |
+| [5. Medición con setup experimental](#5-medición-con-setup-experimental) | un detector | sin hacer |
+
+# 1. Simulación
+
+| Qué | Dónde | Para qué |
+|---|---|---|
+| el disparo por pendiente y el Schmitt de nivel | [`mt_slope_model.py`](../modelos/python_model/mt_slope_model.py) | la misma recursión que el hardware, en enteros, sin el pipeline de 5 ciclos; hace las figuras de [`procesamiento_pendiente.md`](../../../docs/mt/procesamiento_pendiente.md) |
+| el disparo por pendiente y el de polo-cero, abriendo las ranuras del MCA | [`replica_mca2.py`](../../../software/monte-carlo/replica_mca2.py) | el Monte Carlo del MCA2: pérdidas y separación de pares según el disparo |
+
+# 2. Verificación
+
 ## Cómo se corre
 
 ```
@@ -23,7 +44,7 @@ que hay que mirar ya pasó.
      cada check(). No editarla a mano. Lo de abajo (casos borde,
      assertions, metas) SI es a mano y no se toca. -->
 
-**170 casos con nombre** en 7 testbenches. Cada fila es un `check()` que corre y tiene que dar PASS; el testbench entero falla si alguno no da.
+**193 casos con nombre** en 7 testbenches. Cada fila es un `check()` que corre y tiene que dar PASS; el testbench entero falla si alguno no da.
 
 ### [`tb_mt_cfg`](tb_mt_cfg.sv) — `mt_cfg`
 
@@ -36,6 +57,7 @@ que hay que mirar ya pasó.
 |  |  | shield_dur |
 |  |  | SHIELD_CFG readback |
 |  |  | SHIELD_STAT |
+|  |  | SHIELD_STAT con trig_arm |
 | 3 | SNAPSHOT y FLAGS (eran 0x218 y 0x21C) | SNAPSHOT (29 b) |
 |  |  | DIS_FLAGS |
 |  |  | TRG_STATE |
@@ -101,6 +123,7 @@ que hay que mirar ya pasó.
 |  |  | escalon de subida: exactamente 1 pulso p |
 |  |  | escalon de bajada: exactamente 1 pulso n |
 |  |  | modelo == RTL en el escalon |
+|  |  | tras los dos escalones los dos Schmitt re-armaron |
 | 5 | Continua grande y rampa lenta: no disparan | continua 6000 desde el arranque: sin pulsos |
 |  |  | rampa lenta (s=176 < thr=800): sin pulsos |
 | 6 | Escalones ruidosos: la histéresis evita re-disparos | modelo == RTL con ruido |
@@ -109,6 +132,7 @@ que hay que mirar ya pasó.
 |  |  | y el escalon de bajada da pulso n |
 | 8 | cfg_en = 0: nada | cfg_en=0: sin pulsos |
 |  |  | cfg_en=0: s queda en 0 |
+|  |  | cfg_en=0: desarmado (no puede disparar) |
 
 
 ### [`tb_mt_pz_trig`](tb_mt_pz_trig.sv) — `mt_pz_trig`
@@ -116,6 +140,7 @@ que hay que mirar ya pasó.
 | Escena | Qué prueba | Caso |
 |---|---|---|
 | 5 | Pares | en = 0: ningun disparo |
+|  |  | en = 0: desarmado |
 
 
 ### [`tb_mt_trig_src`](tb_mt_trig_src.sv) — `mt_trig_src`
@@ -136,6 +161,13 @@ que hay que mirar ya pasó.
 |  |  | pendiente fuera de mascara NO dispara |
 | 7 | polo-cero: pz_p[ch] -> bit 25 + ch, solo con su bit | polo-cero fuera de mascara NO dispara |
 |  |  | bits 29..31 reservados: no disparan |
+| 8 | puede_o: la mascara (sin el disable) contra el armado de cada fuente | puede: mascara vacia no puede disparar |
+|  |  | puede: con las dos fuentes armadas |
+|  |  | puede: con una de las dos desarmada |
+|  |  | puede: con las dos desarmadas, no |
+|  |  | puede: una fuente armada FUERA de la mascara no cuenta |
+|  |  | puede: el disable tras un disparo lo baja |
+|  |  | puede: el re-arm (trig_dis_clr) lo vuelve a subir |
 
 
 ### [`tb_mt_event_logic`](tb_mt_event_logic.sv) — `mt_event_logic`
@@ -153,6 +185,14 @@ que hay que mirar ya pasó.
 |  |  | snapshot engancha slope_n1 (bit22) |
 | 6 | polo-cero: pz_p[1] (bit 26) -> evento + snapshot bit 26 | pz_p1 dispara trigger_event |
 |  |  | snapshot engancha pz_p1 (bit26) y nada mas |
+| 9 | trig_arm: el disparo puede salir. Modo del MCA (multitrigger_armar_mca): | trig_arm: mascaras vacias, no puede disparar |
+|  |  | trig_arm: polo-cero de ch0 armado |
+|  |  | trig_arm: el polo-cero de ch1 no esta en la mascara, no cuenta |
+|  |  | trig_arm: el disparo sale (un evento) |
+|  |  | trig_arm: sin Schmitt desarmado, un evento |
+|  |  | trig_arm: con SW en la mascara puede aunque el polo-cero no |
+|  |  | trig_arm: pendiente n de ch1 armada |
+|  |  | trig_arm: pendiente n de ch1 desarmada |
 
 
 ### [`tb_trigger_shield`](tb_trigger_shield.sv) — `trigger_shield`
@@ -207,7 +247,11 @@ que hay que mirar ya pasó.
 |  |  | SNAPSHOT: slope_p[0] (bit 17) |
 |  |  | event_snap_o no tiene los bits de pendiente |
 |  |  | polo-cero sin pulso: quieto |
+|  |  | trig_arm: polo-cero armado en la mascara |
+|  |  | SHIELD_STAT: bit 18 (trig_arm) en 1 |
 |  |  | evento por polo-cero en ch1 |
+|  |  | trig_arm: tras el disparo unico, no puede disparar |
+|  |  | SHIELD_STAT: bit 18 (trig_arm) en 0 |
 |  |  | SNAPSHOT: solo pz_p[1] (bit 26) |
 |  |  | event_snap_o no tiene los bits de polo-cero |
 | 4 | EXTERNA, por el lazo trig_ext_asg | evento por flanco externo |
@@ -281,3 +325,27 @@ En `sim/sva/`, enganchadas por `bind` (no tocan el RTL sintetizable).
 
 Las metas son del código del módulo (`files.f`), no del RTL del repo raíz que
 arrastre por `extra.f`.
+
+# 3. Generación interna
+
+| Prueba | Qué mide | Resultado |
+|---|---|---|
+| [`test_multitrigger_hw.py`](../../../software/API/tests/placa/test_multitrigger_hw.py) (`make verificar-placa-multitrigger`), sin señal | C contra Python en los registros del slot 3, y armar y desarmar el disparo del MCA con la API (lo único que ve el `we_keep` del RTL) | 28 PASS (2026-11-09, `software/datos/placa_generadores_20261109/`) |
+| `gen_pulsos` por el lazo digital, con los 4 bloques de `tb_pulsos_mca` | los disparos por pendiente, por polo-cero y por el ASG, medidos con `F_TRISE` del MCA | por pendiente y polo-cero, lo mismo que la simulación y sin corrimiento. Con el ASG, la réplica coincide a 3 ciclos del pulso y no a 4: el top tiene un registro en `adc_dat` que el TB no tiene (`LAT_ASG`) ([`generador_pulsos.md` §8](../../../docs/gen_eventos/generador_pulsos.md#8-para-usarlo-en-la-placa)) |
+
+# 4. Generación externa controlada
+
+El estímulo es el Rigol DG4162 en IN1. Qué condiciona el instrumento está en
+[`resultados_validacion_hw.md` §20](../../../docs/resultados_validacion_hw.md#20-el-generador-externo-qué-condicionó-el-dg4162--2026-11-11).
+
+| Campaña | Dónde | Resultado |
+|---|---|---|
+| tiempo muerto (`sweep_periods`) y resolución par-pulso (`sweep_pulse_width`), con el tren periódico en modo PULSE | [`testbenches_software_mt.md`](../../../docs/mt/testbenches_software_mt.md) | el par-pulso ve el re-armado del disparo en hardware sin Python en el lazo (se esperan ~25–30 ns); el doc describe el método y sus trampas, no registra el valor medido |
+| el disparo con polo-cero con la subida del Rigol (2026-11-05) | [`pruebas_banco_trapecios.md` §6](../../../docs/mca/pruebas_banco_trapecios.md#6-en-la-placa) | separa pares desde 9–10 muestras y no desde 7–8 como en la simulación: la subida no baja de ~1.5 muestras (la simulación usó 1.2). El modelo del disparo sobre las señales capturadas da lo mismo que el hardware |
+| el flanco de 1 ns, con sobrepaso | ídem | ~8 % de sobrepaso: 1.65 disparos por pulso desde ~1500 cuentas, y a 1 Mcps los buenos bajan de 665 a 565 k/s. El holdoff del shield (`dur` ≥ 5) lo tapa sin tocar el RTL ([`disparo_polo_cero.md`](../../../docs/mt/disparo_polo_cero.md)) |
+
+# 5. Medición con setup experimental
+
+Sin hacer: todavía no hay detector. Tiene que decidir si el holdoff del shield va por
+defecto: hoy no va, porque con una subida limpia cuesta 3 % de buenos a 1 Mcps, y hace
+falta sólo si el detector tiene sobrepaso.

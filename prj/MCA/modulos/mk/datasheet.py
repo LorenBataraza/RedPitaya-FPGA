@@ -31,7 +31,9 @@ Lo que se autogenera:
                   el banner de cabecera del RTL y el diagrama
     interfaces    tabla de parametros + una tabla de puertos por grupo
     regmap        enlace al mapa de registros del modulo, si existe
-    clocks        relojes y resets detectados + dominio inferido por puerto
+    secuencia     la secuencia de programacion PS <-> modulo, via
+                  secuencia.json; solo en los tops que el manifiesto nombra
+    clocks       relojes y resets detectados + dominio inferido por puerto
     timing        Fmax, camino critico (startpoint/endpoint, niveles de
                   logica) y recursos, de syn/outputs/metrics.txt y del
                   barrido work/rpt/sweep_results.csv
@@ -1964,6 +1966,51 @@ def sec_regmap(iface: Iface, ctx: dict) -> str:
     return "\n".join(out)
 
 
+def sec_secuencia(iface: Iface, ctx: dict) -> str:
+    """La secuencia de programacion: el contrato entre el PS y el modulo.
+
+    Lee `docs/<m>/figuras/secuencia/secuencia.json`, que se escribe a mano
+    igual que las figuras: son diagramas de secuencia en TikZ, no hay nada que
+    medir --lo que fijan es el orden de las transacciones--. Cada entrada dice
+    en `tops` a que paginas va, porque la secuencia es de la cara del modulo
+    hacia el PS y no de cada submodulo. En las demas paginas la seccion queda
+    vacia y `splice` no la inserta.
+
+    Va dentro de §1.3, debajo del mapa de registros: es como se usa ese mapa.
+    Los enlaces de la nota se escriben relativos al manifiesto y se recalculan
+    para la pagina, como la prosa.
+    """
+    mod = ctx["module"]
+    aqui = os.path.dirname(ctx["md_path"])
+    sdir = os.path.join(DOCS, mod, "figuras", "secuencia")
+    manif = os.path.join(sdir, "secuencia.json")
+    if not os.path.exists(manif):
+        return ""
+    try:
+        with open(manif, encoding="utf-8") as fh:
+            figs = json.load(fh)
+    except (OSError, ValueError) as exc:
+        return f"_No pude leer `{os.path.relpath(manif, MCA_ROOT)}`: {exc}_"
+
+    out = []
+    for f in figs:
+        if iface.name not in f.get("tops", []):
+            continue
+        svg = os.path.join(sdir, f["archivo"])
+        fuente = os.path.join(sdir, f["fuente"])
+        if not os.path.exists(svg):
+            out += [f"_Falta `{os.path.relpath(svg, MCA_ROOT)}`: compilar "
+                    f"[`{f['fuente']}`]({os.path.relpath(fuente, aqui)})._", ""]
+            continue
+        out += [f"**{f['titulo']}** "
+                f"([fuente]({os.path.relpath(fuente, aqui)}))", "",
+                f"![{f['titulo']}]({os.path.relpath(svg, aqui)})", "",
+                reubicar_enlaces(f["nota"], sdir, aqui), ""]
+    if not out:
+        return ""
+    return "\n".join(["#### Secuencia de programación", ""] + out)
+
+
 def sec_clocks(iface: Iface, ctx: dict) -> str:
     clks = [p for p in iface.ports if is_clock(p)]
     rsts = [p for p in iface.ports if is_reset(p)]
@@ -2344,6 +2391,9 @@ SECTIONS = [
     ("prosa", sec_prosa, r"^<!-- /AUTO:resumen -->[ \t]*$"),
     ("interfaces", sec_interfaces, r"^#{3,4}[ \t]*[\d.]*[ \t]*Interfaces[ \t]*$"),
     ("regmap", sec_regmap, r"^#{3,4}[ \t]*[\d.]*[ \t]*Mapa de registros[ \t]*$"),
+    # Opcional, como la prosa va pegada al cierre del bloque de arriba: es una
+    # subseccion de la §1.3 y solo existe donde hay manifiesto de secuencia.
+    ("secuencia", sec_secuencia, r"^<!-- /AUTO:regmap -->[ \t]*$"),
     ("clocks", sec_clocks, r"^#{3,4}[ \t]*[\d.]*[ \t]*Clock domains[ \t]*$"),
     ("timing", sec_timing, r"^#{3,4}[ \t]*[\d.]*[ \t]*Frecuencia máxima de trabajo[ \t]*$"),
     ("transacciones", sec_transacciones,
@@ -2363,6 +2413,8 @@ def auto(key: str, body: str) -> str:
 
 def scaffold(iface: Iface, ctx: dict) -> str:
     g = {k: fn(iface, ctx) for k, fn, _ in SECTIONS}
+    secuencia = ("\n\n" + auto("secuencia", g["secuencia"])
+                 if g["secuencia"] else "")
     # Ojo con las marcas AUTO adentro de este comentario: los comentarios de
     # HTML no anidan, asi que el primer cierre cortaria el comentario y el resto
     # del texto se veria en la pagina. Por eso se nombran sin los delimitadores.
@@ -2388,7 +2440,7 @@ def scaffold(iface: Iface, ctx: dict) -> str:
 
 ### 1.3 Mapa de registros
 
-{auto('regmap', g['regmap'])}
+{auto('regmap', g['regmap'])}{secuencia}
 
 ### 1.4 Clock domains
 
@@ -2472,6 +2524,8 @@ def splice(old: str, iface: Iface, ctx: dict, sections=None):
             new = rx.sub(lambda m: m.group(1) + "\n" + body + "\n" + m.group(3),
                          new, count=1)
             continue
+        if not body:
+            continue        # seccion opcional sin contenido: ni la marca
         new, ok = insert_after(new, anchor, auto(key, body))
         if not ok:
             missing.append(key)

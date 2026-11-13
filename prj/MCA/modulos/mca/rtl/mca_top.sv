@@ -72,6 +72,14 @@ module mca_top #(
   // linea de retardo de muestras (cfg_pre_dly). Atado a 0, el MCA no abre nunca.
   input                    trig_i      ,
 
+  // --- estado del disparo (nivel), del multitrigger ---
+  // 1 = algun canal del multitrigger puede disparar ya. Con 0 el disparo esta
+  // esperando re-armar (el Schmitt no bajo de thr - hyst), y un pulso que llegue
+  // no genera flanco: el MCA no lo ve, asi que lo unico medible es el TIEMPO, que
+  // va a t_rearm en vez de a livetime. Atar a 1 si el top no lo tiene (es el
+  // comportamiento de antes).
+  input                    trig_arm_i  ,
+
   // --- bus de sistema ---
   input      [32-1:0]      sys_addr    ,
   input      [32-1:0]      sys_wdata   ,
@@ -521,8 +529,16 @@ wire clear_busy = hist_h_busy || hist_2d_busy;
 //   t_win  todas las ranuras habilitadas estan midiendo
 //   t_div  ninguna libre y al menos una esperando que el publicador la tome
 // Con una sola ranura son la ventana abierta y la espera de los divisores, como
-// en la arquitectura de una ventana. El casillero de re-armado ya no existe: lo
-// re-arma el multitrigger.
+// en la arquitectura de una ventana.
+//
+// RE-ARMADO. El disparo lo da el multitrigger, y despues de cada uno su
+// Schmitt no vuelve a disparar hasta bajar de thr - hyst: en ese lapso un pulso
+// no genera flanco y se pierde sin llegar a cnt_cross. t_rearm cuenta ese
+// tiempo con trig_arm_i = 0, DESPUES de t_win y t_div: es el tiempo muerto que
+// agrega el disparo cuando el MCA podia abrir. Asi t_win, t_div, los periodos
+// muertos y la ocupacion no cambian, y livetime queda como lo que un pulso ve
+// de verdad: alguna ranura libre y el disparo armado. Con arribos Poisson, la
+// fraccion perdida por el disparo es t_rearm / (realtime - vetotime).
 //
 // deadtime_cnt (0x078) se conserva como "alguna ranura ocupada" (feat_busy).
 // Con una ranura coincide con t_win + t_div; con mas, cuenta tiempo en que el
@@ -534,7 +550,7 @@ wire clear_busy = hist_h_busy || hist_2d_busy;
 // distribucion de Erlang, y la de todas ocupadas es la perdida, B(N, rho).
 // Invariante: la suma de los t_ocup es realtime - vetotime.
 reg [63:0] realtime_cnt, livetime_cnt, deadtime_cnt, vetotime_cnt;
-reg [63:0] t_win_cnt, t_div_cnt, t_clear_cnt;
+reg [63:0] t_win_cnt, t_div_cnt, t_rearm_cnt, t_clear_cnt;
 reg [63:0] t_ocup_cnt [0:N_ACC];
 
 // Los ciclos que suman al tiempo muerto. Es tambien el "periodo muerto" cuya
@@ -548,6 +564,7 @@ always @(posedge adc_clk_i) begin
     realtime_cnt <= 64'h0; livetime_cnt <= 64'h0; deadtime_cnt <= 64'h0;
     vetotime_cnt <= 64'h0;
     t_win_cnt    <= 64'h0; t_div_cnt    <= 64'h0;
+    t_rearm_cnt  <= 64'h0;
     t_clear_cnt  <= 64'h0;
     for (ko = 0; ko <= N_ACC; ko = ko + 1) t_ocup_cnt[ko] <= 64'h0;
   end else if (cfg_run) begin
@@ -555,6 +572,7 @@ always @(posedge adc_clk_i) begin
     if      (veto_i)   vetotime_cnt <= vetotime_cnt + 64'h1;
     else if (dt_win)   t_win_cnt    <= t_win_cnt    + 64'h1;
     else if (dt_div)   t_div_cnt    <= t_div_cnt    + 64'h1;
+    else if (!trig_arm_i) t_rearm_cnt <= t_rearm_cnt + 64'h1;
     else               livetime_cnt <= livetime_cnt + 64'h1;
 
     if (!veto_i) t_ocup_cnt[n_ocup] <= t_ocup_cnt[n_ocup] + 64'h1;
@@ -788,7 +806,7 @@ end
 // verdad y no conviene colgarle lógica combinacional ancha.
 //=============================================================================
 reg [31:0] rt_hi_shadow, lt_hi_shadow, dt_hi_shadow, vt_hi_shadow;
-reg [31:0] tw_hi_shadow, td_hi_shadow, tc_hi_shadow;
+reg [31:0] tw_hi_shadow, td_hi_shadow, tr_hi_shadow, tc_hi_shadow;
 reg [31:0] to_hi_shadow [0:N_ACC];
 integer    kq;
 
@@ -838,6 +856,7 @@ always @(posedge adc_clk_i) begin
     rt_hi_shadow <= 32'h0; lt_hi_shadow <= 32'h0; dt_hi_shadow <= 32'h0;
     vt_hi_shadow <= 32'h0;
     tw_hi_shadow <= 32'h0; td_hi_shadow <= 32'h0;
+    tr_hi_shadow <= 32'h0;
     tc_hi_shadow <= 32'h0;
     for (kq = 0; kq <= N_ACC; kq = kq + 1) to_hi_shadow[kq] <= 32'h0;
   end else begin
@@ -854,6 +873,7 @@ always @(posedge adc_clk_i) begin
         20'h000C0 : vt_hi_shadow <= vetotime_cnt[63:32];
         20'h000C8 : tw_hi_shadow <= t_win_cnt[63:32];
         20'h000D0 : td_hi_shadow <= t_div_cnt[63:32];
+        20'h000D8 : tr_hi_shadow <= t_rearm_cnt[63:32];
         20'h000FC : tc_hi_shadow <= t_clear_cnt[63:32];
         default   : ;
       endcase
@@ -872,9 +892,10 @@ always @(posedge adc_clk_i) begin
       // --- control y estado ---
       20'h0000C : sys_rdata <= {23'h0, cfg_chan, 6'h0, 1'b0, cfg_run};
       // busy = alguna ranura ocupada; puede_abrir = alguna libre. Con varias
-      // ranuras las dos pueden valer 1 a la vez. Bit 4 (era rearm_pend)
-      // reservado; bits 8.. la cantidad de ranuras ocupadas.
-      20'h00010 : sys_rdata <= {{(24-OC_W){1'b0}}, n_ocup, 2'h0, puede_abrir, 1'b0,
+      // ranuras las dos pueden valer 1 a la vez. Bit 4 rearm_pend: el disparo
+      // espera re-armar (trig_arm_i = 0), el mismo nombre que tenia cuando el
+      // Schmitt estaba adentro; bits 8.. la cantidad de ranuras ocupadas.
+      20'h00010 : sys_rdata <= {{(24-OC_W){1'b0}}, n_ocup, 2'h0, puede_abrir, !trig_arm_i,
                                 veto_i, bl_stale, feat_busy, clear_busy};
 
       // --- configuración ---
@@ -920,13 +941,16 @@ always @(posedge adc_clk_i) begin
       20'h000C4 : sys_rdata <= vt_hi_shadow;
 
       // --- teselado del tiempo muerto (ver "Relojes de adquisición") ---
-      // realtime == vetotime + t_win + t_div + livetime, exacto. El tiempo
-      // muerto es t_win + t_div; deadtime_cnt (0x078) es la OCUPACION (alguna
-      // ranura ocupada), que con varias ranuras no es tiempo muerto.
+      // realtime == vetotime + t_win + t_div + t_rearm + livetime, exacto. El
+      // tiempo muerto del MCA es t_win + t_div, y t_rearm el que agrega el
+      // disparo; deadtime_cnt (0x078) es la OCUPACION (alguna ranura ocupada),
+      // que con varias ranuras no es tiempo muerto.
       20'h000C8 : sys_rdata <= t_win_cnt[31:0];
       20'h000CC : sys_rdata <= tw_hi_shadow;
       20'h000D0 : sys_rdata <= t_div_cnt[31:0];
       20'h000D4 : sys_rdata <= td_hi_shadow;
+      20'h000D8 : sys_rdata <= t_rearm_cnt[31:0];
+      20'h000DC : sys_rdata <= tr_hi_shadow;
       20'h000FC : sys_rdata <= t_clear_cnt[31:0];
       20'h00100 : sys_rdata <= tc_hi_shadow;
 

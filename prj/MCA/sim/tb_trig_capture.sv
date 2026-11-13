@@ -2,12 +2,12 @@
 //============================================================================
 // tb_trig_capture — reproduce el race arm-vs-mascara y valida el fix.
 //
-// Cablea multitrigger_event_logic + rp_bram_sm igual que en
-// rp_scope_multitrigger_com:
+// Cablea mt_event_logic + rp_bram_sm igual que en
+// rp_scope_mt_com:
 //    event_logic.trigger_event_o -> bram_sm.adc_trig_i
 //    bram_sm.adc_dly_do_o        -> event_logic.adc_dly_do_i   (realimentacion)
 //
-// El bug: la logica de trigger (multitrigger_trig_src, dentro del event_logic)
+// El bug: la logica de trigger (mt_trig_src, dentro del event_logic)
 // reacciona a los flancos apenas se carga la OR-mask (set_trg_src) — NO espera
 // a que la bram_sm este armada (adc_arm_do). En single-shot, al disparar
 // auto-limpia set_trig_src y engancha adc_trg_dis. Si un flanco entra ANTES del
@@ -50,7 +50,7 @@ module tb_trig_capture;
   wire               el_daisy, el_arm, trigger_event;
   wire [15:0]        sh_cnt;
   wire               sh_active;
-  wire [16:0]        snapshot;
+  wire [28:0]        snapshot;
 
   // ---- control de la bram_sm ----
   reg  [31:0] bs_set_dly = 32'd20;   // delay chico para congelar rapido en sim
@@ -70,9 +70,9 @@ module tb_trig_capture;
   wire adc_trg_rd = bs_state[2];     // rp_bram_sm: adc_state_o[2] = adc_trg_rd
 
   //--------------------------------------------------------------------------
-  // DUTs cableados como en rp_scope_multitrigger_com
+  // DUTs cableados como en rp_scope_mt_com
   //--------------------------------------------------------------------------
-  multitrigger_event_logic #(.N_CH(N_CH)) i_el (
+  mt_event_logic #(.N_CH(N_CH)) i_el (
     .adc_clk_i        (clk),
     .adc_rstn_i       (rstn),
     .adc_rst_do_i     (el_rst_do),
@@ -91,6 +91,12 @@ module tb_trig_capture;
     .asg_trig_n_i     (el_asg_n),
     .ext_lvl_i        (1'b0),
     .trig_ch_i        (el_trig_ch),
+    .slope_p_i        (4'h0),
+    .slope_n_i        (4'h0),
+    .pz_p_i           (4'h0),
+    .slope_arm_p_i    (4'hF),
+    .slope_arm_n_i    (4'hF),
+    .pz_arm_i         (4'hF),
     .shield_src_i     (sh_src),
     .shield_dst_i     (sh_dst),
     .shield_dur_i     (sh_dur),

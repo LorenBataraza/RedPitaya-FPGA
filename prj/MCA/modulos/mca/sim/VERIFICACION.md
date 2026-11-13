@@ -2,6 +2,33 @@
 
 DUT principal: `mca_top`
 
+Sigue las cinco etapas de
+[`docs/etapas_de_validacion.md`](../../../docs/etapas_de_validacion.md). La etapa 2,
+la verificación, va completa. De las otras cuatro dice qué corre, dónde está y qué dio.
+
+| Etapa | Qué hay para el MCA | Estado |
+|---|---|---|
+| [1. Simulación](#1-simulación) | la réplica del MCA2 y los Monte Carlo de apilamiento, forma del pulso, base y ruido | la réplica da lo mismo que el RTL, evento por evento |
+| [2. Verificación](#2-verificación) | los testbenches de `sim/`, las SVA de `mca_top` y las mutaciones del trapecio y el banco | en verde |
+| [3. Generación interna](#3-generación-interna) | registros sin señal; `gen_pulsos` por el lazo digital | placa = simulación en los 4 bloques de `tb_pulsos_mca`, con el bitstream del ring |
+| [4. Generación externa controlada](#4-generación-externa-controlada) | el Rigol DG4162 en IN1 | las campañas del MCA1; 349 PASS del MCA2; el banco da 665 k/s buenos a 1 Mcps, igual que la réplica |
+| [5. Medición con setup experimental](#5-medición-con-setup-experimental) | un detector | sin hacer |
+
+# 1. Simulación
+
+Corre en la PC, en [`software/monte-carlo/`](../../../software/monte-carlo/).
+
+| Qué | Dónde | Para qué |
+|---|---|---|
+| la réplica del MCA2: el disparo y la medición | [`replica_mca2.py`](../../../software/monte-carlo/replica_mca2.py) | es el golden model. `test_replica_mca2.py` la compara con el RTL entero, evento por evento, y en la placa predijo lo que midió el RTL ([`pruebas_banco_trapecios.md` §6](../../../docs/mca/pruebas_banco_trapecios.md#6-en-la-placa)) |
+| el generador de pulsos manejando el MCA | `test_pulsos_mca.py`, `volcado_pulsos.py` | el RTL contra los dos modelos; de acá sale la referencia de la etapa 3 (`datos_ref/pulsos_placa_ref.json`) |
+| el apilamiento | `pileup.py` (réplica vectorizada del MCA1), `montecarlo.py` | cuánto deforma el espectro y cuánto lo corrige un corte por forma ([`apilamiento.md`](../../../docs/mca/apilamiento.md)) |
+| la forma del pulso y los estimadores | `conformado.py`, `pico_vs_carga.py`, `varianza_estimadores.py` | qué le hace la forma a la amplitud de pico, y la varianza de cada estimador ([`conformado_y_ruido.md`](../../../docs/mca/conformado_y_ruido.md)) |
+| el seguidor de base y el polo-cero | `linea_base.py`, `polo_cero.py` | cuánto del corrimiento con la tasa explica cada uno ([`polo_cero.md`](../../../docs/mca/polo_cero.md), [`limites_resolucion_y_deriva.md`](../../../docs/mca/limites_resolucion_y_deriva.md)) |
+| el presupuesto de ruido | `ruido.py` | término por término ([`ruido_del_sistema.md`](../../../docs/ruido_del_sistema.md)) |
+
+# 2. Verificación
+
 ## Cómo se corre
 
 ```
@@ -23,7 +50,7 @@ que hay que mirar ya pasó.
      cada check(). No editarla a mano. Lo de abajo (casos borde,
      assertions, metas) SI es a mano y no se toca. -->
 
-**206 casos con nombre** en 8 testbenches. Cada fila es un `check()` que corre y tiene que dar PASS; el testbench entero falla si alguno no da.
+**216 casos con nombre** en 8 testbenches. Cada fila es un `check()` que corre y tiene que dar PASS; el testbench entero falla si alguno no da.
 
 ### [`tb_mca_div_restore`](tb_mca_div_restore.sv) — `mca_div_restore`
 
@@ -148,7 +175,6 @@ que hay que mirar ya pasó.
 |  |  | reset: trapecio k y m |
 |  |  | reset: trapecio M |
 |  |  | reset: ventana de la meseta (ok, sh, lw, off) |
-|  |  | reset: banco (umbr_ok, N_FORMAS = 4, n_formas = 1) |
 |  |  | reset: FORMA_KM 0 = 0x128 |
 |  |  | reset: FORMA_MED 0 = 0x130 |
 | 2 | Escritura y relectura de todos los registros RW | RW cfg_baseline |
@@ -218,7 +244,8 @@ que hay que mirar ya pasó.
 |  |  | tras borrar: cnt_total en 0 |
 | 8 | EL TESELADO DEL TIEMPO MUERTO, visto por el BUS, con UNA ranura | teselado: la palabra alta de realtime es 0 |
 |  |  | teselado: realtime avanzo |
-|  |  | teselado: realtime = veto + win + div + live |
+|  |  | teselado: disparo siempre armado, t_rearm en 0 |
+|  |  | teselado: realtime = veto + win + div + rearm + live |
 |  |  | una ranura: deadtime (0x078) = t_win + t_div |
 |  |  | una ranura: la ventana ocupa la compuerta + 1 |
 |  |  | una ranura: la espera de los divisores |
@@ -231,18 +258,28 @@ que hay que mirar ya pasó.
 |  |  | periodo: dura la ventana mas la publicacion |
 |  |  | periodo: sin arribos adentro |
 |  |  | bus: direccion no mapeada devuelve 0 |
-| 9 | VARIAS RANURAS, por el bus | ranuras: cuatro ventanas abiertas |
-|  |  | ranuras: dos perdidas con todas midiendo |
-|  |  | ranuras: cuatro eventos publicados |
-|  |  | ranuras: la cola llego a las cuatro cerradas |
+| 9 | VARIAS RANURAS, por el bus | ranuras: N_ACC ventanas abiertas |
+|  |  | ranuras: el resto, perdidas con todas midiendo |
+|  |  | ranuras: N_ACC eventos publicados |
+|  |  | ranuras: la cola llego a las N_ACC cerradas |
 |  |  | ranuras: atribucion (cross = open + active + veto + busy) |
 |  |  | ranuras: el teselado sigue cerrando |
-|  |  | ranuras: hubo tiempo con las cuatro ocupadas |
+|  |  | ranuras: hubo tiempo con todas ocupadas |
 |  |  | ranuras: la ocupacion tesela el tiempo sin veto |
-|  |  | ranuras: t_ocup[4] > 0 |
+|  |  | ranuras: t_ocup[N_ACC] > 0 |
 |  |  | disparo sostenido: un solo flanco contado |
 |  |  | disparo sostenido: UNA sola ventana |
 |  |  | retardo: la ventana abrio en el pie (pico 500) |
+|  |  | re-armado: bit 4 en 0 con el disparo armado |
+|  |  | re-armado: 37 ciclos desarmado van a t_rearm |
+|  |  | re-armado: palabra alta de t_rearm en 0 |
+|  |  | re-armado: bit 4 (rearm_pend) en 1 con el disparo desarmado |
+|  |  | re-armado: livetime NO avanza con el disparo desarmado |
+|  |  | re-armado: el disparo igual abre (trig_arm no bloquea) |
+|  |  | re-armado: la ventana sigue en t_win (compuerta + 1) |
+|  |  | re-armado: la espera sigue en t_div |
+|  |  | re-armado: el resto del desarme fue a t_rearm |
+|  |  | re-armado: realtime = veto + win + div + rearm + live |
 | 10 | EL TRAPECIO: el pulso que monta sobre la cola de otro mide limpio | trapecio: un evento |
 |  |  | trapecio: par a dt = 60, dos eventos |
 |  |  | trapecio: par a dt = 30, dos eventos |
@@ -296,7 +333,9 @@ imposible el bug que motivó el bloque de tiempo muerto.
 |-----------|---------------|
 | `ap_dt_disjuntos` | Los dos casilleros de tiempo muerto (`dt_win`, `dt_div`) no se solapan |
 | `ap_puede_abrir_complemento` | …y son el complemento exacto de poder abrir: no hay un estado de bloqueo sin casillero |
-| **`ap_suma_relojes`** | **`realtime = vetotime + t_win + t_div + livetime`, en todo ciclo.** Si se agrega una causa de bloqueo y se olvida su reloj, falla |
+| **`ap_suma_relojes`** | **`realtime = vetotime + t_win + t_div + t_rearm + livetime`, en todo ciclo.** Si se agrega una causa de bloqueo y se olvida su reloj, falla |
+| `ap_rearm_causa` | `t_rearm` sólo crece con `run`, sin veto, con alguna ranura libre y el disparo desarmado (`trig_arm_i = 0`): va después de los dos casilleros del MCA. Detecta ponerlo antes de `t_win` (mutación probada: 29 disparos, más los de período muerto y ocupación) |
+| `ap_live_armado` | `livetime` sólo crece con el disparo armado: es lo que un pulso ve de verdad |
 | **`ap_suma_ocupacion`** | **`Σ t_ocup[j] = realtime − vetotime`**: cada ciclo sin veto suma a exactamente un casillero de ocupación |
 | `ap_deadtime_es_ocupacion` | `deadtime` (0x078) es la ocupación de **alguna** ranura: todo menos `t_ocup[0]` |
 | `ap_busy_es_ocupacion` | `feat_busy` coincide con haber alguna ranura ocupada |
@@ -411,17 +450,65 @@ M de una cola típica) pasaron a 16–33.
 Las metas son del código del módulo (`files.f`), no del RTL del repo raíz que
 arrastre por `extra.f`.
 
-## Lo que la simulación no cubre: la validación en placa
+# 3. Generación interna
 
 Las assertions prueban las invariantes **en el modelo**. Que valgan en el
-silicio, leídas por el bus de verdad, es otra afirmación y necesita la placa.
+silicio, leídas por el bus de verdad, es otra afirmación y necesita la placa. La
+primera parte no usa señal. En la segunda, la señal la genera la propia FPGA.
 
-### Estado al 2026-10-30 — el bitstream de las ranuras ("MCA2")
+## Sin señal: el bus y los registros
+
+| Prueba | Qué mide | Resultado |
+|---|---|---|
+| [`test_mca_hw.py`](../../../software/API/tests/placa/test_mca_hw.py) (`make verificar-placa-mca`) | lo que `tb_mca_top` verifica con un BFM, contra el bus real y su CDC: registros, borrado y relojes | 29 PASS en la 1ª campaña ([`resultados_validacion_hw.md`](../../../docs/resultados_validacion_hw.md)); 37 PASS el 2026-11-05 |
+| la etapa `regs` de `test_mca2_placa.py` | identificación, 17 registros escribibles, 11 reservados en cero, barrido del bus, borrado, relojes en reposo | 42 / 42 (2026-10-30; corre en la batería de §4) |
+
+El bus del top (`verificar-placa-bus`) está en el plan de
+[`comun`](../../comun/sim/VERIFICACION.md#3-generación-interna).
+
+## Con el generador de pulsos de la FPGA
+
+`gen_pulsos` por el lazo digital (`digital_loop[0] = 1`): el MCA ve exactamente la
+traza que predice el modelo, así que la placa se compara contra la réplica **evento por
+evento**. Una diferencia sería del silicio (timing, CDC, el bus), no del diseño. Detalle
+en [`generador_pulsos.md` §8](../../../docs/gen_eventos/generador_pulsos.md#8-para-usarlo-en-la-placa).
+
+| Prueba | Resultado |
+|---|---|
+| los 4 bloques de `tb_pulsos_mca`, con las escrituras del TB, en el bitstream del ring 78e26188 (trae el MCA) (2026-11-09) | `GEN_CNT`, los 11 contadores, `t_ocup[1:]` y el espectro canal por canal, con `F_PEAK` y con `F_TRISE`: lo mismo que la simulación. Con el disparo del ASG la réplica coincide a 3 ciclos y no a 4: el top tiene un registro en `adc_dat` que el TB no tiene |
+| lo mismo por la API (`make verificar-placa-generadores`, parte B), contra `pulsos_placa_ref.json` | pasa con libmca 0.9.0 (2026-11-09) y 0.10.0 (2026-11-12) |
+
+**Falta:**
+
+- que el bitstream del MCA (6156e5a3) traiga el generador: hoy esta etapa corre sólo con
+  el del ring;
+- el **pulser de referencia digital** para la histéresis de 10.9 canales: es la medición
+  que dice si la histéresis es del generador externo
+  ([`resultados_validacion_hw.md` §19.4](../../../docs/resultados_validacion_hw.md#194-la-histéresis-no-es-el-seguidor-de-base--mi-hipótesis-refutada)).
+
+# 4. Generación externa controlada
+
+El estímulo es el Rigol DG4162, CH1 → IN1, comandado por USB desde la placa. Qué
+condiciona el instrumento en cada número (ciclo de trabajo mínimo, memoria del ARB,
+firmware) está en
+[`resultados_validacion_hw.md` §20](../../../docs/resultados_validacion_hw.md#20-el-generador-externo-qué-condicionó-el-dg4162--2026-11-11).
+
+| Campaña | Bitstream | Dónde | Resultado |
+|---|---|---|---|
+| las campañas del MCA1 (desde 2026-08-11) | "MCA1" | [`resultados_validacion_hw.md`](../../../docs/resultados_validacion_hw.md) | 794 kcps sin perder un evento, INL 1.13 % FS, FOM 1.53, corrimiento con la tasa de +1.28 % en ×36 |
+| la batería del MCA2 | las ranuras | [abajo](#la-batería-del-mca2-2026-10-30) | 349 PASS, 0 FAIL |
+| el polo-cero, ajustado en el hardware | con `mca_trap` | [abajo](#la-etapa-trapecio-el-polo-cero-se-ajusta-en-el-hardware) | M = 242.8: −0.001 % de error |
+| el banco de trapecios, con trenes de Poisson hasta 1 Mcps | el banco (2026-11-05); 3 ranuras y 3 formas (6156e5a3, 2026-11-09) | [`pruebas_banco_trapecios.md` §6 y §7](../../../docs/mca/pruebas_banco_trapecios.md#6-en-la-placa) | 665 k/s buenos a 1 Mcps, igual que la réplica |
+| la aplicación contra el Rigol | el banco | [`e2e_rigol_app.py`](../../../software/app/tests/placa/e2e_rigol_app.py) | 22 PASS (2026-11-05) |
+| las políticas del MCA1 (histórico) | "MCA1", fases 1-2 | [abajo](#las-políticas-del-mca1-2026-10-22-histórico) | corrió sin señal: no valida |
+
+## La batería del MCA2 (2026-10-30)
 
 [`software/API/tests/placa/test_mca2_placa.py`](../../../software/API/tests/placa/test_mca2_placa.py),
 corrido en la placa (`rp-f08768`, 10.73.28.30) con el Rigol en IN1: **349 PASS,
 0 FAIL**. Es autónomo (habla los registros "MCA2" a mano) porque `API/mca.py`
-todavía es el de "MCA1".
+todavía es el de "MCA1". La etapa `regs` no usa la señal: es de la etapa 3, pero corre
+en el mismo script.
 
 | Etapa | Qué mide | Resultado |
 |---|---|---|
@@ -431,6 +518,8 @@ todavía es el de "MCA1".
 | | `F_DTPREV` contra el período del generador | 99.98 % en el canal del período |
 | `par` | pares a 1.6 µs | con 1 ranura el segundo es `lost_active` y toda ventana queda marcada; con 2 y 4 se miden los dos, `F_DTPREV`/`F_DTNEXT` = 200 ± 3 muestras y `F_SOLAPE` mitad "adentro", mitad "otra abierta" |
 | `poisson` | 30, 100 y 250 kev/s, dos semillas, 1 a 4 ranuras | la pérdida medida coincide con una simulación M/D/N/N **sobre el mismo patrón de arribos**, reconstruido de la semilla del generador: 37.36 contra 37.00 %, 7.63 contra 7.05 %, 1.05 contra 1.01 %; la ocupación `t_ocup[j]` a ±0.01 por casillero. Erlang B la sobreestima (41.8, 13.1 %) porque el disparo funde los pulsos a menos de ~0.5 µs y el proceso de disparos queda más regular que Poisson |
+
+## La etapa `trapecio`: el polo-cero se ajusta en el hardware
 
 La etapa `trapecio` (bitstream con `mca_trap`) usa pulsos de preamplificador del
 Rigol (subida de 10 ns, cola de 2 µs) en una forma con un **par** (a1 y
@@ -456,7 +545,7 @@ primera carga de una forma después del `reset` del generador a veces no sale
 (se midió ~1 MHz de disparos espurios): la etapa verifica la tasa de cada forma
 y la recarga.
 
-### Estado al 2026-10-22 — el bitstream "MCA1" (histórico)
+## Las políticas del MCA1 (2026-10-22, histórico)
 
 La campaña era
 [`campanas/run_politicas.py`](../../../software/campanas/run_politicas.py)
@@ -502,7 +591,23 @@ paralizable/no paralizable por `E[L]/tau`.
 > contrasta es la forma (monotonía) y el τ medido contra el que predice la
 > configuración.
 
-### El bitstream con el trapecio no cierra timing — y no es el MCA
+# 5. Medición con setup experimental
+
+Sin hacer: todavía no hay detector. En las etapas 3 y 4 la forma del pulso es la de
+`gen_pulsos` o la del Rigol y su cable, así que esta etapa tiene que decidir:
+
+- **M, el disparo y el holdoff.** Dependen de la cola, la subida y el sobrepaso de la
+  señal ([`pruebas_banco_trapecios.md` §6](../../../docs/mca/pruebas_banco_trapecios.md#6-en-la-placa),
+  «Lo que no se probó»).
+- **Pico contra integral.** Con el estímulo sintético gana el pico; con pulsos de
+  detector rápidos debería ganar la integral
+  ([`decisiones_diseno_mca.md`](../../../docs/mca/decisiones_diseno_mca.md)).
+
+# Anexo: síntesis y timing
+
+No es una etapa de validación, pero condiciona qué bitstream llega a la placa.
+
+## El bitstream con el trapecio no cierra timing — y no es el MCA
 
 Con `mca_trap` el diseño pasa a 69 % de LUT (12 188), 5 DSP y 26.5 BRAM. El
 dominio del MCA (`pll_adc_clk`) cierra con **+0.023 ns**, pero el build falla en
@@ -530,7 +635,7 @@ referencia de los IDELAY; pasarlos a `FCLK_CLK0` (125 MHz) les da 3 ns más.
 **Hecho el 2026-10-30** en `prj/MCA/ip/systemZ10.tcl` (y `dts/pl_patch.dtsi` a
 fclk0). Falta rearmar el bitstream para confirmar que cierra.
 
-### Síntesis: el build completo no dice lo mismo que el OOC
+## Síntesis: el build completo no dice lo mismo que el OOC
 
 El OOC de `mca_top` aislado deja WNS en 0.070 ns y el camino crítico en
 `cfg_amp_max → max_q`, sin degradación atribuible a la fase 2. **El build

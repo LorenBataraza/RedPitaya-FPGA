@@ -39,6 +39,7 @@ module tb_mt_cfg;
   reg  [  4-1:0] indep_mode      = 4'h0;
   reg  [ 16-1:0] shield_cnt      = 16'h0;
   reg            shield_active   = 1'b0;
+  reg            trig_arm        = 1'b0;
   reg  [ 29-1:0] trig_snapshot   = 29'h0;
 
   // puente legacy desde osc_cfg
@@ -65,7 +66,7 @@ module tb_mt_cfg;
     .adc_clk_i(clk), .adc_rstn_i(rstn),
     .trg_state_i(trg_state), .adc_trg_dis_act_i(adc_trg_dis_act),
     .adc_we_keep_i(adc_we_keep), .indep_mode_i(indep_mode),
-    .shield_cnt_i(shield_cnt), .shield_active_i(shield_active), .mca_veto_i(1'b0),
+    .shield_cnt_i(shield_cnt), .shield_active_i(shield_active), .mca_veto_i(1'b0), .trig_arm_i(trig_arm),
     .trig_snapshot_i(trig_snapshot),
     .legacy_trig_sw_i(legacy_trig_sw),
     .legacy_trig_dis_clr_i(legacy_trig_dis_clr),
@@ -177,6 +178,11 @@ module tb_mt_cfg;
     shield_cnt = 16'd77; shield_active = 1'b1;
     @(negedge clk);
     bus_read(20'h014, d); checkv("SHIELD_STAT", d, {15'h0, 1'b1, 16'd77});
+    // bit 18: el disparo puede salir (trig_arm, de mt_event_logic)
+    trig_arm = 1'b1;
+    @(negedge clk);
+    bus_read(20'h014, d); checkv("SHIELD_STAT con trig_arm", d, {13'h0, 1'b1, 1'b0, 1'b1, 16'd77});
+    trig_arm = 1'b0;
 
     //----------------------------------------------------------------------
     // 3. SNAPSHOT y FLAGS (eran 0x218 y 0x21C)

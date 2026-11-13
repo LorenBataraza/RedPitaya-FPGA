@@ -14,7 +14,7 @@
 # Esta lista es la misma que MODS en prj/MCA/Makefile: si agregas un modulo,
 # va en los dos lados.
 
-set rtl_modules {comun osc multitrigger mca event_ring}
+set rtl_modules {comun mt osc mca gen_eventos event_ring}
 
 # Los paquetes primero, como hace el TCL con los de rtl/.
 foreach m $rtl_modules {

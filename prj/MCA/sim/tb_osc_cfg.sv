@@ -6,7 +6,7 @@
 // Cuatro bloques:
 //
 //  A. EQUIVALENCIA DIFERENCIAL. Se instancian el módulo VIEJO
-//     (multitrigger_rp_scope_cfg) y el NUEVO (osc_cfg), se les da EXACTAMENTE
+//     (mt_rp_scope_cfg) y el NUEVO (osc_cfg), se les da EXACTAMENTE
 //     el mismo estímulo por los offsets legacy, y se comparan todas las
 //     salidas comunes ciclo a ciclo. Es la prueba de que la mudanza no cambió
 //     nada de lo que librp ya usaba: 111 llamadas a la API rp dependen de eso.
@@ -20,7 +20,7 @@
 //
 //  D. CONTRATO DE BUS, incluida la regresión del cuelgue: las aperturas de los
 //     canales NO construidos. El módulo viejo ataba el ack a bram_ack_i[2]/[3],
-//     que rp_scope_multitrigger_com fija en 0, y no hacía ack nunca. El nuevo
+//     que rp_scope_mt_com fija en 0, y no hacía ack nunca. El nuevo
 //     usa latencia fija. Este TB barre esas direcciones.
 //============================================================================
 module tb_osc_cfg;
@@ -94,7 +94,7 @@ module tb_osc_cfg;
   wire [  20-1:0] o_deblen;
   wire [ 4-1:0] o_sh_src, o_sh_dst; wire [16-1:0] o_sh_dur;
 
-  multitrigger_rp_scope_cfg #(.CHN(0), .N_CH(N_CH), .DW(DW), .RSZ(RSZ)) dut_old (
+  mt_rp_scope_cfg #(.CHN(0), .N_CH(N_CH), .DW(DW), .RSZ(RSZ)) dut_old (
     .adc_clk_i(clk), .adc_rstn_i(rstn),
     .sys_addr(addr), .sys_wdata(wdata), .sys_wen(wen), .sys_ren(ren),
     .sys_rdata(o_rdata), .sys_err(o_err), .sys_ack(o_ack),
