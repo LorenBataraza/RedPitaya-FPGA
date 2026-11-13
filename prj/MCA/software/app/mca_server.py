@@ -52,6 +52,9 @@ from API.osciloscope import (ADC_CNT_PER_V, N_BUF, SCOPE_PHYS,
                              osciloscope_sw_trigger)
 
 BITSTREAM_MCA = '/root/mca_red_pitaya.bit.bin'
+# La calibración del ADC que no cambia nada (ganancia 1, sin corrimiento): la del ring
+# con --fake, donde no hay EEPROM que leer.
+CALIB_IDENTIDAD = {'gain': 32768, 'base': 32768, 'offset': 0}
 PERIODO_VIGILANTE_S = 0.1
 
 
@@ -957,7 +960,11 @@ class ServidorMCA:
                         capacity=4096, ram_mb=64.0, margen_mb=None, meta=None):
         """Una adquisición del ring con su sesión (`AdquisicionRing`), que escribe en
         `run_dir`, un camino de ESTA máquina: la SD, /dev/shm o un montaje de red. Una
-        por vez; sigue aunque el cliente se vaya."""
+        por vez; sigue aunque el cliente se vaya.
+
+        `generador` es el dict de `API.generadores.disparos`, o el mismo con `tasa` en
+        lugar de `umbral`/`periodo`: la cuenta la hace libmca acá, porque el cliente no
+        la tiene. Con `--fake` y sin `calib`, la identidad: no hay EEPROM."""
         ring = self._ring()
         if self._adq is not None and self._adq.corriendo:
             raise RuntimeError(f'ya hay una adquisición del ring corriendo '
@@ -965,6 +972,11 @@ class ServidorMCA:
         if generador is not None and not self._ring_gen:
             raise RuntimeError('el ring de este bitstream no tiene el generador de '
                                'eventos ("GEN1")')
+        if generador is not None and 'tasa' in generador:
+            from API.generadores import disparos
+            generador = disparos(**generador)
+        if calib is None and self.fake:
+            calib = [dict(CALIB_IDENTIDAD) for _ in range(2)]
         adq = AdquisicionRing(ring, run_dir, pre, post, n_ch, slot_shift,
                               generador=generador, disparo=disparo, osc=self.osc,
                               mt=self.mt, calib=calib, formato=formato,

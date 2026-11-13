@@ -42,6 +42,7 @@ from app.panel_log import PanelLog
 from app.panel_mapa2d import PanelMapa2D
 from app.panel_multitrigger import PanelMultitrigger
 from app.panel_osc import PanelOsc
+from app.panel_ring import PanelRing
 
 PERIODO_ESTADO_MS = 200
 REFRESCO_ESPECTRO_S = 1.0
@@ -64,6 +65,8 @@ class Trabajador(QObject):
     osc_info = pyqtSignal(dict)
     mtrg_info = pyqtSignal(dict)
     gen_info = pyqtSignal(dict)              # el gen.get del generador de pulsos
+    ring_info = pyqtSignal(dict)             # el ring.estado (o el ring.parar)
+    ring_fallo = pyqtSignal(str)             # un ring.* rechazado, para la pestaña
     disparo_info = pyqtSignal(dict)          # el estado de la op mca.disparo
     traza = pyqtSignal(dict, object)          # metadata, float32[n_ch, n]
     aviso = pyqtSignal(str)
@@ -365,6 +368,47 @@ class Trabajador(QObject):
         self.aviso.emit('lazo digital PRENDIDO: la entrada es el generador' if on
                         else 'lazo digital apagado: la entrada es el ADC')
 
+    # ---------- el event_ring ----------
+    #
+    # Las ops ring.* tienen su propio lock en el servidor: parar una adquisición
+    # (unir los hilos de la sesión) no frena el status del MCA.
+
+    def _pedir_ring(self, op, **args):
+        if self.h is None:
+            return None
+        try:
+            return self.h.pedir(op, **args)
+        except OSError as e:
+            self._caido(e)
+        except Exception as e:                                   # noqa: BLE001
+            mensaje = f'{op}: {type(e).__name__}: {e}'
+            self.fallo.emit(mensaje)
+            self.ring_fallo.emit(mensaje)
+        return None
+
+    @pyqtSlot()
+    def leer_ring(self):
+        e = self._pedir_ring('ring.estado')
+        if e is not None:
+            self.ring_info.emit(e)
+
+    @pyqtSlot(dict)
+    def iniciar_ring(self, kw):
+        info = self._pedir_ring('ring.iniciar', **kw)
+        if info is not None:
+            self.aviso.emit(f"ring: corrida en {info.get('run_dir')} "
+                            f"({info.get('fs')}), {info.get('n_slots')} slots")
+            self.leer_ring()
+
+    @pyqtSlot()
+    def parar_ring(self):
+        fin = self._pedir_ring('ring.parar')
+        if fin is not None:
+            st = fin.get('stats') or {}
+            self.aviso.emit(f"ring: parado, {st.get('n_read', 0)} leídos, "
+                            f"{st.get('n_written', 0)} escritos en {fin.get('run_dir')}")
+            self.ring_info.emit(fin)
+
     @pyqtSlot(float)
     def set_refresco(self, segundos):
         if hasattr(self, '_t_espectro'):
@@ -421,6 +465,9 @@ class Mcamon(QMainWindow):
     sig_gen_configurar = pyqtSignal(dict)
     sig_gen_ctrl = pyqtSignal(str)
     sig_gen_lazo = pyqtSignal(bool)
+    sig_ring_estado = pyqtSignal()
+    sig_ring_iniciar = pyqtSignal(dict)
+    sig_ring_parar = pyqtSignal()
 
     def __init__(self, host='10.73.28.27', port=PORT_DEFAULT):
         super().__init__()
@@ -451,6 +498,7 @@ class Mcamon(QMainWindow):
         self.panel_osc = None
         self.panel_mtrg = None
         self.panel_gen = None           # según `has_pulsos`
+        self.panel_ring = None          # según `has_ring`
         self.tabs.addTab(self.panel_log, 'Mensajes')
         self.tabs.addTab(self.panel_espectro, 'Espectro')
         self.tabs.addTab(self.panel_config, 'MCA')
@@ -475,6 +523,10 @@ class Mcamon(QMainWindow):
         # canal y no se pagan de fondo, igual que el mapa 2D.
         self._t_traza = QTimer(self, interval=500)
         self._t_traza.timeout.connect(self._tic_traza)
+        # El estado del ring, con su pestaña visible: son unas lecturas de registros
+        # y los contadores de la sesión, no los datos.
+        self._t_ring = QTimer(self, interval=500)
+        self._t_ring.timeout.connect(self.sig_ring_estado)
 
         acc = QAction('Cargar bitstream del MCA…', self)
         acc.triggered.connect(self._cargar_bitstream)
@@ -575,6 +627,11 @@ class Mcamon(QMainWindow):
         self.sig_gen_ctrl.connect(self.trabajador.ctrl_gen)
         self.sig_gen_lazo.connect(self.trabajador.lazo_gen)
         self.trabajador.gen_info.connect(self._al_gen)
+        self.sig_ring_estado.connect(self.trabajador.leer_ring)
+        self.sig_ring_iniciar.connect(self.trabajador.iniciar_ring)
+        self.sig_ring_parar.connect(self.trabajador.parar_ring)
+        self.trabajador.ring_info.connect(self._al_ring)
+        self.trabajador.ring_fallo.connect(self._al_ring_fallo)
         self.trabajador.disparo_info.connect(self.panel_espectro.actualizar_disparo)
 
         self.trabajador.integracion.connect(self._al_integracion)
@@ -642,6 +699,10 @@ class Mcamon(QMainWindow):
         self._sincronizar_pestanas_osc(bool(info.get('has_osc')),
                                        bool(info.get('has_mtrg')))
         self._sincronizar_pestana_generador(bool(info.get('has_pulsos')))
+        self._sincronizar_pestana_ring(bool(info.get('has_ring')),
+                                       bool(info.get('has_gen')))
+        if info.get('ring_corriendo'):
+            self.panel_log.info('hay una adquisición del ring corriendo en la placa')
         for nota in info.get('bases_notas') or ():
             self.panel_log.info(f'bases: {nota}')
 
@@ -651,10 +712,11 @@ class Mcamon(QMainWindow):
         self.panel_espectro.set_conectado(False)
         self.panel_config.set_conectado(False)
         for panel in (self.panel_integracion, self.panel_osc, self.panel_mtrg,
-                      self.panel_gen):
+                      self.panel_gen, self.panel_ring):
             if panel is not None:
                 panel.set_conectado(False)
         self.lbl_lazo.setVisible(False)
+        self._t_ring.stop()
         self.panel_log.info('desconectado')
 
     def _al_estado(self, est):
@@ -806,6 +868,35 @@ class Mcamon(QMainWindow):
             self.panel_gen.set_conectado(True)
             self.sig_pedir_gen.emit()
 
+    # ---------- pestaña del event_ring ----------
+
+    def _sincronizar_pestana_ring(self, hay, hay_generador):
+        """Existe con el bitstream del ring; el del MCA no lo trae."""
+        if hay and self.panel_ring is None:
+            self.panel_ring = PanelRing()
+            self.panel_ring.log.connect(self.panel_log.info)
+            self.panel_ring.pedir_iniciar.connect(self.sig_ring_iniciar)
+            self.panel_ring.pedir_parar.connect(self.sig_ring_parar)
+            self.panel_ring.pedir_estado.connect(self.sig_ring_estado)
+            self.tabs.addTab(self.panel_ring, 'Ring')
+        elif not hay and self.panel_ring is not None:
+            self.tabs.removeTab(self.tabs.indexOf(self.panel_ring))
+            self.panel_ring.deleteLater()
+            self.panel_ring = None
+        if self.panel_ring is not None:
+            self.panel_ring.configurar_ring(hay_generador)
+            self.panel_ring.set_conectado(True)
+            self.sig_ring_estado.emit()
+        self._cambio_pestana()
+
+    def _al_ring(self, e):
+        if self.panel_ring is not None:
+            self.panel_ring.actualizar_ring(e)
+
+    def _al_ring_fallo(self, mensaje):
+        if self.panel_ring is not None:
+            self.panel_ring.mostrar_fallo(mensaje)
+
     def _al_gen(self, info):
         self.lbl_lazo.setVisible(bool(info.get('lazo')))
         if self.panel_gen is not None:
@@ -845,6 +936,13 @@ class Mcamon(QMainWindow):
             self._t_traza.start()
         elif not osc_visible and self._t_traza.isActive():
             self._t_traza.stop()
+        ring_visible = (self.panel_ring is not None and
+                        self.tabs.currentWidget() is self.panel_ring)
+        if ring_visible and not self._t_ring.isActive():
+            self.sig_ring_estado.emit()
+            self._t_ring.start()
+        elif not ring_visible and self._t_ring.isActive():
+            self._t_ring.stop()
 
     # ---------- bitstream ----------
 

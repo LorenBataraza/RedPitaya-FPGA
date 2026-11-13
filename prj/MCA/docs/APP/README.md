@@ -77,6 +77,7 @@ refresco en el hilo de la interfaz la congelaría.
 | **OSC** | **las últimas formas capturadas** y, con el mismo eje de tiempo, **la tasa instantánea** de ese momento. Más los registros del osciloscopio |
 | **Multitrigger** | máscaras OR con los bits nombrados, `trigger_shield`, y qué fuente disparó |
 | **Generador** | el generador de pulsos (`gen_pulsos`, slot 2) y el **lazo digital**, para probar el MCA sin el Rigol: tasa, amplitudes con sus pesos, τ_d, base y ruido, arrancar y parar, y la Mq para el trapecio. **Aparece sólo si el bitstream lo trae**. Con el lazo prendido, la barra superior lo avisa en rojo |
+| **Ring** | una adquisición del event_ring a archivos en una carpeta **de la placa** (/dev/shm, la SD o un montaje de red): la ventana, el estímulo (el disparo del ADC o el generador de eventos), el formato, y mientras corre los disparos con sus dos pérdidas (DROP_BUSY, DROP_FULL), lo leído y escrito, y lo que queda sin leer en la DDR. **Aparece sólo con el bitstream del ring**. La adquisición sigue aunque se cierre la GUI |
 
 En la barra superior van la IP, el puerto, el canal (IN1/IN2), el estimador
 (pico o integral de carga), la decimación y el período de refresco.

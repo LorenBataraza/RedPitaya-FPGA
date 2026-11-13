@@ -145,7 +145,7 @@ def test_la_pestana_2d_aparece_porque_el_bitstream_la_trae():
         assert v.panel_mapa is not None
         titulos = [v.tabs.tabText(i) for i in range(v.tabs.count())]
         assert titulos == ['Mensajes', 'Espectro', 'MCA', 'Mapa 2D (PSD)',
-                           'OSC', 'Multitrigger', 'Generador']
+                           'OSC', 'Multitrigger', 'Generador', 'Ring']
         # La de Integración NO está: el MCA falso no simula el slot 6, y la
         # pestaña se crea sólo si el bitstream lo trae. Las de OSC, Multitrigger
         # y el generador SÍ: el simulador incluye los bloques, que es lo que
@@ -155,6 +155,7 @@ def test_la_pestana_2d_aparece_porque_el_bitstream_la_trae():
         assert v.info.get('has_osc') is True
         assert v.info.get('has_mtrg') is True
         assert v.info.get('has_pulsos') is True
+        assert v.info.get('has_ring') is True
     _con_gui(cuerpo)
 
 
@@ -924,3 +925,92 @@ def test_la_mq_del_generador_va_al_trapecio():
         assert _esperar(app, lambda:
                         v.panel_config._controles['trap_mq'][1]() == mq)
     _con_gui(cuerpo)
+
+
+# =============================================================================
+# La pestaña del event_ring
+# =============================================================================
+
+def _ring_visible(app, v, carpeta):
+    p = v.panel_ring
+    assert p is not None, 'sin pestaña del ring'
+    v.tabs.setCurrentWidget(p)
+    p.ed_carpeta.setText(carpeta)
+    return p
+
+
+def test_la_pestana_del_ring_corre_con_el_generador_y_cierra_las_cuentas():
+    """Una corrida con N disparos del generador de eventos: la sesión los lee todos,
+    EV_CNT + DROP_BUSY + DROP_FULL = N, y quedan archivos en la carpeta nueva."""
+    from API.osciloscope_store import archivos_de_corrida
+
+    def cuerpo(app, v):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = _ring_visible(app, v, tmp)
+            p.cmb_estimulo.setCurrentIndex(p.cmb_estimulo.findData('generador'))
+            p.spn_tasa.setValue(1e5)
+            p.spn_n.setValue(2000)
+            p.btn_iniciar.click()
+            assert _esperar(app, lambda: p.ultimo.get('corriendo')), p.lbl_error.text()
+            assert _esperar(app, lambda: (p.ultimo.get('stats') or {}).get(
+                'n_read', 0) >= 2000 and (p.ultimo.get('hw') or {}).get(
+                'hw_gen_terminado'))
+            assert p.btn_parar.isEnabled() and not p.btn_iniciar.isEnabled()
+            p.btn_parar.click()
+            assert _esperar(app, lambda: not p.ultimo.get('corriendo'))
+            hw = p.ultimo['hw_final']
+            assert hw['hw_ev_cnt'] + hw['hw_drop_busy'] + hw['hw_drop_full'] == 2000
+            assert p.ultimo['stats']['n_written'] == hw['hw_ev_cnt']
+            run_dir = p.ultimo['run_dir']
+            assert run_dir.startswith(tmp) and archivos_de_corrida(run_dir)
+            assert p.lbl_estado.text().startswith('parado')
+            assert p.btn_iniciar.isEnabled()
+    _con_gui(cuerpo)
+
+
+def test_el_ring_sin_fin_corre_hasta_parar():
+    def cuerpo(app, v):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = _ring_visible(app, v, tmp)
+            p.cmb_estimulo.setCurrentIndex(p.cmb_estimulo.findData('generador'))
+            p.cmb_modo.setCurrentIndex(1)
+            p.spn_tasa.setValue(5e4)
+            p.spn_n.setValue(0)
+            p.btn_iniciar.click()
+            assert _esperar(app, lambda: (p.ultimo.get('stats') or {}).get(
+                'n_read', 0) > 5000)
+            assert p.ultimo['corriendo'] and p.lbl_tasa.text() not in ('', '—')
+            p.btn_parar.click()
+            assert _esperar(app, lambda: not p.ultimo.get('corriendo'))
+    _con_gui(cuerpo)
+
+
+def test_el_ring_avisa_en_la_pestana_lo_que_no_puede_iniciar():
+    """Una carpeta relativa no sale del cliente; una que no existe la rechaza el
+    servidor, y el motivo llega a la pestaña. Ninguna de las dos con un diálogo."""
+    def cuerpo(app, v):
+        p = _ring_visible(app, v, 'datos')
+        p.btn_iniciar.click()
+        assert 'absoluto' in p.lbl_error.text()
+        p.ed_carpeta.setText('/no/existe/esta/carpeta')
+        p.btn_iniciar.click()
+        assert _esperar(app, lambda: 'no existe' in p.lbl_error.text())
+        assert not p.ultimo.get('corriendo')
+    _con_gui(cuerpo)
+
+
+def test_la_ocupacion_del_ring_no_se_llena_por_una_resta_negativa():
+    """`hw_no_leidos` sin signo: si el lector avanzó entre las dos lecturas, la resta
+    da la vuelta. Eso es cero sin leer, no el ring lleno."""
+    if QApplication is None:
+        return
+    app = QApplication.instance() or QApplication([])           # noqa: F841 (vive)
+    from app.panel_ring import PanelRing
+    p = PanelRing()
+    base = {'corriendo': True, 'stats': {'n_read': 10, 'n_written': 0, 'chunks': 0},
+            'run_dir': '/dev/shm/ring_x', 'fs': 'tmpfs'}
+    for crudo, esperado in ((5, 5), (0xFFFFFFFE, 0), (99999, 4096)):
+        p.actualizar_ring(dict(base, hw={'hw_ev_cnt': 10, 'hw_drop_busy': 0,
+                                         'hw_drop_full': 0, 'hw_n_slots': 4096,
+                                         'hw_no_leidos': crudo}))
+        assert p.bar_ring.value() == esperado, (crudo, p.bar_ring.value())

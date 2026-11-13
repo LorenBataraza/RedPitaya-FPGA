@@ -64,7 +64,7 @@ MCA falso vea la tasa del generador (y 0 con el generador parado).
 
 ## 3. La GUI — `app/tests/test_mcamon_gui.py`
 
-Treinta y siete pruebas con `QT_QPA_PLATFORM=offscreen`, así que corren en CI y por ssh. No
+Cuarenta y una pruebas con `QT_QPA_PLATFORM=offscreen`, así que corren en CI y por ssh. No
 prueban estética: prueban **el hilo del socket, las señales entre hilos y el
 guardado**, que es donde una GUI se rompe de verdad.
 
@@ -80,7 +80,11 @@ con su pestaña visible**; que el tiempo muerto se muestre en total
 el tope de ranuras sea el `n_acc_max` de la placa; que la pestaña del generador
 aplique y relea, avise un error sin diálogo modal, lleve su Mq al trapecio, y que
 prender el lazo muestre el aviso arriba y lleve la tasa del generador al
-espectro; y que desconectar y volver a conectar funcione.
+espectro; que la pestaña del ring corra con el generador de eventos y cierre
+EV_CNT + DROP_BUSY + DROP_FULL = N con archivos en la carpeta nueva, que corra sin
+fin hasta «Parar», que avise en la pestaña una carpeta inválida, y que la ocupación
+no se muestre llena por una resta negativa; y que desconectar y volver a conectar
+funcione.
 
 La pestaña 2D tiene su propia prueba porque aparece o desaparece según lo que
 publique `CAPS`, y eso es una decisión que se toma en tiempo de conexión. Lo

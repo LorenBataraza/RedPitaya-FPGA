@@ -70,6 +70,7 @@ app/
 ├── panel_osc.py          ← las formas capturadas y la curva de tasa
 ├── panel_multitrigger.py ← máscaras OR, shield y snapshot
 ├── panel_generador.py    ← el generador de pulsos y el lazo digital
+├── panel_ring.py         ← una adquisición del event_ring a archivos de la placa
 ├── panel_log.py          ← la pestaña de mensajes
 ├── widgets_config.py     ← los controles con su marca de «cuándo se puede tocar»
 └── tests/

@@ -36,6 +36,7 @@ M32 = 0xFFFFFFFF
 DDR_PHYS = 0x0A00_0000
 DDR_BYTES = 16 << 9                  # 16 slots de 512 B
 MUERTO_EXTRA = 3                     # 2·S + 3: el de la placa
+TRAMO_SIN_FIN = 50_000               # marcas por tramo con N = 0
 
 
 class RingFalso:
@@ -185,6 +186,7 @@ class RingFalsoGen(RingFalso):
         self.muerto_mas = muerto_mas
         self.trabado = trabado
         self.marcas = None
+        self._sin_fin = False
         self.gen_cnt = 0
         self.gen_fin = False
         # Leen WR_SLOT el hilo lector y el que pide los contadores, y cada lectura hace
@@ -218,13 +220,33 @@ class RingFalsoGen(RingFalso):
                        periodo=r[R_GEN_PERIODO], umbral=r[R_GEN_UMBRAL],
                        dt_min=r[R_GEN_DT_MIN], n=r[R_GEN_N], semilla=r[R_GEN_SEMILLA])
         n = d['n']
-        self.marcas = G.predecir(int(3 * n * 125e6 / G.tasa(**d)) + 10_000,
-                                 GEN_LAT_TS, n_max=n, **d)
-        if self.marcas.size != n:
-            raise RuntimeError(f'predecir dio {self.marcas.size} marcas de {n}')
+        if n:
+            self.marcas = G.predecir(int(3 * n * 125e6 / G.tasa(**d)) + 10_000,
+                                     GEN_LAT_TS, n_max=n, **d)
+            if self.marcas.size != n:
+                raise RuntimeError(f'predecir dio {self.marcas.size} marcas de {n}')
+        else:
+            # Sin fin (N = 0): tramos que se agregan a medida que se gastan (`_tramo`),
+            # con la estadística del motor pero no ciclo a ciclo como el RTL. Es para
+            # la demo y la GUI; los tests que comparan marcas usan N finito.
+            self._d = d
+            self._rng = np.random.default_rng(d['semilla'] or 1)
+            self.marcas = self._tramo(GEN_LAT_TS)
+        self._sin_fin = not n
         self.k, self.reloj, self.libre = 0, 0, -1
         self.muerto = 2 * (r[R_PRE] + r[R_POST]) + MUERTO_EXTRA + self.muerto_mas
         self.gen_cnt, self.gen_fin = 0, False
+
+    def _tramo(self, desde):
+        """TRAMO_SIN_FIN marcas después de `desde`: DT_MIN − 1 más una geométrica de
+        p = UMBRAL/2^32 (aleatorio), o PERIODO (periódico)."""
+        d = self._d
+        if d['aleatorio']:
+            p = max(d['umbral'], 1) / 2 ** 32
+            gaps = max(d['dt_min'], 2) - 1 + self._rng.geometric(p, TRAMO_SIN_FIN)
+        else:
+            gaps = np.full(TRAMO_SIN_FIN, max(d['periodo'], 2), np.int64)
+        return int(desde) + np.cumsum(gaps, dtype=np.int64)
 
     def _avanzar(self, rf=None):
         with self._lock:
@@ -234,7 +256,12 @@ class RingFalsoGen(RingFalso):
         if self.gst != 1 or self.marcas is None or self.gen_fin:
             return
         self.reloj += self.paso
-        while self.k < self.marcas.size and self.marcas[self.k] <= self.reloj:
+        while True:
+            if self._sin_fin and self.k == self.marcas.size:
+                self.marcas = np.concatenate(
+                    [self.marcas, self._tramo(self.marcas[-1])])
+            if not (self.k < self.marcas.size and self.marcas[self.k] <= self.reloj):
+                break
             k, ts = self.k, int(self.marcas[self.k])
             self.k += 1
             self.gen_cnt += 1
@@ -245,7 +272,7 @@ class RingFalsoGen(RingFalso):
             else:
                 self._escribir(k, ts)
                 self.libre = ts + self.muerto
-        self.gen_fin = self.k == self.marcas.size
+        self.gen_fin = not self._sin_fin and self.k == self.marcas.size
 
     def _escribir(self, k, ts):
         # El footer al final, como el RTL: el lector de C corre sin el GIL y, con el
