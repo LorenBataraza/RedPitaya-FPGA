@@ -152,6 +152,7 @@ export PYTHONPATH := $(RAIZ):$(PYTHONPATH)
         campana-lista campana-mca campana-campana campana-resto campana-formas \
         campana-e2e campana-poisson campana-politicas campana-politicas-remoto \
         campana-etapas-ring campana-etapas-ring-remoto campana-etapas-ring-red \
+        campana-meritos-pulsos campana-meritos-pulsos-remoto campana-meritos-pulsos-sim \
         placa-montar-red placa-desmontar-red \
         campana-deriva campana-adquirir \
         campana-adquirir-remoto campana-deriva-remoto \
@@ -403,6 +404,26 @@ campana-etapas-ring-remoto: placa-sync  ## (P) las etapas del ring EN la Pitaya,
 	@mkdir -p $(OUT)
 	rsync -az $(PITAYA):$(REMOTO)/$(OUT)/ $(OUT)/
 	@echo "datos en $(OUT)/"
+
+# Las figuras de mérito del MCA con el generador de pulsos de la FPGA, por el lazo
+# digital, sin el Rigol: la curva m(n) (etapa tasa) y la resolución par-pulso (etapa
+# par), con las fuentes ASG, polo-cero y pendiente. Necesita un bitstream con gen_pulsos
+# (el MCA cce7b66b o el ring 78e26188 en adelante). `-sim` corre lo mismo en la PC sobre
+# el modelo del generador y la réplica del MCA; las dos se comparan con
+# `campanas/run_meritos_pulsos.py --comparar placa.json sim.json`. MERITOS= las etapas;
+# el resto (--fuentes, --tasas, --dts, --n-acc, --seg, --n-pares...) va en ARGS=.
+MERITOS ?= tasa,par
+campana-meritos-pulsos: exige-placa  ## (P) figuras de mérito del MCA con gen_pulsos. OUT= MERITOS= ARGS=
+	$(PY) campanas/run_meritos_pulsos.py $(OUT) --etapas $(MERITOS) $(ARGS)
+
+campana-meritos-pulsos-remoto: libmca-arm placa-sync  ## (P) las figuras de mérito EN la Pitaya, y trae el JSON. OUT= MERITOS= ARGS=
+	ssh $(PITAYA) 'make -C $(REMOTO) campana-meritos-pulsos OUT=$(OUT) MERITOS=$(MERITOS) ARGS="$(ARGS)"'
+	@mkdir -p $(OUT)
+	rsync -az $(PITAYA):$(REMOTO)/$(OUT)/ $(OUT)/
+	@echo "datos en $(OUT)/"
+
+campana-meritos-pulsos-sim: libmca  ## la misma campaña sobre la réplica del MCA, en la PC. OUT= MERITOS= ARGS=
+	$(PY) campanas/run_meritos_pulsos.py $(OUT) --simulada --etapas $(MERITOS) $(ARGS)
 
 # La etapa C por la red (docs/event_ring/generador.md §6): la sesión corre en el
 # servidor de la placa (las ops ring.*) y escribe en un directorio de la PC montado
