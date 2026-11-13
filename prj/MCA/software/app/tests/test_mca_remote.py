@@ -277,7 +277,8 @@ def test_metadata_completa_y_guardado():
         with tempfile.TemporaryDirectory() as d:
             for nombre, guardar in (('e.csv',  A.mca_write_file_histogram),
                                     ('e.npz',  A.mca_save_file_binary),
-                                    ('e.json', A.mca_save_file_json)):
+                                    ('e.json', A.mca_save_file_json),
+                                    ('e.n42',  A.mca_save_file_n42)):
                 ruta = os.path.join(d, nombre)
                 guardar(hist, ruta, meta=meta)
                 h2, m2 = A.mca_load_file(ruta)
@@ -312,6 +313,40 @@ def test_status_trae_tasas_y_exposicion():
         assert est['running'] is False
         assert est['exposure']['done'] is True
         assert est['rate_avg_hz'] > 0
+        h.close()
+
+
+def test_la_tasa_de_entrada_descuenta_veto_y_rearmado():
+    """λ̂ = (cross − lost_veto) / (real − veto − t_rearm), con números a mano.
+
+    Los perdidos sin ranura y esperando al publicador SÍ cuentan como arribos:
+    llegaron, aunque no se midieran.
+    """
+    from app.mca_server import arribos_y_tiempo
+    cnt = {'cross': 1200, 'open': 900, 'lost_active': 150, 'lost_veto': 100,
+           'realtime_s': 2.0, 'vetotime_s': 0.4, 't_rearm_s': 0.5,
+           'accepted': 850, 'livetime_s': 0.9}
+    arribos, seg = arribos_y_tiempo(cnt)
+    assert arribos == 1100
+    assert abs(seg - 1.1) < 1e-12
+    # Un bitstream que no publica estos campos da cero, no una excepción.
+    assert arribos_y_tiempo({}) == (0, 0.0)
+
+
+def test_status_trae_la_tasa_de_entrada():
+    """El MCA falso dispara a 1000/s sin veto ni re-armado: λ̂ tiene que dar eso.
+    Con ~1 s de corrida son ~1000 arribos, σ ≈ 3 %."""
+    with ServidorDePrueba() as s:
+        h = s.conectar()
+        A.mca_clear(h)
+        h._pedir('ctrl.start', seconds=None)
+        h.status()                          # la referencia de la instantánea
+        time.sleep(1.0)
+        est = h.status()
+        h._pedir('ctrl.stop')
+        assert abs(est['tasa_entrada_hz'] / 1000.0 - 1) < 0.2, est['tasa_entrada_hz']
+        assert abs(est['tasa_entrada_inst_hz'] / 1000.0 - 1) < 0.2, \
+            est['tasa_entrada_inst_hz']
         h.close()
 
 
@@ -419,6 +454,40 @@ def _servidor_sin_arrancar():
     vida, y arrancarlo de verdad abriría hilos y sockets que no hacen falta."""
     from app.mca_server import ServidorMCA
     return ServidorMCA.__new__(ServidorMCA)
+
+
+def test_el_impl_del_servidor_llega_a_todos_los_bloques_en_c():
+    """`--impl py` compara las dos implementaciones de la API en la placa: si sólo
+    llegara al MCA, la columna `py` mediría una mezcla sin decirlo."""
+    import API.integration as I
+    import API.multitrigger as MT
+    import API.osciloscope as O
+    pedidos = []
+
+    def registrar(nombre):
+        def abrir(*a, **k):
+            pedidos.append((nombre, k.get('impl', 'falta')))
+            return _IntegracionFalsa()
+        return abrir
+
+    originales = (I.integration_open, MT.MtRegion.__dict__['open'],
+                  MT.MultiTrigger.__dict__['open'], O.osciloscope_open)
+    I.integration_open = registrar('top')
+    O.osciloscope_open = registrar('osc')
+    MT.MtRegion.open = registrar('mtr')
+    MT.MultiTrigger.open = registrar('mt')
+    try:
+        for impl in ('c', 'py', None):
+            del pedidos[:]
+            s = _servidor_sin_arrancar()
+            s.fake, s.impl, s.notas_bases, s.bases = False, impl, [], {}
+            s._abrir_integracion()
+            s.ig = None
+            s._abrir_osc()
+            assert pedidos == [('top', impl), ('osc', impl), ('mtr', impl), ('mt', impl)], pedidos
+    finally:
+        (I.integration_open, MT.MtRegion.open, MT.MultiTrigger.open,
+         O.osciloscope_open) = originales
 
 
 def test_sin_slot_6_se_usa_la_base_por_defecto():
@@ -534,3 +603,75 @@ def test_el_limite_de_la_ventana_sigue_al_bitstream():
             assert datos.shape == (2, 256)
         finally:
             h.close()
+
+
+# =============================================================================
+# El generador de pulsos (slot 2) y el lazo digital
+# =============================================================================
+
+def test_el_generador_se_configura_y_relee_por_red():
+    """`gen.configurar` con dos líneas arma la tabla sorteada, y `gen.get` la
+    reconstruye: cada amplitud con la fracción de la tabla que ocupa."""
+    with ServidorDePrueba() as s:
+        h = s.conectar()
+        assert h.info['has_pulsos'] is True
+        r = h.pedir('gen.configurar', cfg={
+            'aleatorio': True, 'tasa': 20e3, 'dt_min': 3, 'tau_us': 2.0,
+            'lineas': [[1500, 3], [4000, 1]], 'ruido': 1, 'ruido_sh': 6})
+        (a1, p1), (a2, p2) = r['lineas']
+        assert (a1, a2) == (1500, 4000)
+        assert abs(p1 - 0.75) < 2e-3 and abs(p2 - 0.25) < 2e-3
+        assert r['config']['amp_aleat'] == 1 and r['config']['aleatorio'] == 1
+        assert abs(r['tasa_hz'] / 20e3 - 1) < 1e-3
+        assert abs(r['tau_us'] - 2.0) < 0.01
+        assert r['mq'] > 0 and r['estado']['generando'] is False
+
+        # Una sola amplitud es fija: sin sorteo, una entrada.
+        r = h.pedir('gen.configurar', cfg={'tasa': 1e3, 'lineas': [[-300, 1]]})
+        assert r['lineas'] == [[-300, 1.0]]
+        assert r['config']['amp_aleat'] == 0
+        h.close()
+
+
+def test_una_amplitud_fuera_de_rango_no_toca_el_generador():
+    """La tabla se arma ANTES de escribir: un error deja la configuración de antes."""
+    with ServidorDePrueba() as s:
+        h = s.conectar()
+        antes = h.pedir('gen.configurar', cfg={'tasa': 5e3, 'lineas': [[1000, 1]]})
+        try:
+            h.pedir('gen.configurar', cfg={'tasa': 9e3,
+                                            'lineas': [[1000, 1], [20000, 1]]})
+        except RemoteError as e:
+            assert e.error == 'ValueError', e
+        else:
+            raise AssertionError('aceptó una amplitud de 20000')
+        assert h.pedir('gen.get')['config'] == antes['config']
+        h.close()
+
+
+def test_con_el_lazo_el_mca_ve_la_tasa_del_generador():
+    """De punta a punta en el simulador: lazo + generador a 5000/s → λ̂ ≈ 5000;
+    generador parado con el lazo → 0, porque el ADC queda desconectado. El status
+    trae el estado del generador y el lazo."""
+    with ServidorDePrueba() as s:
+        h = s.conectar()
+        A.mca_clear(h)
+        h.pedir('gen.configurar', cfg={'aleatorio': True, 'tasa': 5000.0,
+                                        'lineas': [[2000, 1]]})
+        h.pedir('gen.lazo', on=True)
+        h.pedir('gen.ctrl', que='arrancar')
+        h._pedir('ctrl.start', seconds=None)
+        h.status()
+        time.sleep(1.0)
+        est = h.status()
+        assert est['gen']['lazo'] is True and est['gen']['generando'] is True
+        assert abs(est['tasa_entrada_inst_hz'] / 5000.0 - 1) < 0.15, est
+
+        h.pedir('gen.ctrl', que='parar')
+        h.status()
+        time.sleep(0.4)
+        assert h.status()['tasa_entrada_inst_hz'] == 0.0
+        h.pedir('gen.lazo', on=False)
+        h._pedir('ctrl.stop')
+        assert h.status()['gen']['lazo'] is False
+        h.close()

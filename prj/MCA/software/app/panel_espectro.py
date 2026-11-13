@@ -31,7 +31,7 @@ from PyQt5.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox,
 
 from API.analisis import buscar_picos
 from API.mca import (mca_canal_de_amplitud, mca_load_file,
-                     mca_save_file_binary, mca_save_file_json,
+                     mca_save_file_binary, mca_save_file_json, mca_save_file_n42,
                      mca_write_file_histogram)
 
 COLOR_ESPECTRO = '#ff9900'
@@ -154,8 +154,20 @@ class PanelEspectro(QWidget):
         bajo_cursor.addStretch(1)
         f.addRow('bin / cuentas', bajo_cursor)
         f.addRow('cuentas totales', self.lbl_total)
-        f.addRow('tasa inst., 1/s', self.lbl_rate_inst)
-        f.addRow('tasa media, 1/s', self.lbl_rate_avg)
+        f.addRow('entrada inst., 1/s', self.lbl_rate_inst)
+        f.addRow('entrada media, 1/s', self.lbl_rate_avg)
+        # La tasa de los pulsos que llegan, no la de los aceptados: ésa queda en
+        # la curva de la pestaña OSC. La cuenta está en `arribos_y_tiempo` del
+        # servidor.
+        ayuda = ('Pulsos que llegan por segundo, corregido por tiempo muerto:\n'
+                 '(cross − lost_veto) / (real − veto − t_rearm).\n'
+                 'Cuenta también los que se perdieron por no haber ranura. '
+                 't_rearm sale del denominador porque un pulso que llega con el '
+                 'disparo sin re-armar no se puede contar.\n'
+                 'inst.: entre dos lecturas (200 ms); media: toda la corrida.')
+        for lbl in (self.lbl_rate_inst, self.lbl_rate_avg):
+            lbl.setToolTip(ayuda)
+            f.labelForField(lbl).setToolTip(ayuda)
         return g
 
     def _grupo_umbral(self):
@@ -319,9 +331,8 @@ class PanelEspectro(QWidget):
     def _grupo_contadores(self):
         """Los contadores propios del MCA: son los que dicen si la medida vale.
 
-        `dropped` es la suma combinacional de las tres fuentes de pérdida del
-        RTL (divisor ocupado, colisión de lectura, barrido de borrado), así que
-        también es el precio del refresco en vivo, a la vista.
+        Por defecto, el tiempo muerto en total; con «detalle», desglosado por
+        etapa (ver `_desglose`).
         """
         g = QGroupBox('contadores y tiempos')
         v = QVBoxLayout(g)
@@ -331,26 +342,87 @@ class PanelEspectro(QWidget):
         self.lbl_contadores.setFont(QFont('monospace', 9))
         self.lbl_contadores.setTextInteractionFlags(Qt.TextSelectableByMouse)
         v.addWidget(self.lbl_contadores)
+        self.chk_detalle = QCheckBox('detalle')
+        self.chk_detalle.setToolTip(
+            'Desglosa el tiempo muerto y los disparos por etapa: veto, sin '
+            'ranura, publicador, re-armado del disparo y vivo.')
+        self.chk_detalle.toggled.connect(lambda _v: self._pintar_contadores(
+            self.contadores, self.baseline if self.baseline is not None else '—'))
+        v.addWidget(self.chk_detalle)
         self._pintar_contadores({})
         return g
 
     def _pintar_contadores(self, cnt, baseline='—'):
+        """`muerto` es `deadtime_real_s` = t_win + t_div + t_rearm, el que corrige
+        pérdidas; su porcentaje es sobre el tiempo medido, real − veto. Con el
+        veto, real = veto + muerto + vivo.
+
+        `perdidos` son los disparos que llegaron y no se midieron: `lost_active`
+        (sin ranura) + `dropped` (esperando al publicador, más las colisiones de
+        lectura y el barrido de borrado). Los vetados no están: el veto es una
+        exclusión pedida, no una pérdida.
+        """
         def n(clave):
             return int(cnt.get(clave, 0))
 
         def s(clave):
             return float(cnt.get(clave, 0.0))
 
-        self.lbl_contadores.setText(
-            f"aceptados   {n('accepted'):>9}   perdidos  {n('dropped'):>7}\n"
+        medido = s('realtime_s') - s('vetotime_s')
+        muerto = s('deadtime_real_s')
+        pct = 100.0 * muerto / medido if medido > 1e-9 else 0.0
+        texto = (
+            f"aceptados   {n('accepted'):>9}   perdidos  "
+            f"{n('lost_active') + n('dropped'):>7}\n"
             f"rech. ampl. {n('rej_amp'):>9}   apilados  {n('pileup'):>7}\n"
             f"rech. forma {n('rej_psd'):>9}   base      {baseline:>7}\n"
             f"real {s('realtime_s'):7.3f} s  vivo {s('livetime_s'):7.3f} s\n"
-            f"muerto {s('deadtime_s'):5.3f} s"
+            f"muerto {muerto:7.3f} s ({pct:.1f} %)"
             # Sólo si hay veto: un bitstream sin él lee 0 y no hace falta
             # ocupar la línea.
             + (f"  veto {s('vetotime_s'):5.3f} s" if s('vetotime_s') else '')
             + ('  [VETADO]' if cnt.get('vetoed') else ''))
+        if self.chk_detalle.isChecked():
+            texto += '\n\n' + self._desglose(cnt)
+        self.lbl_contadores.setText(texto)
+
+    @staticmethod
+    def _desglose(cnt):
+        """Cada etapa con su tiempo y sus disparos: la columna de tiempo suma
+        `realtime` y la de disparos suma `cross`. Es el teselado del MCA (cada
+        ciclo va a la primera condición que vale, en este orden) y la atribución
+        de arribos, una al lado de la otra.
+
+        El re-armado no tiene cuenta: un pulso que llega con el disparo sin
+        re-armar no genera flanco, y lo único medible es el tiempo.
+
+        `lost_busy` no tiene registro propio (va dentro de `dropped`): sale de
+        la atribución. Leído con la medición corriendo puede no cerrar por unas
+        cuentas, porque cada contador se lee en un ciclo distinto; por eso el
+        recorte en cero.
+        """
+        def n(clave):
+            return int(cnt.get(clave, 0))
+
+        def s(clave):
+            return float(cnt.get(clave, 0.0))
+
+        lost_busy = max(0, n('cross') - n('open') - n('lost_active')
+                        - n('lost_veto'))
+        filas = (('veto', s('vetotime_s'), n('lost_veto')),
+                 ('sin ranura', s('t_win_s'), n('lost_active')),
+                 ('publicador', s('t_div_s'), lost_busy),
+                 ('re-armado', s('t_rearm_s'), None),
+                 ('vivo', s('livetime_s'), n('open')),
+                 ('total', s('realtime_s'), n('cross')))
+        lineas = [f"{'':11}{'tiempo':>10} {'disparos':>10}"]
+        for nombre, t, k in filas:
+            lineas.append(f"{nombre:<11}{t:8.3f} s {'—' if k is None else k:>10}")
+        # Lo que se descartó DESPUÉS de abrir una ranura: colisiones de lectura
+        # y barrido de borrado. Está en `perdidos` pero no es un disparo perdido.
+        lineas.append(f"{'descartes al publicar':<22}"
+                      f"{max(0, n('dropped') - lost_busy):>10}")
+        return '\n'.join(lineas)
 
     def _grupo_archivo(self):
         g = QGroupBox()
@@ -471,8 +543,8 @@ class PanelEspectro(QWidget):
         self.baseline = est.get('baseline_now')
         cnt = self.contadores
         self.lbl_total.setText(f"{cnt.get('accepted', 0):,}".replace(',', ' '))
-        self.lbl_rate_inst.setText(f"{est.get('rate_inst_hz', 0.0):.2e}")
-        self.lbl_rate_avg.setText(f"{est.get('rate_avg_hz', 0.0):.2e}")
+        self.lbl_rate_inst.setText(f"{est.get('tasa_entrada_inst_hz', 0.0):.2e}")
+        self.lbl_rate_avg.setText(f"{est.get('tasa_entrada_hz', 0.0):.2e}")
         self._pintar_contadores(cnt, self.baseline if self.baseline is not None
                                 else '—')
 
@@ -700,16 +772,21 @@ class PanelEspectro(QWidget):
         if self.hist is None:
             QMessageBox.information(self, 'Guardar', 'todavía no hay espectro')
             return
-        ruta, _ = QFileDialog.getSaveFileName(
-            self, 'Guardar espectro', 'espectro.csv',
-            'CSV con metadata (*.csv);;NumPy (*.npz);;JSON (*.json)')
+        formatos = {'CSV con metadata (*.csv)': ('.csv', mca_write_file_histogram),
+                    'NumPy (*.npz)': ('.npz', mca_save_file_binary),
+                    'JSON (*.json)': ('.json', mca_save_file_json),
+                    'N42.42 (*.n42)': ('.n42', mca_save_file_n42)}
+        ruta, filtro = QFileDialog.getSaveFileName(
+            self, 'Guardar espectro', 'espectro.csv', ';;'.join(formatos))
         if not ruta:
             return
+        # Manda la extensión que se escribió; sin una conocida, el filtro elegido.
         ext = os.path.splitext(ruta)[1].lower()
-        guardar = {'.npz': mca_save_file_binary,
-                   '.json': mca_save_file_json}.get(ext, mca_write_file_histogram)
-        if ext not in ('.npz', '.json', '.csv'):
-            ruta += '.csv'
+        por_ext = dict(formatos.values())
+        if ext not in por_ext:
+            ext = formatos.get(filtro, ('.csv',))[0]
+            ruta += ext
+        guardar = por_ext[ext]
         try:
             guardar(self.hist, ruta, meta=self.meta)
         except Exception as e:                                   # noqa: BLE001
@@ -721,7 +798,7 @@ class PanelEspectro(QWidget):
     def _cargar_archivo(self):
         ruta, _ = QFileDialog.getOpenFileName(
             self, 'Cargar espectro', '',
-            'Espectros (*.csv *.npz *.json);;Todos (*)')
+            'Espectros (*.csv *.npz *.json *.n42);;Todos (*)')
         if not ruta:
             return
         try:
@@ -739,11 +816,13 @@ class PanelEspectro(QWidget):
         self.zoom_k = int(meta.get('zoom_1d_k', 0) or 0)
         if 'zoom_1d_z' not in meta:
             self.log.emit(f'{os.path.basename(ruta)}: sin zoom en la metadata, '
-                          'se asume fondo de escala (fichero anterior al '
-                          'registro del zoom)')
+                          'se asume fondo de escala')
         self.actualizar_espectro(hist, meta)
         self.log.emit(f'cargado {ruta}: {hist.size} canales, '
                       f'{int(hist.sum())} cuentas')
+        if meta.get('n42_n_espectros', 1) > 1:
+            self.log.emit(f"{os.path.basename(ruta)}: trae "
+                          f"{meta['n42_n_espectros']} espectros, se muestra el primero")
 
     def _guardar_imagen(self):
         ruta, _ = QFileDialog.getSaveFileName(

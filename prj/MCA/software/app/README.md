@@ -6,7 +6,7 @@
 |---|---|
 | [README](../../docs/APP/README.md) | qué es la app, la arquitectura en corto, las pestañas, y las diferencias con `mcpha` |
 | [Flujo de datos](../../docs/APP/flujo_de_datos.md) | el camino de control y el de datos, hilo por hilo |
-| [Protocolo](../../docs/APP/protocolo.md) | las 15 operaciones, la trama, los errores |
+| [Protocolo](../../docs/APP/protocolo.md) | las 36 operaciones, la trama, los errores |
 | [Pruebas](../../docs/APP/pruebas.md) | qué demuestra cada test y qué no cubre ninguno |
 
 ---
@@ -63,13 +63,22 @@ python3 app/mcamon.py --host 10.73.28.27 --port 1001 --conectar
 app/
 ├── mca_server.py     ← corre en la Pitaya: expone API/mca.py por TCP
 ├── mcamon.py         ← corre en la PC: ventana, barra superior, hilo del socket
-├── panel_espectro.py ← el histograma 1D y todo lo que se hace con él
-├── panel_mapa2d.py   ← amplitud × forma, y la FOM
-├── panel_log.py      ← la pestaña de mensajes
+├── panel_espectro.py      ← el histograma 1D, los contadores y el tiempo muerto
+├── panel_config_mca.py   ← los registros del MCA, campo por campo
+├── panel_mapa2d.py       ← amplitud × forma, y la FOM
+├── panel_integracion.py  ← el ruteo del datapath (slot 6)
+├── panel_osc.py          ← las formas capturadas y la curva de tasa
+├── panel_multitrigger.py ← máscaras OR, shield y snapshot
+├── panel_generador.py    ← el generador de pulsos y el lazo digital
+├── panel_log.py          ← la pestaña de mensajes
+├── widgets_config.py     ← los controles con su marca de «cuándo se puede tocar»
 └── tests/
     ├── test_mca_remote.py    ← la superficie mca_* entera, por socket
     ├── test_mcamon_gui.py    ← la GUI de punta a punta, sin pantalla
+    ├── test_call.py          ← la op `call`
+    ├── test_ring_red.py      ← las ops ring.*
     └── placa/
+        ├── call_red.py       ← `call` contra la placa
         └── e2e_rigol_app.py  ← (P,R) el lazo completo, con pulsos reales
 ```
 

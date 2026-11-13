@@ -10,7 +10,8 @@ y hace `rp_Init()`, los dos pelean y sale SIGBUS. Por eso acepta **un cliente a
 la vez** y todo pasa por un lock.
 
 La adquisición NO se detiene cuando el cliente se va: una medida de media hora
-sobrevive a cerrar la GUI, y al reconectar `identify` informa `running=True`.
+sobrevive a cerrar la GUI, y al reconectar `identify` informa `running=True`. Lo
+mismo con la del event_ring (las ops `ring.*`): `identify` trae `ring_corriendo`.
 
 El MCA es free-running — no hay registro de tiempo de exposición en el
 hardware — así que la exposición la implementa el hilo `_vigilante`, que poléa
@@ -37,11 +38,13 @@ from API.mca import (CAP_HIST_H_PSD, MCA_PHYS, MCANotPresent,
 from API._despacho import API_REGISTRADA, NoRemota
 from API.mca_net import (PORT_DEFAULT, PROTOCOL_VERSION, Channel, ProtocolError,
                          a_json, de_json)
+from API.generadores import PHYS as PULSOS_PHYS
 from API.mca_remote import FakeMCA, FakeMtRegion, FakeMultiTrigger, FakeOsc
 from API.multitrigger import (MTRG_PHYS, multitrigger_armar_mca,
                               multitrigger_configure, multitrigger_desarmar_mca,
                               multitrigger_disparo_mca, multitrigger_get_config,
                               multitrigger_get_status)
+from API.osciloscope_ring import RING_PHYS, AdquisicionRing
 from API.osciloscope import (ADC_CNT_PER_V, N_BUF, SCOPE_PHYS,
                              FS as FS_OSC,
                              osciloscope_configure, osciloscope_get_config,
@@ -56,6 +59,28 @@ def log(*a):
     print(f'[{time.strftime("%H:%M:%S")}]', *a, flush=True)
 
 
+def arribos_y_tiempo(cnt):
+    """(arribos, segundos) de la tasa de entrada: λ̂ = arribos / segundos.
+
+    Arribos: los disparos que llegaron sin veto, `cross − lost_veto`. Incluye los
+    que se perdieron por no haber ranura (`lost_active`) o por esperar al
+    publicador (lost_busy): llegaron, aunque no se midieran.
+
+    Segundos: `realtime − vetotime − t_rearm`. El veto sale porque sus disparos no
+    se cuentan, y `t_rearm` porque un pulso que llega con el disparo sin re-armar
+    no genera flanco y nunca llega a `cross`: no se puede contar, sólo descontar
+    su tiempo.
+
+    No es `accepted / livetime`: `accepted` deja afuera los rechazados por la
+    ventana de amplitud y la forma, y `livetime` deja afuera el tiempo en que las
+    ranuras estaban ocupadas, durante el cual también llegan pulsos.
+    """
+    arribos = cnt.get('cross', 0) - cnt.get('lost_veto', 0)
+    segundos = (cnt.get('realtime_s', 0.0) - cnt.get('vetotime_s', 0.0)
+                - cnt.get('t_rearm_s', 0.0))
+    return arribos, segundos
+
+
 # =============================================================================
 # Servidor
 # =============================================================================
@@ -65,7 +90,7 @@ class ServidorMCA:
     def __init__(self, fake=False, bitstream=BITSTREAM_MCA, fake_h_aw=14,
                  fake_rsz=14, impl=None):
         self.fake = fake
-        self.impl = impl                # 'c' | 'py' | None: el de mca_open()
+        self.impl = impl                # 'c' | 'py' | None: el de cada bloque en C
         self.fake_h_aw = fake_h_aw
         self.fake_rsz = fake_rsz
         self.bitstream = bitstream
@@ -79,12 +104,26 @@ class ServidorMCA:
         self._rp_listo = False          # rp_Init() se hace en la 1ª captura
         self.motivo_ausente = None      # por qué no hay handle, para el cliente
 
+        self.ring = None                # el event_ring (slot 2): opcional
+        self._ring_gen = False          # ¿trae el generador de eventos?
+        self._ring_falso = None         # el RingFalsoGen de --fake
+        self._adq = None                # la adquisición del ring en curso, o la última
+        self.gen = None                 # el generador de pulsos (slot 2): opcional
+        self._gen_falso = None          # el FakeGenPulsos de --fake
+
         self._lock = threading.Lock()   # protege TODO acceso al handle
+        # Las ops ring.* tienen el suyo: la sesión no toca el handle del MCA, y parar
+        # una (unir sus hilos, escribir el último chunk) puede tardar segundos que no
+        # tienen por qué frenar al vigilante de la exposición. Orden: _lock y después
+        # _lock_ring, nunca al revés.
+        self._lock_ring = threading.Lock()
         self._lock_cliente = threading.Lock()
         self._cliente = None            # (ip, testigo) del cliente en curso
         self._exp_objetivo = None       # segundos de livetime, o None
         self._exp_hecha = False
-        self._ultimo = None             # (livetime_s, accepted) para la tasa
+        # (livetime_s, accepted, arribos, segundos) del status anterior: las
+        # tasas instantáneas son diferencias entre dos status.
+        self._ultimo = None
 
         self._parar = threading.Event()
         self.abrir()
@@ -104,6 +143,8 @@ class ServidorMCA:
             # aparece en modo demo. El osciloscopio sí: es lo que permite
             # desarrollar y probar sus dos pestañas sin placa.
             self._abrir_osc()
+            self._abrir_ring()
+            self._abrir_gen()
             return
         try:
             # Sondear ANTES de mapear: si la PL no está programada, la primera
@@ -125,9 +166,12 @@ class ServidorMCA:
             self.h = None
             self.motivo_ausente = f'{type(e).__name__}: {e}'
             log('sin MCA:', self.motivo_ausente)
-        # El orden importa: `_abrir_osc` consulta SLOTS, que vive en el slot 6.
+        # El orden importa: `_abrir_osc` consulta SLOTS, que vive en el slot 6, y
+        # rehace las bases, a las que `_abrir_ring` suma la suya.
         self._abrir_integracion()
         self._abrir_osc()
+        self._abrir_ring()
+        self._abrir_gen()
 
     def _abrir_integracion(self):
         """El slot 6, si está. Que falte NO es un error.
@@ -141,7 +185,7 @@ class ServidorMCA:
             return
         try:
             from API.integration import integration_open
-            self.ig = integration_open()
+            self.ig = integration_open(impl=self.impl)
             log('integración (slot 6) abierta')
         except Exception as e:                                  # noqa: BLE001
             self.ig = None
@@ -199,7 +243,7 @@ class ServidorMCA:
         self.notas_bases.append(nota)
         try:
             from API.osciloscope import osciloscope_open
-            self.osc = osciloscope_open(phys=base)
+            self.osc = osciloscope_open(phys=base, impl=self.impl)
             self.bases = {'osc': base}
             log(f'osciloscopio abierto en {base:#x}')
             log('  ' + nota)
@@ -219,42 +263,110 @@ class ServidorMCA:
         self.notas_bases.append(nota)
         try:
             from API.multitrigger import MtRegion, MultiTrigger
-            self.mtr = MtRegion.open(phys=base)
-            self.mt = MultiTrigger.open(phys=base)
+            self.mtr = MtRegion.open(phys=base, impl=self.impl)
+            self.mt = MultiTrigger.open(phys=base, impl=self.impl)
             self.bases['mtrg'] = base
             log(f'región del multitrigger abierta en {base:#x}')
         except Exception as e:                                  # noqa: BLE001
             self.mtr = self.mt = None
             log(f'sin la región del multitrigger: {type(e).__name__}: {e}')
 
+    def _abrir_ring(self):
+        """El event_ring (slot 2) y su región de DDR. Que falte NO es un error: el
+        bitstream del MCA no lo trae. Con `--fake`, el ring simulado con el generador
+        (`API/ring_falso.py`)."""
+        self.ring, self._ring_gen = None, False
+        if self.fake:
+            from API.ring_falso import RingFalsoGen
+            self._ring_falso = RingFalsoGen(ddr_bytes=1 << 20)
+            self.ring, self._ring_gen = self._ring_falso.handle(), True
+            self.bases['ring'] = RING_PHYS
+            return
+        base, nota = self._base_de('ring', RING_PHYS)
+        self.notas_bases.append(nota)
+        try:
+            from API.osciloscope_ring import OsciloscopeRing
+            self.ring = OsciloscopeRing.open(phys=base)
+            self._ring_gen = self.ring.gen_presente()
+            self.bases['ring'] = base
+            log(f'event_ring abierto en {base:#x}'
+                + (', con el generador de eventos' if self._ring_gen else ''))
+        except Exception as e:                                  # noqa: BLE001
+            self.ring = None
+            log(f'sin event_ring: {type(e).__name__}: {e}')
+
+    def _abrir_gen(self):
+        """El generador de pulsos (`gen_pulsos`, slot 2 partido, 64 KB arriba del ring)
+        y el lazo digital de HK. Que falte NO es un error: un bitstream anterior al
+        2026-11-09 no lo trae. Con `--fake`, `FakeGenPulsos`, y el MCA falso toma su
+        tasa por el lazo."""
+        self.gen = None
+        if self.fake:
+            from API.mca_remote import FakeGenPulsos
+            self._gen_falso = FakeGenPulsos()
+            self.gen = self._gen_falso.handle()
+            if self.h is not None:
+                self.h.fuente = self._gen_falso.tasa_en_lazo
+            self.bases['pulsos'] = PULSOS_PHYS
+            return
+        base, nota = self._base_de('pulsos', PULSOS_PHYS)
+        self.notas_bases.append(nota)
+        try:
+            from API.generadores import GenPulsos
+            self.gen = GenPulsos.open(phys=base)
+            self.bases['pulsos'] = base
+            log(f'generador de pulsos abierto en {base:#x}'
+                + (', CON EL LAZO DIGITAL PRENDIDO' if self.gen.lazo else ''))
+        except Exception as e:                                  # noqa: BLE001
+            self.gen = None
+            log(f'sin generador de pulsos: {type(e).__name__}: {e}')
+
+    def _cerrar_ring(self):
+        """Para la adquisición del ring, si hay una, y cierra el handle."""
+        with self._lock_ring:
+            if self._adq is not None and self._adq.corriendo:
+                try:
+                    self._adq.parar()
+                except Exception as e:                          # noqa: BLE001
+                    log(f'parando la adquisición del ring: {type(e).__name__}: {e}')
+            if self.ring is not None:
+                try:
+                    self.ring.close()
+                finally:
+                    self.ring = None
+
     def _asegurar_rp(self):
         """`rp_Init()`, una sola vez y recién cuando hace falta.
 
-        Las trazas se leen con la librería `rp`, que mapea su propia región. Es
-        seguro convivir con el mmap del MCA **dentro del mismo proceso**:
-        `campanas/e2e_espectro.py` hace las dos cosas y es una campaña validada
-        en placa. La regla de un solo proceso sobre `/dev/mem` sigue valiendo
-        ENTRE procesos, que es donde estaba el SIGBUS.
+        Las trazas ya no se leen con `rp` sino por libmca (Parte 6), y lo que
+        `rp_Init()` escribe (`acq_SetDefault`) no cambia ninguna muestra: el umbral,
+        el delay y la histéresis los vuelve a escribir el armado, y el ecualizador no
+        está en el bitstream (`EN_FILT = 0`). Queda para que la API siga siendo
+        compatible con la de Red Pitaya.
 
-        Perezoso porque `rp_Init()` cuesta cientos de milisegundos y calibra el
-        ADC: no se paga si nadie abre la pestaña del osciloscopio.
+        `rp` se importa aunque este proceso no tenga el PYTHONPATH de un shell de
+        login (`API.osciloscope._redpitaya`): lanzado por ssh no lo veía.
+
+        Perezoso porque `rp_Init()` cuesta cientos de milisegundos: no se paga si
+        nadie abre la pestaña del osciloscopio.
         """
         if self._rp_listo or self.fake:
             return
-        import rp
-        rp.rp_Init()
+        from API.osciloscope import _redpitaya
+        _redpitaya('rp').rp_Init()
         self._rp_listo = True
         log('rp_Init() hecho (primera captura del osciloscopio)')
 
     def cerrar(self):
         self._parar.set()
+        self._cerrar_ring()
         with self._lock:
             if self.h is not None:
                 mca_close(self.h)
                 self.h = None
             # El multitrigger comparte el mapeo del osciloscopio, así que se
             # cierra primero: el dueño del fd es el que libera.
-            for atributo in ('mtr', 'mt', 'osc', 'ig'):
+            for atributo in ('gen', 'mtr', 'mt', 'osc', 'ig'):
                 bloque = getattr(self, atributo)
                 if bloque is not None:
                     try:
@@ -318,6 +430,10 @@ class ServidorMCA:
                 'has_mtrg': self.mt is not None,
                 'has_disparo': self.mtr is not None and self.osc is not None,
                 'has_pz': self.mtr is not None and self.mtr.has_pz(),
+                'has_ring': self.ring is not None,
+                'has_gen': self._ring_gen,
+                'has_pulsos': self.gen is not None,
+                'ring_corriendo': self._adq is not None and self._adq.corriendo,
                 'bases': {k: int(v) for k, v in self.bases.items()},
                 'bases_notas': list(self.notas_bases),
                 'n_buf': self._n_buf(), 'fs_hz': FS_OSC,
@@ -396,15 +512,23 @@ class ServidorMCA:
         h = self._handle()
         cnt = mca_read_counters(h)
         lt, acc = cnt['livetime_s'], cnt['accepted']
+        arribos, seg = arribos_y_tiempo(cnt)
 
-        # Tasa instantánea entre dos status consecutivos; la media, sobre todo
-        # el tiempo vivo. Igual que los dos números de la referencia.
-        inst = 0.0
+        # Dos tasas, cada una instantánea (entre dos status consecutivos) y
+        # media (sobre toda la corrida):
+        #   rate_*          aceptados por segundo vivo, la curva "MCA (aceptados)"
+        #                   de la pestaña OSC;
+        #   tasa_entrada_*  λ̂, los pulsos que llegan, corregida por tiempo muerto
+        #                   (`arribos_y_tiempo`).
+        inst = inst_ent = 0.0
         if self._ultimo is not None:
             dlt, dacc = lt - self._ultimo[0], acc - self._ultimo[1]
             if dlt > 1e-3:
                 inst = dacc / dlt
-        self._ultimo = (lt, acc)
+            dseg, darr = seg - self._ultimo[3], arribos - self._ultimo[2]
+            if dseg > 1e-3:
+                inst_ent = darr / dseg
+        self._ultimo = (lt, acc, arribos, seg)
 
         objetivo = self._exp_objetivo
         return {
@@ -414,10 +538,26 @@ class ServidorMCA:
             'baseline_now': mca_get_baseline_now(h),
             'rate_inst_hz': inst,
             'rate_avg_hz': acc / lt if lt > 1e-6 else 0.0,
+            'tasa_entrada_inst_hz': inst_ent,
+            'tasa_entrada_hz': arribos / seg if seg > 1e-6 else 0.0,
             'exposure': {'target_s': objetivo,
                          'left_s': max(0.0, objetivo - lt) if objetivo else None,
                          'done': self._exp_hecha},
+            'gen': self._gen_estado(),
         }
+
+    def _gen_estado(self):
+        """El generador en el `status`: si genera, cuántos van y, sobre todo, si el
+        lazo está prendido, porque entonces el MCA mide el generador y no la
+        entrada. Son tres lecturas. None sin generador; un error no tira el status."""
+        if self.gen is None:
+            return None
+        try:
+            est = self.gen.estado()
+            est['lazo'] = self.gen.lazo
+            return est
+        except Exception as e:                                  # noqa: BLE001
+            return {'error': f'{type(e).__name__}: {e}'}
 
     def op_read_spectrum(self):
         return {}, mca_read_histogram(self._handle())
@@ -447,18 +587,25 @@ class ServidorMCA:
         abrir después, con las bases que publique el bitstream NUEVO — que
         pueden no ser las mismas.
         """
+        # El ring escribe la DDR por el HP0: reprogramar con una adquisición en curso
+        # es peor que con el MCA corriendo. Como con el MCA, se rechaza; no se para
+        # sola, así el cliente no pierde una corrida sin enterarse.
+        if self._adq is not None and self._adq.corriendo:
+            raise RuntimeError('hay una adquisición del ring corriendo: pararla '
+                               'primero (ring.parar)')
         if self.fake:
             raise RuntimeError('no hay PL que cargar en modo --fake')
         if self.h is not None and self.h.running:
             raise RuntimeError('hay una adquisición corriendo: pararla primero')
 
         from API.fpga import load_bitstream
+        self._cerrar_ring()
         if self.h is not None:
             mca_close(self.h)
             self.h = None
         # El multitrigger comparte el mapeo del osciloscopio: primero el que no
         # es dueño del fd.
-        for atributo in ('mtr', 'mt', 'osc', 'ig'):
+        for atributo in ('gen', 'mtr', 'mt', 'osc', 'ig'):
             bloque = getattr(self, atributo)
             if bloque is not None:
                 try:
@@ -467,11 +614,11 @@ class ServidorMCA:
                     log(f'cerrando {atributo}: {type(e).__name__}: {e}')
                 finally:
                     setattr(self, atributo, None)
-        # rp_Init() mapea por su cuenta, así que su estado también queda
-        # inválido tras reprogramar: se rehace en la próxima captura.
-        self._rp_listo = False
         ruta = path or self.bitstream
         log('cargando bitstream', ruta)
+        # rp_Init() deja registros escritos que la PL nueva no tiene: se rehace en
+        # la próxima captura.
+        self._rp_listo = False
         load_bitstream(ruta, bridges=True, wait_bus_s=8.0)
         self.bitstream = ruta
         self.abrir()
@@ -600,11 +747,12 @@ class ServidorMCA:
             ref = osc.r32(0x01C)
         else:
             self._asegurar_rp()
+            # Por libmca, con la calibración de librp leída de la EEPROM la
+            # primera vez (`Osciloscope.calibracion`).
             from API.osciloscope import osciloscope_read_window
             crudo, ref = osciloscope_read_window(osc, pre=pre, post=post)
-            # `capture_window_np` devuelve {canal_rp: array}; se apila en el
-            # orden IN1, IN2 para que el cliente no dependa de las constantes
-            # de la librería `rp`, que no tiene en la PC.
+            # `capture_window_np` devuelve {canal: array}; se apila en el orden
+            # IN1, IN2.
             datos = np.stack([crudo[c] for c in sorted(crudo, key=str)]
                              ).astype(np.float32)
 
@@ -706,6 +854,146 @@ class ServidorMCA:
             multitrigger_desarmar_mca(self.osc, self.mtr, ch=ch)
         return multitrigger_disparo_mca(self.mtr, ch)
 
+    # ---------- el generador de pulsos (slot 2, 0x4021_0000) ----------
+
+    def _gen(self):
+        if self.gen is None:
+            raise RuntimeError('este bitstream no trae el generador de pulsos '
+                               '(gen_pulsos, slot 2)')
+        return self.gen
+
+    def op_gen_get(self):
+        """La configuración releída, el estado, el lazo, y lo que se deriva de la
+        configuración con las cuentas de libmca, que el cliente no tiene: la tasa
+        media, τ_d, la Mq del polo-cero y el sigma del ruido.
+
+        `lineas` reconstruye las amplitudes desde la tabla: cada valor distinto con
+        la fracción de la tabla que ocupa, que es su probabilidad. Con `amp_aleat`
+        el índice recorre las 1024 entradas; sin él, las `amp_n` primeras en orden.
+        """
+        from API import generadores as G
+        g = self._gen()
+        cfg = g.leer_config()
+        n_tabla = G.N_TABLA if cfg['amp_aleat'] else (cfg['amp_n'] or G.N_TABLA)
+        valores, cuentas = np.unique(g.leer_tabla(n_tabla), return_counts=True)
+        disparos = {k: cfg[k] for k in G.CLAVES_DISPAROS}
+        return {'config': cfg,
+                'estado': g.estado(),
+                'lazo': g.lazo,
+                'lineas': [[int(v), float(c) / n_tabla]
+                           for v, c in zip(valores, cuentas)],
+                'tasa_hz': G.tasa(**disparos),
+                'tau_us': G.tau_de(cfg['decae']) / (G.FS_HZ / 1e6),
+                'mq': G.mq_de(cfg['decae']),
+                'sigma_ruido': G.sigma_ruido(cfg['ruido_sh']),
+                'base': int(self.bases.get('pulsos', 0))}
+
+    def op_gen_configurar(self, cfg):
+        """La configuración ENTERA: lo que no viene queda en el reset del RTL (ver
+        `API.generadores.config`). Apaga el generador; no lo arranca.
+
+        Además de los nombres de `GenPulsos.configurar` (`tasa`, `aleatorio`,
+        `dt_min`, `n`, `semilla`, `subida`, `base`, `ruido`, `ruido_sh`, `salidas`):
+          `tau_us`  la constante de caída, en µs;
+          `lineas`  [[amplitud, peso], ...] en cuentas del ADC. Una sola es la
+                    amplitud fija; varias, sorteadas con esos pesos (la tabla por
+                    CDF inversa, `amp_aleat`).
+        La tabla se arma antes de tocar el hardware, así un error no deja la
+        configuración a medias.
+        """
+        from API import generadores as G
+        g = self._gen()
+        cfg = dict(cfg or {})
+        lineas = cfg.pop('lineas', None)
+        tau_us = cfg.pop('tau_us', None)
+        if tau_us is not None:
+            cfg['tau'] = float(tau_us) * G.FS_HZ / 1e6
+        tabla = None
+        if lineas is not None:
+            if not lineas:
+                raise ValueError('lineas: hace falta al menos una amplitud')
+            valores = [int(round(float(a))) for a, _p in lineas]
+            if len(valores) == 1:
+                cfg.update(amp_aleat=0, amp_n=1)
+                tabla = valores
+            else:
+                cfg.update(amp_aleat=1, amp_n=0)
+                tabla = G.tabla_cdf(valores, [float(p) for _a, p in lineas])
+        g.configurar(**cfg)
+        if tabla is not None:
+            g.cargar_tabla(tabla)
+        log(f"generador configurado: {cfg.get('tasa', '—')} /s, "
+            f"{len(lineas) if lineas else 0} línea(s)")
+        return self.op_gen_get()
+
+    def op_gen_ctrl(self, que):
+        g = self._gen()
+        acciones = {'arrancar': g.arrancar, 'parar': g.parar}
+        if que not in acciones:
+            raise ValueError(f'control desconocido: {que!r}; hay: {sorted(acciones)}')
+        acciones[que]()
+        log(f'generador: {que}')
+        return self.op_gen_get()
+
+    def op_gen_lazo(self, on):
+        """`digital_loop[0]`: con el lazo, el ADC queda desconectado y la entrada del
+        datapath es la salida del generador."""
+        self._gen().lazo = bool(on)
+        log('lazo digital ' + ('PRENDIDO: la entrada es el generador' if on
+                               else 'apagado: la entrada es el ADC'))
+        return self.op_gen_get()
+
+    # ---------- event_ring (slot 2) ----------
+
+    def _ring(self):
+        if self.ring is None:
+            raise RuntimeError(
+                'este bitstream no trae el event_ring en el slot 2: cargar el del ring '
+                '(event_ring_red_pitaya_Z10_2CH.bit.bin)')
+        return self.ring
+
+    def op_ring_iniciar(self, run_dir, pre=8, post=24, n_ch=2, slot_shift=None,
+                        generador=None, disparo=None, calib=None, formato='npz',
+                        capacity=4096, ram_mb=64.0, margen_mb=None, meta=None):
+        """Una adquisición del ring con su sesión (`AdquisicionRing`), que escribe en
+        `run_dir`, un camino de ESTA máquina: la SD, /dev/shm o un montaje de red. Una
+        por vez; sigue aunque el cliente se vaya."""
+        ring = self._ring()
+        if self._adq is not None and self._adq.corriendo:
+            raise RuntimeError(f'ya hay una adquisición del ring corriendo '
+                               f'({self._adq.run_dir}): ring.parar primero')
+        if generador is not None and not self._ring_gen:
+            raise RuntimeError('el ring de este bitstream no tiene el generador de '
+                               'eventos ("GEN1")')
+        adq = AdquisicionRing(ring, run_dir, pre, post, n_ch, slot_shift,
+                              generador=generador, disparo=disparo, osc=self.osc,
+                              mt=self.mt, calib=calib, formato=formato,
+                              capacity=capacity, ram_mb=ram_mb, margen_mb=margen_mb,
+                              meta=meta)
+        info = adq.iniciar()
+        self._adq = adq
+        log(f"ring: adquisición en {info['run_dir']} ({info['fs']}), "
+            f"{'generador' if generador is not None else 'disparo'}, {pre}+{post}")
+        return info
+
+    def op_ring_estado(self):
+        """La adquisición en curso, sin frenarla; o la última, ya parada."""
+        if self._adq is None:
+            return {'corriendo': False, 'motivo': None, 'stats': None, 'hw': None,
+                    'error': None}
+        return self._adq.estado()
+
+    def op_ring_parar(self):
+        """Para la adquisición (la sesión y el ring) y devuelve lo final. La segunda
+        vez, lo mismo."""
+        if self._adq is None:
+            raise RuntimeError('no hubo ninguna adquisición del ring')
+        fin = self._adq.parar()
+        log(f"ring: parada, {fin['stats'].get('n_read', 0)} leídos, "
+            f"{fin['stats'].get('n_written', 0)} escritos"
+            + (f", {fin['error']}" if fin['error'] else ''))
+        return fin
+
     # ---------- despacho ----------
 
     _OPS = {
@@ -741,6 +1029,16 @@ class ServidorMCA:
         'mca.disparo':      ('op_mca_disparo', ('ch', 'armar', 'L', 'G', 'thr',
                                                 'hyst', 'fuente', 'mq')),
         'call':             ('op_call', ('fn', 'a', 'k')),
+        'ring.iniciar':     ('op_ring_iniciar', ('run_dir', 'pre', 'post', 'n_ch',
+                                                 'slot_shift', 'generador', 'disparo',
+                                                 'calib', 'formato', 'capacity',
+                                                 'ram_mb', 'margen_mb', 'meta')),
+        'ring.estado':      ('op_ring_estado', ()),
+        'ring.parar':       ('op_ring_parar', ()),
+        'gen.get':          ('op_gen_get', ()),
+        'gen.configurar':   ('op_gen_configurar', ('cfg',)),
+        'gen.ctrl':         ('op_gen_ctrl', ('que',)),
+        'gen.lazo':         ('op_gen_lazo', ('on',)),
     }
 
     def despachar(self, op, args):
@@ -750,7 +1048,7 @@ class ServidorMCA:
         sobran = set(args) - set(permitidos)
         if sobran:
             raise ValueError(f'{op}: argumentos no reconocidos {sorted(sobran)}')
-        with self._lock:
+        with (self._lock_ring if op.startswith('ring.') else self._lock):
             r = getattr(self, nombre)(**args)
         return r if isinstance(r, tuple) else (r, None)
 
@@ -835,9 +1133,11 @@ class ServidorMCA:
             with self._lock_cliente:
                 if self._cliente is not None and self._cliente[1] is testigo:
                     self._cliente = None
+            sigue = [que for que, si in (
+                ('del MCA', self.h is not None and self.h.running),
+                ('del ring', self._adq is not None and self._adq.corriendo)) if si]
             log('desconectado', addr[0],
-                '(la adquisición sigue)' if self.h is not None
-                and self.h.running else '')
+                f"(sigue la adquisición {' y la '.join(sigue)})" if sigue else '')
 
 
 # =============================================================================

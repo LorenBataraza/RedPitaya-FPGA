@@ -28,6 +28,7 @@ sys.path.insert(0, _AQUI)
 
 from test_mca_remote import ServidorDePrueba                       # noqa: E402
 
+import API.integration                                             # noqa: E402,F401
 import API.mca as A                                                # noqa: E402
 from API._despacho import API_REGISTRADA, NoRemota                 # noqa: E402
 from API.mca_net import RemoteError                                # noqa: E402
@@ -176,6 +177,20 @@ def test_call_sólo_acepta_funciones_de_hardware_del_mca(par):
     _, remoto = par
     for fn in ('mca_write_file_histogram', 'mca_open', 'os.system',
                'mca_get_metadata'):
+        with pytest.raises(ValueError, match='no es una función de hardware'):
+            remoto.call(fn)
+
+
+def test_call_no_le_pasa_el_handle_del_mca_a_otro_bloque(par):
+    """`@_api` registra también las de los otros bloques, y `call` les pasaría el
+    handle del MCA: un `mca_h*` adentro de una función que espera otro struct."""
+    _, remoto = par
+    assert API_REGISTRADA['integration_get_run'].modulo == 'API.integration'
+    assert API_REGISTRADA['multitrigger_get_status'].modulo == 'API.multitrigger'
+    assert API_REGISTRADA['osciloscope_get_status'].modulo == 'API.osciloscope'
+    for fn in ('integration_get_run', 'integration_set_run', 'integration_clear',
+               'multitrigger_get_status', 'multitrigger_configure',
+               'osciloscope_get_status', 'osciloscope_configure', 'osciloscope_read_bram'):
         with pytest.raises(ValueError, match='no es una función de hardware'):
             remoto.call(fn)
 

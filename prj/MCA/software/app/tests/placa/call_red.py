@@ -2,7 +2,7 @@
 """(P) La API por red (op `call`) contra el mca_server de la placa, desde la PC.
 
 Sin generador: el disparo del MCA2 se arma sobre el ruido del ADC, con un
-umbral de pendiente bajo, y se mide con 1 y con 4 ranuras. Todo por
+umbral de pendiente bajo, y se mide con 1 ranura y con todas (`n_acc_max`). Todo por
 `MCARemote`, que es lo que usa la GUI:
 
     identify      el servidor habla el protocolo 2 y dice qué implementación corre
@@ -43,7 +43,7 @@ def check(nombre, ok, detalle=''):
 def cierra(c):
     rt = c['realtime_s']
     tes = abs(rt - (c['vetotime_s'] + c['t_win_s'] + c['t_div_s']
-                    + c['livetime_s'])) < 1e-9
+                    + c['t_rearm_s'] + c['livetime_s'])) < 1e-9
     ocu = abs(sum(c['t_ocup_s']) - (rt - c['vetotime_s'])) < 1e-9
     busy = c['cross'] - c['open'] - c['lost_active'] - c['lost_veto']
     return tes, ocu, busy
@@ -68,7 +68,11 @@ def main(argv=None):
                       thr=args.thr, hyst=args.thr // 2)
         check('disparo armado, con we_keep', est['armado'] and est['we_keep'],
               str(est['pendiente']))
-        for n in (1, 4):
+        # 1 ranura y todas las del bitstream (eran 4; desde el recorte del
+        # 2026-11-09 son 3, y pedir más es ValueError)
+        n_max = A.mca_get_n_acc_max(h)
+        perdidas_1 = None
+        for n in (1, n_max):
             A.mca_configure(h, n_acc=n)
             check(f'n_acc = {n} por call', A.mca_get_n_acc(h) == n)
             spec, m2d, c = A.mca_read_acquire(h, 1.0)
@@ -81,9 +85,14 @@ def main(argv=None):
                   int(spec.sum()) == c['accepted'])
             check(f'n_acc={n}: teselado y ocupación cierran', tes and ocu)
             check(f'n_acc={n}: la atribución cierra', busy >= 0)
-            if n == 4:
-                check('con 4 ranuras no se pierde nada por estar midiendo',
-                      c['lost_active'] == 0, str(c['lost_active']))
+            if n == 1:
+                perdidas_1 = c['lost_active']
+            else:
+                # Erlang B: a la tasa del ruido (a ~ 0.1) con 3 ranuras se pierde
+                # ~1e-4 de lo que llega, contra ~0.1 con una
+                check(f'con {n} ranuras se pierde mucho menos por estar midiendo',
+                      c['lost_active'] <= perdidas_1 / 10,
+                      f"{c['lost_active']} contra {perdidas_1} con 1")
         try:
             A.mca_set_n_acc(h, 9)
             check('n_acc=9 rechazado en la placa', False)

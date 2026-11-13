@@ -36,6 +36,7 @@ from API.mca_net import PORT_DEFAULT
 from API.mca_remote import MCARemote
 from app.panel_config_mca import PanelConfigMCA
 from app.panel_espectro import PanelEspectro
+from app.panel_generador import PanelGenerador
 from app.panel_integracion import PanelIntegracion
 from app.panel_log import PanelLog
 from app.panel_mapa2d import PanelMapa2D
@@ -62,6 +63,7 @@ class Trabajador(QObject):
     integracion = pyqtSignal(dict)
     osc_info = pyqtSignal(dict)
     mtrg_info = pyqtSignal(dict)
+    gen_info = pyqtSignal(dict)              # el gen.get del generador de pulsos
     disparo_info = pyqtSignal(dict)          # el estado de la op mca.disparo
     traza = pyqtSignal(dict, object)          # metadata, float32[n_ch, n]
     aviso = pyqtSignal(str)
@@ -340,6 +342,29 @@ class Trabajador(QObject):
         self._pedir_osc('mtrg.arm' if armar else 'mtrg.disarm', self.mtrg_info)
         self.aviso.emit('disparo armado' if armar else 'disparo desarmado')
 
+    # ---------- el generador de pulsos ----------
+
+    @pyqtSlot()
+    def leer_gen(self):
+        self._pedir_osc('gen.get', self.gen_info)
+
+    @pyqtSlot(dict)
+    def configurar_gen(self, cfg):
+        self._pedir_osc('gen.configurar', self.gen_info, cfg=cfg)
+        self.aviso.emit(f"generador configurado: {cfg.get('tasa', 0):.6g} /s, "
+                        f"{len(cfg.get('lineas') or ())} amplitud(es)")
+
+    @pyqtSlot(str)
+    def ctrl_gen(self, que):
+        self._pedir_osc('gen.ctrl', self.gen_info, que=que)
+        self.aviso.emit(f'generador: {que}')
+
+    @pyqtSlot(bool)
+    def lazo_gen(self, on):
+        self._pedir_osc('gen.lazo', self.gen_info, on=bool(on))
+        self.aviso.emit('lazo digital PRENDIDO: la entrada es el generador' if on
+                        else 'lazo digital apagado: la entrada es el ADC')
+
     @pyqtSlot(float)
     def set_refresco(self, segundos):
         if hasattr(self, '_t_espectro'):
@@ -392,6 +417,10 @@ class Mcamon(QMainWindow):
     sig_mascara = pyqtSignal(int, int)
     sig_armar = pyqtSignal(bool)
     sig_disparo = pyqtSignal(dict)
+    sig_pedir_gen = pyqtSignal()
+    sig_gen_configurar = pyqtSignal(dict)
+    sig_gen_ctrl = pyqtSignal(str)
+    sig_gen_lazo = pyqtSignal(bool)
 
     def __init__(self, host='10.73.28.27', port=PORT_DEFAULT):
         super().__init__()
@@ -421,6 +450,7 @@ class Mcamon(QMainWindow):
         self.panel_integracion = None
         self.panel_osc = None
         self.panel_mtrg = None
+        self.panel_gen = None           # según `has_pulsos`
         self.tabs.addTab(self.panel_log, 'Mensajes')
         self.tabs.addTab(self.panel_espectro, 'Espectro')
         self.tabs.addTab(self.panel_config, 'MCA')
@@ -484,6 +514,13 @@ class Mcamon(QMainWindow):
         self.spn_refresco.valueChanged.connect(self.sig_refresco)
 
         self.lbl_estado = QLabel('sin conectar')
+        # Con el lazo digital el MCA mide el generador y no la entrada. Tiene que
+        # verse desde cualquier pestaña: un espectro tomado así sin darse cuenta
+        # parece una medición.
+        self.lbl_lazo = QLabel('LAZO DIGITAL: la entrada es el generador')
+        self.lbl_lazo.setStyleSheet('color: white; background: #c0392b; '
+                                    'font-weight: bold; padding: 2px 6px;')
+        self.lbl_lazo.setVisible(False)
 
         h = QHBoxLayout()
         for w in (self.btn_conectar, self.ed_host, QLabel(':'), self.spn_port):
@@ -498,6 +535,7 @@ class Mcamon(QMainWindow):
         h.addWidget(QLabel('refresco'))
         h.addWidget(self.spn_refresco)
         h.addStretch(1)
+        h.addWidget(self.lbl_lazo)
         h.addWidget(self.lbl_estado)
         return h
 
@@ -532,6 +570,11 @@ class Mcamon(QMainWindow):
         self.sig_mascara.connect(self.trabajador.set_mascara)
         self.sig_armar.connect(self.trabajador.armar_mtrg)
         self.sig_disparo.connect(self.trabajador.disparo)
+        self.sig_pedir_gen.connect(self.trabajador.leer_gen)
+        self.sig_gen_configurar.connect(self.trabajador.configurar_gen)
+        self.sig_gen_ctrl.connect(self.trabajador.ctrl_gen)
+        self.sig_gen_lazo.connect(self.trabajador.lazo_gen)
+        self.trabajador.gen_info.connect(self._al_gen)
         self.trabajador.disparo_info.connect(self.panel_espectro.actualizar_disparo)
 
         self.trabajador.integracion.connect(self._al_integracion)
@@ -598,6 +641,7 @@ class Mcamon(QMainWindow):
         self._sincronizar_pestana_integracion(bool(info.get('has_integracion')))
         self._sincronizar_pestanas_osc(bool(info.get('has_osc')),
                                        bool(info.get('has_mtrg')))
+        self._sincronizar_pestana_generador(bool(info.get('has_pulsos')))
         for nota in info.get('bases_notas') or ():
             self.panel_log.info(f'bases: {nota}')
 
@@ -606,9 +650,11 @@ class Mcamon(QMainWindow):
         self.lbl_estado.setText('sin conectar')
         self.panel_espectro.set_conectado(False)
         self.panel_config.set_conectado(False)
-        for panel in (self.panel_integracion, self.panel_osc, self.panel_mtrg):
+        for panel in (self.panel_integracion, self.panel_osc, self.panel_mtrg,
+                      self.panel_gen):
             if panel is not None:
                 panel.set_conectado(False)
+        self.lbl_lazo.setVisible(False)
         self.panel_log.info('desconectado')
 
     def _al_estado(self, est):
@@ -617,6 +663,12 @@ class Mcamon(QMainWindow):
         # llega cada 200 ms: no cuesta ninguna lectura extra.
         if self.panel_osc is not None:
             self.panel_osc.actualizar_estado(est)
+        # El generador también viaja en el status: el aviso del lazo y el estado
+        # de su pestaña no cuestan otra vuelta.
+        gen = est.get('gen') or {}
+        self.lbl_lazo.setVisible(bool(gen.get('lazo')))
+        if self.panel_gen is not None and gen:
+            self.panel_gen.actualizar_estado(gen)
 
     def _al_config(self, cfg):
         self.panel_espectro.actualizar_config(cfg)
@@ -732,6 +784,32 @@ class Mcamon(QMainWindow):
             self.panel_mtrg.set_conectado(True)
             self.sig_pedir_mtrg.emit()
         self._cambio_pestana()
+
+    # ---------- pestaña del generador de pulsos ----------
+
+    def _sincronizar_pestana_generador(self, hay):
+        """Existe si el bitstream trae `gen_pulsos`, como las otras."""
+        if hay and self.panel_gen is None:
+            self.panel_gen = PanelGenerador()
+            self.panel_gen.log.connect(self.panel_log.info)
+            self.panel_gen.pedir_configurar.connect(self.sig_gen_configurar)
+            self.panel_gen.pedir_ctrl.connect(self.sig_gen_ctrl)
+            self.panel_gen.pedir_lazo.connect(self.sig_gen_lazo)
+            self.panel_gen.pedir_refresco.connect(self.sig_pedir_gen)
+            self.panel_gen.pedir_campo_mca.connect(self.sig_campo)
+            self.tabs.addTab(self.panel_gen, 'Generador')
+        elif not hay and self.panel_gen is not None:
+            self.tabs.removeTab(self.tabs.indexOf(self.panel_gen))
+            self.panel_gen.deleteLater()
+            self.panel_gen = None
+        if self.panel_gen is not None:
+            self.panel_gen.set_conectado(True)
+            self.sig_pedir_gen.emit()
+
+    def _al_gen(self, info):
+        self.lbl_lazo.setVisible(bool(info.get('lazo')))
+        if self.panel_gen is not None:
+            self.panel_gen.actualizar_gen(info)
 
     def _al_osc(self, info):
         if self.panel_osc is not None:

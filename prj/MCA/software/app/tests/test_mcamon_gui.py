@@ -145,15 +145,16 @@ def test_la_pestana_2d_aparece_porque_el_bitstream_la_trae():
         assert v.panel_mapa is not None
         titulos = [v.tabs.tabText(i) for i in range(v.tabs.count())]
         assert titulos == ['Mensajes', 'Espectro', 'MCA', 'Mapa 2D (PSD)',
-                           'OSC', 'Multitrigger']
+                           'OSC', 'Multitrigger', 'Generador']
         # La de Integración NO está: el MCA falso no simula el slot 6, y la
-        # pestaña se crea sólo si el bitstream lo trae. Las de OSC y
-        # Multitrigger SÍ: el simulador incluye los dos bloques, que es lo que
+        # pestaña se crea sólo si el bitstream lo trae. Las de OSC, Multitrigger
+        # y el generador SÍ: el simulador incluye los bloques, que es lo que
         # permite desarrollarlas sin placa.
         assert v.panel_integracion is None
         assert v.info.get('has_integracion') is False
         assert v.info.get('has_osc') is True
         assert v.info.get('has_mtrg') is True
+        assert v.info.get('has_pulsos') is True
     _con_gui(cuerpo)
 
 
@@ -182,6 +183,44 @@ def test_los_contadores_y_las_tasas_se_llenan():
         assert v.panel_espectro.baseline is not None
         assert 'aceptados' in v.panel_espectro.lbl_contadores.text()
         v.sig_parar.emit()
+    _con_gui(cuerpo)
+
+
+def test_el_tiempo_muerto_va_en_total_y_se_desglosa_a_pedido():
+    """Por defecto un solo `muerto` (deadtime_real_s, no la ocupación); con
+    «detalle», una fila por etapa con su tiempo y sus disparos."""
+    def cuerpo(app, v):
+        p = v.panel_espectro
+        v.sig_start.emit(0.0, True)
+        assert _esperar(app, lambda: p.contadores.get('livetime_s', 0) > 0.2)
+        v.sig_parar.emit()
+        assert _esperar(app, lambda: not p.btn_stop.isEnabled())
+        texto = p.lbl_contadores.text()
+        assert 'muerto' in texto and 'sin ranura' not in texto
+        assert f"{p.contadores['deadtime_real_s']:7.3f}" in texto
+
+        p.chk_detalle.setChecked(True)
+        texto = p.lbl_contadores.text()
+        for etapa in ('veto', 'sin ranura', 'publicador', 're-armado', 'vivo',
+                      'total'):
+            assert etapa in texto, etapa
+        # La fila del total trae realtime y cross.
+        total = [l for l in texto.splitlines() if l.startswith('total')][0]
+        assert str(p.contadores['cross']) in total
+
+        p.chk_detalle.setChecked(False)
+        assert 'sin ranura' not in p.lbl_contadores.text()
+    _con_gui(cuerpo)
+
+
+def test_el_maximo_de_ranuras_lo_dice_la_placa():
+    """El tope de `n_acc` sale de `n_acc_max` del identify, no del 4 del
+    constructor: la placa tiene 3."""
+    def cuerpo(app, v):
+        spn = v.panel_config._controles['n_acc'][0]
+        assert spn.maximum() == v.info['n_acc_max']
+        v.panel_config.configurar_mca({'n_acc_max': 3})
+        assert spn.maximum() == 3
     _con_gui(cuerpo)
 
 
@@ -432,6 +471,60 @@ def test_guardar_y_recargar_desde_la_gui():
             png = os.path.join(d, 'espectro.png')
             pe.fig.savefig(png, dpi=80)
             assert os.path.getsize(png) > 1000
+    _con_gui(cuerpo)
+
+
+def test_guardar_y_cargar_n42_desde_los_dialogos():
+    """Por el mismo camino que los botones, con el diálogo de archivos falso."""
+    def cuerpo(app, v):
+        import unittest.mock as mock
+        from app import panel_espectro as P
+
+        pe = v.panel_espectro
+        v.sig_start.emit(0.0, True)
+        assert _esperar(app, lambda: pe.hist is not None and pe.hist.sum() > 0)
+        v.sig_parar.emit()
+        app.processEvents()
+        original = pe.hist.copy()
+
+        with tempfile.TemporaryDirectory() as d:
+            # Sin extensión: manda el filtro elegido.
+            ruta = os.path.join(d, 'sin_extension')
+            with mock.patch.object(P.QFileDialog, 'getSaveFileName',
+                                   return_value=(ruta, 'N42.42 (*.n42)')) as dlg:
+                pe._guardar_archivo()
+            assert 'N42.42 (*.n42)' in dlg.call_args[0][3]
+            assert os.path.exists(ruta + '.n42')
+
+            pe.hist = None
+            with mock.patch.object(P.QFileDialog, 'getOpenFileName',
+                                   return_value=(ruta + '.n42', '')) as dlg:
+                pe._cargar_archivo()
+            assert '*.n42' in dlg.call_args[0][3]
+            assert np.array_equal(pe.hist, original)
+
+            # Con una extensión conocida, manda ésa aunque el filtro diga otra cosa.
+            ruta = os.path.join(d, 'e.n42')
+            with mock.patch.object(P.QFileDialog, 'getSaveFileName',
+                                   return_value=(ruta, 'CSV con metadata (*.csv)')):
+                pe._guardar_archivo()
+            assert open(ruta, encoding='utf-8').read().startswith('<?xml')
+
+            # Sin extensión ni filtro reconocible, como antes: csv.
+            ruta = os.path.join(d, 'otro')
+            with mock.patch.object(P.QFileDialog, 'getSaveFileName',
+                                   return_value=(ruta, '')):
+                pe._guardar_archivo()
+            assert os.path.exists(ruta + '.csv')
+
+        # Un archivo de otro programa: no trae la geometría del MCA.
+        ejemplo = os.path.join(_SOFTWARE, 'API', 'tests', 'datos_ref', 'n42',
+                               'annexb.n42')
+        with mock.patch.object(P.QFileDialog, 'getOpenFileName',
+                               return_value=(ejemplo, '')):
+            pe._cargar_archivo()
+        assert pe.hist.size == pe.n_canales == 256
+        app.processEvents()
     _con_gui(cuerpo)
 
 
@@ -746,4 +839,88 @@ def test_los_campos_de_los_paneles_existen_en_su_bloque():
         for panel in (v.panel_config, v.panel_osc, v.panel_mtrg):
             malos = campos_desconocidos(panel.campos(), panel.BLOQUE)
             assert not malos, f'{type(panel).__name__} ({panel.BLOQUE}): {malos}'
+    _con_gui(cuerpo)
+
+
+# =============================================================================
+# La pestaña del generador de pulsos
+# =============================================================================
+
+def test_las_amplitudes_del_generador_se_leen_del_texto():
+    from app.panel_generador import leer_lineas
+    assert leer_lineas('1500, 4000', '0.6 0.4') == [[1500, 0.6], [4000, 0.4]]
+    assert leer_lineas('-200', '') == [[-200, 1.0]]
+    for amp, pesos in (('', ''), ('1500, 4000', '1'), ('9000', ''),
+                       ('1.5', ''), ('abc', ''), ('10, 20', '0 0')):
+        try:
+            leer_lineas(amp, pesos)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f'aceptó {amp!r} / {pesos!r}')
+
+
+def test_la_pestana_del_generador_configura_y_relee():
+    def cuerpo(app, v):
+        assert v.panel_gen is not None, 'sin pestaña del generador'
+        assert v.tabs.indexOf(v.panel_gen) >= 0
+        p = v.panel_gen
+        assert _esperar(app, lambda: p.lbl_mq.text() != '—')
+        p.cmb_modo.setCurrentIndex(1)
+        p.spn_tasa.setValue(20000)
+        p.ed_amplitudes.setText('1500, 4000')
+        p.ed_pesos.setText('3, 1')
+        p.spn_tau.setValue(3.0)
+        p.btn_aplicar.click()
+        assert _esperar(app, lambda: 'sorteadas' in p.lbl_amp_modo.text())
+        # Lo que vuelve es lo releído de la placa: los pesos, en fracción de tabla.
+        assert p.ed_amplitudes.text() == '1500, 4000'
+        assert p.ed_pesos.text().startswith('0.75')
+        assert abs(float(p.lbl_tau.text()) - 3.0) < 0.02
+        assert abs(float(p.lbl_tasa.text()) / 20000 - 1) < 1e-3
+        # Un error se avisa en la pestaña, sin diálogo modal, y no escribe nada.
+        p.ed_amplitudes.setText('1500, 99999')
+        p.btn_aplicar.click()
+        assert 'no se aplicó' in p.lbl_error.text()
+        p.btn_releer.click()
+        assert _esperar(app, lambda: p.ed_amplitudes.text() == '1500, 4000')
+    _con_gui(cuerpo)
+
+
+def test_el_lazo_se_ve_en_la_barra_y_lleva_la_tasa_al_espectro():
+    """Prender el lazo desde la pestaña: aparece el aviso arriba y, con el
+    generador andando, la tasa de entrada del espectro es la del generador."""
+    def cuerpo(app, v):
+        p = v.panel_gen
+        assert _esperar(app, lambda: p.lbl_mq.text() != '—')
+        p.cmb_modo.setCurrentIndex(1)
+        p.spn_tasa.setValue(5000)
+        p.ed_amplitudes.setText('2000')
+        p.btn_aplicar.click()
+        assert _esperar(app, lambda: p.lbl_amp_modo.text() == 'una amplitud fija')
+        assert not v.lbl_lazo.isVisibleTo(v)
+        p.chk_lazo.setChecked(True)
+        assert _esperar(app, lambda: v.lbl_lazo.isVisibleTo(v))
+        p.btn_arrancar.click()
+        assert _esperar(app, lambda: p.lbl_estado.text() == 'generando')
+        v.sig_start.emit(0.0, True)
+        assert _esperar(app, lambda: v.panel_espectro.contadores.get(
+            'realtime_s', 0) > 1.5)
+        tasa = float(v.panel_espectro.lbl_rate_avg.text())
+        assert abs(tasa / 5000 - 1) < 0.15, tasa
+        v.sig_parar.emit()
+        p.btn_parar.click()
+        p.chk_lazo.setChecked(False)
+        assert _esperar(app, lambda: not v.lbl_lazo.isVisibleTo(v))
+    _con_gui(cuerpo)
+
+
+def test_la_mq_del_generador_va_al_trapecio():
+    def cuerpo(app, v):
+        p = v.panel_gen
+        assert _esperar(app, lambda: p.lbl_mq.text() != '—')
+        mq = int(p.lbl_mq.text())
+        p.btn_mq.click()
+        assert _esperar(app, lambda:
+                        v.panel_config._controles['trap_mq'][1]() == mq)
     _con_gui(cuerpo)
