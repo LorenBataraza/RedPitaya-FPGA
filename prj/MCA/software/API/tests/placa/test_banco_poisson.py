@@ -4,7 +4,7 @@
 Corre en la Pitaya, con el Rigol en IN1. Es lo que test_mca2_placa.py no mira: la
 regla del banco con arribos al azar, a tasas de hasta 1 Mcps. Sobre la misma señal mide:
 
-  banco    disparo con polo-cero + las 4 formas (`multitrigger_armar_banco`)
+  banco    disparo con polo-cero + el banco (`multitrigger_armar_banco`; --formas, --n-acc)
   unico    disparo con polo-cero + un solo trapecio 64/48, sin regla
   hoy      disparo por pendiente + un solo trapecio 64/48, sin regla
 
@@ -36,8 +36,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from test_mca2_placa import (FS, M_OR_MASK, M_SHIELD, Mem, OSC_PHYS, Pendiente,     # noqa: E402
                              abrir_generador, pulso_preamp)
-from API.mca import (mca_banco_config, mca_clear, mca_close, mca_configure,         # noqa: E402
-                     mca_get_formas_ok, mca_get_n_formas_max, mca_get_umbr_ok, mca_open,
+from API.mca import (BANCO_PZ, BANCO_PZ_4, mca_banco_config, mca_clear, mca_close, mca_configure,         # noqa: E402
+                     mca_get_formas_ok, mca_get_n_acc_max, mca_get_n_formas_max,
+                     mca_get_umbr_ok, mca_open,
                      mca_read_counters, mca_read_histogram, mca_set_sel_1d,
                      mca_set_zoom_1d_z, mca_start, mca_stop)
 from API.multitrigger import (MtRegion, multitrigger_armar_banco,                   # noqa: E402
@@ -129,6 +130,9 @@ def main():
     ap.add_argument('--bl-auto', action='store_true', help='el seguidor de base, con holdoff de 1500')
     ap.add_argument('--gen-ch', type=int, default=1)
     ap.add_argument('--out', default='datos/banco_poisson')
+    ap.add_argument('--n-acc', type=int, default=0, help='ranuras; 0 = las del bitstream')
+    ap.add_argument('--formas', type=int, choices=[0, 3, 4], default=0,
+                    help='el banco: 3 (API.mca.BANCO_PZ) o 4 (BANCO_PZ_4); 0 = el del bitstream')
     args = ap.parse_args()
     os.makedirs(os.path.dirname(args.out) or '.', exist_ok=True)
 
@@ -138,7 +142,11 @@ def main():
     osc = osciloscope_open()
     pend = Pendiente(ch=0)
     buf = Mem(OSC_PHYS, 0x30000)
-    print('impl', h._via, 'n_formas_max', mca_get_n_formas_max(h), flush=True)
+    n_acc = args.n_acc or mca_get_n_acc_max(h)
+    n_formas = args.formas or min(mca_get_n_formas_max(h), 4)
+    banco = BANCO_PZ_4 if n_formas == 4 else BANCO_PZ
+    print('impl', h._via, 'n_acc', n_acc, 'de', mca_get_n_acc_max(h), '· formas', n_formas,
+          'de', mca_get_n_formas_max(h), flush=True)
     res, trazas = [], {}
     try:
         # la base, con el generador encendido y casi sin pulsos
@@ -157,7 +165,8 @@ def main():
                         'amp': amp.tolist(), 'base': base}
 
                 bl = dict(bl_auto=True, bl_holdoff=1500) if args.bl_auto else dict(baseline=base)
-                multitrigger_armar_banco(h, osc, mtr, args.mq, ch=0, sel_1d='trapecio', **bl)
+                multitrigger_armar_banco(h, osc, mtr, args.mq, ch=0, sel_1d='trapecio',
+                                         formas=banco, n_acc=n_acc, **bl)
                 if args.dur:
                     mtr.w32(M_SHIELD, (args.dur << 16) | (1 << 8) | 1)
                 est = multitrigger_disparo_mca(mtr, 0)
@@ -172,7 +181,7 @@ def main():
                 mca_set_zoom_1d_z(h, 0)
 
                 kw = mca_banco_config(args.mq, formas=UNICA, gate_long=112)
-                mca_configure(h, n_acc=4, sel_1d='trapecio', baseline=base, **kw)
+                mca_configure(h, n_acc=n_acc, sel_1d='trapecio', baseline=base, **kw)
                 c, hi = medir(h, args.seg)
                 fila['unico'] = dict(c=limpio(c), h=disperso(hi))
 
@@ -189,7 +198,8 @@ def main():
                       f'open={b["open"]:8d} total={b["total"]:8d} formas {fila["banco_forma"]["cuentas"]}',
                       flush=True)
                 json.dump({'filas': res, 'T': T, 'mq': args.mq, 'lineas': LINEAS, 'a_top': args.a_top,
-                           'sube': args.sube, 'dur': args.dur, 'bl_auto': args.bl_auto},
+                           'sube': args.sube, 'dur': args.dur, 'bl_auto': args.bl_auto,
+                           'n_acc': n_acc, 'n_formas': n_formas},
                           open(args.out + '.json', 'w'))
                 np.savez(args.out + '_trazas.npz', **trazas)
     finally:

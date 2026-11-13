@@ -1,0 +1,33 @@
+{
+ "rev": "aff683518",
+ "archivo": "rp-api/api/src/common.c",
+ "bits": 14,
+ "funcion_sha256": "5ec75e66760f57b979f393d3e3c8ce61550056bb626602f8052f90781e428cc1",
+ "funcion": [
+  "int32_t cmn_CalibCntsSigned(uint32_t cnts, uint8_t bits, uint32_t gain, uint32_t base, int32_t offset){",
+  "    int32_t m;",
+  "",
+  "    /* check sign */",
+  "    if(cnts & (1 << (bits - 1))) {",
+  "        /* negative number */",
+  "        m = -1 *((cnts ^ ((1 << bits) - 1)) + 1);",
+  "    } else {",
+  "        /* positive number */",
+  "        m = cnts;",
+  "    }",
+  "",
+  "    /* adopt ADC count with calibrated DC offset */",
+  "    m -= offset;",
+  "",
+  "    m = ((int32_t)gain * m) / (int32_t)base;",
+  "",
+  "    /* check limits */",
+  "    if(m < -(1 << (bits - 1)))",
+  "        m = -(1 << (bits - 1));",
+  "    else if(m > (1 << (bits - 1)))",
+  "        m = (1 << (bits - 1));",
+  "",
+  "    return m;",
+  "}"
+ ]
+}

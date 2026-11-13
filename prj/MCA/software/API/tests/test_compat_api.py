@@ -73,6 +73,23 @@ DESVIACIONES = {
         'y el nombre viejo sugería lo contrario. Sólo cambia lo que muestra '
         'threading.enumerate(); quien pasa name= no ve nada.')
        for n in ('ReaderThread.__init__', 'ChunkWriter.__init__')},
+    ('mca', 'SCHEMA_VERSION'): (
+        'pasó de 1 a 2: el meta() de la fuente suma `dt_ns`, que hace falta para '
+        'guardar en LH5 (t0 y dt de cada onda). Los archivos con 1 se siguen leyendo '
+        'igual, y el `.npz` no cambia de forma.'),
+    **{('mca', f'BramSource.{n}'): (
+        'el lazo por evento de BramSource pasó a C (Parte 6 del plan de libmca): '
+        'la fuente entrega por lote, `read_batch(batch, deadline_ns)`, y el lector '
+        'la usa si existe. wait_event/snapshot/read_into/rearm siguen siendo la '
+        'interfaz por evento de FakeSource; RingSource también pasó a lote, en la '
+        'Parte 7.')
+       for n in ('wait_event', 'snapshot', 'read_into', 'rearm')},
+    **{('multitrigger_utils', f'MultiTriggerScope.{n}'): (
+        'la captura dejó `rp` (Parte 6): lee la BRAM por libmca con la calibración '
+        'de librp, así que necesita el handle y deja de ser estático. Los defaults '
+        'de `n_buf` y `post` pasan a ser el anillo del bitstream cargado, en vez de '
+        '16384: con un anillo menor, el viejo devolvía el buffer repetido.')
+       for n in ('capture_window_np', 'read_buffers', 'wait_fill', 'wait_triggered')},
     ('multitrigger_utils', 'rp'): (
         'era el módulo `rp` importado a nivel de módulo; ahora es un proxy que '
         'lo importa en el primer uso. Sin esto API/osciloscope.py entero era '

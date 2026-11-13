@@ -35,7 +35,9 @@ CFLAGS_LIB = $(CFLAGS) -fPIC -fvisibility=hidden -fno-tree-vectorize -Iinclude \
              -DMCA_CFLAGS_STR='"$(CFLAGS) -fno-tree-vectorize"'
 
 SRC := src/common.c src/bus.c src/bus_mmap.c src/bus_devmem.c src/bus_callback.c \
-       src/mca.c
+       src/bloque.c src/mca.c src/integration.c src/multitrigger.c src/osciloscope.c \
+       src/osciloscope_lote.c src/mem.c src/osciloscope_ring.c src/gen_disparos.c \
+       src/gen_pulsos.c
 LDLIBS := -lm
 HDR := $(wildcard include/*.h src/*.h)
 

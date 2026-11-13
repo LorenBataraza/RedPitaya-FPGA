@@ -24,8 +24,10 @@ pipeline abre también una ventana del MCA, así que los dos ven LOS MISMOS
 pulsos y ahora sí se pueden comparar las cuentas, no sólo la forma. El
 disparo por nivel cruza a media subida, ~20 muestras después del pie del pulso
 de 2 us, así que la ventana necesita más retardo que con el disparo por
-pendiente: `--pre-dly` (28 por defecto, A CONFIRMAR EN PLACA: es la primera
-corrida de este script sobre el MCA2).
+pendiente: `--pre-dly` (28 por defecto). Confirmado en la placa el 2026-11-08,
+con 1000 pulsos/s de 300 mV: 20068 eventos en el pipeline, 20069 en el MCA, y la
+amplitud de software a +0.22 % de la del MCA. El histograma de software sale ancho
+con `--pre 32`, que no cubre la subida de 47 muestras: la base cae sobre el flanco.
 
 Uso:
 
@@ -65,7 +67,8 @@ def acquire(args):
     import rp
     import API.mca as A
     from multitrigger_utils import MultiTriggerScope
-    from mca import AcquisitionSession, BramSource, load_chunk, scope_regs
+    from mca import (AcquisitionSession, BramSource, archivos_de_corrida, load_chunk,
+                     scope_regs)
 
     # -- generador ---------------------------------------------------------
     gen = rgmod.RigolDG4162.usb()
@@ -87,6 +90,9 @@ def acquire(args):
     if not sc.verify_bitstream(verbose=False)['ok']:
         sc.close()
         raise SystemExit('no se lee un scope multitrigger valido')
+    # rp_Init() no hace falta para leer (el lazo es de libmca) y no cambia ninguna
+    # muestra: el ecualizador que configura no está en el bitstream (EN_FILT = 0).
+    # Queda para que la API siga siendo compatible con la de Red Pitaya.
     rp.rp_Init()
 
     mca = A.mca_open()
@@ -141,7 +147,7 @@ def acquire(args):
           f'(dead {100*(1-cnt["livetime_s"]/max(cnt["realtime_s"],1e-9)):.1f} %)')
 
     # -- formas crudas del pipeline ---------------------------------------
-    files = sorted(glob.glob(os.path.join(run_dir, 'chunk_*.npz')))
+    files = archivos_de_corrida(run_dir)
     if not files:
         raise SystemExit('el pipeline no escribio ningun chunk')
     trazas, t_ns = [], []

@@ -7,29 +7,48 @@ ver docs/arquitectura_adquisicion_software.md Parte 5) solo cambie esta capa:
         scalar_fields  -> [(nombre, dtype), ...] que aporta al esquema del batch
         samples        -> muestras por ventana
         n_ch           -> canales
+        wave_dtype     -> opcional: el tipo de `batch.wave` (float32 en volts si no)
         arm()          -> deja el HW listo para disparar
-        wait_event(deadline_ns) -> wp_trig del evento nuevo, o None si timeout
-        read_into(batch, i, wp) -> escribe EN batch.wave[i], sin devolver nada
         close()
 
-`read_into` escribe en el destino provisto en vez de devolver arrays: evita la
-basura de GC de `capture_window_np` (que hace np.zeros por llamada y por canal),
-y hace que la version DDR sea un memcpy sin capa intermedia.
+    y una de dos formas de entregar eventos:
 
-`rp` y `multitrigger_utils` se importan DENTRO de BramSource, no arriba: asi
-este modulo (y FakeSource) se puede usar en la PC, sin la placa.
+        por lote (la que se usa si existe):
+        read_batch(batch, deadline_ns) -> (nuevos, descartados, asignados)
+        pending        -> descartados que todavia no fueron a ningun `gap`
+
+        por evento:
+        wait_event(deadline_ns) -> wp_trig del evento nuevo, o None si timeout
+        snapshot()              -> que fuente disparo
+        read_into(batch, i, wp) -> escribe EN batch.wave[i], sin devolver nada
+        rearm()
+
+`read_batch` llena las filas desde `batch.n`, sin tocar `batch.n`, hasta llenar el
+batch o vencer el plazo. Con `batch=None` no hay donde guardar: cuenta los eventos
+como descartados y re-arma. Escribe `wave` y las columnas de BASE_FIELDS, y
+`dead_ns` si el batch la tiene. `BramSource` es por lote, con el lazo en C;
+`FakeSource` y `RingSource`, por evento.
+
+`read_into` escribe en el destino provisto en vez de devolver arrays: evita la
+basura de GC y hace que la version DDR sea un memcpy sin capa intermedia.
 """
 
 import time
 
 import numpy as np
 
+from API.multitrigger import BIT_ADC_P0
+from API.osciloscope import Lector, _cal_dict, calibracion_adc
+
 from .events import BASE_FIELDS
 
-N_BUF         = 16384
+N_BUF         = 16384          # el anillo de FakeSource; BramSource usa el del bitstream
 ADC_CNT_PER_V = 8192           # escala LV (+-1 V); la misma de multitrigger_utils
-WP_TRIG_OFF   = (0x1C, 0x11C)  # wp_trig por canal
-SNAPSHOT_OFF  = 0x218
+WP_TRIG_OFF   = (0x1C, 0x11C)  # wp_trig por canal, en el slot 1
+DT_NS         = 8.0            # 125 MS/s: `multitrigger_arm` arma sin diezmado
+
+# Lo que el lazo de C vuelve a mirar `stop`: cada cuanto, como mucho, devuelve.
+PLAZO_LOTE_NS = 50_000_000
 
 
 class BramSource:
@@ -55,17 +74,33 @@ class BramSource:
     El precio es que hay que re-armar por software despues de cada lectura, y
     mientras tanto el scope esta ciego: ese es el dead-time real del metodo.
 
+    **El lazo es de C** (`osciloscope_leer_lote`, via `API.osciloscope.Lector`):
+    esperar, anotar, leer la ventana, re-armar, sin el GIL. Por eso hace falta un
+    scope de libmca (`impl='c'`); con la referencia de Python, TypeError al armar.
+
+    **`wave` son cuentas calibradas** (int16), las de librp: m = gain*(s - offset)
+    / base, con los numeros de la EEPROM (`calib=None` los lee al armar; si no se
+    pueden leer, error). Son los mismos que antes salian de rint(V*8192) con la V
+    de `rp_AcqGetDataPosV`, y van a la metadata.
+
     El `trigger_shield` se deja activo igual, porque limpia `adc_trg_dis`
     automaticamente y ahorra el pulso a 0x94 en cada re-arm.
+
+    **Dos regiones.** El estado de la FSM y `wp_trig` estan en el slot 1 (`sc`);
+    las mascaras y el snapshot, en el slot 3 (`sc.mt`, mt_cfg.sv). El slot 1 ya no
+    decodifica 0x240/0x244/0x218: una escritura ahi se pierde sin error, y como en
+    single-shot `mt_trig_src` borra la mascara al disparar, el scope captura un
+    evento y no dispara mas.
     """
+
+    scalar_fields = BASE_FIELDS
+    wave_dtype    = np.int16
 
     def __init__(self, scope, pre=8, post=24, n_ch=2, thr=0.5, hyst=0.02,
                  mask=None, delay=None, read_snap=True, wp_addr=WP_TRIG_OFF[0],
-                 single_shot=True):
-        import struct
-        from API.multitrigger import BIT_ADC_P0
-
+                 single_shot=True, calib=None):
         self.sc        = scope
+        self.mt        = scope.mt
         self.pre       = pre
         self.post      = post
         self.samples   = pre + post
@@ -81,130 +116,52 @@ class BramSource:
         self.read_snap   = read_snap
         self.wp_addr     = wp_addr
         self.single_shot = single_shot
-
-        self._u32      = struct.Struct('<I')
-        self._mem      = scope._mmap
-        self._wp_prev  = 0
-        self._fbufs    = None
-        self._views    = None
-        self._chs      = None
+        # La calibracion de cada canal: dada, o la de la EEPROM al armar.
+        self.calib     = None if calib is None else [_cal_dict(c) for c in calib]
+        self._lector   = None
 
     # -- ciclo de vida ------------------------------------------------------
 
-    scalar_fields = BASE_FIELDS
-
     def arm(self):
-        import ctypes
-        import rp
+        if self.calib is None:
+            self.calib = calibracion_adc(range(self.n_ch))
+        if len(self.calib) < self.n_ch:
+            raise ValueError(f'{len(self.calib)} calibraciones para {self.n_ch} canales')
+        lector = Lector(self.sc, self.mt, pre=self.pre, post=self.post,
+                        n_ch=self.n_ch, mascara=self.mask, cal=self.calib[:self.n_ch],
+                        wp_off=self.wp_addr, single_shot=self.single_shot,
+                        rearmar=True, leer_snap=self.read_snap)
 
-        self._chs = (rp.RP_CH_1, rp.RP_CH_2, rp.RP_CH_3, rp.RP_CH_4)[:self.n_ch]
-
-        # ORDEN CRITICO: arma (0x00) y RECIEN DESPUES habilita la mascara
-        # (0x240/0x244). arm_for_adc_trigger ya lo hace internamente.
+        # ORDEN CRITICO: arma (0x00) y RECIEN DESPUES habilita la mascara.
+        # arm_for_adc_trigger ya lo hace internamente.
         self.sc.arm_for_adc_trigger(
             mask_ch0=self.mask, mask_ch1=self.mask,
             thr=self.thr, hyst=self.hyst, delay=self.delay,
             we_keep_both=not self.single_shot, auto_rearm=True)
-
-        # Un fBuffer por canal, reusado en todo el lazo. La vista numpy se arma
-        # UNA vez sobre el puntero del buffer (no por evento): asi `read_into`
-        # es una sola copia hacia la fila del batch.
-        n = self.samples
-        self._fbufs = [rp.fBuffer(n) for _ in range(self.n_ch)]
-        self._views = [
-            np.frombuffer((ctypes.c_float * n)
-                          .from_address(int(fb.cast().__int__())),
-                          dtype=np.float32)
-            for fb in self._fbufs]
-
-        self._wp_prev = self._u32.unpack_from(self._mem, self.wp_addr)[0]
-
-    def rearm(self):
-        """Re-arma para el proximo evento. Tres escrituras, ~6 us.
-
-        Es parte de la INTERFAZ de la fuente, no un detalle de `read_into`: el
-        lector tiene que poder re-armar aunque descarte el evento. Cuando esto
-        vivia adentro de `read_into`, el camino de descarte (cola llena) se lo
-        salteaba, el buffer quedaba congelado y `wait_event` volvia a disparar
-        con el MISMO buffer, contando descartes fantasma a velocidad de
-        polling: 14996 eventos "vistos" contra 10251 realmente generados.
-
-        ORDEN CRITICO: primero 0x00 (arma la bram_sm) y RECIEN DESPUES la
-        mascara (0x240/0x244). Al reves, un flanco que llegue en el hueco
-        gasta la mascara con la FSM todavia sin armar y queda esperando un
-        trigger imposible (ver docs/orden_arm_trigger_captura.md).
-
-        No hace falta pulsar 0x94: el `trigger_shield` limpia adc_trg_dis solo.
-        Tampoco se usa `set_or_mask`, que valida con dos lecturas de readback:
-        aca cada microsegundo es dead-time.
-        """
-        w32 = self.sc.w32
-        w32(0x00, 0x0000_0101)          # arm ch0+ch1, single-shot
-        w32(0x240, self.mask)
-        w32(0x244, self.mask)
+        lector.iniciar()                 # valida y toma el wp_trig de ahora
+        self._lector = lector
 
     def close(self):
         self.sc.disarm()
 
     # -- lazo caliente ------------------------------------------------------
 
-    def wait_event(self, deadline_ns):
-        """Espera a que haya un evento listo. Devuelve wp_trig, o None.
+    def read_batch(self, batch, deadline_ns):
+        """Llena `batch` desde `batch.n`, en C: ver la interfaz arriba.
 
-        En single-shot la senal correcta es `adc_we == 0` (bit 0 de adc_state
-        @0x00): la FSM completo el post-trigger y CONGELO el buffer. Es
-        inequivoca, a diferencia de mirar cambios de wp_trig, que falla si dos
-        triggers consecutivos caen en la misma posicion del buffer circular
-        (posible con una fuente periodica que aliasee con las 16384 muestras).
+        Por evento, en este orden: `wp`, `t_ns`, el `gap` con los descartados
+        desde el anterior, `snap` (salvo read_snap=False), la ventana de cada
+        canal, el re-armado y `dead_ns`, que es el tiempo ciego: del disparo
+        visto al re-armado. Es la misma definicion del `DeadTimeAnnotator`.
         """
-        mem, unpack = self._mem, self._u32.unpack_from
-        pc = time.perf_counter_ns
-        if self.single_shot:
-            while True:
-                if not (unpack(mem, 0x00)[0] & 0x1):     # adc_we == 0: congelado
-                    return unpack(mem, self.wp_addr)[0]
-                if pc() > deadline_ns:
-                    return None
-        off, prev = self.wp_addr, self._wp_prev
-        while True:
-            wp = unpack(mem, off)[0]
-            if wp != prev:
-                self._wp_prev = wp
-                return wp
-            if pc() > deadline_ns:
-                return None
+        if batch is None:
+            return self._lector.leer(None, 0, 2**32 - 1, deadline_ns)
+        return self._lector.leer(batch, batch.n, batch.capacity - batch.n,
+                                 deadline_ns)
 
-    def snapshot(self):
-        """Que fuente disparo (0x218). Cuesta una lectura mas (~2.3 us, 2.5%
-        del presupuesto por evento): se puede apagar con read_snap=False."""
-        if not self.read_snap:
-            return 0
-        return self._u32.unpack_from(self._mem, SNAPSHOT_OFF)[0]
-
-    def read_into(self, batch, i, wp):
-        """Ventana [wp-pre, wp+post-1] de cada canal -> batch.wave[i, k].
-
-        Se usa `rp_AcqGetDataPosV` y no un acceso directo al mmap: medido, el
-        acceso directo por numpy es 3.6x mas lento, y un memcpy sobre la region
-        de BRAM CUELGA EL PUERTO AXI y reinicia la placa (el esclavo de la PL
-        solo atiende accesos de 32 b alineados). Ver el doc, Parte 3.
-
-        `end_pos` es INCLUSIVO y la API resuelve el wrap circular sola (start >
-        end en una sola llamada da bit a bit lo mismo que partirlo en dos:
-        verificado en API/bench/bench_reader_budget.py).
-        """
-        import rp
-
-        n     = self.samples
-        start = (wp - self.pre) % N_BUF
-        end   = (start + n - 1) % N_BUF
-        dst   = batch.wave[i]
-        get   = rp.rp_AcqGetDataPosV
-        for k, ch in enumerate(self._chs):
-            get(ch, start, end, self._fbufs[k], n)
-            dst[k] = self._views[k]
-        # El re-arm NO va aca: lo hace el lector, para poder re-armar tambien
-        # cuando descarta el evento (ver rearm()).
+    @property
+    def pending(self):
+        return self._lector.pendientes if self._lector is not None else 0
 
     # -- metadatos ----------------------------------------------------------
 
@@ -213,7 +170,11 @@ class BramSource:
                     samples=self.samples, n_ch=self.n_ch, thr_V=self.thr,
                     hyst_V=self.hyst, mask=int(self.mask), set_dly=self.delay,
                     read_snap=self.read_snap, single_shot=self.single_shot,
-                    adc_cnt_per_V=ADC_CNT_PER_V)
+                    adc_cnt_per_V=ADC_CNT_PER_V, dt_ns=DT_NS,
+                    wave='cuentas calibradas: las de librp (cmn_CalibCntsSigned)',
+                    calib=None if self.calib is None else
+                    [dict(c) for c in self.calib[:self.n_ch]],
+                    lector='libmca')
 
 
 class FakeSource:
@@ -288,4 +249,5 @@ class FakeSource:
     def meta(self):
         return dict(kind='fake', pre=self.pre, post=self.post,
                     samples=self.samples, n_ch=self.n_ch,
-                    amplitude=self.amplitude, adc_cnt_per_V=ADC_CNT_PER_V)
+                    amplitude=self.amplitude, adc_cnt_per_V=ADC_CNT_PER_V,
+                    dt_ns=DT_NS)

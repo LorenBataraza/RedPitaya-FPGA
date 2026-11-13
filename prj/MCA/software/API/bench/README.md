@@ -44,9 +44,11 @@ ssh pitaya 'cd /home/jupyter/RedPitaya/remote_soft/tests && python3 bench_buffer
 
 ## `test_capture_window_np.py`
 
-Correctness: compara la ventana de `capture_window_np` (PosV, arreglado) contra la
-misma ventana recortada del buffer completo leído con `rp_AcqGetOldestDataV`.
-Falla si difieren o si PosV devuelve ceros. Imprime `RESULT: PASS/FAIL`.
+Vive en `API/tests/placa/` (`make verificar-placa-buffer`). Desde la Parte 6 del plan
+de libmca compara el mismo buffer congelado leído por `rp` y por libmca: `rint(V·8192)`
+de librp contra la cuenta calibrada de C, en el anillo entero, en la ventana del disparo
+y en una que da la vuelta. Muestra además lo que deja escrito `rp_Init()` y el
+`dead_ns` del lazo de C con disparos por software. Imprime `RESULT: PASS/FAIL`.
 
 ## `bench_buffer_read.py`
 

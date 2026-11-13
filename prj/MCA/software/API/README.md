@@ -39,23 +39,37 @@ nombres. Las tres capas gobiernan la API de *hardware*.
 | Fichero | Bloque | Base |
 |---|---|---|
 | `mca.py` | analizador multicanal con ranuras ("MCA2") | `0x4070_0000` |
-| `osciloscope.py` | osciloscopio clásico | `0x4010_0000` |
-| `multitrigger.py` | máscaras OR, shield, snapshot; la región propia (pendiente) y el disparo del MCA2 (`multitrigger_armar_mca`) | `0x4010_0000` (`0x210`–`0x24C`), `0x4030_0000` |
-| `osciloscope_ring.py` | event_ring en DDR | `0x4020_0000` |
+| `osciloscope.py` | osciloscopio clásico: umbral, decimación, delay, BRAM. Sobre libmca | `0x4010_0000` |
+| `multitrigger.py` | máscaras OR, shield, snapshot; los disparos por pendiente y con polo-cero, y el disparo del MCA2 (`multitrigger_armar_mca`). Sobre libmca | `0x4030_0000` |
+| `integration.py` | región de TOP: identificación, descubrimiento y ruteo. Sobre libmca | `0x4060_0000` |
+| `osciloscope_ring.py` | event_ring en DDR, y su generador de eventos. Sobre libmca | `0x4020_0000` |
+| `generadores.py` | el generador de pulsos (en el lugar del ASG) y las cuentas del motor de disparos. Sobre libmca | `0x4021_0000` |
 | `osciloscope_store/` | guardado continuo del flujo de eventos | — |
 | `analisis.py` | helpers puros, sin hardware | — |
+| `n42.py` | el espectro en ANSI N42.42-2011, sin hardware | — |
 | `fpga.py` | bring-up de la PL | — |
 | `rigol_dg4162.py` | generador externo | — |
 | `_libmca.py` | carga de [`libmca`](../libmca/) (la API en C) y su `Bus` | — |
 | `_despacho.py` | el decorador `@_api`: cada llamada va a C, a la referencia o a la red | — |
-| `ref_py/` | la implementación Python **congelada**: base de benchmarks y de la equivalencia. `mca2.py` es la del MCA2; `mca.py`, la del MCA1 | — |
+| `ref_py/` | la implementación Python **congelada**: base de benchmarks y de la equivalencia. `mca2.py` es la del MCA2; `mca.py`, la del MCA1; `integration.py`, `multitrigger2.py` y `osciloscope2.py`, las de esos bloques antes de pasar a libmca | — |
+
+**La región de TOP, el multitrigger y el osciloscopio están en C**: cada `integration_*`
+y `osciloscope_*`, y cada método de `MultiTrigger` y `MtRegion`, son una llamada por ctypes
+a su función de `libmca/include/`, y `integration_open(impl='py')`, `MtRegion.open(impl='py')`
+y `osciloscope_open(impl='py')` abren la referencia, como con el MCA. Las secuencias que
+cruzan los dos bloques (`multitrigger_arm`, `multitrigger_armar_mca`, `acq_capture_sw`) y
+`verify_bitstream` son composición, en Python. Desde la Parte 6 también el lazo por
+evento de `BramSource` y la captura (`capture_window_np`, `read_buffers`,
+`capture_n_events`) están en C, con la calibración de librp leída de la EEPROM
+(`calibracion_adc`): `rp` ya no hace falta para leer. `BramSource` necesita un scope de
+libmca, y entrega por lote (`read_batch`).
 
 **El MCA está en C** desde la fase 1 de libmca: cada `mca_*` es una llamada por
 ctypes a la función homónima de `libmca/include/mca.h`, que habla el mapa
 "MCA2". `mca_open(impl='py')` abre la implementación Python para comparar (y
 es la única que abre el bitstream MCA1). **Sin el disparo del multitrigger
 armado el MCA2 no mide**: `multitrigger_armar_mca(osc, mtr)`. Ver
-[`docs/API/diseno_de_clases.md`](../../docs/API/diseno_de_clases.md) §3 y §4.
+[`docs/API/libmca.md`](../../docs/API/libmca.md).
 
 ## Compatibilidad
 

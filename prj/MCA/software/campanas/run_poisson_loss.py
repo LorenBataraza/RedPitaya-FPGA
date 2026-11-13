@@ -19,9 +19,22 @@ eficiencia a 2 kHz (arquitectura_adquisicion_software.md), porque con arribos
 deterministas y K=1 no se pierde nada mientras el período supere el servicio.
 Con Poisson y τ = 252.7 µs el modelo dice ~33 % de pérdida a esa misma tasa.
 
+**Desde la Parte 6 el lazo es de C**, y τ bajó a ~20 µs (medido en la placa el
+2026-11-08: la pérdida sigue a Poisson con τ = 20 µs a menos de 2.3 pp entre 5 y
+100 kHz). Para esas tasas, `--tau-us 20`; el default de 252.7 repite las del lector de
+Python, para comparar.
+
+**Con `--fuente ring`** lee el event_ring en vez de la BRAM (necesita su bitstream). El
+ring cuenta su propia pérdida, y la tabla la suma: `DROP_BUSY` (un disparo con una
+ventana en vuelo) y `DROP_FULL` (el PS no vació el ring). El lector ya no está en el
+camino del disparo, así que lo que se espera es el apilamiento del estímulo hasta que
+el escritor no dé abasto. Para medir el ring sin el estímulo analógico (sin el
+apilamiento ni el Rigol), `run_etapas_ring.py`, con el generador de eventos de la FPGA.
+
 Uso:
     python3 campanas/run_poisson_loss.py <outdir> [--rhos 0.05,0.1,0.2,0.5,0.9]
                                 [--tau-us 252.7] [--sub-s 4] [--semillas 5]
+                                [--fuente bram|ring]
 """
 import argparse
 import json
@@ -68,6 +81,10 @@ def parse_args(argv=None):
     p.add_argument('--thr', type=float, default=0.25)
     p.add_argument('--hyst', type=float, default=0.02)
     p.add_argument('--reload-bitstream', action='store_true')
+    p.add_argument('--formato', choices=('npz', 'lh5'), default='npz',
+                   help='con qué escribe el pipeline: para comparar los descartes')
+    p.add_argument('--fuente', choices=('bram', 'ring'), default='bram',
+                   help='de dónde lee: la BRAM del osciloscopio o el event_ring')
     return p.parse_args(argv)
 
 
@@ -113,8 +130,8 @@ def main(argv=None):
     rates = rhos / tau
 
     from multitrigger_utils import BIT_ADC_P0, MultiTriggerScope
-    from mca import BramSource
-    from mca.session import Session
+    from mca import AcquisitionSession, BramSource
+    from API.osciloscope_ring import RingSource
 
     if args.reload_bitstream:
         sc = MultiTriggerScope.reload_bitstream(verbose=True)
@@ -126,18 +143,39 @@ def main(argv=None):
                          '(probar --reload-bitstream)')
 
     import rp
+    # rp_Init() no hace falta para leer (el lazo es de libmca) y no cambia ninguna
+    # muestra: el ecualizador que configura no está en el bitstream (EN_FILT = 0).
+    # Queda para que la API siga siendo compatible con la de Red Pitaya.
     rp.rp_Init()
     gen = rg.RigolDG4162.usb()
     print(f'generador: {gen.id}')
     gen.reset()
 
-    src = BramSource(sc, pre=args.pre, post=args.post, n_ch=args.channels,
-                     thr=args.thr, hyst=args.hyst, mask=BIT_ADC_P0)
+    Fuente = RingSource if args.fuente == 'ring' else BramSource
+    src = Fuente(sc, pre=args.pre, post=args.post, n_ch=args.channels,
+                 thr=args.thr, hyst=args.hyst, mask=BIT_ADC_P0)
     # El run_dir es descartable: acá interesa el conteo del lector, no los
     # datos. Se borra al final para no dejar GB de ventanas por ahí.
     run_dir = os.path.join(args.outdir, '_scratch_run')
-    ses = Session(src, run_dir, verbose=False,
-                  meta={'test': 'poisson_loss', 'tau_us': args.tau_us})
+    ses = AcquisitionSession(src, run_dir, verbose=False, formato=args.formato,
+                             meta={'test': 'poisson_loss', 'tau_us': args.tau_us,
+                                   'fuente': args.fuente})
+
+    def perdida_hw():
+        """EV_CNT, DROP_BUSY y DROP_FULL del ring; con la BRAM no hay. EV_CNT contra
+        lo leído dice si un evento que falta no disparó o no se leyó."""
+        if args.fuente != 'ring':
+            return 0, 0, 0
+        k = src.hw_counters()
+        return k['hw_ev_cnt'], k['hw_drop_busy'], k['hw_drop_full']
+
+    def error_hilos():
+        """El error del lector o del escritor, si alguno se cayó: los cuentan en
+        `stats['error']` y siguen sin avisar, y el barrido mediría ceros."""
+        errs = [f'{n}: {h.error!r}' for n, h in (('lector', ses.reader),
+                                                  ('escritor', ses.writer))
+                if h.error is not None]
+        return '; '.join(errs) or None
 
     t_est = len(rhos) * args.semillas * (args.sub_s + 0.4)
     print(f'{len(rhos)} puntos x {args.semillas} semillas x {args.sub_s:g} s '
@@ -156,7 +194,7 @@ def main(argv=None):
                       f'despreciable frente a tau ({args.tau_us:.0f} us).')
                 continue
 
-            det = emi = 0
+            det = emi = ev = busy = full = 0
             infos = []
             for k in range(args.semillas):
                 info = rg.apply_poisson_train(
@@ -167,10 +205,15 @@ def main(argv=None):
                 infos.append(info)
                 time.sleep(0.4)                       # transitorio de la recarga
                 n0 = ses.stats['n_read']
+                e0, b0, f0 = perdida_hw()
                 t0 = time.perf_counter()
                 time.sleep(args.sub_s)
                 dt_s = time.perf_counter() - t0
                 det += ses.stats['n_read'] - n0
+                e1, b1, f1 = perdida_hw()
+                ev += e1 - e0
+                busy += b1 - b0
+                full += f1 - f0
                 # emitidos = pulsos por ciclo x ciclos por segundo x segundos
                 emi += info['n_events'] * info['freq_hz'] * dt_s
 
@@ -186,20 +229,32 @@ def main(argv=None):
                 p_loss_periodico=float(1 - 1 / max(np.ceil(rho), 1.0)),
                 frac_pileup=float(np.mean([i['frac_pileup'] for i in infos])),
                 n_dropped_bp=int(ses.stats['n_dropped']),
-                dt_s=float(infos[0]['dt_s']),
+                hw_ev_cnt=int(ev), hw_drop_busy=int(busy), hw_drop_full=int(full),
+                dt_s=float(infos[0]['dt_s']), error=error_hilos(),
             ))
             f = filas[-1]
             print(f'  {r:8.0f} Hz  rho={rho:5.3f}  w={w*1e6:5.1f} us  '
                   f'det={det:6d}/{emi:8.0f}  P_loss={100*p_loss:5.1f}%  '
                   f'(Poisson {100*f["p_loss_poisson"]:5.1f}%, '
                   f'periodico {100*f["p_loss_periodico"]:5.1f}%)  '
-                  f'pileup={100*f["frac_pileup"]:4.1f}%')
+                  f'pileup={100*f["frac_pileup"]:4.1f}%'
+                  + (f'  ring: ev={ev} busy={busy} full={full}'
+                     if args.fuente == 'ring' else ''))
+            if f['error']:
+                print(f'  CORTADO: se cayó un hilo de la sesión, los puntos siguientes '
+                      f'no valen.\n    {f["error"]}')
+                break
     finally:
         try:
             gen.output(args.ch, False); gen.close()
         except Exception as e:
             print('warn generador:', e)
-        ses.stop()
+        try:
+            ses.stop()
+        except Exception as e:
+            # Sin esto, una parada que falla se lleva lo medido. Con el ring lleno,
+            # parar no termina (DRAINING espera créditos): CTRL <- 0x2 lo destraba.
+            print(f'warn: la sesión no paró bien: {e!r}')
         sc.close()
         shutil.rmtree(run_dir, ignore_errors=True)
 

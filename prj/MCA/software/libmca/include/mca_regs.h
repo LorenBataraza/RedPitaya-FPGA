@@ -15,7 +15,8 @@
 /* X(NOMBRE, offset). El mapa "MCA2" (docs/mca/register_map_mca.md): los
  * offsets que dejaron libres el Schmitt, la histeresis, maxlen, tail_dly, el
  * modo de compuerta y las politicas (0x014, 0x018, 0x028, 0x02C, 0x048, 0x104,
- * 0x108, 0x0D8/0x0DC, 0x0F0, 0x114) estan reservados y no figuran. */
+ * 0x108, 0x0F0, 0x114) estan reservados y no figuran. 0x0D8/0x0DC volvio a
+ * ser t_rearm: el re-armado del disparo, que ahora mide el multitrigger. */
 #define MCA_REGS(X)                                                         \
     /* identificacion */                                                    \
     X(MAGIC,        0x000) X(CAPS,         0x004) X(WIDTHS,       0x008)    \
@@ -44,6 +45,7 @@
     X(VETOTIME_LO,  0x0C0) X(VETOTIME_HI,  0x0C4)                           \
     X(T_WIN_LO,     0x0C8) X(T_WIN_HI,     0x0CC)                           \
     X(T_DIV_LO,     0x0D0) X(T_DIV_HI,     0x0D4)                           \
+    X(T_REARM_LO,   0x0D8) X(T_REARM_HI,   0x0DC)                           \
     X(T_CLEAR_LO,   0x0FC) X(T_CLEAR_HI,   0x100)                           \
     X(T_OCUP,       0x140)              /* + 8*j: j ranuras ocupadas */      \
     /* periodo muerto y atribucion de arribos */                            \

@@ -24,6 +24,11 @@ Uso (en la Pitaya, con el bitstream multitrigger cargado):
 
 ATENCION: no correr con el kernel de Jupyter activo (pelea por /dev/mem -> SIGBUS).
 Ver tests/README.md.
+
+Es la medicion del camino VIEJO, en Python sobre un mmap y con `rp`: de aca salio el
+presupuesto que llevo el lazo por evento a C (Parte 6 del plan de libmca). Por eso
+mapea la region por su cuenta (`_region`) en vez de pasar por libmca: el pipeline ya
+no tiene ese acceso, y este bench existe para compararlo.
 """
 import sys, os, time, threading, queue, struct, tempfile, shutil
 
@@ -35,8 +40,21 @@ while _RAIZ != '/' and not os.path.isfile(os.path.join(_RAIZ, 'API', 'mca.py')):
     _RAIZ = os.path.dirname(_RAIZ)          # sube hasta software/
 sys.path.insert(0, _RAIZ)
 
+import mmap
+
 import rp
 from multitrigger_utils import MultiTriggerScope, N_BUF
+
+
+def _region(sc):
+    """La region del scope mapeada desde Python, como la leia el lazo viejo."""
+    phys, size = sc._region
+    fd = os.open('/dev/mem', os.O_RDWR | os.O_SYNC)
+    try:
+        return mmap.mmap(fd, size, mmap.MAP_SHARED, mmap.PROT_READ | mmap.PROT_WRITE,
+                         offset=phys)
+    finally:
+        os.close(fd)
 
 REPS = int(sys.argv[1]) if len(sys.argv) > 1 else 200
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -76,7 +94,7 @@ def bench_poll_floor(sc, res):
     que llego un evento, antes de leer un solo sample.
     """
     print('\n[1] piso del lazo de polling (lectura de 0x1C por mmap)')
-    mem, unpack_from = sc._mmap, _U32.unpack_from
+    mem, unpack_from = _region(sc), _U32.unpack_from
 
     def one():
         unpack_from(mem, WP_TRIG_OFF)
@@ -233,7 +251,7 @@ def bench_direct_bram(sc, res):
     grande justo en el rango de ventanas chicas que usa el MCA.
     """
     print('\n[2b] leer la ventana: API (PosV) vs mmap directo (vista hoisteada)')
-    mem   = sc._mmap
+    mem   = _region(sc)
     ref   = sc._ref
     views = make_bram_views(mem)
 
@@ -396,7 +414,7 @@ def bench_gil(sc, payload, best_name, res):
     """
     print('\n[6] contencion de GIL: lazo del lector, solo vs con escritor de fondo')
     ref   = sc._ref
-    mem, unpack_from = sc._mmap, _U32.unpack_from
+    mem, unpack_from = _region(sc), _U32.unpack_from
     start = (ref - S_REF // 2) % N_BUF
     end   = (start + S_REF - 1) % N_BUF
     N_IT  = max(2000, REPS * 10)

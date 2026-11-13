@@ -18,6 +18,15 @@ Las operaciones van en dos niveles, y el nombre dice cuál es cuál:
     api.*   nivel 4: las funciones públicas mca_*. En `c` aparecen cuando el
             binding del MCA está en C (fase 1); antes figuran como no
             disponibles, con el motivo.
+    top.*   las funciones públicas integration_* de la región de TOP (slot 6), si
+            el bitstream la trae. La que escribe (set_route) escribe lo que ya
+            había.
+    mt.*    el multitrigger (slot 3), con sus dos fachadas. La que escribe es
+            set_shield, con lo que ya había: la máscara no se mide, porque
+            escribirla recarga la fuente activa aunque el valor sea el mismo.
+    osc.*   el osciloscopio (slot 1). La que escribe (set_delay) escribe lo que ya
+            había. `read_bram` lee 32 muestras: la referencia no la tiene, y su
+            lado `py` es la misma cuenta palabra por palabra sobre `r32`.
 
 Qué deja, en `--out` (por defecto datos/bench_impl_<fecha>/):
 
@@ -81,6 +90,12 @@ sys.path.insert(0, _RAIZ)
 # porque libmca habla sólo MCA2).
 import API.ref_py.mca2 as ref                                      # noqa: E402
 import API.ref_py.mca as ref_mca1                                  # noqa: E402
+import API.ref_py.integration as ref_top                           # noqa: E402
+import API.integration as top                                      # noqa: E402
+import API.ref_py.multitrigger2 as ref_mt                          # noqa: E402
+import API.multitrigger as mt                                      # noqa: E402
+import API.ref_py.osciloscope2 as ref_osc                          # noqa: E402
+import API.osciloscope as osc                                      # noqa: E402
 from API import _libmca                                            # noqa: E402
 
 FORMATO = 1             # versión del esquema de resumen.json
@@ -222,6 +237,147 @@ def _ops_c_api(destructivo, fake, shm=None):
         ops['api.configure'] = lambda: A.mca_configure(h)
         ops['api.acquire0'] = lambda: A.mca_read_acquire(h, 0)
     return ops, h
+
+
+def _ops_top(M, h):
+    """Las integration_* de la región de TOP. `M` es la referencia o el binding:
+    mismas funciones, las dos con el handle de su implementación."""
+    ruta = M.integration_get_route_mca(h)
+    return {
+        'top.identify':  lambda: M.integration_identify(h, verbose=False),
+        'top.slots':     lambda: M.integration_get_slots(h),
+        'top.caps':      lambda: M.integration_get_caps(h),
+        'top.routes':    lambda: M.integration_get_routes(h),
+        'top.status':    lambda: M.integration_get_status(h),
+        'top.get_run':   lambda: M.integration_get_run(h),
+        'top.set_route': lambda: M.integration_set_route_mca(h, ruta['tap'],
+                                                             ruta['enable']),
+    }
+
+
+def _ops_mt(M, h_mt, h_r):
+    """Las del multitrigger. `M` es la referencia o el binding, y `h_mt` y `h_r` las
+    dos fachadas de esa implementación."""
+    s = h_r.get_shield()
+    return {
+        'mt.get_or_mask': lambda: h_r.get_or_mask(0),
+        'mt.snapshot':    lambda: h_mt.read_snapshot_raw(),
+        'mt.get_flags':   lambda: h_mt.get_flags(),
+        'mt.get_slope':   lambda: h_r.get_slope(0),
+        'mt.get_pz':      lambda: h_r.get_pz(0),
+        'mt.get_config':  lambda: M.multitrigger_get_config(h_mt),
+        'mt.get_status':  lambda: M.multitrigger_get_status(h_mt),
+        'mt.set_shield':  lambda: h_r.set_shield(s['src'], s['dst'], s['dur']),
+    }
+
+
+def _bram_py(h, ch, start, n):
+    """La lectura de la BRAM en Python: lo que `osciloscope_read_bram` hace en C."""
+    base = h.geometria()['aperturas'][ch]
+    n_buf = h.n_buf
+    fuera = np.empty(n, dtype=np.int16)
+    for i in range(n):
+        w = h.r32(base + 4 * ((start + i) & (n_buf - 1))) & 0x3FFF
+        fuera[i] = (w ^ 0x2000) - 0x2000
+    return fuera
+
+
+def _ops_osc(M, h):
+    """Las del osciloscopio. `M` es la referencia o el binding."""
+    delay = M.osciloscope_get_delay(h, 0)
+    leer = getattr(M, 'osciloscope_read_bram', _bram_py)
+    return {
+        'osc.get_thr':   lambda: M.osciloscope_get_thr(h, 0),
+        'osc.get_decim': lambda: M.osciloscope_get_decim(h, 0),
+        'osc.get_wp':    lambda: M.osciloscope_get_wp_trig(h, 0),
+        'osc.get_config': lambda: M.osciloscope_get_config(h),
+        'osc.get_status': lambda: M.osciloscope_get_status(h),
+        'osc.set_delay': lambda: M.osciloscope_set_delay(h, delay, 0),
+        'osc.read_bram': lambda: leer(h, 0, 0, 32),
+    }
+
+
+def _region_sin_pl(shm, nombre, n, magic):
+    """Una región de registros sin PL: `(mem, ruta, limpiar)`. Con --fake un buffer,
+    y con --shm un fichero al lado del MCA, que `py` lee por un mmap y `c` por el
+    backend devmem."""
+    if not shm:
+        mem = bytearray(n)
+        struct.pack_into('<I', mem, 0, magic)
+        return mem, None, lambda: None
+    fd, ruta = tempfile.mkstemp(prefix=f'bench_impl_{nombre}_', suffix='.bin',
+                                dir=os.path.dirname(shm))
+    os.ftruncate(fd, n)
+    m = mmap.mmap(fd, n)
+    struct.pack_into('<I', m, 0, magic)
+
+    def limpiar():
+        m.close()
+        os.close(fd)
+        os.unlink(ruta)
+    return m, ruta, limpiar
+
+
+def _abrir_top(fake, shm):
+    """`(handles de referencia, abrir_c, cerrar)`. `abrir_c()` da los de libmca,
+    recién si se mide `c`. Sin la región, RuntimeError."""
+    if not (fake or shm):
+        h = ref_top.Integration.open()
+        return (h,), lambda: (top.integration_open(impl='c'),), h.close
+    n = ref_top.INTEGRATION_SIZE
+    mem, ruta, limpiar = _region_sin_pl(shm, 'top', n, ref_top.MAGIC)
+    if ruta:
+        def abrir_c():
+            return (top.Integration._sobre_bus(_libmca.Bus.archivo(ruta, 0, n)),)
+    else:
+        def abrir_c():
+            return (top.Integration(mem, -1),)
+    return (ref_top.Integration(mem, -1),), abrir_c, limpiar
+
+
+def _abrir_mt(fake, shm):
+    """Como `_abrir_top`, con las dos fachadas."""
+    if not (fake or shm):
+        hs = ref_mt.MultiTrigger.open(), ref_mt.MtRegion.open()
+
+        def cerrar():
+            for h in hs:
+                h.close()
+        return hs, lambda: (mt.MultiTrigger.open(impl='c'), mt.MtRegion.open(impl='c')), cerrar
+    n = ref_mt.MTRG_SIZE
+    mem, ruta, limpiar = _region_sin_pl(shm, 'mt', n, ref_mt.MTRG_MAGIC)
+    if ruta:
+        def abrir_c():
+            return tuple(c._sobre_bus(_libmca.Bus.archivo(ruta, 0, n))
+                         for c in (mt.MultiTrigger, mt.MtRegion))
+    else:
+        def abrir_c():
+            return mt.MultiTrigger(mem, -1), mt.MtRegion(mem, -1)
+    return (ref_mt.MultiTrigger(mem, -1), ref_mt.MtRegion(mem, -1)), abrir_c, limpiar
+
+
+def _abrir_osc(fake, shm):
+    """Como `_abrir_top`. Sin magic en la región: el del scope está en 0x1000, y sin él
+    la geometría es la de por defecto, que es lo que se quiere medir."""
+    if not (fake or shm):
+        h = ref_osc.Osciloscope.open()
+        return (h,), lambda: (osc.Osciloscope.open(impl='c'),), h.close
+    n = ref_osc.SCOPE_SIZE
+    mem, ruta, limpiar = _region_sin_pl(shm, 'osc', n, 0)
+    if ruta:
+        def abrir_c():
+            return (osc.Osciloscope._sobre_bus(_libmca.Bus.archivo(ruta, 0, n)),)
+    else:
+        def abrir_c():
+            return (osc.Osciloscope(mem, -1),)
+    return (ref_osc.Osciloscope(mem, -1),), abrir_c, limpiar
+
+
+# Las regiones que pueden faltar sin que nada esté mal (un bitstream anterior al
+# refactor de registros no trae la de TOP): abrir, sus operaciones, referencia y binding.
+REGIONES = (('top', _abrir_top, _ops_top, ref_top, top),
+            ('mt', _abrir_mt, _ops_mt, ref_mt, mt),
+            ('osc', _abrir_osc, _ops_osc, ref_osc, osc))
 
 
 def _c_puro(presupuesto_s, destructivo):
@@ -519,10 +675,22 @@ def main(argv=None):
 
     bus = None
     h_c = None
+    regiones = []                   # (ops, binding, handles_py, abrir_c, cerrar)
+    handles_c = []
     try:
         ops_py, leer_bloque = _ops_py(h, args.destructivo)
         if 'py' in impls:
             registrar('py', ops_py)
+
+        for nombre, abrir, ops, M_ref, M_c in REGIONES:
+            try:
+                hs, abrir_c, cerrar = abrir(args.fake, shm)
+            except RuntimeError as e:
+                resumen['no_disponible'][nombre] = str(e)
+                continue
+            regiones.append((ops, M_c, abrir_c, cerrar))
+            if 'py' in impls:
+                registrar('py', ops(M_ref, *hs))
 
         if 'c' in impls and ref is ref_mca1:
             resumen['no_disponible']['c'] = ('la placa tiene el MCA1 y libmca '
@@ -543,6 +711,10 @@ def main(argv=None):
                     registrar('c', ops_c)
                 except NotImplementedError as e:
                     resumen['no_disponible']['c.api'] = str(e)
+                for ops, M_c, abrir_c, _ in regiones:
+                    hs_c = abrir_c()
+                    handles_c.extend(hs_c)
+                    registrar('c', ops(M_c, *hs_c))
 
                 # Igualdad bit a bit de los bloques: sólo vale con el MCA
                 # parado, si no los dos lados leen histogramas distintos.
@@ -582,6 +754,10 @@ def main(argv=None):
             bus.close()
         if h_c is not None:
             h_c.close()
+        for hc in handles_c:
+            hc.close()
+        for *_, cerrar in regiones:
+            cerrar()
         h.close()
         if shm:
             os.unlink(shm)

@@ -20,12 +20,14 @@ posicion, GPS) no toca ni al lector ni al escritor ni al formato de archivo.
 
 import numpy as np
 
-SCHEMA_VERSION = 1
+# 2: el meta() de la fuente trae `dt_ns`, que hace falta para el LH5. Los archivos con 1
+# se siguen leyendo igual.
+SCHEMA_VERSION = 2
 
 # Columnas que existen siempre, independientemente de la fuente.
 #   t_ns : reloj de SW (perf_counter_ns), monotono, jitter de us
 #   wp   : wp_trig del HW (0x1C), 8 ns de resolucion pero envuelve cada 16384
-#   snap : trig_snapshot (0x218), que fuente disparo el evento
+#   snap : trig_snapshot (R_TRIG_SNAP, slot 3), que fuente disparo el evento
 #   gap  : eventos descartados JUSTO ANTES de este  <- lo escribe el lector
 #
 # Se guardan los dos relojes crudos a proposito: los Delta-t son un np.diff

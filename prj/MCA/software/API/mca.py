@@ -140,11 +140,12 @@ R_CNT_REJ_PSD  = 0x05C
 R_CNT_PILEUP   = 0x060          # ventanas cerradas CON marca de solape
 R_CNT_DROPPED  = 0x064          # lost_busy + colisiones + borrado
 # --- relojes (64 b; leer la palabra BAJA congela la ALTA) ---
-# realtime == vetotime + t_win + t_div + livetime, exacto en todo ciclo (una
-# assertion del RTL). El tiempo muerto es "no hay ranura libre": t_win + t_div.
+# realtime == vetotime + t_win + t_div + t_rearm + livetime, exacto en todo
+# ciclo (una assertion del RTL). El tiempo muerto del MCA es "no hay ranura
+# libre": t_win + t_div; t_rearm es el que agrega el disparo esperando re-armar.
 R_REALTIME_LO  = 0x068
 R_REALTIME_HI  = 0x06C
-R_LIVETIME_LO  = 0x070          # alguna ranura libre
+R_LIVETIME_LO  = 0x070          # alguna ranura libre y el disparo armado
 R_LIVETIME_HI  = 0x074
 R_DEADTIME_LO  = 0x078          # OCUPACIÓN: alguna ranura ocupada
 R_DEADTIME_HI  = 0x07C
@@ -154,6 +155,8 @@ R_T_WIN_LO     = 0x0C8          # sin ranura libre, todas midiendo
 R_T_WIN_HI     = 0x0CC
 R_T_DIV_LO     = 0x0D0          # sin ranura libre, alguna esperando publicar
 R_T_DIV_HI     = 0x0D4
+R_T_REARM_LO   = 0x0D8          # ranura libre, el disparo esperando re-armar
+R_T_REARM_HI   = 0x0DC
 R_T_CLEAR_LO   = 0x0FC          # barrido de borrado (aparte del teselado)
 R_T_CLEAR_HI   = 0x100
 R_T_OCUP       = 0x140          # + 8*j: ciclos con exactamente j ranuras ocupadas
@@ -272,7 +275,7 @@ _CLAVES_CONTADORES = (
     ('pileup', int), ('dropped', int), ('rej_discr', int), ('full_supp', int),
     ('realtime_s', float), ('livetime_s', float), ('deadtime_s', float),
     ('vetotime_s', float), ('t_win_s', float), ('t_div_s', float),
-    ('t_clear_s', float), ('deadtime_real_s', float),
+    ('t_rearm_s', float), ('t_clear_s', float), ('deadtime_real_s', float),
     ('dead_periods', int), ('dead_len_max_s', float),
     ('dead_len_mean_s', float), ('dead_ext', int), ('dead_ext_frac', float),
     ('cross', int), ('open', int), ('lost_active', int), ('lost_veto', int),
@@ -280,7 +283,7 @@ _CLAVES_CONTADORES = (
     ('pub_occ', int), ('pub_occ_max', int), ('last_win_id', int),
     ('n_acc', int), ('n_acc_max', int), ('pub_saturada', bool),
     ('clear_busy', bool), ('busy', bool), ('baseline_stale', bool),
-    ('vetoed', bool), ('puede_abrir', bool), ('n_ocup', int),
+    ('vetoed', bool), ('rearm_pend', bool), ('puede_abrir', bool), ('n_ocup', int),
     ('full_1d', bool), ('full_2d', bool), ('trap_ok', bool),
 )
 _CTYPE = {int: _U, float: _D, bool: _I32}
@@ -291,7 +294,7 @@ class _Counters(ctypes.Structure):
                 + [('t_ocup_s', _D * (N_ACC_TOPE + 1)), ('n_t_ocup', _I32)]
                 + [(k, ctypes.c_uint64) for k in (
                     'realtime', 'livetime', 'deadtime', 'vetotime', 't_win',
-                    't_div', 't_clear')]
+                    't_div', 't_rearm', 't_clear')]
                 + [('t_ocup', ctypes.c_uint64 * (N_ACC_TOPE + 1))])
 
 
@@ -618,7 +621,7 @@ class MCA:
 
         mca = MCA.open()
         mca.identify()
-        mca.configure(gate_long=384, n_acc=4)
+        mca.configure(gate_long=384, n_acc=3)
         # el disparo: multitrigger_armar_mca(osc, mtr)
         spec, m2d, cnt = mca.acquire(10.0)
 
@@ -650,36 +653,12 @@ class MCA:
         self.psd_aw = psd_aw
         self._has_2d = bool(caps & CAP_HIST_H_PSD)
         lib = _cargar()
-        self._bus = self._bus_de_python(mem)
+        self._bus = _libmca.Bus.de_handle(self, MCA, mem)
         p = ctypes.c_void_p()
         _libmca.check(lib.mca_wrap(ctypes.byref(p), self._bus.ptr, 0, caps,
                                    h_aw, h2_aw, psd_aw), 'mca_wrap')
         self._c = p
         self.libmca_version = _libmca.version()
-
-    def _bus_de_python(self, mem):
-        if mem is not None:
-            def r32(off):
-                return _U32.unpack_from(mem, off)[0]
-
-            def w32(off, v):
-                # Asignación por slice, NO struct.pack_into: ver la nota de
-                # `w32` más abajo.
-                mem[off:off + 4] = _U32.pack(v & 0xFFFFFFFF)
-
-            # En memoria común un bloque se puede copiar de una vez. Sobre un
-            # mmap de /dev/mem NO (§7.3 del doc del bus: reinicia la placa):
-            # ahí C hace n lecturas de 32 b, una por callback.
-            bloque = None
-            if isinstance(mem, (bytes, bytearray)):
-                def bloque(off, n):
-                    return np.frombuffer(mem, dtype='<u4', count=n, offset=off)
-            return _libmca.Bus.callbacks(r32, w32, bloque, size=len(mem))
-        if type(self).r32 is MCA.r32 or type(self).w32 is MCA.w32:
-            raise TypeError('MCA(None, ...) necesita una subclase que redefina '
-                            'r32 y w32, como FakeMCA')
-        return _libmca.Bus.callbacks(self.r32, self.w32,
-                                     getattr(self, '_leer_bloque', None))
 
     # ---------- apertura ----------
 
@@ -923,11 +902,18 @@ class MCA:
 
         LOS RELOJES CAMBIARON DE SIGNIFICADO RESPECTO DEL MCA1:
 
-          `livetime_s`       alguna ranura libre: el MCA puede abrir.
+          `livetime_s`       alguna ranura libre y el disparo armado: un
+                             pulso que llega ahora se mide.
           `t_win_s`          sin ranura libre, todas midiendo.
           `t_div_s`          sin ranura libre, alguna esperando al publicador.
-          `deadtime_real_s`  t_win + t_div: el tiempo muerto de verdad, el que
-                             hay que usar para corregir pérdidas.
+          `t_rearm_s`        ranura libre, pero el disparo del multitrigger
+                             esperando re-armar: el pulso no genera flanco y
+                             no llega a `cross`. Va después de t_win y t_div.
+          `deadtime_real_s`  t_win + t_div + t_rearm: el tiempo muerto de
+                             verdad, el que hay que usar para corregir
+                             pérdidas. El período muerto (`dead_*`) es solo el
+                             del MCA, t_win + t_div.
+          `rearm_pend`       el disparo espera re-armar ahora.
           `deadtime_s`       la OCUPACIÓN (alguna ranura ocupada). Con una
                              ranura coincide con el tiempo muerto; con varias
                              NO lo es.
@@ -940,7 +926,7 @@ class MCA:
         dice que la cola de publicación llegó a tener todas las ranuras.
 
         OJO CON LEER EN CALIENTE: `realtime = vetotime + t_win + t_div +
-        livetime` vale ciclo a ciclo, pero leída con run=1 no cierra (cada
+        t_rearm + livetime` vale ciclo a ciclo, pero leída con run=1 no cierra (cada
         acceso al bus se lleva ~6 ciclos). Para verificarla, `stop()` primero.
         """
         return mca_read_counters(self)
@@ -1540,14 +1526,21 @@ def _valores_banco(banco):
 # El banco de la campaña, para el pulso del Rigol y el disparo con polo-cero:
 # (k, m, lw, c, antes, despues), de la más larga a la más corta.
 # Ver docs/mca/pruebas_banco_trapecios.md.
-BANCO_PZ = ((64, 48, 4, 69, 97, 96), (32, 24, 3, 29, 49, 48),
-            (16, 12, 2, 9, 26, 24), (8, 8, 1, 0, 15, 13))
+#
+# BANCO_PZ_4 es el de 4 formas que se midió en la placa (2026-11-05 y 07) y con el
+# que están hechos los volcados del RTL: lo usan los scripts que reproducen esas
+# mediciones. Desde el 2026-11-09 los bitstreams traen N_FORMAS = 3 y BANCO_PZ no
+# tiene la 16/12: sus pulsos pasan a la 8/8, que los cuenta igual con un 40 % más
+# de ruido (§7 del mismo doc).
+BANCO_PZ_4 = ((64, 48, 4, 69, 97, 96), (32, 24, 3, 29, 49, 48),
+              (16, 12, 2, 9, 26, 24), (8, 8, 1, 0, 15, 13))
+BANCO_PZ = (BANCO_PZ_4[0], BANCO_PZ_4[1], BANCO_PZ_4[3])
 
 
 def mca_banco_config(mq, pre_dly=16, formas=BANCO_PZ, gate_long=None, altura=8.0):
     """Los argumentos de `mca_configure` para el banco de trapecios.
 
-    Es una cuenta, no toca el hardware: `mca_configure(h, n_acc=4, sel_1d='trapecio',
+    Es una cuenta, no toca el hardware: `mca_configure(h, n_acc=3, sel_1d='trapecio',
     **mca_banco_config(mq))`. Trae también `pre_dly` y `gate_long`, de los que
     dependen las ventanas, para que no se puedan pasar otros.
 
@@ -1827,13 +1820,14 @@ def mca_read_acquire_chunks(h, seconds, chunk_s, on_chunk=None):
 # API de guardado
 # =============================================================================
 #
-# Tres formatos para el mismo par (histograma, metadata):
+# Cuatro formatos para el mismo par (histograma, metadata):
 #
 #   write_file_histogram  csv  texto, cabecera '# clave: valor'  <- por defecto
 #   save_file_binary      npz  compacto, es lo que usa el resto del árbol
 #   save_file_json        json legible por cualquier cosa, sin numpy
+#   save_file_n42         n42  ANSI N42.42-2011, para otros programas (API/n42.py)
 #
-# `mca_load_file` relee los tres y devuelve siempre (histograma, metadata), así
+# `mca_load_file` los relee y devuelve siempre (histograma, metadata), así
 # que el formato es una decisión de almacenamiento y no cambia el análisis.
 #
 # schema_version 2: la metadata del MCA2 (otras claves de config y contadores,
@@ -1908,9 +1902,47 @@ def mca_save_file_json(hist, path, meta=None):
                   f, indent=2, ensure_ascii=False)
 
 
+def mca_save_file_n42(hist, path, meta=None, detector=None, calibracion=None,
+                      clase=None, instrumento=None):
+    """Guarda el espectro en ANSI N42.42-2011, el formato que abren otros programas.
+
+    Es sólo el 1D: el mapa 2D no entra en el formato. Exige `realtime_s` mayor que
+    cero, `livetime_s` y `t_wall` en `meta`: el estándar los pide, y no se inventan.
+    Por eso `meta=mca_get_metadata(h)`, y con el MCA ya medido.
+
+    - `detector`: `{'categoria': 'Gamma', 'tipo': 'NaI', 'descripcion': ..., 'nombre':
+      ...}`, con los códigos de `API.n42`. Sin dato, `Other`, porque el MCA no sabe
+      qué hay a la entrada.
+    - `calibracion`: `(T0, T1)` o `(T0, T1, T2)`, con E = T0 + T1·C + T2·C² en keV y C
+      el canal desde 0. Sin dato, `0 1 0` y un `Remark` que dice que no son keV.
+    - `clase`: `Foreground`, `Background`, `Calibration`, `IntrinsicActivity` o
+      `NotSpecified`, que es el default.
+    - `instrumento`: `{'fabricante': ..., 'modelo': ...}`.
+
+    `StartDateTime` sale de `t_wall − realtime_s`, con el reloj de quien armó la
+    metadata: con el servidor, el de la placa. Lo que quede en `None` se toma de los
+    `n42_*` de `meta`: guardar un `.n42` releído no pierde la calibración.
+    """
+    from API import n42
+    meta = _meta_serializable(meta)
+    avisos = []
+    if meta.get('sel_1d') == F_TRAP:
+        avisos.append('Espectro de la meseta del trapecio: el canal 0 junta los '
+                      'eventos marcados y los incompletos, y no es una amplitud.')
+    n42.escribir(hist, path, meta, detector=detector, calibracion=calibracion,
+                 clase=clase, instrumento=instrumento, avisos=avisos)
+
+
 def mca_load_file(path):
-    """Relee cualquiera de los tres formatos -> (histograma uint32, metadata)."""
+    """Relee cualquiera de los cuatro formatos -> (histograma uint32, metadata).
+
+    Con `.n42` también lee archivos de otros programas: ver `API.n42.leer`.
+    """
     ext = os.path.splitext(path)[1].lower()
+
+    if ext == '.n42':
+        from API import n42
+        return n42.leer(path)
 
     if ext == '.npz':
         with np.load(path, allow_pickle=True) as z:
@@ -1934,5 +1966,6 @@ def mca_load_file(path):
                     cuentas.append(int(linea.split(',')[1]))
         return np.asarray(cuentas, dtype=np.uint32), meta
 
-    raise ValueError(f'formato no reconocido: {ext!r} (esperaba .csv/.npz/.json)')
+    raise ValueError(f'formato no reconocido: {ext!r} '
+                     '(esperaba .csv/.npz/.json/.n42)')
 

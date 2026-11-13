@@ -76,6 +76,25 @@ def test_callbacks_bloque_sin_y_con_read_words():
         assert m.accesos == [('b', 0x08, 4)]                # UNA llamada
 
 
+def test_sondear_lee_el_mismo_registro_n_veces():
+    """Un registro que avanza solo, como wp_cur: sondear lo lee n veces, siempre en
+    el mismo offset, aunque haya un read_words propio (que es para bloques)."""
+    m = Modelo()
+    cuenta = iter(range(100, 200))
+
+    def r32(off):
+        m.accesos.append(('r', off))
+        return next(cuenta)
+
+    with L.Bus.callbacks(r32, m.w32, m.read_words, size=4 * 64) as b:
+        v = b.sondear(0x18, 6)
+        assert v.dtype == np.uint32 and v.tolist() == [100, 101, 102, 103, 104, 105]
+        assert m.accesos == [('r', 0x18)] * 6
+        with pytest.raises(ValueError, match='alineado'):
+            b.sondear(0x19, 2)
+        assert b.sondear(0x18, 0).size == 0
+
+
 def test_validacion_es_del_bus_y_no_llega_al_backend():
     m = Modelo()
     with L.Bus.callbacks(m.r32, m.w32, size=4 * 64) as b:

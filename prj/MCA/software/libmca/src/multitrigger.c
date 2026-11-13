@@ -510,5 +510,6 @@ int multitrigger_get_status(multitrigger_h *h, multitrigger_status_t *st)
     TRY(rd(h, MULTITRIGGER_R_FLAGS, &st->flags));
     st->shield_active = (st->shield_runtime & (1u << 16)) != 0;
     st->mca_veto = (st->shield_runtime & (1u << 17)) != 0;
+    st->trig_arm = (st->shield_runtime & (1u << 18)) != 0;
     return MCA_OK;
 }

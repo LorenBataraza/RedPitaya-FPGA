@@ -67,6 +67,36 @@ def test_c_bus_e_igualdad(corrida):
     assert r['igualdad']['bus.read_words_h']['n'] == 1 << 14
 
 
+def test_region_de_top_en_las_dos(corrida, corrida_shm):
+    for _, r in (corrida, corrida_shm):
+        if 'c' in r['no_disponible']:
+            pytest.skip(r['no_disponible']['c'])
+        assert 'top' not in r['no_disponible']
+        for op in ('top.identify', 'top.slots', 'top.caps', 'top.routes',
+                   'top.status', 'top.get_run', 'top.set_route'):
+            assert {'py', 'c'} <= set(r['ops'][op]), op
+
+
+def test_multitrigger_en_las_dos(corrida, corrida_shm):
+    for _, r in (corrida, corrida_shm):
+        if 'c' in r['no_disponible']:
+            pytest.skip(r['no_disponible']['c'])
+        assert 'mt' not in r['no_disponible']
+        for op in ('mt.get_or_mask', 'mt.snapshot', 'mt.get_flags', 'mt.get_slope', 'mt.get_pz',
+                   'mt.get_config', 'mt.get_status', 'mt.set_shield'):
+            assert {'py', 'c'} <= set(r['ops'][op]), op
+
+
+def test_osciloscopio_en_las_dos(corrida, corrida_shm):
+    for _, r in (corrida, corrida_shm):
+        if 'c' in r['no_disponible']:
+            pytest.skip(r['no_disponible']['c'])
+        assert 'osc' not in r['no_disponible']
+        for op in ('osc.get_thr', 'osc.get_decim', 'osc.get_wp', 'osc.get_config',
+                   'osc.get_status', 'osc.set_delay', 'osc.read_bram'):
+            assert {'py', 'c'} <= set(r['ops'][op]), op
+
+
 def test_crudos_coinciden_con_el_resumen(corrida):
     out, r = corrida
     crudos = np.load(out / 'resultados.npz')
@@ -111,7 +141,7 @@ def test_shm_mide_las_dos_sobre_el_mismo_fichero(corrida_shm):
     for k in ('bus.read_words_h', 'bus.read_words_2d'):
         assert r['igualdad'][k]['iguales'] is True and r['igualdad'][k]['suma'] > 0
     # el fichero se borra
-    assert not any(n.startswith('bench_impl_mca_')
+    assert not any(n.startswith(('bench_impl_mca_', 'bench_impl_top_', 'bench_impl_mt_'))
                    for n in os.listdir('/dev/shm' if os.path.isdir('/dev/shm')
                                        else '/tmp'))
 

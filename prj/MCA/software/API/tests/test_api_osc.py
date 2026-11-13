@@ -39,6 +39,37 @@ class Registros:
         self.m[off] = int(v) & 0xFFFFFFFF
 
 
+def _mt(regs=None):
+    """El handle del multitrigger sobre esos registros: la lógica es la de libmca,
+    que llega acá por el backend de callbacks. `.m` son los registros."""
+    regs = Registros() if regs is None else regs
+
+    class H(MT.MultiTrigger):
+        m = regs.m
+
+        def r32(self, off):
+            return regs.r32(off)
+
+        def w32(self, off, v):
+            regs.w32(off, v)
+    return H(None, -1)
+
+
+def _osc(regs=None):
+    """El handle del osciloscopio sobre esos registros, como `_mt`."""
+    regs = Registros() if regs is None else regs
+
+    class H(O.Osciloscope):
+        m = regs.m
+
+        def r32(self, off):
+            return regs.r32(off)
+
+        def w32(self, off, v):
+            regs.w32(off, v)
+    return H(None, -1)
+
+
 # =============================================================================
 # Osciloscopio
 # =============================================================================
@@ -46,7 +77,7 @@ class Registros:
 def test_ida_y_vuelta_de_todos_los_campos():
     """Lo escrito se relee igual. Es de lo que depende el anti-eco de la GUI:
     si el readback no coincide, el panel reescribe en un lazo."""
-    r = Registros()
+    r = _osc()
     valores = {campo: 1 for campo in O._CAMPOS}
     O.osciloscope_configure(r, **valores)
     leidos = O.osciloscope_get_config(r)
@@ -57,7 +88,7 @@ def test_ida_y_vuelta_de_todos_los_campos():
 def test_el_umbral_conserva_el_signo():
     """14 bits en complemento a dos. Sin extender el signo, -500 se lee como
     +15884 y el control de la GUI salta al tope."""
-    r = Registros()
+    r = _osc()
     O.osciloscope_configure(r, thr_ch0=-500, thr_ch1=-8192)
     c = O.osciloscope_get_config(r)
     assert c['thr_ch0'] == -500
@@ -69,7 +100,7 @@ def test_el_umbral_conserva_el_signo():
 def test_los_campos_del_mismo_registro_no_se_pisan():
     """`avg_en_ch0` y `avg_en_ch1` comparten palabra: escribirlos de a uno haría
     que el segundo leyera lo que el primero acaba de cambiar."""
-    r = Registros()
+    r = _osc()
     O.osciloscope_configure(r, avg_en_ch0=1, avg_en_ch1=1)
     c = O.osciloscope_get_config(r)
     assert (c['avg_en_ch0'], c['avg_en_ch1']) == (1, 1)
@@ -85,7 +116,7 @@ def test_los_campos_del_mismo_registro_no_se_pisan():
 def test_las_mascaras_recortan_como_el_rtl():
     """Escribir de más no rompe —el RTL trunca— pero leer de más devolvería
     bits que no existen y el readback dejaría de coincidir."""
-    r = Registros()
+    r = _osc()
     O.osciloscope_configure(r, deb_len=0xFFFFFFFF, filt_bypass=0xFF)
     c = O.osciloscope_get_config(r)
     assert c['deb_len'] == 0xFFFFF        # 20 bits
@@ -93,7 +124,7 @@ def test_las_mascaras_recortan_como_el_rtl():
 
 
 def test_un_campo_inventado_falla_al_escribir():
-    r = Registros()
+    r = _osc()
     with pytest.raises(ValueError, match='campos desconocidos'):
         O.osciloscope_configure(r, umbral=100)
 
@@ -102,7 +133,7 @@ def test_la_decimacion_solo_acepta_los_valores_legales():
     """El validador está en el setter suelto, no en la tabla: la tabla escribe
     lo que le den. La GUI usa un combo con estos seis y por eso no puede
     mandar otro."""
-    r = Registros()
+    r = _osc()
     with pytest.raises(ValueError, match='no legal'):
         O.osciloscope_set_decim(r, 7)
     for d in O.DEC_LEGAL:
@@ -115,7 +146,7 @@ def test_la_decimacion_solo_acepta_los_valores_legales():
 
 def test_los_tres_campos_del_shield_comparten_palabra():
     """Layout: {dur[31:16], 3'h0, dst[12:8], 1'b0, src[6:0]}."""
-    r = Registros()
+    r = _mt()
     MT.multitrigger_configure(r, shield_src=3, shield_dst=3, shield_dur=7)
     assert r.m[MT.R_SHIELD_CFG] == 0x0007_0303
     c = MT.multitrigger_get_config(r)
@@ -126,7 +157,7 @@ def test_el_veto_al_mca_va_en_los_bits_nuevos_del_shield():
     """Los campos crecieron EN SITIO sobre bits que estaban en cero: src[6:4] son
     la entrada externa (flancos y nivel) y dst[12] es el MCA. Un software viejo
     que escribe sólo los 4 bits bajos deja el veto apagado."""
-    r = Registros()
+    r = _mt()
     MT.multitrigger_configure(r, shield_src=MT.SRC_EXT_LVL, shield_dst=MT.DST_MCA,
                               shield_dur=0)
     assert r.m[MT.R_SHIELD_CFG] == (0x10 << 8) | 0x40
@@ -149,11 +180,11 @@ def test_los_bits_del_shield_son_sucesivos_y_con_nombre():
 
 def test_el_estado_publica_el_veto():
     """Bit 17 del runtime del shield: lo que el shield le manda al MCA AHORA."""
-    r = Registros({MT.R_SHIELD_RUN: (1 << 17) | (1 << 16) | 5})
+    r = _mt(Registros({MT.R_SHIELD_RUN: (1 << 17) | (1 << 16) | 5}))
     est = MT.multitrigger_get_status(r)
     assert est['mca_veto'] and est['shield_active']
     assert est['shield_runtime'] & 0xFFFF == 5
-    est = MT.multitrigger_get_status(Registros({MT.R_SHIELD_RUN: 1 << 16}))
+    est = MT.multitrigger_get_status(_mt(Registros({MT.R_SHIELD_RUN: 1 << 16})))
     assert est['shield_active'] and not est['mca_veto']
 
 
@@ -165,7 +196,7 @@ def test_un_registro_que_no_retiene_se_denuncia():
             pass                          # acepta y no guarda
 
     with pytest.raises(RuntimeError, match='no retuvo lo escrito'):
-        MT.multitrigger_configure(Sordo(), or_mask_ch0=0xFF)
+        MT.multitrigger_configure(_mt(Sordo()), or_mask_ch0=0xFF)
 
 
 def test_los_bits_de_la_mascara_son_los_del_snapshot():

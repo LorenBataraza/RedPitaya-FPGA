@@ -115,7 +115,7 @@ def decode_snap(s):
 R_CMD         = 0x000           # del SCOPE, no de esta región: arm / rst / we_keep
 R_TRIG_DIS_CLR = 0x094          # del SCOPE: desbloquea adc_trg_dis
 R_SHIELD_CFG  = 0x010           # {dur[31:16], dst[12:8], src[6:0]}
-R_SHIELD_RUN  = 0x014           # {mca_veto[17], active[16], cnt[15:0]} (R)
+R_SHIELD_RUN  = 0x014           # {trig_arm[18], mca_veto[17], active[16], cnt[15:0]} (R)
 R_TRIG_SNAP   = 0x018           # snapshot de 29 b, sticky (R)
 R_FLAGS       = 0x01C           # dis_act / we_keep (R)
 R_OR_MASK_CH0 = 0x040
@@ -621,7 +621,8 @@ def multitrigger_get_status(mt):
             'flags': mt.r32(R_FLAGS),
             'shield_runtime': runtime,
             'shield_active': bool(runtime & (1 << 16)),
-            'mca_veto': bool(runtime & (1 << 17))}
+            'mca_veto': bool(runtime & (1 << 17)),
+            'trig_arm': bool(runtime & (1 << 18))}
 
 
 # =============================================================================
@@ -771,16 +772,19 @@ def multitrigger_desarmar_mca(osc, mtr, ch=0):
 
 
 def multitrigger_armar_banco(h, osc, mtr, mq, ch=0, pre_dly=16, formas=None,
-                             n_acc=4, k=2, m=1, sh=10, thr_cuentas=50.0,
+                             n_acc=None, k=2, m=1, sh=10, thr_cuentas=50.0,
                              hyst_cuentas=25.0, **config):
     """El banco de trapecios y su disparo con polo-cero, con el MISMO `mq`.
 
     `mq` (M*16) está dos veces en el hardware, en el MCA y en el disparo, y tiene
     que ser la misma: la del ajuste de la cola en la placa. No tiene default a
     propósito. El resto de `config` va a `mca_configure` (por ejemplo
-    `sel_1d='trapecio'`); deja el MCA parado, y el disparo armado.
+    `sel_1d='trapecio'`); deja el MCA parado, y el disparo armado. `n_acc=None`
+    usa todas las ranuras del bitstream (4 hasta el 2026-11-09, 3 desde entonces).
     """
-    from API.mca import BANCO_PZ, mca_banco_config, mca_configure
+    from API.mca import BANCO_PZ, mca_banco_config, mca_configure, mca_get_n_acc_max
+    if n_acc is None:
+        n_acc = mca_get_n_acc_max(h)
     mca_configure(h, n_acc=n_acc,
                   **mca_banco_config(mq, pre_dly=pre_dly,
                                      formas=BANCO_PZ if formas is None else formas),

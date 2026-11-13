@@ -16,7 +16,7 @@ Retirar el shim y migrar los call sites es un paso posterior.
 from API.osciloscope_store import (                                # noqa: F401
     Annotator, CachedAnnotator, ConstantAnnotator, DeadTimeAnnotator,
     EventBatch, SCHEMA_VERSION, bytes_per_event,
-    ReaderThread, ChunkWriter, load_chunk,
+    ReaderThread, ChunkWriter, load_chunk, archivos_de_corrida,
     AcquisitionSession, scope_regs,
     BramSource, FakeSource,
 )
@@ -24,7 +24,7 @@ from API.osciloscope_store import (                                # noqa: F401
 __all__ = [
     'Annotator', 'CachedAnnotator', 'ConstantAnnotator',
     'EventBatch', 'SCHEMA_VERSION', 'bytes_per_event',
-    'ReaderThread', 'ChunkWriter', 'load_chunk',
+    'ReaderThread', 'ChunkWriter', 'load_chunk', 'archivos_de_corrida',
     'AcquisitionSession', 'scope_regs',
     'BramSource', 'FakeSource',
 ]

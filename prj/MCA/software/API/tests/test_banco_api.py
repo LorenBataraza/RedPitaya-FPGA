@@ -49,7 +49,7 @@ def test_la_receta_da_los_registros_de_la_etapa_de_placa():
 
     mq, pre = 3992, 16
     kw = A.mca_banco_config(mq, pre_dly=pre)
-    assert kw['n_formas'] == 4 and kw['trap_mq'] == mq and kw['pre_dly'] == pre
+    assert kw['n_formas'] == len(A.BANCO_PZ) == 3 and kw['trap_mq'] == mq and kw['pre_dly'] == pre
     for f, (k, m, lw, c, an, de) in enumerate(placa.BANCO_PZ):
         pref = 'trap_' if f == 0 else f'forma{f}_'
         sh = round(math.log2(16 * k * (1 + mq / 16.0) / 8))
@@ -63,7 +63,7 @@ def test_la_compuerta_de_la_receta_es_la_que_entra(h):
     assert A.mca_banco_config(3992)['gate_long'] == 112
     assert A.mca_banco_config(3992, pre_dly=24)['gate_long'] == 120
     A.mca_configure(h, n_acc=4, **A.mca_banco_config(3992))
-    assert A.mca_get_formas_ok(h) == [True] * 4 and A.mca_get_umbr_ok(h)
+    assert A.mca_get_formas_ok(h) == [True] * len(A.BANCO_PZ) and A.mca_get_umbr_ok(h)
     with pytest.raises(ValueError, match='la ventana termina en 111'):
         A.mca_configure(h, n_acc=4, **A.mca_banco_config(3992, gate_long=104))
 
@@ -85,7 +85,7 @@ def test_un_k_que_no_es_potencia_de_2_se_rechaza(h):
 
 def test_configure_deja_el_reset_del_banco(h):
     A.mca_configure(h, n_acc=4, **A.mca_banco_config(3885))
-    assert A.mca_get_n_formas(h) == 4 and A.mca_get_trap_mq(h) == 3885
+    assert A.mca_get_n_formas(h) == len(A.BANCO_PZ) and A.mca_get_trap_mq(h) == 3885
     A.mca_configure(h)
     c = A.mca_get_config(h)
     assert c['n_formas'] == 1 and c['trap_mq'] == 0
@@ -112,7 +112,8 @@ def test_los_setters_validan(h):
 
 
 def test_los_avisos_solo_miran_las_formas_en_uso(h):
-    A.mca_configure(h, n_acc=4, **A.mca_banco_config(3992))
+    # con el banco de 4 formas: la placa falsa trae N_FORMAS = 4
+    A.mca_configure(h, n_acc=4, **A.mca_banco_config(3992, formas=A.BANCO_PZ_4))
     assert A.mca_get_n_formas_max(h) == 4
     # Con los setters sueltos se puede romper lo que configure no deja: para eso
     # están los avisos.

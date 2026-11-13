@@ -342,18 +342,26 @@ def traza_scope():
         escribe sobre la MISMA traza y con los offsets de antes, y así el baseline
         sigue vigilando lo que importa: los valores y el orden que cruza los dos
         bloques (arm ANTES de la máscara). Que la mudanza es -0x200 lo fijan las
-        constantes (bloque B)."""
+        constantes (bloque B).
+
+        La lógica del handle es C, así que los accesos son los de esta subclase
+        (`mem=None`), que es a donde llega C por el backend de callbacks: un
+        `super().w32` volvería a entrar a C."""
+
+        def __init__(self, m):
+            self._espejo = m
+            super().__init__(None, -1)
 
         def w32(self, off, v):
-            super().w32(off + 0x200, v)
+            self._espejo[off + 0x200:off + 0x204] = (v & 0xFFFFFFFF).to_bytes(4, 'little')
 
         def r32(self, off):
-            return super().r32(off + 0x200)
+            return int.from_bytes(self._espejo[off + 0x200:off + 0x204], 'little')
 
     def nuevo():
         m = FakeMmap(mt.SCOPE_SIZE)
         sc = mt.MultiTriggerScope(m, -1)
-        sc._mt = EnElEspejo(m, -1)
+        sc._mt = EnElEspejo(m)
         return m, sc
 
     m, sc = nuevo()

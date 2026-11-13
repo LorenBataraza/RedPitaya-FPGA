@@ -69,6 +69,11 @@ MOD_MCA  = 1 << 2
 MOD_RING = 1 << 3
 MOD_ASG  = 1 << 4
 MOD_PID  = 1 << 5
+MOD_PULSOS = 1 << 6                     # gen_pulsos, en el lugar del ASG
+
+# gen_pulsos comparte el slot 2 con el event_ring (sys_bus_split): vive 64 KB
+# arriba de la base del slot.
+PULSOS_OFFSET = 0x0001_0000
 
 # --- bits de CTRL ---
 CTRL_RUN   = 1 << 0
@@ -205,7 +210,8 @@ class Integration:
         w = self.r32(R_MODULES)
         return {'osc':  bool(w & MOD_OSC),  'mtrg': bool(w & MOD_MTRG),
                 'mca':  bool(w & MOD_MCA),  'ring': bool(w & MOD_RING),
-                'asg':  bool(w & MOD_ASG),  'pid':  bool(w & MOD_PID)}
+                'asg':  bool(w & MOD_ASG),  'pid':  bool(w & MOD_PID),
+                'pulsos': bool(w & MOD_PULSOS)}
 
     def slots(self):
         """En qué slot vive cada módulo EN ESTE bitstream.
@@ -216,11 +222,13 @@ class Integration:
         w = self.r32(R_SLOTS)
         return {'osc':  (w >> 0)  & 0xF, 'ring': (w >> 4)  & 0xF,
                 'mtrg': (w >> 8)  & 0xF, 'top':  (w >> 12) & 0xF,
-                'mca':  (w >> 16) & 0xF}
+                'mca':  (w >> 16) & 0xF, 'pulsos': (w >> 20) & 0xF}
 
     def base(self, modulo):
-        """Dirección física de la base de un módulo, según el mapa real."""
-        return SYS_BUS_BASE + self.slots()[modulo] * SYS_BUS_SLOT
+        """Dirección física de la base de un módulo, según el mapa real. El
+        generador de pulsos está PULSOS_OFFSET arriba de la base de su slot."""
+        return (SYS_BUS_BASE + self.slots()[modulo] * SYS_BUS_SLOT
+                + (PULSOS_OFFSET if modulo == 'pulsos' else 0))
 
     def caps(self):
         """Parámetros de síntesis: anchos, número de canales, profundidades.

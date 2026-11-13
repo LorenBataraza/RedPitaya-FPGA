@@ -1075,20 +1075,23 @@ int mca_configure(mca_h *h, const mca_config_t *c)
  * Lectura
  * ========================================================================= */
 
-/* t_win + t_div como double, sin desbordar. Dos relojes de 64 b suman hasta 65
+/* La suma de hasta tres relojes como double, sin desbordar (t_win + t_div, y
+ * con t_rearm el tiempo muerto entero). Tres relojes de 64 b suman hasta 66
  * bits, y Python los suma con precision arbitraria antes de pasar a float. En
  * la placa no se llega (2^64 ciclos son 4675 anios), pero un uint64 que da la
  * vuelta devolveria basura en silencio, y el arreglo es barato: con acarreo, el
  * valor se corre 2 bits conservando un bit pegajoso (que preserva el redondeo
  * al par mas cercano) y se reescala, que es exacto. El resultado es el float
  * correctamente redondeado de la suma, igual que en Python. */
-static double suma_a_double(uint64_t a, uint64_t b)
+static double suma_a_double(uint64_t a, uint64_t b, uint64_t c)
 {
     uint64_t t = a + b;
     unsigned acarreo = t < a;
+    uint64_t u = t + c;
+    acarreo += u < t;                    /* 0..2: la suma tiene hasta 66 bits */
     if (acarreo == 0)
-        return (double)t;
-    uint64_t w = ((uint64_t)acarreo << 62) | (t >> 2) | ((t & 3u) != 0);
+        return (double)u;
+    uint64_t w = ((uint64_t)acarreo << 62) | (u >> 2) | ((u & 3u) != 0);
     return (double)w * 4.0;
 }
 
@@ -1105,6 +1108,7 @@ int mca_read_counters(mca_h *h, mca_counters_t *c)
     TRY(r64(h, MCA_R_VETOTIME_LO, MCA_R_VETOTIME_HI, &c->vetotime));
     TRY(r64(h, MCA_R_T_WIN_LO,    MCA_R_T_WIN_HI,    &c->t_win));
     TRY(r64(h, MCA_R_T_DIV_LO,    MCA_R_T_DIV_HI,    &c->t_div));
+    TRY(r64(h, MCA_R_T_REARM_LO,  MCA_R_T_REARM_HI,  &c->t_rearm));
     TRY(r64(h, MCA_R_T_CLEAR_LO,  MCA_R_T_CLEAR_HI,  &c->t_clear));
     TRY(rd(h, MCA_R_N_ACC_MAX, &c->n_acc_max));
     uint32_t n_t = (c->n_acc_max < MCA_N_ACC_TOPE ? c->n_acc_max : MCA_N_ACC_TOPE) + 1;
@@ -1136,9 +1140,12 @@ int mca_read_counters(mca_h *h, mca_counters_t *c)
     c->vetotime_s = (double)c->vetotime / MCA_FS_HZ;
     c->t_win_s    = (double)c->t_win    / MCA_FS_HZ;
     c->t_div_s    = (double)c->t_div    / MCA_FS_HZ;
+    c->t_rearm_s  = (double)c->t_rearm  / MCA_FS_HZ;
     c->t_clear_s  = (double)c->t_clear  / MCA_FS_HZ;
-    double muerto = suma_a_double(c->t_win, c->t_div);
-    c->deadtime_real_s = muerto / MCA_FS_HZ;
+    /* El periodo muerto es del MCA (sin ranura libre): t_win + t_div. El tiempo
+     * muerto que ve un pulso suma ademas el re-armado del disparo. */
+    double muerto = suma_a_double(c->t_win, c->t_div, 0);
+    c->deadtime_real_s = suma_a_double(c->t_win, c->t_div, c->t_rearm) / MCA_FS_HZ;
 
     c->dead_periods = periodos;
     TRY(rd(h, MCA_R_DEAD_LEN_MAX, &w));
@@ -1165,6 +1172,7 @@ int mca_read_counters(mca_h *h, mca_counters_t *c)
     c->busy           = (st >> 1) & 1u;
     c->baseline_stale = (st >> 2) & 1u;
     c->vetoed         = (st >> 3) & 1u;
+    c->rearm_pend     = (st >> 4) & 1u;
     c->puede_abrir    = (st >> 5) & 1u;
     c->n_ocup         = (st >> 8) & 0x7u;
     c->full_1d        = (hs >> 0) & 1u;

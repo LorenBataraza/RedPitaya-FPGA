@@ -21,6 +21,9 @@ Módulos:
     API.mca                 analizador multicanal, slot 7 (0x4070_0000)
     API.osciloscope         osciloscopio clásico, slot 1 (0x4010_0000)
     API.osciloscope_ring    event_ring en DDR, slot 2 (0x4020_0000)
+    API.generadores         generador de pulsos, slot 2 (0x4021_0000), y el motor
+                            de disparos que comparte con el del ring
+    API.integration         región de TOP, slot 6 (0x4060_0000)
     API.osciloscope_store   guardado continuo del flujo de eventos (hilos+colas)
     API.multitrigger        máscaras OR, shield y snapshot del slot 1
     API.analisis            helpers PUROS de análisis, sin hardware

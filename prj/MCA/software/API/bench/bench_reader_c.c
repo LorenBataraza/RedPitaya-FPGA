@@ -8,7 +8,7 @@
  * Fases medidas (las mismas que instrumentamos en Python):
  *   poll    1 lectura de registro (adc_state @0x00)
  *   read    ventana de S muestras x N_CH, leida DIRECTO de la BRAM
- *   rearm   3 escrituras de registro (0x00, 0x240, 0x244)
+ *   rearm   3 escrituras de registro (0x00 del slot 1, 0x040 y 0x044 del slot 3)
  *   book    guardar los escalares del evento en el batch
  *
  * SEGURIDAD DE ACCESO (importante):
@@ -39,17 +39,27 @@
 #define BRAM_CH1   0x20000u
 #define REG_STATE  0x00u
 #define REG_WPTRIG 0x1Cu
-#define REG_MASK0  0x240u
-#define REG_MASK1  0x244u
+
+/* Las mascaras y el snapshot estan en la region propia del multitrigger: el
+ * slot 1 ya no decodifica 0x240/0x244/0x218 (mt_cfg.sv). */
+#define MTRG_PHYS  0x40300000u
+#define MTRG_SIZE  0x1000u
+#define MTRG_MAGIC 0x4D545247u   /* "MTRG" */
+#define MT_SNAP    0x018u
+#define MT_MASK0   0x040u
+#define MT_MASK1   0x044u
 
 #define S_REF   32          /* muestras por ventana  */
 #define N_CH    2           /* canales               */
 #define REPS    20000
 
 static volatile uint32_t *g_map;
+static volatile uint32_t *g_mt;
 
 static inline uint32_t rd(uint32_t off) { return g_map[off >> 2]; }
 static inline void     wr(uint32_t off, uint32_t v) { g_map[off >> 2] = v; }
+static inline uint32_t rd_mt(uint32_t off) { return g_mt[off >> 2]; }
+static inline void     wr_mt(uint32_t off, uint32_t v) { g_mt[off >> 2] = v; }
 
 static inline uint64_t now_ns(void) {
     struct timespec ts;
@@ -86,13 +96,16 @@ int main(void) {
                    fd, SCOPE_PHYS);
     if (m == MAP_FAILED) { perror("mmap"); return 1; }
     g_map = (volatile uint32_t *)m;
+    void *m_mt = mmap(NULL, MTRG_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED,
+                      fd, MTRG_PHYS);
+    if (m_mt == MAP_FAILED) { perror("mmap"); return 1; }
+    g_mt = (volatile uint32_t *)m_mt;
 
-    /* sanity: el scope tiene que contestar (0x240 es R/W en el multitrigger) */
-    wr(REG_MASK0, 0x2u);
-    if (rd(REG_MASK0) != 0x2u) {
-        fprintf(stderr, "no se lee un scope multitrigger en 0x%08x "
-                        "(0x240 = 0x%08x). Cargar el bitstream.\n",
-                SCOPE_PHYS, rd(REG_MASK0));
+    /* sanity: el multitrigger tiene que contestar */
+    if (rd_mt(0x000u) != MTRG_MAGIC) {
+        fprintf(stderr, "no se lee el multitrigger en 0x%08x "
+                        "(MAGIC = 0x%08x). Cargar el bitstream.\n",
+                MTRG_PHYS, rd_mt(0x000u));
         return 1;
     }
 
@@ -110,11 +123,11 @@ int main(void) {
             read_window(c, start, S_REF, wave[c]);           /* read  */
         uint64_t c2 = now_ns();
         wr(REG_STATE, 0x00000101u);                          /* rearm */
-        wr(REG_MASK0, 0x2u);
-        wr(REG_MASK1, 0x2u);
+        wr_mt(MT_MASK0, 0x2u);
+        wr_mt(MT_MASK1, 0x2u);
         uint64_t d = now_ns();
         ev.t_ns = (int64_t)a; ev.wp = (int32_t)wp;
-        ev.snap = rd(0x218u); ev.gap = 0;                    /* book + snap */
+        ev.snap = rd_mt(MT_SNAP); ev.gap = 0;                /* book + snap */
         uint64_t e = now_ns();
 
         t_poll[k] = b - a; t_read[k] = c2 - b;
@@ -135,6 +148,7 @@ int main(void) {
     printf("  %-8s %8.2f us   ->  techo %.1f kev/s\n", "CICLO", tot,
            1000.0 / tot);
 
+    munmap(m_mt, MTRG_SIZE);
     munmap(m, SCOPE_SIZE);
     close(fd);
     return 0;

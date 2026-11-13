@@ -23,7 +23,7 @@ Las etapas:
   par        pares de pulsos a 1.6 us: con 1 ranura el segundo se pierde
              (lost_active) y con 2 o más se miden los dos; F_DTPREV, F_DTNEXT y
              F_SOLAPE tienen que marcar exactamente el par.
-  poisson    arribos de Poisson a varias tasas y 1..4 ranuras: la pérdida
+  poisson    arribos de Poisson a varias tasas y de 1 a N ranuras: la pérdida
              medida contra una simulación M/D/N/N sobre EL MISMO patrón de
              arribos (se reconstruye de la semilla del generador), y contra
              Erlang B como referencia.
@@ -97,10 +97,12 @@ CONTADORES = {
 # Relojes de 64 b: leer la palabra baja congela la alta
 RELOJES = {
     'realtime': 0x068, 'livetime': 0x070, 'deadtime': 0x078,
-    'vetotime': 0x0C0, 't_win': 0x0C8, 't_div': 0x0D0, 't_clear': 0x0FC,
+    'vetotime': 0x0C0, 't_win': 0x0C8, 't_div': 0x0D0, 't_rearm': 0x0D8,
+    't_clear': 0x0FC,
 }
-# Los que dejaron libres el Schmitt, la histéresis, el re-armado y la FIFO
-RESERVADOS = (0x014, 0x018, 0x028, 0x02C, 0x048, 0x0D8, 0x0DC, 0x0F0,
+# Los que dejaron libres el Schmitt, la histéresis, el re-armado viejo y la
+# FIFO. 0x0D8/0x0DC volvió a ser t_rearm (el re-armado del multitrigger).
+RESERVADOS = (0x014, 0x018, 0x028, 0x02C, 0x048, 0x0F0,
               0x104, 0x108, 0x114)
 
 F_PEAK, F_INT, F_PSD, F_INVW, F_LEN, F_TRISE = 0, 1, 2, 3, 4, 5
@@ -345,15 +347,17 @@ def stats_h(h, lo=1, hi=None):
 def invariantes(d, n_acc, etq):
     """Las identidades del teselado y de la atribución, sobre una foto."""
     to = d['t_ocup']
-    check(f'{etq}: realtime = veto + t_win + t_div + livetime',
-          d['realtime'] == d['vetotime'] + d['t_win'] + d['t_div'] + d['livetime'],
-          f"{d['realtime']} vs {d['vetotime'] + d['t_win'] + d['t_div'] + d['livetime']}")
+    suma = d['vetotime'] + d['t_win'] + d['t_div'] + d['t_rearm'] + d['livetime']
+    check(f'{etq}: realtime = veto + t_win + t_div + t_rearm + livetime',
+          d['realtime'] == suma, f"{d['realtime']} vs {suma}")
     check(f'{etq}: suma de t_ocup = realtime - vetotime',
           sum(to) == d['realtime'] - d['vetotime'], f'{sum(to)}')
     check(f'{etq}: t_win + t_div = t_ocup[n_acc]',
           d['t_win'] + d['t_div'] == to[n_acc], f"{d['t_win'] + d['t_div']} vs {to[n_acc]}")
-    check(f'{etq}: livetime = suma de t_ocup[j < n_acc]',
-          d['livetime'] == sum(to[:n_acc]), f"{d['livetime']} vs {sum(to[:n_acc])}")
+    # con alguna ranura libre el ciclo es vivo o de re-armado del disparo
+    check(f'{etq}: livetime + t_rearm = suma de t_ocup[j < n_acc]',
+          d['livetime'] + d['t_rearm'] == sum(to[:n_acc]),
+          f"{d['livetime'] + d['t_rearm']} vs {sum(to[:n_acc])}")
     check(f'{etq}: deadtime = suma de t_ocup[j >= 1]',
           d['deadtime'] == sum(to[1:]), f"{d['deadtime']} vs {sum(to[1:])}")
     check(f'{etq}: cross = open + lost_active + dropped + lost_veto',
@@ -400,7 +404,9 @@ def etapa_regs(m, mt, recien_cargado):
     check('caps: 1D y 2D', m.r32(R_CAPS) & 3 == 3, f'{m.r32(R_CAPS):#x}')
     check('anchos 13 / 7 / 6', (m.h_aw, m.h2_aw, m.psd_aw) == (13, 7, 6),
           f'{m.h_aw}/{m.h2_aw}/{m.psd_aw}')
-    check('N_ACC = 4', m.n_acc_max == 4, m.n_acc_max)
+    # 4 ranuras hasta el recorte del 2026-11-09, 3 desde entonces: las etapas usan las
+    # que tenga el bitstream cargado (m.n_acc_max), no un número fijo.
+    check(f'N_ACC = {m.n_acc_max} (3 o 4)', m.n_acc_max in (3, 4), m.n_acc_max)
     if recien_cargado:
         check('reset: cfg_n_acc = 1', m.r32(R_N_ACC_CFG) == 1, m.r32(R_N_ACC_CFG))
         check('reset: cfg_pre_dly = 11', m.r32(R_PRE_DLY) == 11, m.r32(R_PRE_DLY))
@@ -444,7 +450,7 @@ def etapa_regs(m, mt, recien_cargado):
     check(f'{n} lecturas sin colgarse', True, f'{1e6 * (time.time() - t0) / n:.1f} us/acceso')
 
     print('\n[regs] borrado')
-    m.configurar(n_acc=4)
+    m.configurar(n_acc=m.n_acc_max)
     m.clear()
     h = m.espectro()
     check('espectro en cero tras el borrado', not h.any(), f'{int((h != 0).sum())} canales')
@@ -461,7 +467,7 @@ def etapa_regs(m, mt, recien_cargado):
     check('realtime ~ 1 s', 0.95 < rt < 1.2, f'{rt:.4f} s')
     check('sin disparos: cross = 0', d['cross'] == 0, d['cross'])
     check('t_ocup[0] = realtime', d['t_ocup'][0] == d['realtime'], d['t_ocup'])
-    invariantes(d, 4, 'reposo')
+    invariantes(d, m.n_acc_max, 'reposo')
     t1 = m.leer()['realtime']
     time.sleep(0.2)
     check('con run = 0 el realtime no avanza', m.leer()['realtime'] == t1)
@@ -505,7 +511,7 @@ def etapa_periodico(m, mt, gen, args):
     tau = args.gate + 19
 
     espectros = {}
-    for n in (1, 4):
+    for n in (1, m.n_acc_max):
         m.w32(R_N_ACC_CFG, n)
         d = m.medir(args.segundos)
         rt = d['realtime'] / FS
@@ -534,13 +540,14 @@ def etapa_periodico(m, mt, gen, args):
         print(f'        espectro: {nn} eventos, pico en el canal {mu:.1f} ± {sg:.2f} '
               f'(~{2 * mu:.0f} cuentas)')
         out[f'N{n}'] = dict(sin_h(d), pico=mu, sigma=sg, n_h=nn)
-    (_, mu1, s1), (_, mu4, s4) = stats_h(espectros[1]), stats_h(espectros[4])
-    check('espectro N=1 contra N=4: mismo pico (±0.2 sigma)', abs(mu1 - mu4) < 0.2 * max(s1, 1),
-          f'{mu1:.2f} vs {mu4:.2f}')
-    check('espectro N=1 contra N=4: mismo ancho (±10 %)', abs(s4 / max(s1, 1e-9) - 1) < 0.10,
-          f'{s1:.2f} vs {s4:.2f}')
+    nm = m.n_acc_max
+    (_, mu1, s1), (_, muN, sN) = stats_h(espectros[1]), stats_h(espectros[nm])
+    check(f'espectro N=1 contra N={nm}: mismo pico (±0.2 sigma)', abs(mu1 - muN) < 0.2 * max(s1, 1),
+          f'{mu1:.2f} vs {muN:.2f}')
+    check(f'espectro N=1 contra N={nm}: mismo ancho (±10 %)', abs(sN / max(s1, 1e-9) - 1) < 0.10,
+          f'{s1:.2f} vs {sN:.2f}')
     np.savez_compressed(args.out.replace('.json', '_periodico.npz'),
-                        h1=espectros[1], h4=espectros[4])
+                        h1=espectros[1], **{f'h{nm}': espectros[nm]})
 
     print('\n[periodico] F_TRISE contra cfg_pre_dly')
     m.w32(R_N_ACC_CFG, 1)
@@ -594,7 +601,7 @@ def etapa_par(m, mt, gen, args):
     m.medir(0.5, histograma=False)
     d_mu = dt_par * FS
     out = {}
-    for n in (1, 2, 4):
+    for n in sorted({1, 2, m.n_acc_max}):
         m.w32(R_N_ACC_CFG, n)
         res = {}
         for f, z in ((F_SOLAPE, 3), (F_DTPREV, 3), (F_DTNEXT, 3), (F_PEAK, 0)):
@@ -699,7 +706,7 @@ def etapa_trapecio(m, mt, gen, args):
     print(f'\n[trapecio] k={k} m={mm} M={mq0 / 16:.2f} (tau {tau:.0f} muestras) sh={sh} '
           f'meseta [{off}, {off + (1 << lw)})')
 
-    m.configurar(n_acc=4, gate_long=args.gate, pre_dly=args.pre_trap)
+    m.configurar(n_acc=m.n_acc_max, gate_long=args.gate, pre_dly=args.pre_trap)
     m.w32(R_TRAP_KM, (mm << 16) | k)
     m.w32(R_TRAP_MED, (sh << 24) | (lw << 16) | off)
     check('trapecio: la ventana de la meseta entra en la compuerta',
@@ -856,7 +863,7 @@ def etapa_banco(m, mt, gen, args):
           '  (el NOMINAL: correr antes la etapa trapecio o pasar --trap-mq)'))
     if args.disparo == 'pz':
         m.bl_holdoff = m.bl_holdoff or HOLDOFF_BANCO
-    m.configurar(n_acc=4, gate_long=args.gate, pre_dly=args.pre_trap)
+    m.configurar(n_acc=m.n_acc_max, gate_long=args.gate, pre_dly=args.pre_trap)
     m.w32(R_TRAP_MQ, mq)
     n_pts = 16384
     t = np.arange(n_pts) * T / n_pts
@@ -1015,7 +1022,7 @@ def etapa_disparo(m, mt, gen, args):
     n_pts = 16384
     t = np.arange(n_pts) * T / n_pts
     sep = T / N
-    m.configurar(n_acc=4, gate_long=args.gate, pre_dly=args.pre_trap)
+    m.configurar(n_acc=m.n_acc_max, gate_long=args.gate, pre_dly=args.pre_trap)
     mq = args.trap_mq or round(16.0 / (math.exp(1.0 / (2e-6 * FS)) - 1.0))
     out = {'disparo': args.disparo}
     print(f'\n[disparo] {args.disparo}: disparos por par contra dt (muestras)')
@@ -1084,7 +1091,7 @@ def etapa_falsos(m, mt, gen, args):
         return {}
     gen.output(args.gen_ch, False)
     time.sleep(0.5)
-    m.configurar(n_acc=4, gate_long=args.gate_banco, pre_dly=args.pre_banco)
+    m.configurar(n_acc=m.n_acc_max, gate_long=args.gate_banco, pre_dly=args.pre_banco)
     mq = args.trap_mq or round(16.0 / (math.exp(1.0 / (2e-6 * FS)) - 1.0))
     g = pz_ganancia(mq=mq)
     out = {}
@@ -1104,8 +1111,9 @@ def etapa_falsos(m, mt, gen, args):
 # antes / despues): docs/mca/pruebas_banco_trapecios.md con el polo-cero. En el
 # registro, off = c + pre_dly + 2; la compuerta tiene que cubrir la ventana de
 # la primera: c + pre_dly + 2 + 8 + 16 = 111 con pre_dly 16 (bit 31 de FORMA_MED).
-BANCO_PZ = ((64, 48, 4, 69, 97, 96), (32, 24, 3, 29, 49, 48),
-            (16, 12, 2, 9, 26, 24), (8, 8, 1, 0, 15, 13))
+# Desde el recorte del 2026-11-09 el bitstream trae 3 formas y la 16/12 no está: sus
+# pulsos pasan a la 8/8. Es la misma tabla que API.mca.BANCO_PZ (test_banco_api.py).
+BANCO_PZ = ((64, 48, 4, 69, 97, 96), (32, 24, 3, 29, 49, 48), (8, 8, 1, 0, 15, 13))
 HOLDOFF_BANCO = 1500     # del seguidor de base, a la baja tasa de estas etapas
 
 
@@ -1136,7 +1144,7 @@ def etapa_banco_rtl(m, mt, gen, args):
     # Sin holdoff el seguidor mide dentro de las colas, y cada forma queda corrida
     # distinto: el error máximo da 1.15 % en vez de 0.81 % (medido).
     m.bl_holdoff = m.bl_holdoff or HOLDOFF_BANCO
-    m.configurar(n_acc=4, gate_long=gate, pre_dly=pre)
+    m.configurar(n_acc=m.n_acc_max, gate_long=gate, pre_dly=pre)
     m.w32(R_TRAP_MQ, mq)
     for f, (k, mm, lw, c, an, de) in enumerate(BANCO_PZ):
         sh = round(math.log2(16 * k * (1 + mq0 / 16.0) / 8))
@@ -1304,7 +1312,7 @@ def etapa_poisson(m, mt, gen, args):
             print(f'\n[poisson] {tasa:g} ev/s pedidos, semilla {semilla}: {info["n_events"]} '
                   f'arribos en {info["T_ciclo_s"] * 1e3:.2f} ms ({info["rate_real"]:.0f} ev/s)')
             fila = {'tasa': tasa, 'semilla': semilla, 'info': info, 'runs': {}}
-            for n in (1, 2, 3, 4):
+            for n in range(1, m.n_acc_max + 1):
                 m.w32(R_N_ACC_CFG, n)
                 d = m.medir(args.segundos)
                 rt = d['realtime'] / FS

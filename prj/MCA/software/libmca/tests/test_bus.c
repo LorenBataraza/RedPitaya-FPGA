@@ -1,4 +1,5 @@
-/* Tests del nivel 2 en la PC: los dos backends y la validacion comun.
+/* Tests del nivel 2 en la PC: los dos backends del bus y la validacion comun, y la
+ * region de DDR (mca_mem.h) con sus cuatro backends.
  *
  * devmem se prueba sobre un fichero comun (mca_bus_open_file): es el mismo
  * camino de open + mmap + calculo de pagina + accesos, solo que contra la
@@ -15,6 +16,7 @@
 #include <unistd.h>
 
 #include "mca_bus.h"
+#include "mca_mem.h"
 
 static int fallas = 0;
 
@@ -85,6 +87,19 @@ static void test_callback(void)
     CHECK(mca_bus_read_words(b, 0x08, 4, dst) == MCA_OK);
     CHECK(dst[0] == 2 && dst[3] == 5 && m.n_r32 == 4);
 
+    /* sondear: n lecturas del MISMO offset, validado una vez, sin el bloque. */
+    m.reg[6] = 66;
+    m.n_r32 = 0;
+    uint32_t son[5] = { 0 };
+    CHECK(mca_bus_sondear(b, 0x18, 5, son) == MCA_OK);
+    CHECK(son[0] == 66 && son[4] == 66 && m.n_r32 == 5);
+    antes = m.n_r32;
+    CHECK(mca_bus_sondear(b, 0x19, 5, son) == MCA_EALIGN);
+    CHECK(mca_bus_sondear(b, 0x100, 5, son) == MCA_ERANGE);
+    CHECK(mca_bus_sondear(b, 0x18, 5, NULL) == MCA_EINVAL);
+    CHECK(mca_bus_sondear(b, 0x18, 0, NULL) == MCA_OK);
+    CHECK(m.n_r32 == antes);
+
     /* Los errores del backend se propagan: un codigo propio tal cual, otro
      * cualquiera como MCA_EBACKEND. */
     m.fallar = MCA_ETIMEOUT;
@@ -144,10 +159,94 @@ static void test_fichero(void)
     unlink(path);
 }
 
+/* ---- la region de DDR ------------------------------------------------------ */
+
+struct ddr_falsa {
+    uint8_t m[64];
+    int n_leer, n_escribir;
+};
+
+static int d_leer(void *ctx, uint32_t off, uint32_t n, void *dst)
+{
+    struct ddr_falsa *d = ctx;
+    d->n_leer++;
+    memcpy(dst, d->m + off, n);
+    return 0;
+}
+
+static int d_escribir(void *ctx, uint32_t off, uint32_t n, const void *src)
+{
+    struct ddr_falsa *d = ctx;
+    d->n_escribir++;
+    memcpy(d->m + off, src, n);
+    return off == 56 ? 1 : 0;   /* la ultima palabra: un error del backend */
+}
+
+static void test_mem(void)
+{
+    uint64_t buf[8] = { 0 }, dst[2];
+    mca_mem *m;
+    CHECK(mca_mem_open_ptr(&m, buf, 0x0A000000u, sizeof(buf)) == MCA_OK);
+    CHECK(mca_mem_size(m) == sizeof(buf) && mca_mem_phys(m) == 0x0A000000u);
+    buf[2] = 0x1122334455667788ull;
+    CHECK(mca_mem_read(m, 16, 8, dst) == MCA_OK && dst[0] == buf[2]);
+    uint64_t v = 0xFFFFFFFF00000000ull;
+    CHECK(mca_mem_write(m, 56, 8, &v) == MCA_OK && buf[7] == v);
+    /* palabras de 64 b, y dentro de la region */
+    CHECK(mca_mem_read(m, 4, 8, dst) == MCA_EALIGN);
+    CHECK(mca_mem_read(m, 8, 12, dst) == MCA_EALIGN);
+    CHECK(mca_mem_read(m, 56, 16, dst) == MCA_ERANGE);
+    CHECK(mca_mem_read(m, 64, 8, dst) == MCA_ERANGE);
+    CHECK(mca_mem_read(m, 64, 0, dst) == MCA_OK);
+    CHECK(mca_mem_write(m, 0xFFFFFFF8u, 8, &v) == MCA_ERANGE);
+    CHECK(mca_mem_read(m, 0, 8, NULL) == MCA_EINVAL);
+    mca_mem_close(m);
+
+    CHECK(mca_mem_open_ptr(&m, NULL, 0, 64) == MCA_EINVAL);
+    CHECK(mca_mem_open_ptr(&m, buf, 4, 64) == MCA_EINVAL);   /* phys sin alinear */
+    CHECK(mca_mem_open_ptr(&m, buf, 0, 60) == MCA_EINVAL);   /* size sin alinear */
+    CHECK(mca_mem_open_ptr(&m, buf, 0, 0) == MCA_EINVAL);
+
+    struct ddr_falsa d = { .m = { 0 } };
+    d.m[8] = 0x5A;
+    CHECK(mca_mem_open_callback(&m, d_leer, d_escribir, &d, 0, sizeof(d.m)) == MCA_OK);
+    CHECK(mca_mem_read(m, 8, 16, dst) == MCA_OK && (dst[0] & 0xFF) == 0x5A);
+    CHECK(mca_mem_write(m, 0, 8, &v) == MCA_OK && d.n_escribir == 1);
+    CHECK(mca_mem_write(m, 56, 8, &v) == MCA_EBACKEND);
+    CHECK(mca_mem_read(m, 60, 8, dst) == MCA_EALIGN && d.n_leer == 1);  /* no llega */
+    mca_mem_close(m);
+    CHECK(mca_mem_open_callback(&m, d_leer, NULL, &d, 0, sizeof(d.m)) == MCA_OK);
+    CHECK(mca_mem_write(m, 0, 8, &v) == MCA_ENOSYS);
+    mca_mem_close(m);
+    CHECK(mca_mem_open_callback(&m, NULL, NULL, &d, 0, 64) == MCA_EINVAL);
+
+    /* devmem sobre un fichero: el mapeo con la pagina resuelta, como el bus */
+    char path[] = "/tmp/test_libmca_mem_XXXXXX";
+    int fd = mkstemp(path);
+    CHECK(fd >= 0);
+    if (fd < 0) return;
+    long pag = sysconf(_SC_PAGESIZE);
+    CHECK(ftruncate(fd, 2 * pag) == 0);
+    uint64_t marca = 0x45564E5445564E54ull;
+    CHECK(pwrite(fd, &marca, 8, pag + 8) == 8);
+    close(fd);
+    CHECK(mca_mem_open_file(&m, path, (uint32_t)pag, (uint32_t)pag) == MCA_OK);
+    CHECK(mca_mem_read(m, 8, 8, dst) == MCA_OK && dst[0] == marca);
+    CHECK(mca_mem_write(m, 16, 8, &marca) == MCA_OK);
+    mca_mem_close(m);
+    CHECK(mca_mem_open_file(&m, path, (uint32_t)pag + 16, 16) == MCA_OK);
+    CHECK(mca_mem_read(m, 0, 8, dst) == MCA_OK && dst[0] == marca);   /* lo escrito */
+    mca_mem_close(m);
+    CHECK(mca_mem_open_file(&m, "/no/existe", 0, 4096) == MCA_EOPEN);
+    mca_mem_close(NULL);
+    unlink(path);
+}
+
 int main(void)
 {
     test_callback();
     test_fichero();
+    test_mem();
     printf("libmca %s  [%s]\n", mca_lib_version(), mca_lib_build());
     printf("test_bus: %s\n", fallas ? "FALLA" : "OK");
     return fallas ? 1 : 0;

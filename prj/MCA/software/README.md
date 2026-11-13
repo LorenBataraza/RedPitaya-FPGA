@@ -56,6 +56,19 @@ Los tests de placa **no se pueden ni importar** en la PC (hacen `import rp` al
 importarse), así que viven en su propio directorio y `pyproject.toml` los saca
 de la colección con `norecursedirs`. Un `pytest` pelado en la PC es seguro.
 
+## Dependencias
+
+`numpy` es la única obligatoria en la placa. `h5py` hace falta para guardar los eventos del
+osciloscopio en LH5 (`formato='lh5'`): sin él sigue el `.npz`, y `make verificar` saltea
+esos tests. Para no saltearlos en la PC: `sudo apt install python3-h5py`. El lector oficial,
+que es lo que prueba de verdad el formato, va en un entorno aparte, porque arrastra su
+propio `numpy`:
+
+```bash
+python3 -m venv .venv-lh5 && .venv-lh5/bin/pip install h5py legend-lh5io pytest
+.venv-lh5/bin/python -m pytest API/tests/test_lh5.py
+```
+
 ## Compatibilidad
 
 `API/tests/test_compat_api.py` compara la superficie pública actual contra un

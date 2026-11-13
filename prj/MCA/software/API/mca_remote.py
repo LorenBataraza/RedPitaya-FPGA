@@ -50,12 +50,13 @@ from API.mca import (AMP_W, APERTURE_2D, APERTURE_H, CAP_HIST_H,
                      R_LIVETIME_HI, R_LIVETIME_LO, R_MAGIC, R_N_ACC,
                      R_N_ACC_MAX, R_N_FORMAS, R_PRE_DLY, R_PUB_STATE, R_REALTIME_HI,
                      R_REALTIME_LO, R_STATUS, R_T_CLEAR_HI, R_T_CLEAR_LO,
-                     R_T_DIV_HI, R_T_DIV_LO, R_T_OCUP, R_T_WIN_HI, R_T_WIN_LO,
+                     R_T_DIV_HI, R_T_DIV_LO, R_T_REARM_HI, R_T_REARM_LO,
+                     R_T_OCUP, R_T_WIN_HI, R_T_WIN_LO,
                      R_TRAP_KM, R_TRAP_MED, R_TRAP_MQ, R_TRAP_UMBR, R_VETOTIME_HI,
                      R_VETOTIME_LO, R_WIDTHS, R_ZOOM_1D, R_ZOOM_2DX, TRAP_LAT)
 from API.mca_net import PORT_DEFAULT, Channel, RemoteError, array_desde
 from API.multitrigger import (CAPS_HAS_PZ, CAPS_HAS_SLOPE, MTRG_MAGIC, R3_CAPS,
-                              R3_FLAGS, MtRegion,
+                              R3_FLAGS, MtRegion, MultiTrigger,
                               R_FLAGS, R_OR_MASK_CH0, R_OR_MASK_CH1, R_SHIELD_CFG,
                               R_SHIELD_RUN, R_TRIG_SNAP)
 from API.mca_net import a_json, de_json
@@ -64,7 +65,8 @@ from API._despacho import NoRemota
 # la MISMA constante que usa el real y no con una copia que puede divergir.
 # `API/osciloscope.py` es importable en la PC (la librería `rp` se carga
 # perezosamente), así que esto no ata este módulo a la placa.
-from API.osciloscope import ADC_CNT_PER_V
+from API.osciloscope import (ADC_CNT_PER_V, MAGIC_OSC, R_CANON_CAPS, R_CANON_MAGIC,
+                             Osciloscope)
 
 
 # =============================================================================
@@ -316,6 +318,39 @@ class MCARemote(MCA):
         self.info = info
         return info
 
+    # ---------- event_ring (slot 2): una adquisición en la placa ----------
+    #
+    # La sesión corre en el servidor (`AdquisicionRing`) y escribe en un camino de la
+    # placa: la SD, /dev/shm o un directorio de la PC montado allá. Por el socket van
+    # sólo el control y el estado; los datos, por el montaje.
+
+    @property
+    def has_ring(self):
+        """¿El bitstream de la placa trae el event_ring?"""
+        return bool(self.info.get('has_ring'))
+
+    @property
+    def has_gen(self):
+        """¿Y su generador de eventos?"""
+        return bool(self.info.get('has_gen'))
+
+    def ring_iniciar(self, run_dir, **kw):
+        """Arranca una adquisición del ring en la placa: los argumentos de
+        `API.osciloscope_ring.AdquisicionRing` (`pre`, `post`, `generador` o
+        `disparo`, `calib`, `formato`, `capacity`, `ram_mb`, `margen_mb`, `meta`).
+        `run_dir` es un camino de la placa. Devuelve `run_dir`, `fs`, `n_slots` y
+        `pool`."""
+        return self._pedir('ring.iniciar', run_dir=run_dir, **kw)[0]['result']
+
+    def ring_estado(self):
+        """`corriendo`, `motivo`, `stats` (la sesión), `hw` (los contadores del ring) y
+        `error`, sin frenar la adquisición."""
+        return self._pedir('ring.estado')[0]['result']
+
+    def ring_parar(self):
+        """Para la adquisición y devuelve `stats`, `hw_final`, `n_slots` y `error`."""
+        return self._pedir('ring.parar')[0]['result']
+
 
 def _pedir_en(canal, op, **args):
     """Una operación sobre un Channel -> (cabecera, payload)."""
@@ -373,6 +408,7 @@ _RELOJES = {
     R_T_WIN_LO:    (R_T_WIN_HI, '_muerto'),
     R_VETOTIME_LO: (R_VETOTIME_HI, None),
     R_T_DIV_LO:    (R_T_DIV_HI, None),
+    R_T_REARM_LO:  (R_T_REARM_HI, None),
     R_T_CLEAR_LO:  (R_T_CLEAR_HI, None),
 }
 
@@ -430,6 +466,10 @@ class FakeMCA(MCA):
         self._ultimo = dict(amp=0, psd=0, q_tot=0, q_tail=0)
         self._realtime = 0.0
         self._t_ref = None
+        # Lo que entra por el lazo digital: una función que da la tasa de pulsos
+        # (`FakeGenPulsos.tasa_en_lazo`), o None si el lazo está apagado y la
+        # entrada es la fuente propia de `rate_hz`. Sin generador, None.
+        self.fuente = None
 
     # ---------- simulación ----------
 
@@ -443,7 +483,8 @@ class FakeMCA(MCA):
             return
         self._realtime += dt
 
-        n = int(self._rng.poisson(self._rate * dt))
+        tasa = self.fuente() if self.fuente is not None else None
+        n = int(self._rng.poisson((self._rate if tasa is None else tasa) * dt))
         if n == 0:
             return
 
@@ -637,19 +678,28 @@ _DEFAULTS_OSC = {            # los del RTL, modulos/osc/rtl/osc_cfg.sv:302-319
 }
 
 
-class FakeOsc:
+class FakeOsc(Osciloscope):
     """Un osciloscopio que no existe: pulsos gaussianos sobre ruido.
 
     Devuelve trazas cuya altura y tasa se parecen a las del `FakeMCA` que corre
     al lado, para que las dos pestañas cuenten la misma historia: si el espectro
     simulado tiene el pico en 8000 cuentas, las formas simuladas también.
+
+    La lógica de los registros es la de libmca, que llega acá por el backend de
+    callbacks. La profundidad la publica como un bitstream: en el mapa canónico.
     """
 
     def __init__(self, n_buf=16384, rate_hz=1000.0, altura_cnt=8000.0,
                  ancho_muestras=40.0, ruido_cnt=60.0, semilla=0):
+        rsz = int(n_buf).bit_length() - 1
+        if 1 << rsz != int(n_buf):
+            raise ValueError(f'n_buf={n_buf}: el anillo es una potencia de 2')
+        super().__init__(None, -1)
         self._reg = dict(_DEFAULTS_OSC)
+        self._reg[R_CANON_MAGIC] = MAGIC_OSC
+        self._reg[R_CANON_CAPS] = (rsz << 16) | (14 << 8) | 2
         self._rng = np.random.default_rng(semilla)
-        self.n_buf = int(n_buf)
+        self._n = int(n_buf)
         self._rate = float(rate_hz)
         self._altura = float(altura_cnt)
         self._ancho = float(ancho_muestras)
@@ -663,7 +713,7 @@ class FakeOsc:
         # Los punteros de escritura y el contador de eventos avanzan solos: es
         # lo que hace que la curva de tasa de la GUI tenga algo que dibujar.
         if off in (0x018, 0x118, 0x01C, 0x11C):
-            return int((time.monotonic() - self._t0) * 1e6) % self.n_buf
+            return int((time.monotonic() - self._t0) * 1e6) % self._n
         if off in (0x02C, 0x12C):
             return int((time.monotonic() - self._t0) * self._rate)
         if off == 0x000:
@@ -705,17 +755,16 @@ class FakeOsc:
         self._we_cnt += 1
         return salida
 
-    def close(self):
-        pass
 
-
-class FakeMultiTrigger:
-    """Registros del multitrigger que retienen lo escrito, y un snapshot fijo."""
+class FakeMultiTrigger(MultiTrigger):
+    """Registros del multitrigger que retienen lo escrito, y un snapshot fijo. La
+    lógica es la de libmca, que llega acá por el backend de callbacks."""
 
     _DEFAULTS = {R_SHIELD_CFG: 0, R_SHIELD_RUN: 0, R_FLAGS: 0,
                  R_OR_MASK_CH0: 0xFFFFFFFF, R_OR_MASK_CH1: 0xFFFFFFFF}
 
     def __init__(self):
+        super().__init__(None, -1)
         self._reg = dict(self._DEFAULTS)
 
     def r32(self, off):
@@ -725,15 +774,6 @@ class FakeMultiTrigger:
 
     def w32(self, off, v):
         self._reg[off] = int(v) & 0xFFFFFFFF
-
-    def read_snapshot_raw(self):
-        return self.r32(R_TRIG_SNAP)
-
-    def get_flags(self):
-        return self.r32(R_FLAGS)
-
-    def close(self):
-        pass
 
 
 class FakeMtRegion(MtRegion):
@@ -761,5 +801,115 @@ class FakeMtRegion(MtRegion):
     def w32(self, off, v):
         self._reg[off] = int(v) & 0xFFFFFFFF
 
-    def close(self):
-        pass
+
+class FakeGenPulsos:
+    """El generador de pulsos (`gen_pulsos`, slot 2) y el `digital_loop` de HK,
+    simulados. La lógica es la de libmca: `handle()` devuelve un `GenPulsos` abierto
+    sobre estos registros por el backend de callbacks.
+
+    Los registros siguen a `gen_pulsos.sv` como el modelo de
+    `API/tests/test_libmca_generadores.py`: el ancho de cada campo, BASE y la tabla
+    releídos con el signo extendido, GEN_CNT, ESTADO y MAGIC de sólo lectura, y el
+    estado que se reinicia en el flanco de `en`. Lo que cambia es el tiempo: acá
+    GEN_CNT avanza con el reloj de la PC, a la tasa configurada, hasta N.
+
+    `tasa_en_lazo()` es lo que el `FakeMCA` ve por la entrada (su atributo
+    `fuente`): con el lazo prendido, la tasa del generador mientras genera y 0 si
+    está parado, porque el ADC queda desconectado; con el lazo apagado, None, y el
+    MCA ve su fuente de siempre. Sólo la tasa: el espectro falso no sigue a la tabla
+    de amplitudes.
+    """
+
+    def __init__(self):
+        from API import generadores as G
+        self._G = G
+        self.ANCHO = {G.R_CTRL: 0x1F, G.R_DT_MIN: 0xFFFF, G.R_DECAE: 0xFFFF,
+                      G.R_SUBIDA: 0x7, G.R_AMP_N: 0x3FF, G.R_RUIDO: 0x10F}
+        self.reg = {G.R_CTRL: 0, G.R_PERIODO: 1000, G.R_UMBRAL: 0, G.R_DT_MIN: 2,
+                    G.R_N: 0, G.R_SEMILLA: 0, G.R_DECAE: G.DECAE_RESET,
+                    G.R_SUBIDA: 0, G.R_AMP_N: 0, G.R_BASE: 0, G.R_RUIDO: 0}
+        self.tabla = [0] * G.N_TABLA
+        self.hk = 0
+        self._t0 = None             # el arranque, en time.monotonic()
+        self._tasa = 0.0            # la de la configuración, fijada al arrancar
+        self._cnt = 0               # GEN_CNT congelado al parar
+
+    @staticmethod
+    def _s14(v):
+        v &= 0x3FFF
+        return v - 0x4000 if v & 0x2000 else v
+
+    def _en(self):
+        return bool(self.reg[self._G.R_CTRL] & self._G.CTRL_EN)
+
+    def _gen_cnt(self):
+        if not self._en() or self._t0 is None:
+            return self._cnt
+        n = int(self._tasa * (time.monotonic() - self._t0))
+        tope = self.reg[self._G.R_N]
+        return min(n, tope) if tope else n
+
+    def _hecho(self):
+        tope = self.reg[self._G.R_N]
+        return tope != 0 and self._gen_cnt() >= tope
+
+    def tasa_en_lazo(self):
+        if not self.hk & 1:
+            return None
+        return self._tasa if self._en() and not self._hecho() else 0.0
+
+    # ---------- los registros ----------
+
+    def r32(self, off):
+        G = self._G
+        if off >= G.R_TABLA:
+            return self._s14(self.tabla[(off - G.R_TABLA) >> 2]) & 0xFFFFFFFF
+        if off == G.R_GEN_CNT:
+            return self._gen_cnt() & 0xFFFFFFFF
+        if off == G.R_ESTADO:
+            hecho = self._hecho()
+            return int(self._en() and not hecho) | (int(hecho) << 1)
+        if off == G.R_MAGIC:
+            return G.MAGIC
+        if off == G.R_BASE:
+            return self._s14(self.reg[G.R_BASE]) & 0xFFFFFFFF
+        return self.reg.get(off, 0)
+
+    def w32(self, off, v):
+        G = self._G
+        v = int(v) & 0xFFFFFFFF
+        if off >= G.R_TABLA:
+            self.tabla[(off - G.R_TABLA) >> 2] = v & 0x3FFF
+            return
+        if off not in self.reg:
+            return                      # GEN_CNT, ESTADO, MAGIC: sólo lectura
+        v &= self.ANCHO.get(off, 0xFFFFFFFF)
+        if off == G.R_BASE:
+            v &= 0x3FFF
+        if off == G.R_CTRL:
+            antes = self._en()
+            ahora = bool(v & G.CTRL_EN)
+            if ahora and not antes:                 # el arranque
+                r = self.reg
+                self._tasa = G.tasa(aleatorio=bool(v & G.CTRL_ALEATORIO),
+                                    periodo=r[G.R_PERIODO], umbral=r[G.R_UMBRAL],
+                                    dt_min=r[G.R_DT_MIN])
+                self._t0, self._cnt = time.monotonic(), 0
+            elif antes and not ahora:               # GEN_CNT queda
+                self._cnt = self._gen_cnt()
+                self._t0 = None
+        self.reg[off] = v
+
+    def hk_r32(self, off):
+        return self.hk if off == self._G.HK_LAZO else 0
+
+    def hk_w32(self, off, v):
+        if off == self._G.HK_LAZO:
+            self.hk = int(v) & 0x3
+
+    def handle(self):
+        from API._libmca import Bus
+        G = self._G
+        bus = Bus.callbacks(self.r32, self.w32, size=G.SIZE)
+        hk = Bus.callbacks(self.hk_r32, self.hk_w32, size=G.HK_SIZE)
+        return G.GenPulsos.sobre(bus, hk)

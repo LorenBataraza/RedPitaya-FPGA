@@ -21,7 +21,7 @@ extern "C" {
  * tabla de simbolos del .so, que es exactamente lo que ctypes puede llamar. */
 #define MCA_API __attribute__((visibility("default")))
 
-#define MCA_LIB_VERSION "0.5.0"
+#define MCA_LIB_VERSION "0.11.0"
 
 /* Cero es exito; todo error es negativo, como en rp-api. El binding de Python
  * traduce cada uno a la excepcion que la API de Python ya lanzaba. */
@@ -52,7 +52,7 @@ typedef struct {
     uint32_t    offset;
     uint32_t    shift;
     uint32_t    mascara;
-    int32_t     bandera;        /* 1: set(v) escribe v != 0 */
+    int32_t     bandera;        /* la define cada bloque; MCA: set(v) escribe v != 0 */
 } mca_field_t;
 
 /* "0.1.0". Va en la metadata de cada medicion (api_impl, libmca_version). */

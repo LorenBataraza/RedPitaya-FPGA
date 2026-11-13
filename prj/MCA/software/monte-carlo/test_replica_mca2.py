@@ -119,9 +119,10 @@ def test_el_estimulo_ejercita_el_banco(pares):
 
 def test_la_receta_de_la_api_es_el_banco_del_volcado():
     """Lo que el RTL corrió con el banco es lo que `mca_banco_config` escribe en la
-    placa, así que este test también le da la razón a la API."""
-    from API.mca import mca_banco_config
-    kw = mca_banco_config(vd._MQ_PRE)
+    placa, así que este test también le da la razón a la API. El volcado es del banco
+    de 4 formas (BANCO_PZ_4), anterior al recorte del 2026-11-09."""
+    from API.mca import BANCO_PZ_4, mca_banco_config
+    kw = mca_banco_config(vd._MQ_PRE, formas=BANCO_PZ_4)
     for k, v in kw.items():
         assert vd._BANCO[k] == v, k
     assert set(kw) == set(vd._BANCO)

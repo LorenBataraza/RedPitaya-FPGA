@@ -234,8 +234,25 @@ def test_el_banco_y_su_disparo_usan_el_mismo_mq():
     cfg = mca_get_config(h)
     assert cfg['trap_mq'] == mtr.get_pz(0)['mq'] == 3885
     assert multitrigger_disparo_mca(mtr)['fuente'] == 'pz'
-    assert mca_get_n_formas(h) == 4 and cfg['n_acc'] == 4 and cfg['gate_long'] == 112
-    assert mca_get_umbr_ok(h) and mca_get_formas_ok(h) == [True] * 4
+    assert mca_get_n_formas(h) == 3 and cfg['n_acc'] == 4 and cfg['gate_long'] == 112
+    assert mca_get_umbr_ok(h) and mca_get_formas_ok(h) == [True] * 3
+    h.close()
+
+
+def test_el_banco_usa_las_ranuras_del_bitstream():
+    """Sin `n_acc`, todas las que tenga la placa: 3 desde el recorte del 2026-11-09.
+    Con 4 fijas, libmca rechazaba la configuración en un bitstream de 3."""
+    from API.mca import mca_get_config
+    from API.mca_remote import FakeMCA
+    from API.multitrigger import multitrigger_armar_banco
+    osc = FakeOsc()
+    mtr = FakeMtRegion(osc=osc)
+    h = FakeMCA(trap=True)
+    h.N_ACC = 3
+    multitrigger_armar_banco(h, osc, mtr, mq=3885, sel_1d='trapecio')
+    assert mca_get_config(h)['n_acc'] == 3
+    with pytest.raises(ValueError):
+        multitrigger_armar_banco(h, osc, mtr, mq=3885, n_acc=4)
     h.close()
 
 
@@ -263,11 +280,21 @@ def test_multitrigger_y_mtregion_ven_los_mismos_registros():
     assert mr.get_shield() == {'dur': 0, 'dst': 0, 'src': 0}
 
 
-def test_multitrigger_rechaza_un_bitstream_sin_la_region(monkeypatch):
+def test_multitrigger_rechaza_un_bitstream_sin_la_region(monkeypatch, tmp_path):
     """Sin el MAGIC falla al abrir: escribir igual sería perder las máscaras en silencio."""
     import mmap as _mmap
     import os as _os
+    from API import _libmca
     from API import multitrigger as M
+    # C abre /dev/mem por su cuenta: se le da el mismo backend sobre un fichero.
+    ruta = tmp_path / 'vacio.bin'
+    ruta.write_bytes(bytes(0x1000))
+    bus = _libmca.Bus.archivo(str(ruta), 0, 0x1000)
+    with pytest.raises(RuntimeError, match='no es la región del multitrigger'):
+        M.MultiTrigger._sobre_bus(bus)
+    bus.close()
+
+    # La referencia, que es lo que se abre si libmca no carga, lo abre en Python.
     monkeypatch.setattr(_os, 'open', lambda *a, **k: -7)
     monkeypatch.setattr(_os, 'close', lambda fd: None)
 
@@ -276,4 +303,4 @@ def test_multitrigger_rechaza_un_bitstream_sin_la_region(monkeypatch):
             pass
     monkeypatch.setattr(_mmap, 'mmap', lambda *a, **k: Vacio(0x1000))
     with pytest.raises(RuntimeError, match='no es la región del multitrigger'):
-        M.MultiTrigger.open()
+        M.MultiTrigger.open(impl='py')

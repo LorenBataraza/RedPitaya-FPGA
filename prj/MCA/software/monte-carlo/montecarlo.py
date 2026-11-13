@@ -111,8 +111,10 @@ def _trapecio_preamp(forma):
 def _banco(forma):
     if _RAIZ not in sys.path:
         sys.path.insert(0, _RAIZ)
-    from API.mca import mca_banco_config
-    kw = mca_banco_config(MQ_PREAMP)         # la misma receta que en la placa
+    from API.mca import BANCO_PZ_4, mca_banco_config
+    # La receta de la placa con 4 ranuras y 4 formas, con la que se corrió el barrido
+    # de docs/mca/apilamiento.md; los bitstreams desde el 2026-11-09 traen 3 y 3.
+    kw = mca_banco_config(MQ_PREAMP, formas=BANCO_PZ_4)
     kw.update(r2.disparo_pz_para(forma, MQ_PREAMP, pre_dly=kw['pre_dly']))
     return r2.cfg(n_acc=4, **kw)
 

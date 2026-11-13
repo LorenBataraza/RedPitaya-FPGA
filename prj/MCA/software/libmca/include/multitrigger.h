@@ -55,7 +55,9 @@ typedef struct multitrigger_h multitrigger_h;
 /* ---- los tipos que cruzan la interfaz ------------------------------------- */
 
 /* src y dst son mascaras: los 4 bits bajos, los canales del scope. runtime es
- * SHIELD_RUN: {mca_veto[17], active[16], cnt[15:0]}. */
+ * SHIELD_RUN: {trig_arm[18], mca_veto[17], active[16], cnt[15:0]}. trig_arm:
+ * algun canal puede disparar ya (ningun Schmitt habilitado esperando re-armar,
+ * sin disable); es lo que el MCA cuenta en t_rearm cuando vale 0. */
 typedef struct { uint32_t dur, dst, src, runtime; } multitrigger_shield_t;
 
 typedef struct { int32_t en; uint32_t L, G, thr, hyst; } multitrigger_slope_t;
@@ -64,7 +66,7 @@ typedef struct { int32_t en; uint32_t k, m, sh, mq, thr, hyst; } multitrigger_pz
 
 typedef struct {
     uint32_t snapshot, flags, shield_runtime;
-    int32_t  shield_active, mca_veto;
+    int32_t  shield_active, mca_veto, trig_arm;
 } multitrigger_status_t;
 
 /* ---- ciclo de vida -------------------------------------------------------- */

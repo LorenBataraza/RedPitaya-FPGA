@@ -16,6 +16,17 @@ toma sus muestras cada consumidor de la cadena DSP.
 No es housekeeping: `red_pitaya_hk` (slot 0) es un módulo de RedPitaya (LEDs,
 E1/E2, DNA) y sigue donde estaba. Ver `docs/TOP/register_map_top.md`.
 
+**La lógica está en C.** Cada función de hardware de este módulo es una llamada
+a la función del mismo nombre de `libmca` (`libmca/include/integration.h`), por
+ctypes, con el despacho de `@_api` (`API/_despacho.py`):
+
+    integration_open()            -> handle de C (libmca)     h._via == 'c'
+    integration_open(impl='py')   -> la implementación Python h._via == 'py'
+                                     de referencia (API/ref_py/integration.py)
+
+Acá quedan las constantes, la traducción de tipos y lo que es composición:
+`dump`, `geometria_coincide`, `slot_base`.
+
 **Por qué existe el descubrimiento.** El multitrigger vive en el slot 3 de
 `mca_red_pitaya_top` y `event_ring_red_pitaya_top`, pero en el `red_pitaya_top`
 clásico está en el **7**, porque ahí los slots 2 y 3 los ocupan el ASG y el PID.
@@ -24,11 +35,15 @@ el otro — sin excepción, porque el esclavo hace ack igual. `slot_base()` lee 
 mapa real en vez de suponerlo.
 """
 
-import mmap
+import ctypes
+import numbers
+import operator
 import os
-import struct
+import sys
 
-_U32 = struct.Struct('<I')
+from API import _libmca
+from API._despacho import api as _api, elegir_impl as _elegir_impl
+from API.ref_py import integration as _ref
 
 INTEGRATION_PHYS = 0x4060_0000          # slot 6 del sys bus
 INTEGRATION_SIZE = 0x1000               # la región entera son 64 registros
@@ -67,6 +82,11 @@ MOD_MCA  = 1 << 2
 MOD_RING = 1 << 3
 MOD_ASG  = 1 << 4
 MOD_PID  = 1 << 5
+MOD_PULSOS = 1 << 6                     # gen_pulsos, en el lugar del ASG
+
+# gen_pulsos comparte el slot 2 con el event_ring (sys_bus_split): vive 64 KB
+# arriba de la base del slot.
+PULSOS_OFFSET = 0x0001_0000
 
 # --- bits de CTRL ---
 CTRL_RUN   = 1 << 0
@@ -118,48 +138,259 @@ class IntegrationNotPresent(RuntimeError):
     """
 
 
+# La referencia lanza su propia IntegrationNotPresent: se la reemplaza por ésta,
+# así un `except` atrapa el error venga de C o de Python. Es un alias en memoria;
+# el fichero de referencia no se toca.
+_ref.IntegrationNotPresent = IntegrationNotPresent
+
+
+# =============================================================================
+# libmca: carga, firmas y tipos
+# =============================================================================
+#
+# Los structs replican los de include/integration.h campo por campo. `_cargar()`
+# compara su tamaño con el que informa C: con un campo agregado de un solo lado,
+# ctypes leería corrido sin ningún error.
+
+_I32, _U = ctypes.c_int32, ctypes.c_uint32
+_P, _PU = ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)
+_PP = ctypes.POINTER(ctypes.c_void_p)
+
+
+class _Info(ctypes.Structure):
+    _fields_ = [('magic', _U), ('version', _U * 4), ('gith', ctypes.c_char * 41)]
+
+
+class _Modules(ctypes.Structure):
+    _fields_ = [(k, _I32) for k in ('osc', 'mtrg', 'mca', 'ring', 'asg', 'pid', 'pulsos')]
+
+
+class _Slots(ctypes.Structure):
+    _fields_ = [(k, _U) for k in ('osc', 'ring', 'mtrg', 'top', 'mca', 'pulsos')]
+
+
+class _Caps(ctypes.Structure):
+    _fields_ = [('n_ch', _U), ('dw', _U), ('rsz', _U), ('en_filt', _I32),
+                ('h_aw', _U), ('h2_aw', _U), ('psd_aw', _U)]
+
+
+class _Route(ctypes.Structure):
+    _fields_ = [('tap', _U), ('nombre', ctypes.c_char_p), ('enable', _I32)]
+
+
+class _Status(ctypes.Structure):
+    _fields_ = [('pll_locked', _I32), ('adc_rstn', _I32)]
+
+
+class _Reg(ctypes.Structure):
+    _fields_ = [('nombre', ctypes.c_char_p), ('offset', _U)]
+
+
+# Los índices de C. Los nombres que no estén se pasan como -1 y C contesta
+# MCA_ENOKEY en el mismo punto donde Python hacía el `_R_ROUTE[consumidor]`.
+_I_CONSUMIDOR = {c: i for i, c in enumerate(_R_ROUTE)}
+_I_SLOT = {k: i for i, (k, _) in enumerate(_Slots._fields_)}
+
+# Un tap que no es un entero no cruza a C: viaja como este centinela
+# (INTEGRATION_TAP_NO_ENTERO) y el mensaje no lo repite.
+_TAP_NO_ENTERO = -2 ** 63
+
+_lib = None
+
+
+def _cargar():
+    """libmca con las firmas de este bloque declaradas. OSError si no está."""
+    global _lib
+    if _lib is not None:
+        return _lib
+    lib = _libmca.cargar()
+    # Un .so anterior a este bloque daría un AttributeError sobre una función
+    # suelta, y el servidor lo tomaría por "este bitstream no trae el slot 6".
+    if not hasattr(lib, 'integration_open'):
+        raise OSError('libmca no tiene integration_*: el .so es de otra versión. '
+                      'Recompilarla: `make -C libmca arm` en la PC y volver a '
+                      'copiarla a la placa, o `make -C libmca placa-lib`.')
+
+    def f(nombre, res, *args):
+        fn = getattr(lib, nombre)
+        fn.restype = res
+        fn.argtypes = list(args)
+
+    c = ctypes.c_int
+    f('integration_open', c, _PP, _U, _U, c)
+    f('integration_open_bus', c, _PP, _P, c, c)
+    f('integration_close', None, _P)
+    f('integration_last_error', ctypes.c_char_p, _P)
+    f('integration_reg_count', _I32)
+    f('integration_reg_info', ctypes.POINTER(_Reg), _I32)
+    f('integration_consumidor_name', ctypes.c_char_p, _I32)
+    f('integration_slot_name', ctypes.c_char_p, _I32)
+    f('integration_sizeof', ctypes.c_size_t, ctypes.c_char_p)
+    f('integration_r32', c, _P, _U, _PU)
+    f('integration_w32', c, _P, _U, _U)
+    f('integration_identify', c, _P, ctypes.POINTER(_Info))
+    f('integration_get_modules', c, _P, ctypes.POINTER(_Modules))
+    f('integration_get_slots', c, _P, ctypes.POINTER(_Slots))
+    f('integration_get_caps', c, _P, ctypes.POINTER(_Caps))
+    f('integration_get_base', c, _P, _I32, _PU)
+    f('integration_get_route', c, _P, _I32, ctypes.POINTER(_Route))
+    f('integration_get_routes', c, _P, ctypes.POINTER(_Route), _I32)
+    f('integration_set_route', c, _P, _I32, ctypes.c_int64, _I32, _I32)
+    f('integration_reset_routes', c, _P)
+    f('integration_set_run', c, _P, _I32)
+    f('integration_get_run', c, _P, ctypes.POINTER(_I32))
+    f('integration_clear', c, _P)
+    f('integration_soft_reset', c, _P)
+    f('integration_get_status', c, _P, ctypes.POINTER(_Status))
+
+    for tipo, py in (('integration_info_t', _Info),
+                     ('integration_modules_t', _Modules),
+                     ('integration_slots_t', _Slots),
+                     ('integration_caps_t', _Caps),
+                     ('integration_route_t', _Route),
+                     ('integration_status_t', _Status)):
+        if lib.integration_sizeof(tipo.encode()) != ctypes.sizeof(py):
+            raise OSError(f'libmca y API/integration.py no coinciden en {tipo}: '
+                          f'{lib.integration_sizeof(tipo.encode())} contra '
+                          f'{ctypes.sizeof(py)} bytes. Recompilar libmca o '
+                          'actualizar el struct del binding.')
+    _lib = lib
+    return lib
+
+
+_EXCEPCIONES = {_libmca.MCA_ENOTPRESENT: IntegrationNotPresent}
+
+
+def _ok(h, rc, que='', clave=None):
+    """rc de libmca -> nada, o la excepción con el detalle que dejó C.
+
+    `clave` es el nombre que se buscó en una tabla: MCA_ENOKEY es el KeyError que
+    daba el dict. Si el handle corre sobre callbacks, primero se relanza la
+    excepción que haya tirado un callback: es la causa real.
+    """
+    if rc == 0:
+        return
+    if rc == _libmca.MCA_ENOKEY:
+        raise KeyError(clave)
+    det = _cargar().integration_last_error(h._c).decode('utf-8', 'replace') or None
+    if h._bus is not None:
+        h._bus.check(rc, que, _EXCEPCIONES, det)
+    _libmca.check(rc, que, _EXCEPCIONES, det)
+
+
+def _dict(s, conv=lambda v: v):
+    """Un struct a dict, en el orden de sus campos."""
+    return {k: conv(getattr(s, k)) for k, _ in s._fields_}
+
+
+def _ruta(r):
+    return {'tap': r.tap, 'nombre': r.nombre.decode(), 'enable': bool(r.enable)}
+
+
+def _get_route(ig, consumidor):
+    r = _Route()
+    _ok(ig, _cargar().integration_get_route(
+        ig._c, _I_CONSUMIDOR.get(consumidor, -1), ctypes.byref(r)),
+        'get_route', consumidor)
+    return _ruta(r)
+
+
+def _set_route(ig, consumidor, tap, enable, verify):
+    t = (max(_TAP_NO_ENTERO, min(2 ** 63 - 1, int(tap)))
+         if isinstance(tap, numbers.Integral) else _TAP_NO_ENTERO)
+    _ok(ig, _cargar().integration_set_route(
+        ig._c, _I_CONSUMIDOR.get(consumidor, -1), t, 1 if enable else 0,
+        1 if verify else 0), 'set_route', consumidor)
+
+
 # =============================================================================
 # Driver
 # =============================================================================
 
 class Integration:
-    """Acceso a la región de TOP por /dev/mem."""
+    """Handle de la región de TOP sobre libmca.
+
+    Los métodos son la API de siempre y cada uno es una llamada a la función de
+    C del mismo nombre.
+    """
+
+    # La implementación que hay abajo.
+    impl = 'c'
+    _via = 'c'
 
     def __init__(self, mem, fd):
+        """Un handle sobre un buffer ya mapeado, o sobre el `r32`/`w32` de una
+        subclase con `mem=None`, sin leer nada. Ver `_libmca.Bus.de_handle`."""
         self._mmap = mem
         self._fd   = fd
+        self._c    = None
+        self._bus  = None
+        lib = _cargar()
+        self._bus = _libmca.Bus.de_handle(self, Integration, mem)
+        p = ctypes.c_void_p()
+        _libmca.check(lib.integration_open_bus(ctypes.byref(p), self._bus.ptr, 0, 0),
+                      'integration_open_bus')
+        self._c = p
 
     @classmethod
     def open(cls, phys=INTEGRATION_PHYS, size=INTEGRATION_SIZE, check_magic=True):
-        """Mapear la región de TOP.
+        """Mapear la región de TOP (en C, `integration_open`).
 
         Igual que el resto de los drivers: si la PL no está programada la
         PRIMERA lectura mata el proceso con SIGBUS sin traceback.
         `API.fpga.fpga_state()` permite chequearlo antes.
         """
-        fd = os.open('/dev/mem', os.O_RDWR | os.O_SYNC)
-        try:
-            m = mmap.mmap(fd, size, mmap.MAP_SHARED,
-                          mmap.PROT_READ | mmap.PROT_WRITE, offset=phys)
-        except Exception:
-            os.close(fd)
-            raise
-        dev = cls(m, fd)
-        if check_magic:
-            got = dev.r32(R_MAGIC)
-            if got != MAGIC:
-                dev.close()
-                raise IntegrationNotPresent(
-                    f'MAGIC {got:#010x} en {phys:#010x}, esperado {MAGIC:#010x} '
-                    '("INTG"). El bitstream no tiene región de TOP: es anterior '
-                    'al refactor de registros, o el slot 6 lo ocupa otra cosa.')
-        return dev
+        lib = _cargar()
+        p = ctypes.c_void_p()
+        rc = lib.integration_open(ctypes.byref(p), phys, size,
+                                  1 if check_magic else 0)
+        if rc:
+            det = lib.integration_last_error(None).decode('utf-8', 'replace') or None
+            _libmca.check(rc, f'/dev/mem @ {phys:#x}', _EXCEPCIONES, det)
+        return cls._envolver(p, None)
+
+    @classmethod
+    def _sobre_bus(cls, bus, check_magic=True):
+        """Un handle sobre un `_libmca.Bus` ya abierto, que pasa a ser suyo: lo
+        cierra `close()`. Lo usan los tests y `bench_impl.py --shm`, con el
+        backend devmem apuntando a un fichero."""
+        lib = _cargar()
+        p = ctypes.c_void_p()
+        rc = lib.integration_open_bus(ctypes.byref(p), bus.ptr, 0,
+                                      1 if check_magic else 0)
+        if rc:
+            det = lib.integration_last_error(None).decode('utf-8', 'replace') or None
+            bus.check(rc, 'integration_open_bus', _EXCEPCIONES, det)
+        return cls._envolver(p, bus)
+
+    @classmethod
+    def _envolver(cls, p, bus):
+        h = cls.__new__(cls)
+        h._mmap, h._fd, h._bus, h._c = None, -1, bus, p
+        return h
 
     def close(self):
+        c, self._c = getattr(self, '_c', None), None
+        if c:
+            _cargar().integration_close(c)
+        bus, self._bus = getattr(self, '_bus', None), None
+        if bus is not None:
+            bus.close()
+        # Lo que el constructor recibió ya abierto se cierra como antes.
+        mem, self._mmap = getattr(self, '_mmap', None), None
+        if mem is not None and hasattr(mem, 'close'):
+            mem.close()
+        fd, self._fd = getattr(self, '_fd', -1), -1
+        if fd is not None and fd >= 0:
+            os.close(fd)
+
+    def __del__(self):
+        # Un handle olvidado no deja /dev/mem mapeado: reprogramar la PL con un
+        # mapeo abierto traba el puerto GP0 (API/fpga.py).
         try:
-            self._mmap.close()
-        finally:
-            os.close(self._fd)
+            self.close()
+        except Exception:                                      # noqa: BLE001
+            pass
 
     def __enter__(self):
         return self
@@ -168,42 +399,29 @@ class Integration:
         self.close()
 
     def w32(self, off, v):
-        # Asignación por slice, NO struct.pack_into: pack_into hace un memset
-        # previo que sobre memoria de dispositivo sale como stores de a byte,
-        # el esclavo AXI no los reconoce y el puente GP0 tira un external abort
-        # -> SIGBUS. Ver API/tests/placa/test_rw_dev_mem.py.
-        self._mmap[off:off+4] = _U32.pack(v & 0xFFFFFFFF)
+        # En C: un store de 32 b alineado, validado antes de llegar al bus.
+        rc = _cargar().integration_w32(self._c, off, operator.index(v) & 0xFFFFFFFF)
+        if rc:
+            _ok(self, rc, f'w32 {off:#x}')
 
     def r32(self, off):
-        return _U32.unpack_from(self._mmap, off)[0]
+        v = ctypes.c_uint32()
+        rc = _cargar().integration_r32(self._c, off, ctypes.byref(v))
+        if rc:
+            _ok(self, rc, f'r32 {off:#x}')
+        return v.value
 
     # ---------- identificación ----------
 
     def identify(self, verbose=True):
         """Magic, versión y hash de git del bitstream cargado."""
-        v = self.r32(R_VERSION)
-        info = {
-            'magic':   self.r32(R_MAGIC),
-            'version': ((v >> 24) & 0xFF, (v >> 16) & 0xFF,
-                        (v >> 8) & 0xFF, v & 0xFF),
-            'gith':    ''.join(f'{self.r32(o):08x}' for o in
-                               (R_GITH_4, R_GITH_3, R_GITH_2, R_GITH_1, R_GITH_0)),
-        }
-        if verbose:
-            may, men, par, var = info['version']
-            print(f'región de TOP: magic {info["magic"]:#010x} '
-                  f'v{may}.{men}.{par} (variante {var})')
-            print(f'  git {info["gith"]}')
-        return info
+        return integration_identify(self, verbose)
 
     # ---------- descripción del sistema ----------
 
     def modules(self):
         """Qué módulos trae este bitstream, como dict de bool."""
-        w = self.r32(R_MODULES)
-        return {'osc':  bool(w & MOD_OSC),  'mtrg': bool(w & MOD_MTRG),
-                'mca':  bool(w & MOD_MCA),  'ring': bool(w & MOD_RING),
-                'asg':  bool(w & MOD_ASG),  'pid':  bool(w & MOD_PID)}
+        return integration_get_modules(self)
 
     def slots(self):
         """En qué slot vive cada módulo EN ESTE bitstream.
@@ -211,14 +429,11 @@ class Integration:
         No es decorativo: el multitrigger está en el slot 3 del top del MCA y
         en el 7 del `red_pitaya_top` clásico.
         """
-        w = self.r32(R_SLOTS)
-        return {'osc':  (w >> 0)  & 0xF, 'ring': (w >> 4)  & 0xF,
-                'mtrg': (w >> 8)  & 0xF, 'top':  (w >> 12) & 0xF,
-                'mca':  (w >> 16) & 0xF}
+        return integration_get_slots(self)
 
     def base(self, modulo):
         """Dirección física de la base de un módulo, según el mapa real."""
-        return SYS_BUS_BASE + self.slots()[modulo] * SYS_BUS_SLOT
+        return integration_get_base(self, modulo)
 
     def caps(self):
         """Parámetros de síntesis: anchos, número de canales, profundidades.
@@ -238,14 +453,7 @@ class Integration:
         ningún bloque suelto los conoce, así que acá es donde corresponde
         leerlos.
         """
-        c0, c1 = self.r32(R_CAPS_0), self.r32(R_CAPS_1)
-        return {'n_ch':    (c0 >> 0)  & 0xF,
-                'dw':      (c0 >> 8)  & 0x3F,
-                'rsz':     (c0 >> 16) & 0x3F,
-                'en_filt': bool(c0 & (1 << 24)),
-                'h_aw':    (c1 >> 0)  & 0xFF,
-                'h2_aw':   (c1 >> 8)  & 0xFF,
-                'psd_aw':  (c1 >> 16) & 0xFF}
+        return integration_get_caps(self)
 
     def geometria_coincide(self, mca):
         """¿La geometría publicada acá coincide con la que dice el MCA?
@@ -272,11 +480,7 @@ class Integration:
 
         `consumidor` es 'osc', 'mtrg', 'mca' o 'ring'.
         """
-        w = self.r32(_R_ROUTE[consumidor])
-        tap = w & 0x3
-        nombre = (TAP_NATIVO_DE[consumidor] + ' (nativo)' if tap == TAP_NATIVE
-                  else TAP_NAMES[tap])
-        return {'tap': tap, 'nombre': nombre, 'enable': bool(w & (1 << 8))}
+        return _get_route(self, consumidor)
 
     def set_route(self, consumidor, tap=TAP_NATIVE, enable=True, verify=True):
         """Elegir de qué punto de la cadena DSP toma sus muestras un consumidor.
@@ -292,22 +496,11 @@ class Integration:
         su nodo nativo, así que esto afecta la captura en BRAM pero no las
         capturas `rp_AcqAxi*`.
         """
-        if tap not in TAP_NAMES:
-            raise ValueError(f'tap {tap!r} inválido; usar TAP_NATIVE/TAP_ADC/'
-                             'TAP_DEC_IN/TAP_BRAM_IN')
-        off = _R_ROUTE[consumidor]
-        self.w32(off, (tap & 0x3) | ((1 if enable else 0) << 8))
-        if verify:
-            rb = self.r32(off)
-            esperado = (tap & 0x3) | ((1 if enable else 0) << 8)
-            if (rb & 0x103) != esperado:
-                raise RuntimeError(
-                    f'ROUTE_{consumidor.upper()} no latcheó: {rb:#010x} '
-                    f'!= {esperado:#010x}')
+        _set_route(self, consumidor, tap, enable, verify)
 
     def routes(self):
         """Los cuatro ruteos de una, para imprimir."""
-        return {c: self.get_route(c) for c in _R_ROUTE}
+        return integration_get_routes(self)
 
     def reset_routes(self):
         """Devolver los cuatro consumidores a NATIVO habilitado.
@@ -316,50 +509,32 @@ class Integration:
         pre-refactor. Sirve para volver a terreno conocido sin recargar el
         bitstream.
         """
-        for c in _R_ROUTE:
-            self.set_route(c, TAP_NATIVE, enable=True)
+        integration_reset_routes(self)
 
     # ---------- control y estado global ----------
 
     def set_run(self, on=True):
-        self.w32(R_CTRL, CTRL_RUN if on else 0)
+        integration_set_run(self, on)
 
     def get_run(self):
-        return bool(self.r32(R_CTRL) & CTRL_RUN)
+        return integration_get_run(self)
 
     def clear(self):
         """Pulso global de clear (el HW lo autolimpia en un ciclo)."""
-        self.w32(R_CTRL, (self.r32(R_CTRL) & CTRL_RUN) | CTRL_CLEAR)
+        integration_clear(self)
 
     def soft_reset(self):
         """Pulso global de soft reset (autolimpiante)."""
-        self.w32(R_CTRL, (self.r32(R_CTRL) & CTRL_RUN) | CTRL_SRST)
+        integration_soft_reset(self)
 
     def status(self):
-        w = self.r32(R_STATUS)
-        return {'pll_locked': bool(w & ST_PLL_LOCKED),
-                'adc_rstn':   bool(w & ST_ADC_RSTN)}
+        return integration_get_status(self)
 
     # ---------- volcado ----------
 
     def dump(self):
         """Volcado legible de la región entera."""
-        self.identify()
-        mods = self.modules()
-        slots = self.slots()
-        print('  módulos:', ' '.join(k for k, v in mods.items() if v) or '(ninguno)')
-        print('  slots:  ', ' '.join(f'{k}={v}' for k, v in sorted(
-            slots.items(), key=lambda kv: kv[1])))
-        c = self.caps()
-        print(f'  caps:    n_ch={c["n_ch"]} dw={c["dw"]} rsz={c["rsz"]} '
-              f'en_filt={c["en_filt"]} h_aw={c["h_aw"]} h2_aw={c["h2_aw"]} '
-              f'psd_aw={c["psd_aw"]}')
-        for nombre, r in self.routes().items():
-            marca = '' if r['enable'] else '   [DESHABILITADO]'
-            print(f'  route {nombre:<5} tap={r["tap"]} {r["nombre"]}{marca}')
-        st = self.status()
-        print(f'  status:  pll_locked={st["pll_locked"]} adc_rstn={st["adc_rstn"]} '
-              f'run={self.get_run()}')
+        integration_dump(self)
 
 
 # =============================================================================
@@ -378,7 +553,7 @@ def slot_base(modulo, default=None):
     por `open()` de driver, no en ningún camino caliente.
     """
     try:
-        with Integration.open() as ig:
+        with integration_open() as ig:
             return ig.base(modulo)
     except (IntegrationNotPresent, OSError, ValueError, KeyError):
         return default
@@ -389,7 +564,21 @@ def slot_base(modulo, default=None):
 # =============================================================================
 
 def integration_open(phys=INTEGRATION_PHYS, size=INTEGRATION_SIZE,
-                     check_magic=True):
+                     check_magic=True, impl=None):
+    """Abre la región de TOP. Devuelve el handle que usan las demás.
+
+    `impl` elige la implementación: 'c' (libmca) o 'py' (la referencia Python,
+    para benchmarks). Sin pedir ninguna se usa `$MCA_IMPL`, y si tampoco está,
+    C; si libmca no carga se cae a Python **y se avisa**.
+    """
+    impl, aviso = _elegir_impl(impl)
+    if aviso:
+        print(f'warn: {aviso}', file=sys.stderr)
+    if impl == 'py':
+        h = _ref.Integration.open(phys, size, check_magic)
+        h._via = 'py'
+        h.impl = 'py'
+        return h
     return Integration.open(phys, size, check_magic)
 
 
@@ -397,59 +586,159 @@ def integration_close(ig):
     ig.close()
 
 
+@_api()
 def integration_identify(ig, verbose=True):
-    return ig.identify(verbose)
+    i = _Info()
+    _ok(ig, _cargar().integration_identify(ig._c, ctypes.byref(i)), 'identify')
+    info = {'magic':   i.magic,
+            'version': tuple(i.version),
+            'gith':    i.gith.decode()}
+    if verbose:
+        may, men, par, var = info['version']
+        print(f'región de TOP: magic {info["magic"]:#010x} '
+              f'v{may}.{men}.{par} (variante {var})')
+        print(f'  git {info["gith"]}')
+    return info
 
 
 def integration_dump(ig):
-    return ig.dump()
+    """Volcado legible de la región entera. Es composición: no toca registros."""
+    integration_identify(ig)
+    mods = integration_get_modules(ig)
+    slots = integration_get_slots(ig)
+    print('  módulos:', ' '.join(k for k, v in mods.items() if v) or '(ninguno)')
+    print('  slots:  ', ' '.join(f'{k}={v}' for k, v in sorted(
+        slots.items(), key=lambda kv: kv[1])))
+    c = integration_get_caps(ig)
+    print(f'  caps:    n_ch={c["n_ch"]} dw={c["dw"]} rsz={c["rsz"]} '
+          f'en_filt={c["en_filt"]} h_aw={c["h_aw"]} h2_aw={c["h2_aw"]} '
+          f'psd_aw={c["psd_aw"]}')
+    for nombre, r in integration_get_routes(ig).items():
+        marca = '' if r['enable'] else '   [DESHABILITADO]'
+        print(f'  route {nombre:<5} tap={r["tap"]} {r["nombre"]}{marca}')
+    st = integration_get_status(ig)
+    print(f'  status:  pll_locked={st["pll_locked"]} adc_rstn={st["adc_rstn"]} '
+          f'run={integration_get_run(ig)}')
 
 
 # --- descripción del sistema ---
 
-def integration_get_modules(ig):     return ig.modules()
-def integration_get_slots(ig):       return ig.slots()
-def integration_get_base(ig, m):     return ig.base(m)
-def integration_get_caps(ig):        return ig.caps()
+@_api()
+def integration_get_modules(ig):
+    m = _Modules()
+    _ok(ig, _cargar().integration_get_modules(ig._c, ctypes.byref(m)), 'get_modules')
+    return _dict(m, bool)
+
+
+@_api()
+def integration_get_slots(ig):
+    s = _Slots()
+    _ok(ig, _cargar().integration_get_slots(ig._c, ctypes.byref(s)), 'get_slots')
+    return _dict(s)
+
+
+@_api()
+def integration_get_base(ig, m):
+    v = ctypes.c_uint32()
+    _ok(ig, _cargar().integration_get_base(ig._c, _I_SLOT.get(m, -1), ctypes.byref(v)),
+        'get_base', m)
+    return v.value
+
+
+@_api()
+def integration_get_caps(ig):
+    c = _Caps()
+    _ok(ig, _cargar().integration_get_caps(ig._c, ctypes.byref(c)), 'get_caps')
+    d = _dict(c)
+    d['en_filt'] = bool(d['en_filt'])
+    return d
 
 
 # --- ruteo ---
 
-def integration_get_routes(ig):      return ig.routes()
-def integration_reset_routes(ig):    ig.reset_routes()
+@_api()
+def integration_get_routes(ig):
+    r = (_Route * len(_I_CONSUMIDOR))()
+    _ok(ig, _cargar().integration_get_routes(ig._c, r, len(r)), 'get_routes')
+    return {c: _ruta(x) for c, x in zip(_I_CONSUMIDOR, r)}
 
 
-def integration_get_route_osc(ig):   return ig.get_route('osc')
-def integration_get_route_mtrg(ig):  return ig.get_route('mtrg')
-def integration_get_route_mca(ig):   return ig.get_route('mca')
-def integration_get_route_ring(ig):  return ig.get_route('ring')
+@_api()
+def integration_reset_routes(ig):
+    _ok(ig, _cargar().integration_reset_routes(ig._c), 'reset_routes')
 
 
+@_api()
+def integration_get_route_osc(ig):
+    return _get_route(ig, 'osc')
+
+
+@_api()
+def integration_get_route_mtrg(ig):
+    return _get_route(ig, 'mtrg')
+
+
+@_api()
+def integration_get_route_mca(ig):
+    return _get_route(ig, 'mca')
+
+
+@_api()
+def integration_get_route_ring(ig):
+    return _get_route(ig, 'ring')
+
+
+@_api()
 def integration_set_route_osc(ig, tap=TAP_NATIVE, enable=True):
-    ig.set_route('osc', tap, enable)
+    _set_route(ig, 'osc', tap, enable, True)
 
 
+@_api()
 def integration_set_route_mtrg(ig, tap=TAP_NATIVE, enable=True):
-    ig.set_route('mtrg', tap, enable)
+    _set_route(ig, 'mtrg', tap, enable, True)
 
 
+@_api()
 def integration_set_route_mca(ig, tap=TAP_NATIVE, enable=True):
-    ig.set_route('mca', tap, enable)
+    _set_route(ig, 'mca', tap, enable, True)
 
 
+@_api()
 def integration_set_route_ring(ig, tap=TAP_NATIVE, enable=True):
-    ig.set_route('ring', tap, enable)
+    _set_route(ig, 'ring', tap, enable, True)
 
 
 # --- control global ---
 
-def integration_get_run(ig):         return ig.get_run()
-def integration_set_run(ig, on=True): ig.set_run(on)
-def integration_clear(ig):           ig.clear()
-def integration_soft_reset(ig):      ig.soft_reset()
-def integration_get_status(ig):      return ig.status()
+@_api()
+def integration_get_run(ig):
+    v = _I32()
+    _ok(ig, _cargar().integration_get_run(ig._c, ctypes.byref(v)), 'get_run')
+    return bool(v.value)
+
+
+@_api()
+def integration_set_run(ig, on=True):
+    _ok(ig, _cargar().integration_set_run(ig._c, 1 if on else 0), 'set_run')
+
+
+@_api()
+def integration_clear(ig):
+    _ok(ig, _cargar().integration_clear(ig._c), 'clear')
+
+
+@_api()
+def integration_soft_reset(ig):
+    _ok(ig, _cargar().integration_soft_reset(ig._c), 'soft_reset')
+
+
+@_api()
+def integration_get_status(ig):
+    s = _Status()
+    _ok(ig, _cargar().integration_get_status(ig._c, ctypes.byref(s)), 'get_status')
+    return _dict(s, bool)
 
 
 if __name__ == '__main__':
-    with Integration.open() as _ig:
-        _ig.dump()
+    with integration_open() as _ig:
+        integration_dump(_ig)

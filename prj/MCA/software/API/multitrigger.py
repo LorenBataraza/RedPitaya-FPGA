@@ -17,14 +17,30 @@ BRAM) vive en el slot 1 y en `API/osciloscope.py`.
 cruza registros de ambos módulos y su orden es load-bearing (ver el docstring
 de la función). Con la firma explícita la dependencia se ve; escondida dentro
 de una clase sería accidental.
+
+**La lógica está en C** (`libmca/include/multitrigger.h`). `MultiTrigger` y
+`MtRegion` son dos fachadas de Python sobre el mismo tipo de handle: difieren en la
+firma (`set_or_mask(m0, m1)` contra `set_or_mask(ch, m)`), no en los registros.
+`open(..., impl='py')` abre la referencia (`API/ref_py/multitrigger2.py`), y si
+libmca no carga se cae a ella avisando.
+
+Acá quedan las constantes, las recetas puras (`decode_snap`, `pz_ganancia`,
+`slope_pico`) y las secuencias que cruzan con el osciloscopio (`multitrigger_arm`,
+`multitrigger_armar_mca`, ...), como composición.
+
+Todo el acceso pasa por C, también el del lazo por evento: `BramSource` re-arma las
+máscaras y lee el snapshot desde `osciloscope_leer_lote`, que recibe este handle.
 """
 
+import ctypes
 import math
-import mmap
+import operator
 import os
-import struct
+import sys
 
-_U32 = struct.Struct('<I')
+from API import _libmca
+from API._despacho import api as _api, elegir_impl as _elegir_impl
+from API.ref_py import multitrigger2 as _ref
 
 SCOPE_PHYS = 0x4010_0000        # el osciloscopio; acá sólo para compatibilidad
 SCOPE_SIZE = 0x30000
@@ -113,7 +129,7 @@ def decode_snap(s):
 R_CMD         = 0x000           # del SCOPE, no de esta región: arm / rst / we_keep
 R_TRIG_DIS_CLR = 0x094          # del SCOPE: desbloquea adc_trg_dis
 R_SHIELD_CFG  = 0x010           # {dur[31:16], dst[12:8], src[6:0]}
-R_SHIELD_RUN  = 0x014           # {mca_veto[17], active[16], cnt[15:0]} (R)
+R_SHIELD_RUN  = 0x014           # {trig_arm[18], mca_veto[17], active[16], cnt[15:0]} (R)
 R_TRIG_SNAP   = 0x018           # snapshot de 29 b, sticky (R)
 R_FLAGS       = 0x01C           # dis_act / we_keep (R)
 R_OR_MASK_CH0 = 0x040
@@ -122,46 +138,249 @@ R_OR_MASK_CH2 = 0x048
 R_OR_MASK_CH3 = 0x04C
 
 
-class MultiTrigger:
-    """Máscaras OR, shield y snapshot, por /dev/mem, en la región propia.
+# =============================================================================
+# libmca: carga, firmas y tipos
+# =============================================================================
+#
+# Los structs replican los de include/multitrigger.h campo por campo. `_cargar()`
+# compara su tamaño con el que informa C: con un campo agregado de un solo lado,
+# ctypes leería corrido sin ningún error.
 
-    El disparo por pendiente y el polo-cero están en `MtRegion`, sobre los mismos
-    registros. `open` comprueba el MAGIC: un bitstream sin esta región falla acá,
-    en vez de que las máscaras se escriban al vacío.
+_I32, _I64, _U = ctypes.c_int32, ctypes.c_int64, ctypes.c_uint32
+_P, _PU, _PI = ctypes.c_void_p, ctypes.POINTER(_U), ctypes.POINTER(_I32)
+_PP = ctypes.POINTER(ctypes.c_void_p)
+
+
+class _Shield(ctypes.Structure):
+    _fields_ = [(k, _U) for k in ('dur', 'dst', 'src', 'runtime')]
+
+
+class _Slope(ctypes.Structure):
+    _fields_ = [('en', _I32)] + [(k, _U) for k in ('L', 'G', 'thr', 'hyst')]
+
+
+class _Pz(ctypes.Structure):
+    _fields_ = [('en', _I32)] + [(k, _U) for k in ('k', 'm', 'sh', 'mq', 'thr', 'hyst')]
+
+
+class _Status(ctypes.Structure):
+    _fields_ = [('snapshot', _U), ('flags', _U), ('shield_runtime', _U),
+                ('shield_active', _I32), ('mca_veto', _I32), ('trig_arm', _I32)]
+
+
+class _Reg(ctypes.Structure):
+    _fields_ = [('nombre', ctypes.c_char_p), ('offset', _U)]
+
+
+class _Field(ctypes.Structure):
+    _fields_ = [('nombre', ctypes.c_char_p), ('offset', _U), ('shift', _U),
+                ('mascara', _U), ('bandera', _I32)]
+
+
+_lib = None
+
+
+def _cargar():
+    """libmca con las firmas de este bloque declaradas. OSError si no está."""
+    global _lib
+    if _lib is not None:
+        return _lib
+    lib = _libmca.cargar()
+    # Un .so anterior a este bloque daría un AttributeError sobre una función
+    # suelta, y el servidor lo tomaría por "este bitstream no trae el multitrigger".
+    if not hasattr(lib, 'multitrigger_open'):
+        raise OSError('libmca no tiene multitrigger_*: el .so es de otra versión. '
+                      'Recompilarla: `make -C libmca arm` en la PC y volver a '
+                      'copiarla a la placa, o `make -C libmca placa-lib`.')
+
+    def f(nombre, res, *args):
+        fn = getattr(lib, nombre)
+        fn.restype = res
+        fn.argtypes = list(args)
+
+    c = ctypes.c_int
+    f('multitrigger_open', c, _PP, _U, _U, c)
+    f('multitrigger_open_bus', c, _PP, _P, c, c)
+    f('multitrigger_close', None, _P)
+    f('multitrigger_last_error', ctypes.c_char_p, _P)
+    f('multitrigger_reg_count', _I32)
+    f('multitrigger_reg_info', ctypes.POINTER(_Reg), _I32)
+    f('multitrigger_field_count', _I32)
+    f('multitrigger_field_info', ctypes.POINTER(_Field), _I32)
+    f('multitrigger_sizeof', ctypes.c_size_t, ctypes.c_char_p)
+    f('multitrigger_r32', c, _P, _U, _PU)
+    f('multitrigger_w32', c, _P, _U, _U)
+    f('multitrigger_get_caps', c, _P, _PU)
+    f('multitrigger_has_slope', c, _P, _PI)
+    f('multitrigger_has_pz', c, _P, _PI)
+    f('multitrigger_set_or_mask', c, _P, _I64, _U)
+    f('multitrigger_get_or_mask', c, _P, _I64, _PU)
+    f('multitrigger_set_or_masks', c, _P, _I64, _I64)
+    f('multitrigger_set_shield', c, _P, _U, _U, _U)
+    f('multitrigger_get_shield', c, _P, ctypes.POINTER(_Shield))
+    f('multitrigger_shield_autorearm', c, _P, _U, _U)
+    f('multitrigger_disable_shield', c, _P)
+    f('multitrigger_get_snapshot', c, _P, _PU)
+    f('multitrigger_get_flags', c, _P, _PU)
+    f('multitrigger_set_slope', c, _P, _I64, _I64, _I64, _I64, _I64, _I32)
+    f('multitrigger_get_slope', c, _P, _I64, ctypes.POINTER(_Slope))
+    f('multitrigger_disable_slope', c, _P, _I64)
+    f('multitrigger_set_pz', c, _P, _I64, _I64, _I64, _I64, _I64, _I64, _I64, _I32)
+    f('multitrigger_get_pz', c, _P, _I64, ctypes.POINTER(_Pz))
+    f('multitrigger_disable_pz', c, _P, _I64)
+    f('multitrigger_get_config', c, _P, _PU, _I32)
+    f('multitrigger_configure', c, _P, _PI, _PU, _I32)
+    f('multitrigger_get_status', c, _P, ctypes.POINTER(_Status))
+
+    if lib.multitrigger_field_count() != len(_CAMPOS):
+        raise OSError(f'libmca tiene {lib.multitrigger_field_count()} campos del '
+                      f'multitrigger y API/multitrigger.py {len(_CAMPOS)}: el .so es '
+                      'de otra versión. Recompilarla: `make -C libmca arm`.')
+    for tipo, py in (('multitrigger_shield_t', _Shield), ('multitrigger_slope_t', _Slope),
+                     ('multitrigger_pz_t', _Pz), ('multitrigger_status_t', _Status)):
+        if lib.multitrigger_sizeof(tipo.encode()) != ctypes.sizeof(py):
+            raise OSError(f'libmca y API/multitrigger.py no coinciden en {tipo}: '
+                          f'{lib.multitrigger_sizeof(tipo.encode())} contra '
+                          f'{ctypes.sizeof(py)} bytes. Recompilar libmca o '
+                          'actualizar el struct del binding.')
+    _lib = lib
+    return lib
+
+
+def _ok(h, rc, que='', excepciones=None):
+    """rc de libmca -> nada, o la excepción con el detalle que dejó C.
+
+    Un MCA_ENOTPRESENT y un MCA_EVERIFY salen como LibMCAError, que es un
+    RuntimeError, como en Python. Si el handle corre sobre callbacks, primero se
+    relanza la excepción que haya tirado un callback: es la causa real.
+    """
+    if rc == 0:
+        return
+    det = _cargar().multitrigger_last_error(h._c).decode('utf-8', 'replace') or None
+    if h._bus is not None:
+        h._bus.check(rc, que, excepciones, det)
+    _libmca.check(rc, que, excepciones, det)
+
+
+def _i64(v):
+    """Un entero de Python al int64 de lo que C valida. `operator.index` rechaza lo
+    que `v & 0xFFFFFFFF` también rechazaba (un float, None) con el mismo TypeError,
+    y saturar evita que un número enorme cambie de signo al cruzar."""
+    return max(-2 ** 63, min(2 ** 63 - 1, operator.index(v)))
+
+
+def _u32(v):
+    return operator.index(v) & 0xFFFFFFFF
+
+
+def _dict(s, conv=lambda v: v):
+    """Un struct a dict, en el orden de sus campos."""
+    return {k: conv(getattr(s, k)) for k, _ in s._fields_}
+
+
+def _sin_en(s):
+    d = _dict(s)
+    d['en'] = bool(d['en'])
+    return d
+
+
+# =============================================================================
+# Los dos handles
+# =============================================================================
+
+class _Region:
+    """Lo común a `MultiTrigger` y `MtRegion`: un `multitrigger_h*` sobre la región.
+
+    `open` comprueba el MAGIC: un bitstream sin esta región falla acá, en vez de que
+    las máscaras se escriban al vacío.
     """
 
+    impl = 'c'
+    _via = 'c'
+    _CLASE_REF = None           # la clase de esta fachada en la referencia
+
     def __init__(self, mem, fd):
+        """Un handle sobre un buffer ya mapeado, o sobre el `r32`/`w32` de una
+        subclase con `mem=None`, sin leer nada. Ver `_libmca.Bus.de_handle`."""
         self._mmap = mem
         self._fd   = fd
-        self._propio = fd >= 0
+        self._propio = fd >= 0          # con fd = -1 el mmap es prestado
+        self._c    = None
+        self._bus  = None
+        self._geo  = None               # (phys, size), si abrió /dev/mem
+        lib = _cargar()
+        self._bus = _libmca.Bus.de_handle(self, _Region, mem, tarde=True)
+        p = ctypes.c_void_p()
+        _libmca.check(lib.multitrigger_open_bus(ctypes.byref(p), self._bus.ptr, 0, 0),
+                      'multitrigger_open_bus')
+        self._c = p
 
     @classmethod
-    def open(cls, osc=None, phys=MTRG_PHYS, size=MTRG_SIZE, check_magic=True):
-        """`osc` se acepta y no se usa: antes compartían mapeo, y ya no."""
-        fd = os.open('/dev/mem', os.O_RDWR | os.O_SYNC)
-        try:
-            m = mmap.mmap(fd, size, mmap.MAP_SHARED,
-                          mmap.PROT_READ | mmap.PROT_WRITE, offset=phys)
-        except Exception:
-            os.close(fd)
-            raise
-        r = cls(m, fd)
-        if check_magic and r.r32(0x000) != MTRG_MAGIC:
-            leido = r.r32(0x000)
-            r.close()
-            raise RuntimeError(
-                f'{phys:#010x} no es la región del multitrigger (MAGIC '
-                f'{leido:#010x} != {MTRG_MAGIC:#010x}). '
-                f"Integration.base('mtrg') da el slot de este bitstream.")
-        return r
+    def _abrir(cls, phys, size, check_magic, impl):
+        impl, aviso = _elegir_impl(impl)
+        if aviso:
+            print(f'warn: {aviso}', file=sys.stderr)
+        if impl == 'py':
+            h = getattr(_ref, cls._CLASE_REF).open(phys=phys, size=size,
+                                                   check_magic=check_magic)
+            h._via = 'py'
+            h.impl = 'py'
+            return h
+        lib = _cargar()
+        p = ctypes.c_void_p()
+        rc = lib.multitrigger_open(ctypes.byref(p), phys, size, 1 if check_magic else 0)
+        if rc:
+            det = lib.multitrigger_last_error(None).decode('utf-8', 'replace') or None
+            _libmca.check(rc, f'/dev/mem @ {phys:#x}', None, det)
+        h = cls._envolver(p, None)
+        h._geo = (phys, size)
+        return h
+
+    @classmethod
+    def _sobre_bus(cls, bus, check_magic=True):
+        """Un handle sobre un `_libmca.Bus` ya abierto, que pasa a ser suyo: lo
+        cierra `close()`. Lo usan los tests y `bench_impl.py --shm`, con el backend
+        devmem apuntando a un fichero."""
+        lib = _cargar()
+        p = ctypes.c_void_p()
+        rc = lib.multitrigger_open_bus(ctypes.byref(p), bus.ptr, 0,
+                                       1 if check_magic else 0)
+        if rc:
+            det = lib.multitrigger_last_error(None).decode('utf-8', 'replace') or None
+            bus.check(rc, 'multitrigger_open_bus', None, det)
+        return cls._envolver(p, bus)
+
+    @classmethod
+    def _envolver(cls, p, bus):
+        h = cls.__new__(cls)
+        h._mmap, h._fd, h._propio, h._bus, h._c = None, -1, False, bus, p
+        h._geo = None
+        return h
 
     def close(self):
-        if not self._propio:
-            return                      # el mmap es prestado (fd = -1)
+        c, self._c = getattr(self, '_c', None), None
+        if c:
+            _cargar().multitrigger_close(c)
+        bus, self._bus = getattr(self, '_bus', None), None
+        if bus is not None:
+            bus.close()
+        # Lo que el constructor recibió ya abierto se cierra sólo si era suyo.
+        mem, self._mmap = getattr(self, '_mmap', None), None
+        fd, self._fd = getattr(self, '_fd', -1), -1
+        if getattr(self, '_propio', False):
+            self._propio = False
+            if mem is not None and hasattr(mem, 'close'):
+                mem.close()
+            if fd is not None and fd >= 0:
+                os.close(fd)
+
+    def __del__(self):
+        # Un handle olvidado no deja /dev/mem mapeado: reprogramar la PL con un
+        # mapeo abierto traba el puerto GP0 (API/fpga.py).
         try:
-            self._mmap.close()
-        finally:
-            os.close(self._fd)
+            self.close()
+        except Exception:                                      # noqa: BLE001
+            pass
 
     def __enter__(self):
         return self
@@ -170,25 +389,71 @@ class MultiTrigger:
         self.close()
 
     def w32(self, off, v):
-        # Asignación por slice, NO struct.pack_into: pack_into hace un memset
-        # previo que sobre memoria de dispositivo sale como stores de a byte,
-        # el esclavo AXI no los reconoce y el puente GP0 tira un external abort
-        # -> SIGBUS. Ver API/tests/placa/test_rw_dev_mem.py.
-        self._mmap[off:off+4] = _U32.pack(v & 0xFFFFFFFF)
+        # En C: un store de 32 b alineado, validado antes de llegar al bus.
+        rc = _cargar().multitrigger_w32(self._c, off, _u32(v))
+        if rc:
+            _ok(self, rc, f'w32 {off:#x}')
 
     def r32(self, off):
-        return _U32.unpack_from(self._mmap, off)[0]
+        v = ctypes.c_uint32()
+        rc = _cargar().multitrigger_r32(self._c, off, ctypes.byref(v))
+        if rc:
+            _ok(self, rc, f'r32 {off:#x}')
+        return v.value
+
+    # ---------- lo que las dos fachadas leen igual ----------
+
+    def _flags(self):
+        v = ctypes.c_uint32()
+        _ok(self, _cargar().multitrigger_get_flags(self._c, ctypes.byref(v)), 'get_flags')
+        return v.value
+
+    def _snapshot(self):
+        v = ctypes.c_uint32()
+        _ok(self, _cargar().multitrigger_get_snapshot(self._c, ctypes.byref(v)),
+            'get_snapshot')
+        return v.value
+
+    def _shield(self):
+        s = _Shield()
+        _ok(self, _cargar().multitrigger_get_shield(self._c, ctypes.byref(s)), 'get_shield')
+        return _dict(s)
+
+    def _or_mask(self, ch):
+        v = ctypes.c_uint32()
+        _ok(self, _cargar().multitrigger_get_or_mask(self._c, _i64(ch), ctypes.byref(v)),
+            'get_or_mask')
+        return v.value
+
+    def read_snapshot(self):
+        """Fuentes que dispararon, decodificadas. El registro es STICKY: con la
+        región propia son los 29 bits, con las fuentes de pendiente y de polo-cero."""
+        return decode_snap(self._snapshot())
+
+
+class MultiTrigger(_Region):
+    """Máscaras OR, shield y snapshot, en la región propia.
+
+    El disparo por pendiente y el polo-cero están en `MtRegion`, sobre los mismos
+    registros.
+    """
+
+    _CLASE_REF = 'MultiTrigger'
+
+    @classmethod
+    def open(cls, osc=None, phys=MTRG_PHYS, size=MTRG_SIZE, check_magic=True, impl=None):
+        """`osc` se acepta y no se usa: antes compartían mapeo, y ya no."""
+        return cls._abrir(phys, size, check_magic, impl)
 
     def set_or_mask(self, mask_ch0=OR_MASK_ALL, mask_ch1=None):
-        """Escribe la máscara de los dos canales, con assert de readback."""
+        """Escribe la máscara de los dos canales, con assert de readback.
+
+        A diferencia de un `assert`, la relectura de C no desaparece con `python -O`.
+        """
         if mask_ch1 is None:
             mask_ch1 = mask_ch0
-        self.w32(R_OR_MASK_CH0, mask_ch0)
-        self.w32(R_OR_MASK_CH1, mask_ch1)
-        rb0 = self.r32(R_OR_MASK_CH0)
-        rb1 = self.r32(R_OR_MASK_CH1)
-        assert rb0 == mask_ch0, f'OR_MASK ch0 no latcheada: {rb0:#010x} != {mask_ch0:#010x}'
-        assert rb1 == mask_ch1, f'OR_MASK ch1 no latcheada: {rb1:#010x} != {mask_ch1:#010x}'
+        _ok(self, _cargar().multitrigger_set_or_masks(self._c, _i64(mask_ch0), _i64(mask_ch1)),
+            'set_or_mask', {_libmca.MCA_EVERIFY: AssertionError})
 
     def configure_shield_autorearm(self, channels=0x3, dur=0):
         """Configura el trigger_shield para clear automático del adc_trg_dis.
@@ -200,34 +465,26 @@ class MultiTrigger:
         dur:      ciclos de ADC de holdoff antes del clear (0 = inmediato).
         Layout: {dur[31:16], 4'h0, dst[11:8], 4'h0, src[3:0]}.
         """
-        word = ((dur & 0xFFFF) << 16) | ((channels & 0xF) << 8) | (channels & 0xF)
-        self.w32(R_SHIELD_CFG, word)
+        _ok(self, _cargar().multitrigger_shield_autorearm(self._c, _u32(channels), _u32(dur)),
+            'shield_autorearm')
 
     def disable_shield(self):
         """Apaga el shield (vuelve al modo SW-clear manual de 0x94)."""
-        self.w32(R_SHIELD_CFG, 0)
+        _ok(self, _cargar().multitrigger_disable_shield(self._c), 'disable_shield')
+
     # ---------- estatus ----------
 
     def get_or_mask(self, ch=0):
-        return self.r32((R_OR_MASK_CH0, R_OR_MASK_CH1,
-                         R_OR_MASK_CH2, R_OR_MASK_CH3)[ch])
+        return self._or_mask(ch)
 
     def get_shield(self):
-        palabra = self.r32(R_SHIELD_CFG)
-        return {'dur': (palabra >> 16) & 0xFFFF,
-                'dst': (palabra >> 8) & 0x1F,
-                'src': palabra & 0x7F,
-                'runtime': self.r32(R_SHIELD_RUN)}
-
-    def read_snapshot(self):
-        """Fuentes que dispararon, decodificadas. El registro es STICKY."""
-        return decode_snap(self.r32(R_TRIG_SNAP))
+        return self._shield()
 
     def read_snapshot_raw(self):
-        return self.r32(R_TRIG_SNAP)
+        return self._snapshot()
 
     def get_flags(self):
-        return self.r32(R_FLAGS)
+        return self._flags()
 
 
 # =============================================================================
@@ -305,55 +562,24 @@ def slope_pico(L, G, escalon=None, pendiente=None):
     return L * (L + G) * pendiente
 
 
-class MtRegion:
-    """La región propia del multitrigger (mt_cfg.sv), por /dev/mem."""
+class MtRegion(_Region):
+    """La región propia del multitrigger (mt_cfg.sv), con los disparos propios."""
 
-    def __init__(self, mem, fd):
-        self._mmap = mem
-        self._fd   = fd
+    _CLASE_REF = 'MtRegion'
 
     @classmethod
-    def open(cls, phys=MTRG_PHYS, size=MTRG_SIZE, check_magic=True):
-        fd = os.open('/dev/mem', os.O_RDWR | os.O_SYNC)
-        try:
-            m = mmap.mmap(fd, size, mmap.MAP_SHARED,
-                          mmap.PROT_READ | mmap.PROT_WRITE, offset=phys)
-        except Exception:
-            os.close(fd)
-            raise
-        r = cls(m, fd)
-        if check_magic and r.r32(0x000) != MTRG_MAGIC:
-            leido = r.r32(0x000)
-            r.close()
-            raise RuntimeError(
-                f'{phys:#010x} no es la región del multitrigger (MAGIC '
-                f'{leido:#010x} != {MTRG_MAGIC:#010x}). '
-                f"Integration.base('mtrg') da el slot de este bitstream.")
-        return r
+    def open(cls, phys=MTRG_PHYS, size=MTRG_SIZE, check_magic=True, impl=None):
+        return cls._abrir(phys, size, check_magic, impl)
 
-    def close(self):
-        try:
-            self._mmap.close()
-        finally:
-            os.close(self._fd)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        self.close()
-
-    def w32(self, off, v):
-        # Por slice, no struct.pack_into: ver MultiTrigger.w32.
-        self._mmap[off:off+4] = _U32.pack(v & 0xFFFFFFFF)
-
-    def r32(self, off):
-        return _U32.unpack_from(self._mmap, off)[0]
+    def _tiene(self, fn):
+        v = _I32()
+        _ok(self, fn(self._c, ctypes.byref(v)), 'caps')
+        return bool(v.value)
 
     # ---------- disparo por pendiente ----------
 
     def has_slope(self):
-        return bool(self.r32(R3_CAPS) & CAPS_HAS_SLOPE)
+        return self._tiene(_cargar().multitrigger_has_slope)
 
     def set_slope(self, ch, L, G, thr, hyst, en=True):
         """Configura el trapezoidal rápido del canal `ch`.
@@ -363,44 +589,23 @@ class MtRegion:
         Schmitt no re-arma en s=0. Para dispararlo hay que poner además
         BIT_SLOPE_P<ch> / BIT_SLOPE_N<ch> en la OR_MASK.
         """
-        if not 0 <= ch <= 3:
-            raise ValueError(f'canal {ch} fuera de 0..3')
-        if not 1 <= L <= SLOPE_LMAX:
-            raise ValueError(f'L={L} fuera de 1..{SLOPE_LMAX}')
-        if not 0 <= G <= SLOPE_GMAX:
-            raise ValueError(f'G={G} fuera de 0..{SLOPE_GMAX}')
-        if not 0 <= thr <= SLOPE_TMAX or not 0 <= hyst <= SLOPE_TMAX:
-            raise ValueError(f'thr/hyst fuera de 0..{SLOPE_TMAX}')
-        if en and hyst >= thr:
-            raise ValueError(f'hyst={hyst} >= thr={thr}: no re-arma nunca')
-        if not self.has_slope():
-            raise RuntimeError('el bitstream cargado no tiene disparo por '
-                               'pendiente (CAPS[16] = 0)')
-        cfg = (int(bool(en)) << 31) | (G << 8) | L
-        # Umbrales primero: el filtro se habilita con el Schmitt ya configurado.
-        for off, v in ((R3_SLOPE_THR, thr), (R3_SLOPE_HYST, hyst),
-                       (R3_SLOPE_CFG, cfg)):
-            self.w32(off + 4 * ch, v)
-            leido = self.r32(off + 4 * ch)
-            if leido != v:
-                raise RuntimeError(f'el registro {off + 4*ch:#05x} no retuvo '
-                                   f'lo escrito: {leido:#010x} != {v:#010x}')
+        _ok(self, _cargar().multitrigger_set_slope(
+            self._c, _i64(ch), _i64(L), _i64(G), _i64(thr), _i64(hyst), 1 if en else 0),
+            'set_slope')
 
     def get_slope(self, ch):
-        cfg = self.r32(R3_SLOPE_CFG + 4 * ch)
-        return {'en':   bool(cfg >> 31),
-                'L':    cfg & 0x1F,
-                'G':    (cfg >> 8) & 0x1F,
-                'thr':  self.r32(R3_SLOPE_THR + 4 * ch),
-                'hyst': self.r32(R3_SLOPE_HYST + 4 * ch)}
+        s = _Slope()
+        _ok(self, _cargar().multitrigger_get_slope(self._c, _i64(ch), ctypes.byref(s)),
+            'get_slope')
+        return _sin_en(s)
 
     def disable_slope(self, ch):
-        self.w32(R3_SLOPE_CFG + 4 * ch, 0)
+        _ok(self, _cargar().multitrigger_disable_slope(self._c, _i64(ch)), 'disable_slope')
 
     # ---------- disparo con polo-cero ----------
 
     def has_pz(self):
-        return bool(self.r32(R3_CAPS) & CAPS_HAS_PZ)
+        return self._tiene(_cargar().multitrigger_has_pz)
 
     def set_pz(self, ch, k, m, mq, sh, thr, hyst, en=True):
         """Configura el disparo con polo-cero del canal `ch`.
@@ -411,74 +616,42 @@ class MtRegion:
         de la salida (ver `pz_ganancia`); hyst < thr o el Schmitt no re-arma.
         Para dispararlo hay que poner además BIT_PZ_P<ch> en la OR_MASK.
         """
-        if not 0 <= ch <= 3:
-            raise ValueError(f'canal {ch} fuera de 0..3')
-        if not (1 <= k and 0 <= m and k + m <= PZ_LMAX):
-            raise ValueError(f'k={k}, m={m}: hace falta k >= 1 y k + m <= {PZ_LMAX}')
-        if not 0 <= mq <= PZ_MQMAX:
-            raise ValueError(f'mq={mq} fuera de 0..{PZ_MQMAX}')
-        if not 0 <= sh <= 63:
-            raise ValueError(f'sh={sh} fuera de 0..63')
-        if not 0 <= thr <= PZ_TMAX or not 0 <= hyst <= PZ_TMAX:
-            raise ValueError(f'thr/hyst fuera de 0..{PZ_TMAX}')
-        if en and hyst >= thr:
-            raise ValueError(f'hyst={hyst} >= thr={thr}: no re-arma nunca')
-        if not self.has_pz():
-            raise RuntimeError('el bitstream cargado no tiene disparo con '
-                               'polo-cero (CAPS[17] = 0)')
-        cfg = (int(bool(en)) << 31) | (sh << 24) | (m << 8) | k
-        # Umbrales y M primero: el trapecio se habilita ya configurado (cambiar
-        # k, m o M con el habilitado lo re-arranca igual, pero asi no hay un
-        # arranque con la configuracion vieja).
-        for off, v in ((R3_PZ_THR, thr), (R3_PZ_HYST, hyst), (R3_PZ_MQ, mq),
-                       (R3_PZ_CFG, cfg)):
-            self.w32(off + 4 * ch, v)
-            leido = self.r32(off + 4 * ch)
-            if leido != v:
-                raise RuntimeError(f'el registro {off + 4*ch:#05x} no retuvo '
-                                   f'lo escrito: {leido:#010x} != {v:#010x}')
+        _ok(self, _cargar().multitrigger_set_pz(
+            self._c, _i64(ch), _i64(k), _i64(m), _i64(mq), _i64(sh), _i64(thr), _i64(hyst),
+            1 if en else 0), 'set_pz')
 
     def get_pz(self, ch):
-        cfg = self.r32(R3_PZ_CFG + 4 * ch)
-        return {'en':   bool(cfg >> 31),
-                'k':    cfg & 0x1F,
-                'm':    (cfg >> 8) & 0x1F,
-                'sh':   (cfg >> 24) & 0x3F,
-                'mq':   self.r32(R3_PZ_MQ + 4 * ch),
-                'thr':  self.r32(R3_PZ_THR + 4 * ch),
-                'hyst': self.r32(R3_PZ_HYST + 4 * ch)}
+        p = _Pz()
+        _ok(self, _cargar().multitrigger_get_pz(self._c, _i64(ch), ctypes.byref(p)), 'get_pz')
+        return _sin_en(p)
 
     def disable_pz(self, ch):
-        self.w32(R3_PZ_CFG + 4 * ch, 0)
+        _ok(self, _cargar().multitrigger_disable_pz(self._c, _i64(ch)), 'disable_pz')
 
     # ---------- máscara, shield y flags de la región propia ----------
-    #
+
     def set_or_mask(self, ch, mascara):
-        self.w32(R3_OR_MASK + 4 * ch, mascara)
+        _ok(self, _cargar().multitrigger_set_or_mask(self._c, _i64(ch), _u32(mascara)),
+            'set_or_mask')
 
     def get_or_mask(self, ch):
-        return self.r32(R3_OR_MASK + 4 * ch)
+        return self._or_mask(ch)
 
     def set_shield(self, src, dst, dur=0):
         """`src`/`dst` son máscaras (SRC_*/DST_*); `dur` el holdoff en ciclos."""
-        self.w32(R3_SHIELD, ((dur & 0xFFFF) << 16) | ((dst & 0x1F) << 8)
-                            | (src & 0x7F))
+        _ok(self, _cargar().multitrigger_set_shield(self._c, _u32(src), _u32(dst), _u32(dur)),
+            'set_shield')
 
     def get_shield(self):
-        w = self.r32(R3_SHIELD)
-        return {'dur': (w >> 16) & 0xFFFF, 'dst': (w >> 8) & 0x1F,
-                'src': w & 0x7F}
+        d = self._shield()
+        del d['runtime']
+        return d
 
     def get_flags(self):
         """{'dis_act': [4 bool], 'we_keep': [4 bool]} por canal."""
-        w = self.r32(R3_FLAGS)
+        w = self._flags()
         return {'dis_act': [bool((w >> c) & 1) for c in range(4)],
                 'we_keep': [bool((w >> (4 + c)) & 1) for c in range(4)]}
-
-    def read_snapshot(self):
-        """El snapshot completo de 29 bits, con las fuentes de pendiente y de
-        polo-cero."""
-        return decode_snap(self.r32(R3_SNAPSHOT))
 
 
 # =============================================================================
@@ -568,58 +741,55 @@ BITS_OR_MASK = (
 )
 
 
+@_api()
 def multitrigger_get_config(mt):
     """Todos los campos de `_CAMPOS`."""
-    return {campo: (mt.r32(off) >> shift) & mask
-            for campo, (off, shift, mask) in _CAMPOS.items()}
+    n = len(_CAMPOS)
+    v = (_U * n)()
+    _ok(mt, _cargar().multitrigger_get_config(mt._c, v, n), 'get_config')
+    return dict(zip(_CAMPOS, v))
 
 
+@_api()
 def multitrigger_configure(mt, **campos):
     """Escribe campos por nombre, agrupando los que comparten registro.
 
     Los tres campos del shield viven en la misma palabra, así que escribirlos
     de a uno haría que el segundo leyera lo que el primero acaba de cambiar.
+    La relectura es de verdad, no un `assert`: una máscara que no latchea es
+    exactamente el fallo que deja el scope sin disparar, sin ningún síntoma más
+    que "no llegan eventos".
     """
     desconocidos = set(campos) - set(_CAMPOS)
     if desconocidos:
         raise ValueError(f'campos desconocidos: {sorted(desconocidos)}; '
                          f'hay: {sorted(_CAMPOS)}')
-    por_registro = {}
-    for campo, valor in campos.items():
-        off, shift, mask = _CAMPOS[campo]
-        por_registro.setdefault(off, []).append((shift, mask, int(valor)))
-
-    for off, partes in por_registro.items():
-        w = mt.r32(off)
-        for shift, mask, valor in partes:
-            w = (w & ~(mask << shift)) | ((valor & mask) << shift)
-        mt.w32(off, w)
-        # Readback de verdad, no `assert`: con python -O los assert desaparecen
-        # y una máscara que no latchea es exactamente el fallo que deja el scope
-        # sin disparar, sin ningún síntoma más que "no llegan eventos".
-        leido = mt.r32(off)
-        if leido != w:
-            raise RuntimeError(
-                f'el registro {off:#05x} no retuvo lo escrito: '
-                f'{leido:#010x} != {w:#010x}. ¿Es este el bitstream correcto?')
+    nombres = list(_CAMPOS)
+    n = len(campos)
+    # `int()` antes de cruzar, como antes: un valor que no convierte no deja nada
+    # escrito.
+    valores = (_U * n)(*(int(v) & 0xFFFFFFFF for v in campos.values()))
+    indices = (_I32 * n)(*(nombres.index(c) for c in campos))
+    _ok(mt, _cargar().multitrigger_configure(mt._c, indices, valores, n), 'configure')
 
 
+@_api()
 def multitrigger_get_status(mt):
     """Snapshot, flags y runtime del shield. Sólo lectura.
 
     `mca_veto` es el nivel que el shield le está mandando al MCA ahora mismo:
     con `shield_dst` sin DST_MCA es siempre False aunque el escudo corra.
+    `trig_arm`: algún canal puede disparar ya. En False, el MCA suma a t_rearm.
     """
-    # Por r32 y no por los metodos de la clase: asi sirve para cualquier
-    # objeto con r32/w32, que es el contrato de todas las funciones de aca.
-    crudo = mt.r32(R_TRIG_SNAP)
-    runtime = mt.r32(R_SHIELD_RUN)
-    return {'snapshot': crudo,
-            'fuentes': decode_snap(crudo),
-            'flags': mt.r32(R_FLAGS),
-            'shield_runtime': runtime,
-            'shield_active': bool(runtime & (1 << 16)),
-            'mca_veto': bool(runtime & (1 << 17))}
+    s = _Status()
+    _ok(mt, _cargar().multitrigger_get_status(mt._c, ctypes.byref(s)), 'get_status')
+    return {'snapshot': s.snapshot,
+            'fuentes': decode_snap(s.snapshot),
+            'flags': s.flags,
+            'shield_runtime': s.shield_runtime,
+            'shield_active': bool(s.shield_active),
+            'mca_veto': bool(s.mca_veto),
+            'trig_arm': bool(s.trig_arm)}
 
 
 # =============================================================================
@@ -769,16 +939,19 @@ def multitrigger_desarmar_mca(osc, mtr, ch=0):
 
 
 def multitrigger_armar_banco(h, osc, mtr, mq, ch=0, pre_dly=16, formas=None,
-                             n_acc=4, k=2, m=1, sh=10, thr_cuentas=50.0,
+                             n_acc=None, k=2, m=1, sh=10, thr_cuentas=50.0,
                              hyst_cuentas=25.0, **config):
     """El banco de trapecios y su disparo con polo-cero, con el MISMO `mq`.
 
     `mq` (M*16) está dos veces en el hardware, en el MCA y en el disparo, y tiene
     que ser la misma: la del ajuste de la cola en la placa. No tiene default a
     propósito. El resto de `config` va a `mca_configure` (por ejemplo
-    `sel_1d='trapecio'`); deja el MCA parado, y el disparo armado.
+    `sel_1d='trapecio'`); deja el MCA parado, y el disparo armado. `n_acc=None`
+    usa todas las ranuras del bitstream (4 hasta el 2026-11-09, 3 desde entonces).
     """
-    from API.mca import BANCO_PZ, mca_banco_config, mca_configure
+    from API.mca import BANCO_PZ, mca_banco_config, mca_configure, mca_get_n_acc_max
+    if n_acc is None:
+        n_acc = mca_get_n_acc_max(h)
     mca_configure(h, n_acc=n_acc,
                   **mca_banco_config(mq, pre_dly=pre_dly,
                                      formas=BANCO_PZ if formas is None else formas),

@@ -106,6 +106,8 @@ R_T_WIN_LO     = 0x0C8          # sin ranura libre, todas midiendo
 R_T_WIN_HI     = 0x0CC
 R_T_DIV_LO     = 0x0D0          # sin ranura libre, alguna esperando publicar
 R_T_DIV_HI     = 0x0D4
+R_T_REARM_LO   = 0x0D8          # ranura libre, el disparo esperando re-armar
+R_T_REARM_HI   = 0x0DC
 R_T_CLEAR_LO   = 0x0FC          # barrido de borrado (aparte del teselado)
 R_T_CLEAR_HI   = 0x100
 R_T_OCUP       = 0x140          # + 8*j: ciclos con exactamente j ranuras ocupadas
@@ -651,10 +653,12 @@ class MCA:
 
         LOS RELOJES CAMBIARON DE SIGNIFICADO RESPECTO DEL MCA1:
 
-          `livetime_s`       alguna ranura libre: el MCA puede abrir.
+          `livetime_s`       alguna ranura libre y el disparo armado.
           `t_win_s`          sin ranura libre, todas midiendo.
           `t_div_s`          sin ranura libre, alguna esperando al publicador.
-          `deadtime_real_s`  t_win + t_div: el tiempo muerto de verdad.
+          `t_rearm_s`        ranura libre, el disparo esperando re-armar.
+          `deadtime_real_s`  t_win + t_div + t_rearm: el tiempo muerto de
+                             verdad. El período muerto es t_win + t_div.
           `deadtime_s`       la OCUPACIÓN (alguna ranura ocupada). Con una
                              ranura coincide con el tiempo muerto; con varias
                              NO lo es: hay ciclos con ranuras midiendo en que
@@ -662,7 +666,8 @@ class MCA:
           `t_ocup_s[j]`      tiempo con exactamente j ranuras ocupadas: la
                              medición directa del modelo M/D/N/N.
 
-        `realtime = vetotime + t_win + t_div + livetime` vale ciclo a ciclo,
+        `realtime = vetotime + t_win + t_div + t_rearm + livetime` vale ciclo
+        a ciclo,
         pero leída con run=1 no cierra (cada acceso se lleva ~6 ciclos): para
         verificarla, `stop()` primero.
         """
@@ -672,6 +677,7 @@ class MCA:
         vt = self._r64(R_VETOTIME_LO, R_VETOTIME_HI)
         tw = self._r64(R_T_WIN_LO,   R_T_WIN_HI)
         td = self._r64(R_T_DIV_LO,   R_T_DIV_HI)
+        tr = self._r64(R_T_REARM_LO, R_T_REARM_HI)
         tc = self._r64(R_T_CLEAR_LO, R_T_CLEAR_HI)
         n_max = self.r32(R_N_ACC_MAX)
         t_ocup = [self._r64(R_T_OCUP + 8 * j, R_T_OCUP + 8 * j + 4)
@@ -696,8 +702,9 @@ class MCA:
             'vetotime_s': vt / FS_HZ,
             't_win_s':   tw / FS_HZ,
             't_div_s':   td / FS_HZ,
+            't_rearm_s': tr / FS_HZ,
             't_clear_s': tc / FS_HZ,
-            'deadtime_real_s': muerto / FS_HZ,
+            'deadtime_real_s': (muerto + tr) / FS_HZ,
             # --- período muerto: sin ranura libre ---
             'dead_periods':    periodos,
             'dead_len_max_s':  self.r32(R_DEAD_LEN_MAX) / FS_HZ,
@@ -724,6 +731,7 @@ class MCA:
             'busy':           bool(st & 2),
             'baseline_stale': bool(st & 4),
             'vetoed':         bool(st & 8),
+            'rearm_pend':     bool(st & 16),
             'puede_abrir':    bool(st & 32),
             'n_ocup':         (st >> 8) & 0x7,
             'full_1d':        bool(hs & 1),

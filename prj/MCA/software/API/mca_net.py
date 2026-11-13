@@ -84,6 +84,16 @@ OPS = (
     'mca.disparo',          # ch, armar (True|False|None), L, G, thr, hyst -> estado
     # --- una función de API/mca.py entera, en la placa (como un comando SCPI) ---
     'call',                 # fn, a, k  -> el resultado (o un arreglo, binario)
+    # --- el event_ring (slot 2), opcional: una adquisición con su sesión, que escribe
+    #     en un camino de la placa (la SD, /dev/shm o un montaje de red) ---
+    'ring.iniciar',         # run_dir, pre, post, generador|disparo, ... -> run_dir, fs
+    'ring.estado',          # -> corriendo, motivo, stats, hw, error
+    'ring.parar',           # -> stats, hw_final, n_slots, error
+    # --- el generador de pulsos (slot 2, 0x4021_0000) y el lazo digital, opcional ---
+    'gen.get',              # -> config, estado, lazo, lineas, tasa_hz, tau_us, mq
+    'gen.configurar',       # cfg (la configuración ENTERA) -> el get de vuelta
+    'gen.ctrl',             # que: arrancar|parar  -> el get de vuelta
+    'gen.lazo',             # on  -> el get de vuelta
 )
 
 

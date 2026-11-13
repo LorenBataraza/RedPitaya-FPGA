@@ -50,7 +50,7 @@ typedef enum {
 /* Los modulos que publican su slot, en el orden de sus nibbles en SLOTS. */
 typedef enum {
     INTEGRATION_SLOT_OSC, INTEGRATION_SLOT_RING, INTEGRATION_SLOT_MTRG,
-    INTEGRATION_SLOT_TOP, INTEGRATION_SLOT_MCA,
+    INTEGRATION_SLOT_TOP, INTEGRATION_SLOT_MCA, INTEGRATION_SLOT_PULSOS,
     INTEGRATION_N_SLOTS
 } integration_slot_t;
 
@@ -74,6 +74,11 @@ typedef enum {
 #define INTEGRATION_MOD_RING (1u << 3)
 #define INTEGRATION_MOD_ASG  (1u << 4)
 #define INTEGRATION_MOD_PID  (1u << 5)
+#define INTEGRATION_MOD_PULSOS (1u << 6)  /* gen_pulsos, en el lugar del ASG */
+
+/* gen_pulsos comparte su slot con el event_ring (sys_bus_split): vive 64 KB arriba
+ * de la base del slot. */
+#define INTEGRATION_PULSOS_OFFSET 0x00010000u
 
 #define INTEGRATION_CTRL_RUN   (1u << 0)
 #define INTEGRATION_CTRL_CLEAR (1u << 1)    /* autolimpiante en HW (un ciclo) */
@@ -90,9 +95,11 @@ typedef struct {
     char     gith[41];          /* hash de git en hexa, terminado en NUL */
 } integration_info_t;
 
-typedef struct { int32_t osc, mtrg, mca, ring, asg, pid; } integration_modules_t;
+typedef struct { int32_t osc, mtrg, mca, ring, asg, pid, pulsos; } integration_modules_t;
 
-typedef struct { uint32_t osc, ring, mtrg, top, mca; } integration_slots_t;
+/* Un bitstream sin el generador de pulsos (MODULES bit 6 en 0) lo publica en el slot
+ * 0, que es housekeeping: su base no sirve. */
+typedef struct { uint32_t osc, ring, mtrg, top, mca, pulsos; } integration_slots_t;
 
 /* h_aw, h2_aw y psd_aw son informativos y pueden mentir: la fuente de verdad es
  * WIDTHS del MCA (mca_get_widths). Ver el docstring de Integration.caps. */
@@ -153,7 +160,8 @@ MCA_API int integration_get_caps(integration_h *h, integration_caps_t *c);
 
 /* La direccion fisica de un modulo, segun el mapa real del bitstream: el
  * multitrigger esta en el slot 3 del top del MCA y en el 7 del red_pitaya_top
- * clasico. `slot` es un integration_slot_t; MCA_ENOKEY si no lo es. */
+ * clasico. El generador de pulsos, INTEGRATION_PULSOS_OFFSET arriba de su slot.
+ * `slot` es un integration_slot_t; MCA_ENOKEY si no lo es. */
 MCA_API int integration_get_base(integration_h *h, int32_t slot, uint32_t *base);
 
 /* ---- ruteo del datapath --------------------------------------------------- */

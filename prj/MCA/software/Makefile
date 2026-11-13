@@ -141,7 +141,9 @@ export PYTHONPATH := $(RAIZ):$(PYTHONPATH)
         libmca libmca-arm \
         verificar-compat verificar-lint baseline-regenerar \
         verificar-placa verificar-placa-mem verificar-placa-buffer \
-        verificar-placa-mca verificar-placa-diag verificar-placa-ring \
+        verificar-placa-mca verificar-placa-integration verificar-placa-multitrigger \
+        verificar-placa-osciloscope \
+        verificar-placa-diag verificar-placa-ring verificar-placa-bus \
         verificar-placa-datapath verificar-placa-e2e verificar-placa-app \
         verificar-placa-bitstream \
         verificar-remoto verificar-placa-remoto verificar-placa-app-remoto \
@@ -149,6 +151,8 @@ export PYTHONPATH := $(RAIZ):$(PYTHONPATH)
         montecarlo-linea-base montecarlo-pico-carga montecarlo-conformado montecarlo-figuras \
         campana-lista campana-mca campana-campana campana-resto campana-formas \
         campana-e2e campana-poisson campana-politicas campana-politicas-remoto \
+        campana-etapas-ring campana-etapas-ring-remoto campana-etapas-ring-red \
+        placa-montar-red placa-desmontar-red \
         campana-deriva campana-adquirir \
         campana-adquirir-remoto campana-deriva-remoto \
         graficar-mca graficar-formas graficar-tasa analizar-estimadores \
@@ -162,7 +166,9 @@ export PYTHONPATH := $(RAIZ):$(PYTHONPATH)
         placa-cargar-remoto \
         release release-verificar release-publicar release-instalar-remoto \
         release-limpiar \
-        bench bench-remoto bench-api bench-api-remoto exige-placa exige-gui \
+        bench bench-remoto bench-api bench-api-remoto bench-escritura \
+        bench-escritura-remoto bench-formatos bench-formatos-remoto \
+        exige-placa exige-gui \
         limpiar limpiar-pyc limpiar-cache limpiar-simulaciones limpiar-datos \
         limpiar-todo
 
@@ -251,24 +257,43 @@ baseline-regenerar:  ## REGENERA el baseline de compatibilidad (revisar el diff!
 
 # --- las que necesitan la Pitaya --------------------------------------------
 
-verificar-placa: verificar-placa-mem verificar-placa-buffer verificar-placa-mca verificar-placa-ring  ## (P) toda la batería de placa
+verificar-placa: verificar-placa-mem verificar-placa-bus verificar-placa-buffer verificar-placa-mca verificar-placa-integration verificar-placa-multitrigger verificar-placa-osciloscope verificar-placa-ring verificar-placa-generadores  ## (P) toda la batería de placa
 	@echo "OK: batería de placa completa"
 
 verificar-placa-mem: exige-placa      ## (P) regresión del SIGBUS al escribir /dev/mem
 	$(PY) API/tests/placa/test_rw_dev_mem.py
 
-verificar-placa-buffer: exige-placa   ## (P) capture_window_np contra el buffer completo
+verificar-placa-bus: exige-placa      ## (P) un registro que cambia mientras se lo lee llega entero (el rdata del CDC)
+	$(PY) API/tests/placa/test_bus_lectura_viva.py
+
+verificar-placa-buffer: exige-placa   ## (P) el mismo buffer congelado por rp y por libmca: iguales
 	$(PY) API/tests/placa/test_capture_window_np.py
 
 verificar-placa-mca: exige-placa      ## (P) smoke test del bus y los registros del MCA
 	$(PY) API/tests/placa/test_mca_hw.py
 
+verificar-placa-integration: exige-placa  ## (P) la región de TOP: C contra Python, y el ruteo
+	$(PY) API/tests/placa/test_integration_hw.py
+
+verificar-placa-multitrigger: exige-placa  ## (P) el multitrigger: C contra Python, y armar y desarmar el disparo
+	$(PY) API/tests/placa/test_multitrigger_hw.py
+
+verificar-placa-osciloscope: exige-placa  ## (P) el osciloscopio: C contra Python, y la BRAM de un buffer congelado por software
+	$(PY) API/tests/placa/test_osciloscope_hw.py
+
 verificar-placa-diag: exige-placa     ## (P) diagnóstico incremental, un paso por invocación
 	$(PY) API/tests/placa/diag_mca_hw.py
 
-verificar-placa-ring: exige-placa     ## (P) plumbing PL->DDR del event_ring + trigger por SW
+verificar-placa-ring: exige-placa     ## (P) el event_ring: plumbing PL->DDR, trigger por SW y el lector de C
 	$(PY) API/tests/placa/hw_ring_plumbing.py all
 	$(PY) API/tests/placa/hw_ring_swtrig.py
+	$(PY) API/tests/placa/test_ring_source_placa.py
+
+# Los dos generadores de la FPGA, sin el Rigol: gen_pulsos por el lazo digital contra
+# la réplica del MCA (monte-carlo/datos_ref/pulsos_placa_ref.json), y gen_eventos en el
+# ring con el patrón. Necesita el bitstream del ring con los generadores (78e26188).
+verificar-placa-generadores: exige-placa  ## (P) los dos generadores: gen_pulsos contra la réplica del MCA, gen_eventos en el ring
+	$(PY) API/tests/placa/test_generadores_placa.py
 
 verificar-placa-datapath: exige-placa ## (P,R) camino de datos del MCA con señal real
 	$(PY) API/tests/placa/test_mca_datapath.py
@@ -362,6 +387,44 @@ campana-e2e: exige-placa       ## (P,R) espectro HW contra espectro SW, mismo es
 
 campana-poisson: exige-placa   ## (P,R) pérdidas del lector con arribos Poisson
 	$(PY) campanas/run_poisson_loss.py
+
+# Las etapas del event_ring (docs/event_ring/generador.md §6): el estímulo es el
+# generador de eventos de la FPGA, sin el Rigol. Necesita el bitstream del ring con
+# generadores (78e26188 o posterior): `campanas/preparar_placa.py --cargar --bitstream
+# /root/event_ring_red_pitaya_Z10_2CH.bit.bin`. ETAPAS= de A, copia, B y C; el resto
+# de las opciones (--ventanas, --tasas, --n, --carga, --destino, --margen-mb) va en
+# ARGS=. Con --destino /dev/shm/..., --margen-mb 16: tmpfs tiene 231 MB en la placa.
+ETAPAS ?= A,B
+campana-etapas-ring: exige-placa  ## (P) las etapas del ring con el generador de la FPGA. OUT= ETAPAS= ARGS=
+	$(PY) campanas/run_etapas_ring.py $(OUT) --etapas $(ETAPAS) $(ARGS)
+
+campana-etapas-ring-remoto: placa-sync  ## (P) las etapas del ring EN la Pitaya, y trae el JSON. OUT= ETAPAS= ARGS=
+	ssh $(PITAYA) 'make -C $(REMOTO) campana-etapas-ring OUT=$(OUT) ETAPAS=$(ETAPAS) ARGS="$(ARGS)"'
+	@mkdir -p $(OUT)
+	rsync -az $(PITAYA):$(REMOTO)/$(OUT)/ $(OUT)/
+	@echo "datos en $(OUT)/"
+
+# La etapa C por la red (docs/event_ring/generador.md §6): la sesión corre en el
+# servidor de la placa (las ops ring.*) y escribe en un directorio de la PC montado
+# por NFS en la placa; la campaña corre ACÁ y verifica en ese mismo directorio. Hace
+# falta: el directorio exportado a la placa (/etc/exports: lo de la PC es con sudo),
+# el montaje (`make placa-montar-red`), el bitstream del ring y el servidor
+# (`make app-servidor-remoto`). La placa no trae mount.nfs: se monta con las opciones
+# del kernel, dando los puertos (mountd fijo en 20048, en /etc/nfs.conf de la PC).
+PC_IP    ?= $(shell ip -4 route get $(IP_PITAYA) 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p')
+PC_DIR   ?= $(HOME)/pitaya_red
+MONTAJE  ?= /mnt/pc
+OPC_NFS  ?= vers=3,proto=tcp,port=2049,mountproto=tcp,mountport=20048,nolock
+
+placa-montar-red:  ## (P) monta PC_DIR de la PC en MONTAJE de la placa, por NFS. PC_IP= PC_DIR= MONTAJE=
+	@test -n "$(PC_IP)" || { echo "no pude sacar la IP de esta PC hacia la placa: PC_IP="; exit 1; }
+	ssh $(PITAYA) 'mkdir -p $(MONTAJE) && { mountpoint -q $(MONTAJE) || mount -t nfs -o $(OPC_NFS),addr=$(PC_IP) $(PC_IP):$(PC_DIR) $(MONTAJE); } && grep " $(MONTAJE) " /proc/mounts'
+
+placa-desmontar-red:  ## (P) desmonta MONTAJE de la placa
+	ssh $(PITAYA) 'if mountpoint -q $(MONTAJE); then umount $(MONTAJE) && echo desmontado; else echo "$(MONTAJE) no estaba montado"; fi'
+
+campana-etapas-ring-red:  ## (P) la etapa C por la red, desde esta PC (servidor + montaje). OUT= ARGS=
+	$(PY) campanas/run_etapas_ring.py $(OUT) --etapas C --red $(IP_PITAYA):$(PUERTO_PLACA) --destino $(MONTAJE)/etapas --destino-pc $(PC_DIR)/etapas $(ARGS)
 
 # La validación en silicio de las fases 1 y 2. `SOLO=invariantes` corre sólo
 # las identidades del teselado, que es lo primero a mirar con un bitstream
@@ -546,6 +609,12 @@ app-placa: exige-gui app-servidor-remoto  ## servidor + GUI, SIN tocar el genera
 	@echo " al salir; pararlo con: make app-servidor-off-remoto)"
 	$(PY) app/mcamon.py --host $(IP_PITAYA) --port $(PUERTO_PLACA) --conectar
 
+# La aplicación con el generador de pulsos por el lazo digital, sin el Rigol. Corre
+# EN LA PC contra el servidor del 1001, el mismo camino que la GUI, y deja la placa
+# como estaba: generador parado, lazo apagado y disparo desarmado.
+verificar-placa-lazo: app-servidor-remoto  ## (P) la app con el generador por el lazo digital, sin el Rigol
+	$(PY) app/tests/placa/e2e_lazo_app.py --host $(IP_PITAYA) --port $(PUERTO_PLACA)
+
 # --- la sesión entera --------------------------------------------------------
 #
 # `app-placa` levanta el servidor y abre la GUI, pero deja el generador como
@@ -641,17 +710,32 @@ try:
     estado = open('/sys/class/fpga_manager/fpga0/state').read().strip()
 except OSError:
     estado = 'sin fpga_manager'
+
+
+def leer(fd, base, *offs):
+    m = mmap.mmap(fd, 4096, offset=base)
+    try:
+        return [struct.unpack_from('<I', m, o)[0] for o in offs]
+    finally:
+        m.close()
+
+
 try:
     fd = os.open('/dev/mem', os.O_RDWR | os.O_SYNC)
-    m = mmap.mmap(fd, 4096, offset=0x40700000)
-    magic = struct.unpack_from('<I', m, 0)[0]
-    w = struct.unpack_from('<I', m, 8)[0]
-    caps = struct.unpack_from('<I', m, 4)[0]
-    if magic == 0x4D434131:
-        pl = 'MCA1 · %d canales · mapa 2D %s' % (
-            1 << (w & 0xFF), 'sí' if caps & 2 else 'no')
+    magic, caps, w, n_acc = leer(fd, 0x40700000, 0x000, 0x004, 0x008, 0x11C)
+    canales = 1 << (w & 0xFF)
+    if magic == 0x4D434132:
+        mapa = ('%d x %d' % (1 << ((w >> 8) & 0xFF), 1 << ((w >> 16) & 0xFF))
+                if caps & 2 else 'no')
+        pl = 'MCA2 · %d ranuras · %d canales · mapa 2D %s · trapecio %s' % (
+            n_acc, canales, mapa, 'sí' if caps & 4 else 'no')
+    elif magic == 0x4D434131:
+        pl = 'MCA1 (el mapa anterior; la API pide MCA2) · %d canales · mapa 2D %s' % (
+            canales, 'sí' if caps & 2 else 'no')
     else:
         pl = 'sin MCA en el slot 7 (magic %#010x)' % magic
+    ring = leer(fd, 0x40200000, 0x50)[0] == 0x45564E54
+    pl += ' · ring en el slot 2: %s' % ('sí' if ring else 'no')
 except Exception as e:
     pl = 'no se pudo leer el bus (%s)' % type(e).__name__
 print('%s · %s' % (estado, pl))
@@ -857,7 +941,8 @@ _release-notas:
 	   echo ""; \
 	   echo "Requiere Red Pitaya OS 2.00+, \`python3\` y \`numpy\`. El instalador"; \
 	   echo "verifica el paquete contra su manifiesto y comprueba las dependencias"; \
-	   echo "antes de copiar nada; sin \`--cargar\` no toca la PL."; \
+	   echo "antes de copiar nada; sin \`--cargar\` no toca la PL. \`h5py\` es opcional:"; \
+	   echo "hace falta para guardar los eventos del osciloscopio en LH5."; \
 	   echo ""; \
 	   echo "La documentación no va en el paquete:"; \
 	   echo "[\`prj/MCA/docs/\`](https://github.com/$(GH_REPO)/tree/$(GIT_RAMA)/prj/MCA/docs)."; \
@@ -980,6 +1065,31 @@ bench-api-remoto: libmca-arm placa-sync  ## (P) el microbench EN la Pitaya, y tr
 # cualquier bitstream cargado (o ninguno). Es el que hay que correr al tocar
 # API/mca.py o API/_libmca.py: comparar con comparar_bench.py A B.
 BENCH_SHM ?= datos/bench_shm_$(STAMP)
+
+# Cuánto cuesta escribir un lote, en .npz y en .lh5, y si frena al lector. No toca la
+# PL: es la comprobación de que h5py sirve en la placa. Sale con 1 si falta h5py.
+BENCH_DIR ?= datos/bench_escritura
+
+bench-escritura:  ## escribir un lote: .npz contra .lh5, sin PL. BENCH_DIR=
+	$(PY) API/bench/bench_escritura.py --dir $(BENCH_DIR)
+
+bench-escritura-remoto: placa-sync  ## lo mismo EN la Pitaya, sobre su disco (no toca la PL)
+	ssh $(PITAYA) 'make -C $(REMOTO) bench-escritura BENCH_DIR=$(BENCH_DIR)'
+
+# .npz contra LH5 para elegir por lo que se hace con los archivos: escribir una corrida
+# (sin y con compresión) y leerla entera, sólo las columnas, unos pocos eventos y con
+# el lector oficial. Ventanas de 32, 256 y 2048 muestras, la del ring. No toca la PL.
+BENCH_FMT_DIR ?= datos/bench_formatos
+BENCH_FMT_ARGS ?=
+
+bench-formatos:  ## .npz contra LH5: escribir y leer una corrida, sin PL. BENCH_FMT_DIR=
+	@mkdir -p $(BENCH_FMT_DIR)
+	$(PY) API/bench/bench_formatos.py --dir $(BENCH_FMT_DIR)/tmp \
+	  --json $(BENCH_FMT_DIR)/$(shell hostname)_$(STAMP).json $(BENCH_FMT_ARGS)
+	@rm -rf $(BENCH_FMT_DIR)/tmp
+
+bench-formatos-remoto: placa-sync  ## lo mismo EN la Pitaya, sobre su disco (no toca la PL)
+	ssh $(PITAYA) 'make -C $(REMOTO) bench-formatos BENCH_FMT_DIR=$(BENCH_FMT_DIR) BENCH_FMT_ARGS="$(BENCH_FMT_ARGS)"'
 
 bench-api-shm: libmca  ## microbench del binding sin PL (fichero en /dev/shm). BENCH_SHM=
 	$(PY) API/bench/bench_impl.py --shm --out $(BENCH_SHM)

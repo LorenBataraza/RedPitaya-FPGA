@@ -69,6 +69,14 @@ MCA_API int mca_bus_w32(mca_bus *bus, uint32_t off, uint32_t val);
 MCA_API int mca_bus_read_words(mca_bus *bus, uint32_t off, uint32_t n,
                                uint32_t *dst);
 
+/* n lecturas del MISMO registro, una detras de otra, a `dst`. Es para medir el
+ * bus: un registro que cambia solo (un contador, un puntero) leido sin pausa
+ * muestra si el dato cruza entero el CDC (docs/TOP/bus_sistema_redpitaya.md
+ * §6.1). Desde Python, cada mca_bus_r32 cuesta ~19 us en la placa; aca, lo que
+ * tarde el bus. */
+MCA_API int mca_bus_sondear(mca_bus *bus, uint32_t off, uint32_t n,
+                            uint32_t *dst);
+
 /* Bytes accesibles del bus; 0 si no tiene limite. */
 MCA_API uint32_t mca_bus_size(const mca_bus *bus);
 

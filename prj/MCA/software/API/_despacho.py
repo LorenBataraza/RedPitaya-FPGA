@@ -35,8 +35,8 @@ API_REGISTRADA = {}
 _REFERENCIA = {
     'API.mca':          'API.ref_py.mca2',      # MCA1: h._referencia
     'API.integration':  'API.ref_py.integration',
-    'API.multitrigger': 'API.ref_py.multitrigger',
-    'API.osciloscope':  'API.ref_py.osciloscope',
+    'API.multitrigger': 'API.ref_py.multitrigger2',
+    'API.osciloscope':  'API.ref_py.osciloscope2',
 }
 
 IMPLS = ('c', 'py')
@@ -70,7 +70,7 @@ def _directa(fn, despachar):
 
     El despacho genérico recibe `*args, **kw` y en la placa eso cuesta ~5 µs
     por llamada, contra ~2 µs de una función con los parámetros con nombre
-    (medido en docs/API/diseno_de_clases.md §4.5): más que la llamada a C de un
+    (medido en docs/API/libmca.md §6.1): más que la llamada a C de un
     get. Por eso, si todos los parámetros de `fn` son posicionales comunes, se
     genera `def f(h, v): return cuerpo(h, v) if <es C> else despachar(h, v)`
     con los mismos defaults. Si no, None, y queda el despacho genérico.

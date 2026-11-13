@@ -68,7 +68,7 @@ static const char *const TAPS[INTEGRATION_N_TAPS] = {
 };
 
 static const char *const SLOTS[INTEGRATION_N_SLOTS] = {
-    "osc", "ring", "mtrg", "top", "mca",
+    "osc", "ring", "mtrg", "top", "mca", "pulsos",
 };
 
 const char *integration_consumidor_name(int32_t i)
@@ -219,6 +219,7 @@ int integration_get_modules(integration_h *h, integration_modules_t *m)
     m->ring = (w & INTEGRATION_MOD_RING) != 0;
     m->asg  = (w & INTEGRATION_MOD_ASG) != 0;
     m->pid  = (w & INTEGRATION_MOD_PID) != 0;
+    m->pulsos = (w & INTEGRATION_MOD_PULSOS) != 0;
     return MCA_OK;
 }
 
@@ -234,6 +235,7 @@ int integration_get_slots(integration_h *h, integration_slots_t *s)
     s->mtrg = (w >> 8) & 0xFu;
     s->top  = (w >> 12) & 0xFu;
     s->mca  = (w >> 16) & 0xFu;
+    s->pulsos = (w >> 20) & 0xFu;
     return MCA_OK;
 }
 
@@ -247,7 +249,8 @@ int integration_get_base(integration_h *h, int32_t slot, uint32_t *base)
     uint32_t w;
     TRY(rd(h, INTEGRATION_R_SLOTS, &w));
     *base = INTEGRATION_BUS_BASE
-            + ((w >> (4 * slot)) & 0xFu) * INTEGRATION_BUS_SLOT;
+            + ((w >> (4 * slot)) & 0xFu) * INTEGRATION_BUS_SLOT
+            + (slot == INTEGRATION_SLOT_PULSOS ? INTEGRATION_PULSOS_OFFSET : 0u);
     return MCA_OK;
 }
 

@@ -1,4 +1,10 @@
-"""Hilo escritor: un .npz por chunk de N eventos.
+"""Hilo escritor: un archivo por chunk de N eventos, `.npz` o `.lh5`.
+
+`formato='lh5'` escribe el formato que abre el lector oficial de LEGEND (ver
+`formato_lh5.py`). Quedan los dos, y `formato='npz'` es el default: no necesita más que
+numpy y es el que más rápido escribe. Qué da cada uno, y lo que cuesta escribirlo y
+leerlo: "El formato del archivo" en docs/API/arquitectura_adquisicion_software.md y
+`API/bench/bench_formatos.py`.
 
 Decisiones, todas apoyadas en medicion (ver docs/arquitectura_adquisicion_software.md):
 
@@ -22,9 +28,11 @@ import time
 
 import numpy as np
 
+from . import formato_lh5
 from .events import SCHEMA_VERSION
 
 MIN_FREE_MB = 200.0            # margen de disco antes de parar limpio
+FORMATOS    = ('npz', 'lh5')
 
 
 def free_space_mb(path):
@@ -32,16 +40,58 @@ def free_space_mb(path):
     return (st.f_bavail * st.f_frsize) / 1024**2
 
 
+def sistema_de_archivos(path, mounts='/proc/mounts'):
+    """El tipo del sistema de archivos donde cae `path` (`ext4`, `tmpfs`, `nfs`,
+    `fuse.sshfs`…): el del punto de montaje más largo que lo contiene, según
+    `/proc/mounts`. None si no se puede saber (fuera de Linux).
+
+    Va en el `meta` de la corrida: lo que se escribió en la SD, en RAM o por la red
+    no tarda lo mismo, y el archivo tiene que decir dónde fue."""
+    real = os.path.realpath(os.fspath(path))
+    mejor, tipo = '', None
+    try:
+        with open(mounts) as fh:
+            for linea in fh:
+                campos = linea.split()
+                if len(campos) < 3:
+                    continue
+                # /proc/mounts escapa el espacio y otros como \040 (octal)
+                punto = campos[1].encode().decode('unicode_escape')
+                if ((real == punto or real.startswith(punto.rstrip('/') + '/'))
+                        and len(punto) >= len(mejor)):
+                    mejor, tipo = punto, campos[2]
+    except OSError:
+        return None
+    return tipo
+
+
+def archivos_de_corrida(run_dir):
+    """Los archivos de eventos de una corrida, en orden, del formato que sean.
+
+    Un `.tmp` nunca entra: lo que devuelve esta funcion esta completo, porque el
+    escritor recien le da el nombre final con `os.replace`.
+    """
+    run_dir = os.fspath(run_dir)
+    return sorted(os.path.join(run_dir, n) for n in os.listdir(run_dir)
+                  if n.startswith(('chunk_', 'evt_'))
+                  and n.endswith(('.npz', '.lh5')))
+
+
 def load_chunk(path):
     """Lee un chunk y devuelve (arrays, meta) con la onda ya en volts.
+
+    Da lo mismo con los dos formatos, y decide por la extension.
 
     Puente de compatibilidad: el formato guarda `wave` como (eventos, canal,
     muestra) en cuentas, mientras que `datos/plot_datos.py` y el tooling viejo
     esperan un array por canal en volts. Esto expone las dos vistas.
     """
-    z    = np.load(path, allow_pickle=True)
-    meta = z['meta'].item() if 'meta' in z.files else {}
-    out  = {k: z[k] for k in z.files if k not in ('meta',)}
+    if os.fspath(path).endswith('.lh5'):
+        out, meta = formato_lh5.leer(path)
+    else:
+        z    = np.load(path, allow_pickle=True)
+        meta = z['meta'].item() if 'meta' in z.files else {}
+        out  = {k: z[k] for k in z.files if k not in ('meta',)}
     scale = meta.get('adc_cnt_per_V') or 8192
     if 'wave' in out and np.issubdtype(out['wave'].dtype, np.integer):
         out['wave_V'] = out['wave'].astype(np.float32) / scale
@@ -53,13 +103,17 @@ def load_chunk(path):
 
 
 class ChunkWriter(threading.Thread):
-    """Consumidor: batches de `full_q` -> chunk_%06d.npz -> batch a `free_q`."""
+    """Consumidor: batches de `full_q` -> `chunk_%06d.npz` o `evt_%06d.lh5` -> batch
+    a `free_q`."""
 
     def __init__(self, run_dir, free_q, full_q, stats, meta_base=None,
                  compress=False, wave_dtype=np.int16, wave_scale=8192,
                  min_free_mb=MIN_FREE_MB, disk_check_every=8,
-                 name='osc-writer'):
+                 name='osc-writer', formato='npz'):
         super().__init__(name=name, daemon=True)
+        if formato not in FORMATOS:
+            raise ValueError(f'formato={formato!r}: tiene que ser uno de {FORMATOS}')
+        self.formato    = formato
         self.run_dir    = str(run_dir)
         self.free_q     = free_q
         self.full_q     = full_q
@@ -70,6 +124,16 @@ class ChunkWriter(threading.Thread):
         self.wave_scale = wave_scale
         self.min_free_mb = min_free_mb
         self.disk_check_every = disk_check_every
+        if formato == 'lh5':
+            # Se comprueba ACA, al crear la sesion, y no en el primer chunk: si no,
+            # el error aparece con la corrida empezada y los primeros datos perdidos.
+            formato_lh5.exigir_h5py()
+            fuente = self.meta_base.get('source') or {}
+            if 'pre' not in fuente or 'dt_ns' not in fuente:
+                raise ValueError(
+                    "formato='lh5' necesita 'pre' y 'dt_ns' en el meta() de la "
+                    f'fuente, y trae {sorted(fuente)}')
+            self._pre, self._dt_ns = fuente['pre'], fuente['dt_ns']
 
         self.index      = 0
         self.error      = None
@@ -136,18 +200,23 @@ class ChunkWriter(threading.Thread):
             n_dropped      = int(self.stats.get('n_dropped', 0)),
             n_timeouts     = int(self.stats.get('n_timeouts', 0)),
         )
-        payload['meta'] = np.array(meta, dtype=object)   # dict -> array 0-d
 
-        name = f'chunk_{self.index:06d}.npz'
+        name = (f'evt_{self.index:06d}.lh5' if self.formato == 'lh5'
+                else f'chunk_{self.index:06d}.npz')
         path = os.path.join(self.run_dir, name)
         tmp  = path + '.tmp'
-        save = np.savez_compressed if self.compress else np.savez
         try:
-            # Se le pasa un HANDLE y no el path: np.savez le agrega '.npz' al
-            # nombre si no termina asi, y terminariamos con 'chunk.npz.tmp.npz'.
-            with open(tmp, 'wb') as fh:
-                save(fh, **payload)
-            os.replace(tmp, path)              # atomico: nunca un .npz a medias
+            if self.formato == 'lh5':
+                formato_lh5.escribir(tmp, payload, meta, self._pre, self._dt_ns,
+                                     comprimir=self.compress)
+            else:
+                payload['meta'] = np.array(meta, dtype=object)   # dict -> array 0-d
+                save = np.savez_compressed if self.compress else np.savez
+                # Se le pasa un HANDLE y no el path: np.savez le agrega '.npz' al
+                # nombre si no termina asi, y terminariamos con 'chunk.npz.tmp.npz'.
+                with open(tmp, 'wb') as fh:
+                    save(fh, **payload)
+            os.replace(tmp, path)              # atomico: nunca un archivo a medias
         except BaseException:
             try:
                 os.unlink(tmp)

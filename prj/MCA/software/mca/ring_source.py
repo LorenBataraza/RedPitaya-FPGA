@@ -9,7 +9,7 @@ Código nuevo: `from API.osciloscope_ring import RingSource`.
 
 from API.osciloscope_ring import *                                 # noqa: F401,F403
 from API.osciloscope_ring import (                                 # noqa: F401
-    RingSource,
+    RingSource, OsciloscopeRing, LectorRing, RingNotPresent,
     RING_PHYS, RING_SIZE, MAGIC, ADC_CNT_PER_V,
     HDR_BYTES, FOOTER_BYTES, MAX_BATCH_BYTES,
     R_CTRL, R_STATUS, R_SLOT_BASE, R_RING_SZ, R_SLOT_SHIFT,

@@ -52,6 +52,21 @@ int mca_bus_read_words(mca_bus *b, uint32_t off, uint32_t n, uint32_t *dst)
     return b->vt->read_words(b, off, n, dst);
 }
 
+int mca_bus_sondear(mca_bus *b, uint32_t off, uint32_t n, uint32_t *dst)
+{
+    int rc = chequear(b, off, 1);
+    if (rc != MCA_OK)
+        return rc;
+    if (dst == NULL && n != 0)
+        return MCA_EINVAL;
+    for (uint32_t i = 0; i < n; i++) {
+        rc = b->vt->r32(b, off, &dst[i]);
+        if (rc != MCA_OK)
+            return rc;
+    }
+    return MCA_OK;
+}
+
 uint32_t mca_bus_size(const mca_bus *b)
 {
     return b ? b->size : 0;

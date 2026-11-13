@@ -64,7 +64,8 @@ FLUSH = 4000          # ceros al final: que todo cierre y se publique
 _MQ_186 = int(round(16.0 / np.expm1(1.0 / pu.TAU_COLA)))
 
 # El banco de la campaña, con el pulso del preamplificador (tau = 250) y su Mq
-# nominal: lo que da `mca_banco_config(3992)`, sin importar la API.
+# nominal: lo que da `mca_banco_config(3992, formas=BANCO_PZ_4)`, sin importar la API.
+# Es el banco de 4 formas, anterior al recorte del 2026-11-09 (BANCO_PZ tiene 3).
 _MQ_PRE = 3992
 _BANCO = dict(n_formas=4, gate_long=112, pre_dly=16, trap_mq=_MQ_PRE,
               trap_k=64, trap_m=48, trap_off=87, trap_lw=4, trap_sh=15,

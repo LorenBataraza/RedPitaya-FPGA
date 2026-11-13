@@ -49,6 +49,7 @@ N_FORMAS = 4
 PARES_64 = ([(R.R_REALTIME_LO, R.R_REALTIME_HI), (R.R_LIVETIME_LO, R.R_LIVETIME_HI),
              (R.R_DEADTIME_LO, R.R_DEADTIME_HI), (R.R_VETOTIME_LO, R.R_VETOTIME_HI),
              (R.R_T_WIN_LO, R.R_T_WIN_HI), (R.R_T_DIV_LO, R.R_T_DIV_HI),
+             (R.R_T_REARM_LO, R.R_T_REARM_HI),
              (R.R_T_CLEAR_LO, R.R_T_CLEAR_HI)]
             + [(R.R_T_OCUP + 8 * j, R.R_T_OCUP + 8 * j + 4)
                for j in range(R.N_ACC_TOPE + 1)])
@@ -280,7 +281,7 @@ def test_n_formas_sin_el_banco():
              caps=CAPS_TRAP, **SIN_BANCO)
 
 
-# El banco de la campaña: lo que da `mca_banco_config(3885, pre_dly=16)`.
+# El banco de 4 formas: lo que da `mca_banco_config(3885, pre_dly=16, formas=BANCO_PZ_4)`.
 BANCO = dict(n_formas=4, gate_long=112, pre_dly=16, trap_mq=3885,
              trap_k=64, trap_m=48, trap_off=87, trap_lw=4, trap_sh=15,
              trap_antes=97, trap_despues=96,

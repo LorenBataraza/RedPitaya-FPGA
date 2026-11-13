@@ -147,7 +147,8 @@ python3 -c 'import numpy' 2>/dev/null \
 
 # Opcionales: su ausencia no impide medir, sólo recorta qué se puede hacer
 # EN la placa. La GUI vive en la PC y no necesita nada de esto acá.
-for m in matplotlib pytest; do
+# h5py: lo necesita formato='lh5' del pipeline del osciloscopio; sin él, sigue el .npz.
+for m in matplotlib pytest h5py; do
     if python3 -c "import $m" 2>/dev/null; then
         echo "  $m$(printf '%*s' $((22 - ${#m})) '')ok"
     else

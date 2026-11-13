@@ -31,7 +31,7 @@ sys.path.insert(0, _RAIZ)
 from API.analisis import (tau_poisson, tau_periodico, error_cuantizacion,   # noqa: E402
                           cv_residuo)
 from API.osciloscope_store import (AcquisitionSession, DeadTimeAnnotator,   # noqa: E402
-                                   FakeSource, load_chunk)
+                                   FakeSource, archivos_de_corrida, load_chunk)
 
 TAU  = 250e-6          # el tau del lector medido en la campana (README, fig. 1)
 DUR  = 60.0            # segundos simulados por punto
@@ -224,8 +224,7 @@ def caso_annotator_end_to_end():
     check(ann.n == s.stats['n_read'],
           f'el annotator vio los mismos eventos que el lector ({ann.n})')
 
-    chunks = sorted(f for f in os.listdir(out) if f.endswith('.npz'))
-    arr, meta = load_chunk(os.path.join(out, chunks[0]))
+    arr, meta = load_chunk(archivos_de_corrida(out)[0])
     check('dead_ns' in arr, f'la columna llego al archivo: {sorted(arr)}')
     check('dead_ns' in meta['fields'], f'y al esquema: {meta["fields"]}')
     if 'dead_ns' in arr:

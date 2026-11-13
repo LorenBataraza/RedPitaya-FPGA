@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Adquisicion continua de pulsos -> chunks .npz. Corre en la Pitaya.
+"""Adquisicion continua de pulsos -> chunks .npz o .lh5. Corre en la Pitaya.
 
 Reemplaza a `guardado_mariana.py` con tres diferencias de fondo:
 
@@ -54,7 +54,7 @@ def parse_args(argv=None):
     g.add_argument('--edge', choices=('p', 'n'), default='p',
                    help='flanco del ADC ch0: p=subida (default), n=bajada')
     g.add_argument('--no-snap', action='store_true',
-                   help='no leer 0x218 por evento (ahorra ~2.3 us/evento)')
+                   help='no leer el snapshot por evento (ahorra ~2.3 us/evento)')
 
     g = p.add_argument_group('salida')
     g.add_argument('--out', default=DEFAULT_OUT, help=f'directorio base ({DEFAULT_OUT})')
@@ -63,8 +63,10 @@ def parse_args(argv=None):
     g.add_argument('--ram-mb', type=float, default=64.0,
                    help='presupuesto de RAM del pool en MB (64)')
     g.add_argument('--compress', action='store_true',
-                   help='comprimir los .npz. MEDIDO: 7.3x mas lento por 12%% de '
+                   help='comprimir. MEDIDO con .npz: 7.3x mas lento por 12%% de '
                         'espacio. No usar salvo que el disco sea el problema.')
+    g.add_argument('--formato', choices=('npz', 'lh5'), default='npz',
+                   help='npz (default) o lh5, un archivo por chunk. lh5 necesita h5py')
 
     g = p.add_argument_group('otros')
     g.add_argument('--fake', action='store_true',
@@ -109,6 +111,9 @@ def make_source(args):
                          'Probar con --reload-bitstream.')
 
     import rp
+    # rp_Init() no hace falta para leer (el lazo es de libmca) y no cambia ninguna
+    # muestra: el ecualizador que configura no está en el bitstream (EN_FILT = 0).
+    # Queda para que la API siga siendo compatible con la de Red Pitaya.
     rp.rp_Init()
     src = BramSource(sc, pre=args.pre, post=args.post, n_ch=args.channels,
                      thr=args.thr, hyst=args.hyst,
@@ -153,7 +158,7 @@ def main(argv=None):
     src, scope = make_source(args)
     session = AcquisitionSession(
         src, out_dir, capacity=args.chunk, ram_budget_mb=args.ram_mb,
-        compress=args.compress, verbose=False,
+        compress=args.compress, verbose=False, formato=args.formato,
         meta=dict(cli=' '.join(sys.argv[1:]), edge=args.edge))
 
     if scope is not None:

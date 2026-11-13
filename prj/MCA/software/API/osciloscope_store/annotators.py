@@ -12,6 +12,11 @@ LA REGLA que hace que esto no rompa el dead-time:
 Todo annotator lento corre su propio hilo (leyendo el puerto serie del GPS, por
 ejemplo) y actualiza un atributo; `sample_into` lo copia. Son nanosegundos.
 
+Con una fuente por lote (`BramSource`, con el lazo en C) los annotators no corren por
+evento sino sobre el rango recien llenado, `sample_range(batch, i0, i1)`, cuando el
+lazo vuelve: a lo sumo 50 ms despues del primer evento del rango. Un valor cacheado
+puede ser entonces un poco MAS NUEVO que el evento, y su `*_age_ns` dar negativo.
+
 Y como el valor cacheado puede estar viejo, todo annotator asincronico declara
 ademas un campo `*_age_ns`: sin eso, un GPS que perdio el fix hace diez minutos
 escribe coordenadas plausibles y silenciosamente falsas en cada evento.
@@ -34,6 +39,11 @@ class Annotator:
     def sample_into(self, batch, i):
         raise NotImplementedError
 
+    def sample_range(self, batch, i0, i1):
+        """Las filas [i0, i1), que la fuente acaba de llenar. Por defecto, una por una."""
+        for i in range(i0, i1):
+            self.sample_into(batch, i)
+
     def stop(self):
         pass
 
@@ -51,6 +61,10 @@ class ConstantAnnotator(Annotator):
     def sample_into(self, batch, i):
         for k, v in self.values.items():
             batch.scalars[k][i] = v
+
+    def sample_range(self, batch, i0, i1):
+        for k, v in self.values.items():
+            batch.scalars[k][i0:i1] = v
 
     def meta(self):
         return dict(kind='constant', **self.values)
@@ -125,6 +139,14 @@ class CachedAnnotator(Annotator):
             s[n][i] = cache[n]
         s[self._age_key][i] = (batch.t_ns[i] - self._t_ns) if self._t_ns else -1
 
+    def sample_range(self, batch, i0, i1):
+        # Una sola foto del cache para todo el rango, como la de un evento.
+        cache, t = self._cache, self._t_ns
+        s = batch.scalars
+        for n in self._names:
+            s[n][i0:i1] = cache[n]
+        s[self._age_key][i0:i1] = (batch.t_ns[i0:i1] - t) if t else -1
+
     def meta(self):
         return dict(kind=type(self).__name__, interval_s=self.interval_s)
 
@@ -154,6 +176,10 @@ class DeadTimeAnnotator(Annotator):
     distingue un ciclo de tau +- sigma de uno con cola larga por stalls de GIL,
     y esa diferencia no se ve en la media.
 
+    **Con una fuente por lote la columna la escribe la fuente**, no este annotator:
+    `BramSource.read_batch` anota `dead_ns` en C justo despues del re-armado, que es
+    donde este media. `sample_range` solo suma el total.
+
     DOS COSAS QUE NO VE, las dos acotadas y las dos hacia abajo:
 
     1. La latencia de deteccion. El cronometro arranca cuando el poll NOTA el
@@ -179,6 +205,10 @@ class DeadTimeAnnotator(Annotator):
         batch.scalars['dead_ns'][i] = d
         self.total_ns += d
         self.n        += 1
+
+    def sample_range(self, batch, i0, i1):
+        self.total_ns += int(batch.scalars['dead_ns'][i0:i1].sum())
+        self.n        += i1 - i0
 
     def busy_fraction(self):
         """rho = fraccion de tiempo ocupado desde `start()`. Para el dashboard.

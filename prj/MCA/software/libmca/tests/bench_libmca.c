@@ -22,7 +22,10 @@
 #include <string.h>
 #include <time.h>
 
+#include "integration.h"
 #include "mca.h"
+#include "multitrigger.h"
+#include "osciloscope.h"
 
 #define MAX_REPS 5000
 #define MIN_REPS 5
@@ -67,6 +70,62 @@ static int op_acquire0(void)
     mca_counters_t c;
     return mca_read_acquire(h, 0.0, 1, hist, n_hist, m2d, n_m2d, &c);
 }
+
+/* La region de TOP. Lo que escribe (set_route) es lo que el registro ya tenia. */
+static integration_h *ig;
+static integration_route_t ruta0;
+
+static int op_top_identify(void) { integration_info_t i; return integration_identify(ig, &i); }
+static int op_top_slots(void)    { integration_slots_t s; return integration_get_slots(ig, &s); }
+static int op_top_caps(void)     { integration_caps_t c; return integration_get_caps(ig, &c); }
+static int op_top_routes(void)
+{
+    integration_route_t r[INTEGRATION_N_CONSUMIDORES];
+    return integration_get_routes(ig, r, INTEGRATION_N_CONSUMIDORES);
+}
+static int op_top_status(void)   { integration_status_t st; return integration_get_status(ig, &st); }
+static int op_top_get_run(void)  { int32_t on; return integration_get_run(ig, &on); }
+static int op_top_set_route(void)
+{
+    return integration_set_route(ig, INTEGRATION_CONS_MCA, ruta0.tap, ruta0.enable, 1);
+}
+
+/* El multitrigger. Lo que escribe (set_shield) es lo que ya habia; la mascara no se
+ * mide porque escribirla recarga la fuente activa aunque el valor sea el mismo. */
+static multitrigger_h *mt;
+static multitrigger_shield_t shield0;
+
+static int op_mt_or_mask(void)  { uint32_t v; return multitrigger_get_or_mask(mt, 0, &v); }
+static int op_mt_snapshot(void) { uint32_t v; return multitrigger_get_snapshot(mt, &v); }
+static int op_mt_flags(void)    { uint32_t v; return multitrigger_get_flags(mt, &v); }
+static int op_mt_slope(void)    { multitrigger_slope_t s; return multitrigger_get_slope(mt, 0, &s); }
+static int op_mt_pz(void)       { multitrigger_pz_t p; return multitrigger_get_pz(mt, 0, &p); }
+static int op_mt_config(void)
+{
+    uint32_t v[MULTITRIGGER_N_FIELDS];
+    return multitrigger_get_config(mt, v, MULTITRIGGER_N_FIELDS);
+}
+static int op_mt_status(void)   { multitrigger_status_t st; return multitrigger_get_status(mt, &st); }
+static int op_mt_set_shield(void)
+{
+    return multitrigger_set_shield(mt, shield0.src, shield0.dst, shield0.dur);
+}
+
+/* El osciloscopio. Lo que escribe (set_delay) es lo que ya habia. */
+static osciloscope_h *osc;
+static uint32_t delay0;
+
+static int op_osc_thr(void)    { double v; return osciloscope_get_thr(osc, 0, &v); }
+static int op_osc_decim(void)  { uint32_t v; return osciloscope_get_decim(osc, 0, &v); }
+static int op_osc_wp(void)     { uint32_t v; return osciloscope_get_wp_trig(osc, 0, &v); }
+static int op_osc_config(void)
+{
+    int64_t v[OSCILOSCOPE_N_FIELDS];
+    return osciloscope_get_config(osc, v, OSCILOSCOPE_N_FIELDS);
+}
+static int op_osc_status(void) { osciloscope_status_t st; return osciloscope_get_status(osc, &st); }
+static int op_osc_set_delay(void) { return osciloscope_set_delay(osc, delay0, 0); }
+static int op_osc_bram(void)   { int16_t d[32]; return osciloscope_read_bram(osc, 0, 0, 32, d); }
 
 /* ---- medicion ------------------------------------------------------------- */
 
@@ -187,6 +246,63 @@ int main(int argc, char **argv)
             continue;
         fallas += medir(ops[i].n, ops[i].fn, presupuesto) != MCA_OK;
     }
+
+    /* Puede faltar sin que nada este mal: un bitstream anterior al refactor de
+     * registros no la trae. */
+    static const struct { const char *n; int (*fn)(void); } ops_top[] = {
+        { "top.identify",  op_top_identify },
+        { "top.slots",     op_top_slots },
+        { "top.caps",      op_top_caps },
+        { "top.routes",    op_top_routes },
+        { "top.status",    op_top_status },
+        { "top.get_run",   op_top_get_run },
+        { "top.set_route", op_top_set_route },
+    };
+    if (integration_open(&ig, INTEGRATION_PHYS, INTEGRATION_SIZE, 1) == MCA_OK
+        && integration_get_route(ig, INTEGRATION_CONS_MCA, &ruta0) == MCA_OK) {
+        for (size_t i = 0; i < sizeof(ops_top) / sizeof(ops_top[0]); i++)
+            fallas += medir(ops_top[i].n, ops_top[i].fn, presupuesto) != MCA_OK;
+    } else {
+        fprintf(stderr, "sin region de TOP: %s\n", integration_last_error(ig));
+    }
+    integration_close(ig);
+
+    static const struct { const char *n; int (*fn)(void); } ops_mt[] = {
+        { "mt.get_or_mask", op_mt_or_mask },
+        { "mt.snapshot",    op_mt_snapshot },
+        { "mt.get_flags",   op_mt_flags },
+        { "mt.get_slope",   op_mt_slope },
+        { "mt.get_pz",      op_mt_pz },
+        { "mt.get_config",  op_mt_config },
+        { "mt.get_status",  op_mt_status },
+        { "mt.set_shield",  op_mt_set_shield },
+    };
+    if (multitrigger_open(&mt, MULTITRIGGER_PHYS, MULTITRIGGER_SIZE, 1) == MCA_OK
+        && multitrigger_get_shield(mt, &shield0) == MCA_OK) {
+        for (size_t i = 0; i < sizeof(ops_mt) / sizeof(ops_mt[0]); i++)
+            fallas += medir(ops_mt[i].n, ops_mt[i].fn, presupuesto) != MCA_OK;
+    } else {
+        fprintf(stderr, "sin multitrigger: %s\n", multitrigger_last_error(mt));
+    }
+    multitrigger_close(mt);
+
+    static const struct { const char *n; int (*fn)(void); } ops_osc[] = {
+        { "osc.get_thr",    op_osc_thr },
+        { "osc.get_decim",  op_osc_decim },
+        { "osc.get_wp",     op_osc_wp },
+        { "osc.get_config", op_osc_config },
+        { "osc.get_status", op_osc_status },
+        { "osc.set_delay",  op_osc_set_delay },
+        { "osc.read_bram",  op_osc_bram },
+    };
+    if (osciloscope_open(&osc, OSCILOSCOPE_PHYS, 0) == MCA_OK
+        && osciloscope_get_delay(osc, 0, &delay0) == MCA_OK) {
+        for (size_t i = 0; i < sizeof(ops_osc) / sizeof(ops_osc[0]); i++)
+            fallas += medir(ops_osc[i].n, ops_osc[i].fn, presupuesto) != MCA_OK;
+    } else {
+        fprintf(stderr, "sin osciloscopio: %s\n", osciloscope_last_error(osc));
+    }
+    osciloscope_close(osc);
     printf("\n}}\n");
 
     if (destructivo) {

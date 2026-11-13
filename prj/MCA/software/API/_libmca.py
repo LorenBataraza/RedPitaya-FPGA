@@ -15,12 +15,14 @@ Dónde se la busca, en orden:
 
 El acceso al bus está envuelto en `Bus`, que es un `mca_bus*` con sus dos
 backends: `Bus.devmem()` (la PL) y `Bus.callbacks()` (un modelo en Python,
-como `FakeMCA`, enchufado a la lógica de C por punteros a función).
+como `FakeMCA`, enchufado a la lógica de C por punteros a función). La región de
+DDR que escribe el event_ring es `Mem` (`mca_mem*`): memoria común, no el bus.
 """
 
 import ctypes
 import os
 import platform
+import struct
 
 import numpy as np
 
@@ -38,6 +40,7 @@ MCA_EOPEN       = -7
 MCA_ENOMEM      = -8
 MCA_EBACKEND    = -9
 MCA_EVERIFY     = -10
+MCA_ENOKEY      = -11
 
 
 class LibMCAError(RuntimeError):
@@ -58,6 +61,7 @@ _EXCEPCIONES = {
     MCA_ERANGE:   ValueError,
     MCA_ETIMEOUT: TimeoutError,
     MCA_ENOMEM:   MemoryError,
+    MCA_ENOKEY:   KeyError,
 }
 
 
@@ -137,6 +141,11 @@ _RW  = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32,
                         ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32))
 
 
+_MEM_LEER = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32,
+                             ctypes.c_uint32, ctypes.c_void_p)
+_MEM_ESCRIBIR = _MEM_LEER
+
+
 class _BusOps(ctypes.Structure):
     _fields_ = [('r32', _R32), ('w32', _W32), ('read_words', _RW),
                 ('ctx', ctypes.c_void_p)]
@@ -158,7 +167,7 @@ def version_rapida(lib, nombre):
     """La función ya declarada, o una copia SIN argtypes si eso es seguro.
 
     En el ARM de la placa ctypes tarda 10.7 µs en convertir (void*, uint32_t*)
-    con argtypes y 4.4 µs sin ellos (docs/API/diseno_de_clases.md §4.5). Sin
+    con argtypes y 4.4 µs sin ellos (docs/API/libmca.md §6.1). Sin
     argtypes ctypes pasa un int de Python como int de C, y un c_void_p, un
     byref o un arreglo como puntero: es correcto sólo si TODOS los parámetros
     son punteros o enteros de 32 b, y eso se comprueba contra lo declarado. Las
@@ -193,7 +202,17 @@ def _declarar(lib):
     f('mca_bus_r32',           ctypes.c_int, _P, _U, _PU)
     f('mca_bus_w32',           ctypes.c_int, _P, _U, _U)
     f('mca_bus_read_words',    ctypes.c_int, _P, _U, _U, _PU)
+    f('mca_bus_sondear',       ctypes.c_int, _P, _U, _U, _PU)
     f('mca_bus_size',          _U, _P)
+    f('mca_mem_open_devmem',   ctypes.c_int, _PP, _U, _U)
+    f('mca_mem_open_file',     ctypes.c_int, _PP, ctypes.c_char_p, _U, _U)
+    f('mca_mem_open_ptr',      ctypes.c_int, _PP, _P, _U, _U)
+    f('mca_mem_open_callback', ctypes.c_int, _PP, _MEM_LEER, _MEM_ESCRIBIR, _P, _U, _U)
+    f('mca_mem_close',         None, _P)
+    f('mca_mem_read',          ctypes.c_int, _P, _U, _U, _P)
+    f('mca_mem_write',         ctypes.c_int, _P, _U, _U, _P)
+    f('mca_mem_size',          _U, _P)
+    f('mca_mem_phys',          _U, _P)
     for nombre in ('mca_bus_r32', 'mca_bus_w32', 'mca_bus_read_words'):
         _R[nombre] = version_rapida(lib, nombre)
 
@@ -311,6 +330,56 @@ class Bus:
         bus._guardas = ops
         return bus
 
+    @classmethod
+    def de_handle(cls, h, base, mem, tarde=False):
+        """El bus de un handle de Python que no abrió /dev/mem.
+
+        `mem` es lo que antes se le pasaba al mmap: un `mmap.mmap` o, en los
+        tests, un `bytearray` que graba las escrituras. Con `mem=None`, los
+        accesos son el `r32`/`w32` que redefine la subclase de `base`. En los dos
+        casos la lógica sigue siendo la de libmca, que llega acá por callbacks.
+
+        Con `tarde`, `r32` y `w32` se buscan en cada acceso, no al abrir: sirve
+        para asignárselos a la instancia después de crearla. Si siguen siendo los
+        de `base` el error sale en el primer acceso, porque si no serían una
+        recursión: `base.r32` llama a C, y C a este callback.
+        """
+        if mem is not None:
+            u32 = struct.Struct('<I')
+
+            def r32(off):
+                return u32.unpack_from(mem, off)[0]
+
+            def w32(off, v):
+                # Asignación por slice, NO struct.pack_into: pack_into hace un
+                # memset previo que sobre memoria de dispositivo sale como stores
+                # de a byte, el esclavo AXI no los reconoce y el puente GP0 tira
+                # un external abort -> SIGBUS. Ver API/tests/placa/test_rw_dev_mem.py.
+                mem[off:off + 4] = u32.pack(v & 0xFFFFFFFF)
+
+            # En memoria común un bloque se puede copiar de una vez. Sobre un
+            # mmap de /dev/mem NO (§7.3 del doc del bus: reinicia la placa):
+            # ahí C hace n lecturas de 32 b, una por callback.
+            bloque = None
+            if isinstance(mem, (bytes, bytearray)):
+                def bloque(off, n):
+                    return np.frombuffer(mem, dtype='<u4', count=n, offset=off)
+            return cls.callbacks(r32, w32, bloque, size=len(mem))
+        sin_accesos = TypeError(f'{base.__name__}(None, ...) necesita una subclase '
+                                'que redefina r32 y w32')
+        if tarde:
+            def buscar(nombre):
+                def acceso(*args):
+                    fn = getattr(h, nombre)
+                    if getattr(fn, '__func__', None) is getattr(base, nombre):
+                        raise sin_accesos
+                    return fn(*args)
+                return acceso
+            return cls.callbacks(buscar('r32'), buscar('w32'))
+        if type(h).r32 is base.r32 or type(h).w32 is base.w32:
+            raise sin_accesos
+        return cls.callbacks(h.r32, h.w32, getattr(h, '_leer_bloque', None))
+
     # ---------- errores ----------
 
     def check(self, rc, contexto='', excepciones=None, detalle=None):
@@ -353,6 +422,14 @@ class Bus:
             self.check(rc, f'read_words {off:#x} x{n}')
         return dst
 
+    def sondear(self, off, n):
+        """n lecturas del MISMO registro, desde C y sin pausa, en un np.ndarray
+        uint32. Para medir el bus: ver `mca_bus_sondear`."""
+        dst = np.empty(n, dtype=np.uint32)
+        self.check(cargar().mca_bus_sondear(self.ptr, off, n, dst.ctypes.data_as(_PU)),
+                   f'sondear {off:#x} x{n}')
+        return dst
+
     @property
     def size(self):
         return cargar().mca_bus_size(self.ptr)
@@ -360,6 +437,143 @@ class Bus:
     def close(self):
         if self._p is not None:
             cargar().mca_bus_close(self._p)
+            self._p = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+
+# =============================================================================
+# Región de DDR
+# =============================================================================
+
+class Mem:
+    """Un `mca_mem*` de libmca: la región de DDR que escribe la PL (el event_ring).
+
+    No es el bus: es memoria común, y se copia de a bloques (`include/mca_mem.h`).
+    Los accesos son palabras de 64 b: `off` y `n` múltiplos de 8.
+
+    Con `callbacks()`, la excepción de un callback se guarda y `check()` la vuelve a
+    lanzar, igual que en `Bus`.
+    """
+
+    def __init__(self, ptr, guardas=None):
+        self._p = ptr
+        self._guardas = guardas      # lo que tiene que vivir lo mismo que la región
+        self._pendiente = None
+
+    @classmethod
+    def devmem(cls, phys, size):
+        lib = cargar()
+        p = ctypes.c_void_p()
+        check(lib.mca_mem_open_devmem(ctypes.byref(p), phys, size),
+              f'/dev/mem @ {phys:#x} (DDR)')
+        return cls(p)
+
+    @classmethod
+    def archivo(cls, path, phys, size):
+        """Un fichero común, mapeado como la región: para tests sin placa."""
+        lib = cargar()
+        p = ctypes.c_void_p()
+        check(lib.mca_mem_open_file(ctypes.byref(p), os.fsencode(path), phys, size),
+              str(path))
+        return cls(p)
+
+    @classmethod
+    def sobre(cls, buf, phys=0):
+        """Sobre memoria del proceso: un arreglo de numpy o un bytearray, que C lee y
+        escribe en el lugar. `phys` es la dirección que el ring escribe en SLOT_BASE."""
+        a = np.frombuffer(buf, dtype=np.uint8)
+        if not a.flags.writeable or not a.flags.c_contiguous:
+            raise ValueError('hace falta memoria contigua y escribible')
+        lib = cargar()
+        p = ctypes.c_void_p()
+        check(lib.mca_mem_open_ptr(ctypes.byref(p), ctypes.c_void_p(a.ctypes.data),
+                                   phys, a.nbytes), 'región sobre memoria del proceso')
+        return cls(p, guardas=(buf, a))
+
+    @classmethod
+    def callbacks(cls, leer, size, escribir=None, phys=0):
+        """Una región cuyas copias son funciones de Python.
+
+        `leer(off, n) -> bytes` (o algo con el protocolo de buffer) y, opcional,
+        `escribir(off, datos: bytes)`. Sin `escribir`, la región es de solo lectura.
+        """
+        mem = cls(None)
+
+        def envolver(fn):
+            def cb(*args):
+                try:
+                    return fn(*args)
+                except BaseException as e:              # noqa: BLE001
+                    mem._pendiente = e
+                    return MCA_EBACKEND
+            return cb
+
+        def _leer(_ctx, off, n, dst):
+            datos = memoryview(leer(off, n)).cast('B')
+            if len(datos) != n:
+                raise ValueError(f'leer({off:#x}, {n}) devolvió {len(datos)} bytes')
+            ctypes.memmove(dst, bytes(datos), n)
+            return MCA_OK
+
+        def _escribir(_ctx, off, n, src):
+            escribir(off, ctypes.string_at(src, n))
+            return MCA_OK
+
+        f_leer = _MEM_LEER(envolver(_leer))
+        f_esc = _MEM_ESCRIBIR(envolver(_escribir)) if escribir is not None \
+            else _MEM_ESCRIBIR()
+        lib = cargar()
+        p = ctypes.c_void_p()
+        check(lib.mca_mem_open_callback(ctypes.byref(p), f_leer, f_esc, None, phys,
+                                        size), 'región por callbacks')
+        mem._p = p
+        mem._guardas = (f_leer, f_esc)
+        return mem
+
+    def check(self, rc, contexto='', excepciones=None, detalle=None):
+        if self._pendiente is not None:
+            e, self._pendiente = self._pendiente, None
+            raise e
+        check(rc, contexto, excepciones, detalle)
+
+    @property
+    def ptr(self):
+        if self._p is None:
+            raise ValueError('región cerrada')
+        return self._p
+
+    def read(self, off, n):
+        """n bytes desde `off`, en un np.ndarray uint8."""
+        dst = np.empty(n, dtype=np.uint8)
+        rc = cargar().mca_mem_read(self.ptr, off, n, ctypes.c_void_p(dst.ctypes.data))
+        if rc or self._pendiente is not None:
+            self.check(rc, f'read {off:#x} x{n}')
+        return dst
+
+    def write(self, off, datos):
+        a = np.ascontiguousarray(np.frombuffer(bytes(datos), dtype=np.uint8))
+        rc = cargar().mca_mem_write(self.ptr, off, a.nbytes,
+                                    ctypes.c_void_p(a.ctypes.data))
+        if rc or self._pendiente is not None:
+            self.check(rc, f'write {off:#x} x{a.nbytes}',
+                       detalle='la región es de solo lectura' if rc == MCA_ENOSYS else None)
+
+    @property
+    def size(self):
+        return cargar().mca_mem_size(self.ptr)
+
+    @property
+    def phys(self):
+        return cargar().mca_mem_phys(self.ptr)
+
+    def close(self):
+        if self._p is not None:
+            cargar().mca_mem_close(self._p)
             self._p = None
 
     def __enter__(self):

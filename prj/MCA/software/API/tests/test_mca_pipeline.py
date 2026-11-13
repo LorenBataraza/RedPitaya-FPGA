@@ -27,7 +27,8 @@ while _RAIZ != '/' and not os.path.isfile(os.path.join(_RAIZ, 'API', 'mca.py')):
     _RAIZ = os.path.dirname(_RAIZ)          # sube hasta software/
 sys.path.insert(0, _RAIZ)
 
-from mca import AcquisitionSession, ConstantAnnotator, FakeSource, load_chunk
+from mca import (AcquisitionSession, ConstantAnnotator, FakeSource,
+                 archivos_de_corrida, load_chunk)
 from mca.storage import ChunkWriter
 
 FAILS = []
@@ -68,7 +69,7 @@ def run_session(tmp, n_events, rate_hz=20000.0, capacity=64, n_ch=2,
 
 
 def chunks_of(tmp):
-    return sorted(glob.glob(os.path.join(tmp, 'chunk_*.npz')))
+    return archivos_de_corrida(tmp)
 
 
 # ---------------------------------------------------------------- 1, 2, 5

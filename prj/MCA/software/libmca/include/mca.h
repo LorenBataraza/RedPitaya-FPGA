@@ -298,7 +298,7 @@ typedef struct {
     uint32_t total, accepted, rej_amp, rej_psd, pileup, dropped;
     uint32_t rej_discr, full_supp;
     double   realtime_s, livetime_s, deadtime_s, vetotime_s;
-    double   t_win_s, t_div_s, t_clear_s, deadtime_real_s;
+    double   t_win_s, t_div_s, t_rearm_s, t_clear_s, deadtime_real_s;
     uint32_t dead_periods;
     double   dead_len_max_s, dead_len_mean_s;
     uint32_t dead_ext;
@@ -306,14 +306,14 @@ typedef struct {
     uint32_t cross, open, lost_active, lost_veto, windows, trig_edges;
     uint32_t pub_occ, pub_occ_max, last_win_id, n_acc, n_acc_max;
     int32_t  pub_saturada;
-    int32_t  clear_busy, busy, baseline_stale, vetoed, puede_abrir;
+    int32_t  clear_busy, busy, baseline_stale, vetoed, rearm_pend, puede_abrir;
     uint32_t n_ocup;
     int32_t  full_1d, full_2d, trap_ok;
     double   t_ocup_s[MCA_N_ACC_TOPE + 1];
     int32_t  n_t_ocup;
     /* crudos */
     uint64_t realtime, livetime, deadtime, vetotime;
-    uint64_t t_win, t_div, t_clear;
+    uint64_t t_win, t_div, t_rearm, t_clear;
     uint64_t t_ocup[MCA_N_ACC_TOPE + 1];
 } mca_counters_t;
 

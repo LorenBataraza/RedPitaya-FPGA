@@ -29,12 +29,12 @@ from .events import EventBatch, SCHEMA_VERSION, bytes_per_event
 from .reader import ReaderThread
 from .session import AcquisitionSession, scope_regs
 from .sources import BramSource, FakeSource
-from .storage import ChunkWriter, load_chunk
+from .storage import ChunkWriter, archivos_de_corrida, load_chunk
 
 __all__ = [
     'Annotator', 'CachedAnnotator', 'ConstantAnnotator', 'DeadTimeAnnotator',
     'EventBatch', 'SCHEMA_VERSION', 'bytes_per_event',
-    'ReaderThread', 'ChunkWriter', 'load_chunk',
+    'ReaderThread', 'ChunkWriter', 'load_chunk', 'archivos_de_corrida',
     'AcquisitionSession', 'scope_regs',
     'BramSource', 'FakeSource',
 ]

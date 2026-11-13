@@ -51,8 +51,7 @@ def _osc(rsz=None, n_ch=None, dw=14):
     if rsz is not None:
         r.m[O.R_CANON_MAGIC] = O.MAGIC_OSC
         r.m[O.R_CANON_CAPS]  = (rsz << 16) | (dw << 8) | n_ch
-    o = O.Osciloscope.__new__(O.Osciloscope)
-    o._mmap, o._fd, o._geo = None, None, None
+    o = O.Osciloscope(None, -1)
     o.r32 = r.r32
     o.w32 = r.w32
     return o
@@ -165,19 +164,23 @@ def test_la_geometria_se_lee_una_sola_vez():
 # El límite que reemplaza al alias silencioso
 # =============================================================================
 
+def _osc_sobre_ceros():
+    h = O.Osciloscope(bytearray(0x30000), -1)
+    h.set_calibracion([(1, 1, 0), (1, 1, 0)])      # la nula de librp
+    return h
+
+
 def test_una_ventana_mas_grande_que_el_anillo_se_rechaza():
     """Sin esto el hardware devuelve el anillo repetido y nadie se entera."""
+    h = _osc_sobre_ceros()
     with pytest.raises(ValueError, match='repetido'):
-        O.Osciloscope.capture_window_np(pre=4096, post=8192, n_buf=8192)
+        h.capture_window_np(pre=4096, post=8192, n_buf=8192)
+    h.close()
 
 
 def test_la_ventana_justa_pasa():
-    """Que el límite sea `>` y no `>=`: pedir el anillo entero es legítimo.
-
-    Llega hasta el acceso a `rp`, que en la PC no existe; que el error sea de
-    importación y no el ValueError de arriba es la prueba de que pasó el
-    chequeo.
-    """
-    with pytest.raises(Exception) as e:
-        O.Osciloscope.capture_window_np(pre=0, post=8192, n_buf=8192)
-    assert 'repetido' not in str(e.value)
+    """Que el límite sea `>` y no `>=`: pedir el anillo entero es legítimo."""
+    h = _osc_sobre_ceros()
+    data, _ = h.capture_window_np(pre=0, post=8192, n_buf=8192)
+    assert [len(v) for v in data.values()] == [8192, 8192]
+    h.close()

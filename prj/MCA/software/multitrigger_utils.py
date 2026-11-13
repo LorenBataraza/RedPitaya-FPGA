@@ -47,18 +47,12 @@ from API.multitrigger import (                                  # noqa: F401
     BIT_EXT_P, BIT_EXT_N, BIT_ASG_P, BIT_ASG_N,
     BIT_TRIG_CH0, BIT_TRIG_CH1, BIT_TRIG_CH2, BIT_TRIG_CH3,
 )
+from API.ref_py import osciloscope2 as _ref_osc
 
 
-class MultiTriggerScope(Osciloscope):
-    """Clase de compatibilidad: el scope y el multitrigger en un solo objeto.
-
-    Compone un `MultiTrigger`, el de `Osciloscope.mt`, que tiene su propio mapeo
-    porque vive en otra región. Las trazas de `API/tests/test_compat_api.py`
-    verifican que las escrituras de los dos bloques salgan en el mismo orden que
-    antes del refactor.
-
-    Código nuevo: usar `Osciloscope` + `MultiTrigger` por separado.
-    """
+class _Compuesto:
+    """Lo que `MultiTriggerScope` agrega, sobre el osciloscopio que sea: el de libmca
+    o el de la referencia, que es lo que abre `open(impl='py')`."""
 
     # ---------- delegado al bloque multitrigger ----------
 
@@ -85,3 +79,21 @@ class MultiTriggerScope(Osciloscope):
 
     def disarm(self):
         return multitrigger_disarm(self, self.mt)
+
+
+class _MultiTriggerScopeRef(_Compuesto, _ref_osc.Osciloscope):
+    """Lo que devuelve `MultiTriggerScope.open(impl='py')`."""
+
+
+class MultiTriggerScope(_Compuesto, Osciloscope):
+    """Clase de compatibilidad: el scope y el multitrigger en un solo objeto.
+
+    Compone un `MultiTrigger`, el de `Osciloscope.mt`, que tiene su propio mapeo
+    porque vive en otra región. Las trazas de `API/tests/test_compat_api.py`
+    verifican que las escrituras de los dos bloques salgan en el mismo orden que
+    antes del refactor.
+
+    Código nuevo: usar `Osciloscope` + `MultiTrigger` por separado.
+    """
+
+    _CLASE_REF = _MultiTriggerScopeRef

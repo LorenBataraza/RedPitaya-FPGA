@@ -55,7 +55,8 @@ while _RAIZ != '/' and not os.path.isfile(os.path.join(_RAIZ, 'API', 'mca.py')):
 sys.path.insert(0, _RAIZ)
 
 import rigol_dg4162 as rgmod
-from mca import AcquisitionSession, BramSource, load_chunk, scope_regs
+from mca import (AcquisitionSession, BramSource, archivos_de_corrida, load_chunk,
+                 scope_regs)
 
 FAILS = []
 N_BUF = 16384
@@ -84,6 +85,9 @@ def open_scope():
         sc.close()
         raise SystemExit('no se lee un scope multitrigger valido: cargar el '
                          'bitstream (multitrigger o mca_red_pitaya).')
+    # rp_Init() no hace falta para leer (el lazo es de libmca) y no cambia ninguna
+    # muestra: el ecualizador que configura no está en el bitstream (EN_FILT = 0).
+    # Queda para que la API siga siendo compatible con la de Red Pitaya.
     rp.rp_Init()
     return sc
 
@@ -140,6 +144,7 @@ def acquire(sc, out_dir, duration_s, args):
                      thr=args.thr, hyst=args.hyst)
     s = AcquisitionSession(src, out_dir, capacity=args.chunk,
                            ram_budget_mb=args.ram_mb, verbose=False,
+                           formato=args.formato,
                            meta=dict(test='e2e', thr_V=args.thr,
                                      pulse_width_s=PULSE_WIDTH_S))
     s.writer.meta_base['scope_regs'] = scope_regs(sc)
@@ -149,7 +154,7 @@ def acquire(sc, out_dir, duration_s, args):
 
 
 def read_all(run_dir):
-    files = sorted(glob.glob(os.path.join(run_dir, 'chunk_*.npz')))
+    files = archivos_de_corrida(run_dir)
     if not files:
         return None, None, files
     arrs, metas = [], []
@@ -181,7 +186,7 @@ def check_formato(stats, cat, metas, files, run_dir):
               exact + tail == stats['n_dropped'],
               f'({exact} + {tail} vs {stats["n_dropped"]})')
     check('meta trae scope_regs', 'scope_regs' in metas[0])
-    check('int16 en disco', np.load(files[0])['wave'].dtype == np.int16)
+    check('int16 en disco', load_chunk(files[0])[0]['wave'].dtype == np.int16)
     snaps = sorted(set(int(x) for x in cat['snap']))
     check('snapshot no nulo (sabemos que fuente disparo)', snaps != [0],
           f'(valores: {[hex(s) for s in snaps[:4]]})')
@@ -296,6 +301,7 @@ def main():
     p.add_argument('--channels', type=int, default=2, choices=(1, 2))
     p.add_argument('--chunk', type=int, default=512, help='eventos por chunk')
     p.add_argument('--ram-mb', type=float, default=32.0)
+    p.add_argument('--formato', choices=('npz', 'lh5'), default='npz')
     p.add_argument('--sweep', action='store_true')
     p.add_argument('--out', default=None)
     args = p.parse_args()

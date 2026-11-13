@@ -30,6 +30,13 @@ struct devmem_bus {
 
 #define DM(b) ((struct devmem_bus *)(b))
 
+/* `size` bytes desde `phys` de `path` (la pagina se resuelve aca), MAP_SHARED. `dir`
+ * es la direccion de `phys`. Lo usan el bus y la region de DDR (mem.c). Con
+ * MCA_EOPEN deja el errno de open() o mmap(). */
+int mapeo_abrir(const char *path, int flags, uint32_t phys, uint32_t size,
+                int *fd, void **map, size_t *map_len, void **dir);
+void mapeo_cerrar(int fd, void *map, size_t map_len);
+
 int dm_r32(mca_bus *b, uint32_t off, uint32_t *val);
 int dm_w32(mca_bus *b, uint32_t off, uint32_t val);
 int dm_read_words(mca_bus *b, uint32_t off, uint32_t n, uint32_t *dst);
