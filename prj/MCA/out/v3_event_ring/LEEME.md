@@ -1,7 +1,24 @@
 # El MCA con el event_ring y los dos generadores (2026-11-13, quinto build)
 
 `make bitstream-event-ring`, con Vivado 2020.1 (7 min), sobre el commit `6a5d1aa` y los
-cambios sin commitear hasta el 2026-11-13. **Sin probar en la placa.**
+cambios sin commitear hasta el 2026-11-13 (commiteados en `fea3143`).
+
+**Probado en la placa el 2026-11-13: pasa todo.** En la placa queda como
+`/root/event_ring_red_pitaya_Z10_2CH.bit.bin`, y el 78e26188 como
+`/root/event_ring_red_pitaya_Z10_2CH_78e26188.bit.bin.bak`.
+
+| prueba | resultado |
+|---|---|
+| `verificar-placa-bus` | 5/5: ninguna lectura rota de `wp_cur` en 2 millones |
+| `verificar-placa-ring` | 14/14: PL → DDR, disparo por software, lector de C; EV + DROP_BUSY + DROP_FULL = disparos |
+| `verificar-placa-generadores` | 114/114: `gen_pulsos` contra la réplica y `gen_eventos` en el ring (a 1 MHz, EV_CNT + descartados = GEN_CNT) |
+| `verificar-placa-mca` | 37/37, con la identidad del teselado que incluye `t_rearm` |
+| `verificar-placa-multitrigger` | 28/28 |
+| `verificar-placa-integration` | 27/27 |
+| `verificar-placa-lazo` (la app, desde la PC) | 20/20: λ̂ a −0.17 % de la tasa del generador, el teselado cierra al ciclo, las dos líneas donde van; el servidor abre el ring con su generador |
+
+Todo da lo mismo que con el bitstream del MCA cce7b66b. El timing, que cerró justo
+(WNS +0.008 ns), no se notó en ninguna prueba.
 
 **Qué cambió respecto del cuarto build** (78e26188, probado en la placa el 2026-11-09,
 respaldado en `build4_78e26188/` con su LEEME): sólo el **re-armado del disparo en el
