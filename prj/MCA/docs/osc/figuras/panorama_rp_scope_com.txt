@@ -1,0 +1,3 @@
+Un solo dominio de reloj: `axi_clk = adc_clk`. `NOMBRE=valor`: parámetros con
+que el padre instancia el bloque (se omiten los que sólo pasan el del padre sin
+cambio).

@@ -1,6 +1,8 @@
 % Teselado del tiempo: a qué casillero va cada ciclo, con las ranuras.
 % mca_window arma los casilleros dt_* (combinacional, del estado de las
 % ranuras) y mca_top los cuenta, junto con la ocupación t_ocup[j].
+% El re-armado del disparo (trig_arm_i, del multitrigger) va después de los
+% dos casilleros del MCA: t_rearm.
 % Fuente: modulos/mca/rtl/mca_window.sv (TIEMPO MUERTO) y mca_top.sv (Relojes).
 % Compilar:   pdflatex tm_teselado.tex && pdftocairo -svg tm_teselado.pdf tm_teselado.svg
 \documentclass[border=0pt,tikz]{standalone}
@@ -35,28 +37,31 @@
 \node[pregunta] (r0) at (6.1,1.4)  {veto\_i};
 \node[pregunta] (r1) at (6.1,0.4)  {dt\_win};
 \node[pregunta] (r2) at (6.1,-0.6) {dt\_div};
-\coordinate (r3) at (6.1,-1.6);
+\node[pregunta] (r3) at (6.1,-1.6) {!trig\_arm\_i};
+\coordinate (r4) at (6.1,-2.6);
 \draw[flujo] (run) -- (r0);
-\foreach \a/\b in {r0/r1, r1/r2}
+\foreach \a/\b in {r0/r1, r1/r2, r2/r3}
   \draw[flujo] (\a.south) -- node[no] {no} (\b.north);
-\draw[line width=0.8pt] (r2.south) -- node[no] {no} (r3);
+\draw[line width=0.8pt] (r3.south) -- node[no] {no} (r4);
+\node[nodo, anchor=north, align=center] at (7.55,-1.74) {el disparo\\ no puede salir};
 
 \node[cuenta] (crt) at (9.4,2.35) {\etq{realtime}{\texttt{0x068}}};
 \node[cuenta] (c0)  at (9.4,1.4)  {\etq{vetotime}{\texttt{0x0C0}}};
 \node[cuenta, fill=verde!55]  (c1) at (9.4,0.4)  {\etq{t\_win}{\texttt{0x0C8}}};
 \node[cuenta, fill=amarillo]  (c2) at (9.4,-0.6) {\etq{t\_div}{\texttt{0x0D0}}};
-\node[cuenta, fill=white]     (c3) at (9.4,-1.6) {\etq{livetime}{\texttt{0x070}}};
+\node[cuenta, fill=naranja!45] (c3) at (9.4,-1.6) {\etq{t\_rearm}{\texttt{0x0D8}}};
+\node[cuenta, fill=white]     (c4) at (9.4,-2.6) {\etq{livetime}{\texttt{0x070}}};
 \draw[flujo] (run) -- node[sen, above] {+1} (crt);
-\foreach \k in {0,1,2}
+\foreach \k in {0,1,2,3}
   \draw[flujo] (r\k.east) -- node[si] {sí} node[sen, above, pos=0.6] {+1} (c\k.west);
-\draw[flujo] (r3) -- node[sen, above, pos=0.6] {+1} (c3.west);
+\draw[flujo] (r4) -- node[sen, above, pos=0.6] {+1} (c4.west);
 
 % la ocupacion, en paralelo
-\node[cuenta, text width=2.9cm] (oc) at (9.6,-2.85)
+\node[cuenta, text width=2.9cm] (oc) at (9.6,-3.85)
   {\etq{t\_ocup[n\_ocup]}{\texttt{0x140 + 8·j}, j = 0..N\_ACC}};
-\node[sen, anchor=east] (no) at (7.6,-2.85) {sin veto};
+\node[sen, anchor=east] (no) at (7.6,-3.85) {sin veto};
 \draw[flujo] (no) -- node[sen, above] {+1} (oc.west);
-\node[grupo, fit={(4.55,3.2) (11.25,-3.45)}] (gt) {};
+\node[grupo, fit={(4.55,3.2) (11.25,-4.45)}] (gt) {};
 \node[rotulo] at (gt.north west) {\texttt{mca\_top} · contadores de 64 b};
 
 % ================================== los casilleros cruzan de un lado al otro
@@ -77,11 +82,12 @@
 % ================================================================ invariantes
 \node[draw=black, line width=0.8pt, rounded corners=3pt, fill=white, inner sep=5pt,
       align=center, font=\scriptsize] at (5.5,-6.75)
-  {\texttt{realtime = vetotime + t\_win + t\_div + livetime}
+  {\texttt{realtime = vetotime + t\_win + t\_div + t\_rearm + livetime}
    \quad {\itshape(\texttt{ap\_suma\_relojes})}\\[3pt]
    \texttt{t\_ocup[0] + … + t\_ocup[N\_ACC] = realtime $-$ vetotime}
    \quad {\itshape(\texttt{ap\_suma\_ocupacion})}\\[3pt]
-   tiempo muerto $=$ \texttt{t\_win + t\_div}: no hay ranura libre};
+   tiempo muerto del MCA $=$ \texttt{t\_win + t\_div}: no hay ranura libre;
+   \texttt{t\_rearm}: ranura libre y el disparo sin re-armar};
 
 \end{tikzpicture}
 \end{document}

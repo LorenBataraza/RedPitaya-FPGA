@@ -50,12 +50,28 @@ Python, que no tiene contador en hardware.
 > **Con las ranuras de medición esto cambió otra vez** (ver
 > [`register_map_mca.md`](register_map_mca.md) §Relojes y §Las ranuras). El
 > Schmitt interno y el re-armado por nivel se fueron: la ventana la abre el
-> disparo por pendiente del multitrigger, que se re-arma solo, y el MCA tiene
-> varias ranuras. Ya no existe `t_rearm`: el teselado es
-> `realtime = vetotime + t_win + t_div + livetime`, el tiempo muerto es "no hay
-> ranura libre", y `t_ocup[j]` mide la ocupación. Lo que sigue es la historia de
+> disparo del multitrigger (por pendiente o con polo-cero), y el MCA tiene
+> varias ranuras. El tiempo muerto del MCA es "no hay ranura libre"
+> (`t_win + t_div`) y `t_ocup[j]` mide la ocupación. **`t_rearm` volvió el
+> 2026-11-12**, ahora medido desde afuera: el multitrigger da un nivel
+> (`trig_arm`) que dice si su Schmitt ya re-armó, y el MCA cuenta en `t_rearm`
+> los ciclos con ranura libre y el disparo sin re-armar. El teselado es
+> `realtime = vetotime + t_win + t_div + t_rearm + livetime`. Lo que sigue es la historia de
 > cómo se llegó, y el análisis de paralizable contra no paralizable, que vale
 > para cualquier disparo.
+>
+> **En placa (2026-11-13, bitstream `cce7b66b`):** la identidad de cinco
+> términos y `livetime + t_rearm = Σ t_ocup[j < n_acc]` cerraron al ciclo en
+> todas las mediciones de `test_mca2_placa.py`, `test_banco_poisson.py` y
+> `call_red.py`. Con el disparo polo-cero y Poisson, el `t_rearm` del RTL
+> coincide con el del golden model sobre la misma señal capturada
+> (`figuras/trapecio/trearm_placa.py`; a lo sumo 0.06 pp de diferencia):
+> 1.3 % del tiempo vivo a 300 kcps, 2.8 % a 600 k y 4.3 % a 1 Mcps, unos
+> 6 a 7 ciclos por disparo. Por pendiente son 50 a 60 ciclos por disparo
+> (10.6 % a 250 kcps con 3 ranuras). Con 1 ranura casi no aparece, porque
+> la ranura mide mientras el Schmitt re-arma y ese tiempo es `t_win`. Con el
+> disparo sin ninguna fuente armada, todo el tiempo vivo es `t_rearm` y
+> `livetime = 0`.
 >
 > **Y hasta hace poco el contador del MCA mentía.** `deadtime_s` contaba
 > `feat_busy = (st != S_IDLE)`, que **no es la condición de bloqueo del
@@ -573,6 +589,19 @@ barrido de tasa.
 atendiendo. `K=1` es sin cola: todo arribo que encuentra el servidor ocupado se
 pierde, no hay dónde esperar. Con `K` lugares un arribo se pierde sólo si
 encuentra el servidor ocupado **y** los `K−1` lugares de espera llenos.
+
+![](figuras/tiempo_muerto/03a_tren_cola_K.png)
+
+El mismo tren de la última fila de la figura 2a, a ρ = 1, con `K = 1, 2, 3`.
+La fila `K=1` es la de siempre: el que llega con el servidor ocupado se pierde.
+Con cola, ese mismo arribo **espera** (barra celeste) y se atiende cuando
+termina el anterior, así que los servicios quedan pegados; se pierde sólo el
+que encuentra los `K` lugares llenos, y para eso hace falta una ráfaga. Las
+pérdidas esperadas son 50, 26.9 y 17.6 % (la fila ρ = 1 de la tabla de abajo).
+Lo que la cola cobra está en el gris: el servidor trabaja más tiempo, y lo que
+con `K=1` era pérdida pasa a ser demora — el panel (b) de la figura siguiente.
+La misma idea con un generador, un buffer y un consumidor, y cómo se traduce al
+ring, está en [`../buffering_y_tiempo_muerto.md`](../buffering_y_tiempo_muerto.md).
 
 ![](figuras/tiempo_muerto/03_cola_K.png)
 

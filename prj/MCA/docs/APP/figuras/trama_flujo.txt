@@ -1,0 +1,6 @@
+El socket entrega un flujo de bytes sin límites entre mensajes. Cada `recv()` trae lo
+que haya llegado, y a veces mezcla dos partes: el final de una cabecera y el principio
+del payload, o el final del payload y la cabecera siguiente. `Channel` corta el flujo
+por el `\n` en las cabeceras y por `nbytes` en el payload. Lo que lee de más queda en
+su buffer de lectura y es el principio de lo que sigue: por eso el buffer tiene que
+durar lo que dura la conexión, y `Channel` es un objeto y no dos funciones.

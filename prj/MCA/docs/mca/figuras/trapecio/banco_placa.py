@@ -20,7 +20,7 @@ sys.path.insert(0, SW)
 sys.path.insert(0, os.path.join(SW, 'monte-carlo'))
 
 import replica_mca2 as r                                     # noqa: E402
-from API.mca import mca_banco_config                         # noqa: E402
+from API.mca import BANCO_PZ, BANCO_PZ_4, mca_banco_config   # noqa: E402
 from API.multitrigger import pz_ganancia                     # noqa: E402
 
 FS = 125e6
@@ -53,10 +53,19 @@ def buenos(h, ls):
     return int(sum(h[int(q * (1 - TOL)):int(q * (1 + TOL)) + 2].sum() for q in ls))
 
 
-def modelo(x, base, mq, thr, hyst, rep=40):
+def bitstream(d):
+    """(n_acc, banco) del bitstream que midió. Las corridas de antes del recorte
+    (2026-11-09) no lo guardaban: se deduce de cuántas formas informó la placa, porque
+    sólo hubo dos bitstreams con el banco, 4 ranuras con 4 formas y 3 con 3."""
+    n_formas = d.get('n_formas') or len(d['filas'][0]['ok']['formas'])
+    n_acc = d.get('n_acc') or (4 if n_formas == 4 else 3)
+    return n_acc, (BANCO_PZ_4 if n_formas == 4 else BANCO_PZ)
+
+
+def modelo(x, base, mq, thr, hyst, n_acc, banco, rep=40):
     """El golden model sobre un período repetido; descarta dos de arranque."""
-    cf = r.cfg(n_acc=4, baseline=base, fuente='pz', pz_mq=mq, pz_thr=thr, pz_hyst=hyst,
-               **mca_banco_config(mq))
+    cf = r.cfg(n_acc=n_acc, baseline=base, fuente='pz', pz_mq=mq, pz_thr=thr, pz_hyst=hyst,
+               **mca_banco_config(mq, formas=banco))   # lo que corría la placa
     m = r.medir(np.tile(x, rep), cf)
     n0 = 2 * len(x)
     sel = m['eventos']['emite'] >= n0
@@ -69,13 +78,14 @@ def main(base):
     d = json.load(open(base + '.json'))
     t = np.load(base + '_trazas.npz')
     mq = d['mq']
+    n_acc, banco = bitstream(d)
     g = pz_ganancia(mq=mq)
     thr, hyst = int(round(50 * g)), int(round(25 * g))
     filas = d['filas']
     baja = [f for f in filas if f['tasa'] == min(q['tasa'] for q in filas)]
     ls = lineas(sum(hist(f['banco']['h']) for f in baja))
     print(f'M = {mq / 16:.2f}, subida sube_s = {d["sube"] * 1e9:g} ns, holdoff {d["dur"]}; '
-          f'líneas (canal) {[round(q, 1) for q in ls]}')
+          f'{n_acc} ranuras, {len(banco)} formas; líneas (canal) {[round(q, 1) for q in ls]}')
     print('\n   tasa  arribos   disp   abre | RTL: f0    f1    f2    f3  marc | modelo: f0    f1    f2    f3  marc'
           ' | buenos: banco modelo unico   hoy   (k/s)')
     for tasa in sorted({f['tasa'] for f in filas}):
@@ -92,7 +102,7 @@ def main(base):
             sum_['gu'] += buenos(hist(f['unico']['h']), ls)
             sum_['gh'] += buenos(hist(f['hoy']['h']), ls)
             rtl += np.array(f['banco_forma']['cuentas'], float) / f['banco_forma']['c']['total'] * c['total']
-            m = modelo(t[f't{int(tasa)}_s{f["sem"]}'], f['base'], mq, thr, hyst)
+            m = modelo(t[f't{int(tasa)}_s{f["sem"]}'], f['base'], mq, thr, hyst, n_acc, banco)
             esc = rt / m['t']
             for i, q in enumerate((0, 1, 2, 3, r.MARCADO)):
                 mod[i] += (m['feat'][:, r.F_FORMA] == q).sum() * esc

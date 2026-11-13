@@ -1,0 +1,98 @@
+% La trama del protocolo de red, byte a byte: una cabecera JSON en UTF-8 que
+% termina en '\n', y un payload binario opcional cuyo largo, tipo y forma
+% declara la cabecera (nbytes, dtype, shape). Tres casos con mensajes reales de
+% la op `call`: (a) una función que no devuelve un arreglo, (b) una que sí, (c)
+% un error. El payload no está a escala: 65536 B contra ~80 B de cabecera.
+% Fuentes: software/API/mca_net.py (Channel.send, send_result, send_error),
+% software/API/mca_remote.py (MCARemote.call), software/app/mca_server.py
+% (op_call). El texto que acompaña está en docs/APP/protocolo.md, "La trama"; el
+% epígrafe, en trama.txt. Estilo: docs/figuras/estilo_tikz.tex.
+%
+% Compilar:   pdflatex trama.tex
+%             pdftocairo -svg trama.pdf trama.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+\usetikzlibrary{decorations.pathreplacing, fit}
+
+\tikzset{
+  tira/.style   = {minimum height=0.46cm, text height=1.6ex, text depth=0.45ex,
+                   font=\scriptsize\ttfamily, anchor=west},
+  cab/.style    = {tira, draw=black, line width=0.5pt, fill=white, inner xsep=3pt},
+  trozo/.style  = {tira, inner xsep=0pt, inner ysep=0pt},
+  lf/.style     = {tira, draw=black, line width=0.5pt, fill=black!15,
+                   minimum width=0.55cm, inner xsep=0pt},
+  carga/.style  = {tira, draw=black, line width=0.5pt, fill=naranja!45,
+                   minimum width=#1, font=\scriptsize, inner xsep=0pt},
+  sentido/.style= {anchor=east, font=\scriptsize\itshape, black!70, inner sep=0pt},
+  parte/.style  = {anchor=south west, font=\small\bfseries, inner sep=0pt},
+  llave/.style  = {decorate, decoration={brace, amplitude=4pt, mirror},
+                   line width=0.6pt},
+}
+% fin de línea
+\newcommand{\LF}{\textbackslash n}
+% corte de "sin escala" sobre la tira #2, a la x de la coordenada #1
+\newcommand{\corte}[2]{%
+  \fill[white] ($(#1 |- #2.south)+(-0.07,0)$) -- ($(#1 |- #2.north)+(0.03,0)$)
+    -- ($(#1 |- #2.north)+(0.15,0)$) -- ($(#1 |- #2.south)+(0.05,0)$) -- cycle;
+  \draw[line width=0.5pt] ($(#1 |- #2.south)+(-0.07,0)$) -- ($(#1 |- #2.north)+(0.03,0)$)
+    ($(#1 |- #2.south)+(0.05,0)$) -- ($(#1 |- #2.north)+(0.15,0)$);}
+
+\begin{document}
+\frenchspacing
+\begin{tikzpicture}[fondo]
+
+% ================================================ (a) sin arreglo ===
+\node[parte] at (-2.3,0.45) {(a)\enspace Una función que no devuelve un arreglo};
+\node[sentido] at (-0.25,0) {PC $\to$ placa};
+\node[cab] (a1) at (0,0)
+  {\{"op": "call", "args": \{"fn": "mca\_set\_n\_acc", "a": [8], "k": \{\}\}\}};
+\node[lf] at (a1.east) {\LF};
+\node[sentido] at (-0.25,-0.7) {placa $\to$ PC};
+\node[cab] (a2) at (0,-0.7) {\{"ok": true, "result": \{"valor": null\}\}};
+\node[lf] at (a2.east) {\LF};
+
+% ============================================ (b) con un arreglo ===
+\node[parte] at (-2.3,-1.55) {(b)\enspace Una función que devuelve un arreglo};
+\node[sentido] at (-0.25,-2.0) {PC $\to$ placa};
+\node[cab] (b1) at (0,-2.0)
+  {\{"op": "call", "args": \{"fn": "mca\_read\_histogram", "a": [], "k": \{\}\}\}};
+\node[lf] at (b1.east) {\LF};
+
+\node[sentido] at (-0.25,-3.25) {placa $\to$ PC};
+\node[trozo] (p1) at (0.08,-3.25) {\{"ok": true, "result": \{\},\makebox[0.525em]{}};
+\node[trozo, fill=naranja!45] (p2) at (p1.east)
+  {"dtype": "uint32", "shape": [16384], "nbytes": 65536};
+\node[trozo] (p3) at (p2.east) {\}};
+\node[draw=black, line width=0.5pt, inner sep=0pt, fit={(0,0 |- p1.south) ($(p3.north east)+(0.08,0)$)}] (b2) {};
+\node[lf] (lfb) at (b2.east) {\LF};
+\node[carga=5.0cm] (pl) at (lfb.east) {65536 B · \texttt{uint32[16384]}};
+\coordinate (k) at ($(pl.east)+(-0.45,0)$);
+\corte{k}{pl}
+
+% la cabecera declara el payload
+\draw[flujo, naranja!70!black] (p2.north) to[out=18, in=162]
+  node[sen, pos=0.55, above, font=\tiny, black!80] {describe} (pl.north);
+
+% qué lee cada parte
+\draw[llave] (b2.south west) ++(0,-0.1) -- ($(lfb.south east)+(0,-0.1)$)
+  node[midway, below=5pt, font=\scriptsize] {cabecera: \texttt{readline()} hasta el \texttt{\LF}};
+\draw[llave] (pl.south west) ++(0,-0.1) -- ($(pl.south east)+(0,-0.1)$)
+  node[midway, below=5pt, font=\scriptsize] {payload: \texttt{read(nbytes)}};
+
+% ===================================================== (c) error ===
+\node[parte] at (-2.3,-4.85) {(c)\enspace Un error};
+\node[sentido] at (-0.25,-5.3) {placa $\to$ PC};
+\node[cab] (c1) at (0,-5.3)
+  {\{"ok": false, "error": "MCANotPresent", "msg": "…", "hint": "cargá mca\_red\_pitaya.bit.bin"\}};
+\node[lf] at (c1.east) {\LF};
+
+% ============================================================== leyenda ===
+\leyenda{-2.0,-6.15}{white/{cabecera: JSON en UTF-8, una línea}, black!15/{fin de línea, \texttt{0x0A}}, naranja!45/{el payload binario y las claves que lo describen}}{}
+
+\end{tikzpicture}
+\end{document}

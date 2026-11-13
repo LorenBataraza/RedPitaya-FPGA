@@ -1,0 +1,113 @@
+% Dónde se frena, dónde se descarta y dónde se rechaza en el MCA: del disparo al
+% histograma. Es la vista de entrada a la contabilidad (los detalles están en
+% tm_teselado, tm_arribos y tm_periodo). Con las convenciones de
+% docs/figuras/etapas_vs_descartes.tex y de
+% docs/event_ring/figuras/ring_freno_descarte.tex:
+%   - la etiqueta dice si la etapa descarta o bloquea;
+%   - la flecha roja es un descarte por falta de lugar (tiempo muerto), y va a
+%     su contador;
+%   - la flecha gris hacia arriba es un rechazo por criterio (no es tiempo
+%     muerto), y también va a su contador;
+%   - las flechas de vuelta, por abajo, son la contrapresión.
+% Descartan las tres etapas cuya entrada no tiene ready: el disparo (las
+% muestras no esperan al Schmitt), el asignador (el disparo no espera) y los
+% histogramas (el bus de features tampoco). Las ranuras y el publicador sólo
+% bloquean: las ranuras SON la cola de publicación.
+% El disparo pierde el pulso sin generar flanco, así que no hay cuenta: lo que
+% se mide es el TIEMPO desarmado, t_rearm (flecha roja punteada).
+% Colores: los de panorama_mca_top (amarillo segmentación, verde estadísticos,
+% naranja publicación).
+% El epígrafe no va en la figura: está en mca_freno_descarte.txt.
+% Fuente: modulos/mt/rtl/mt_event_logic.v (trig_arm), modulos/mca/rtl/
+% mca_top.sv (t_rearm), mca_window.sv (abre, cnt_lost_*), mca_publish.sv
+% (libera_o, cnt_rej_psd), mca_top.sv (cnt_rej_discr, mca_hist dropped y
+% suppressed) y docs/mca/register_map_mca.md.
+%
+% Compilar:   pdflatex mca_freno_descarte.tex
+%             pdftocairo -svg mca_freno_descarte.pdf mca_freno_descarte.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../../figuras/estilo_tikz.tex}
+
+\tikzset{
+  et/.style       = {minimum height=1.05cm},
+  descarte/.style = {->, rojo!75!black, line width=0.9pt},
+  reloj/.style    = {descarte, dash pattern=on 2.5pt off 1.5pt},
+  filtro/.style   = {->, black!45, line width=0.7pt},
+  contra/.style   = {->, black!70, line width=0.8pt},
+  rol/.style      = {draw, rounded corners=1.5pt, fill=white, font=\tiny\itshape,
+                     inner sep=1.5pt, line width=0.5pt, anchor=south east},
+  descarta/.style = {rol, draw=rojo!75!black, text=rojo!75!black},
+  bloquea/.style  = {rol, draw=black!55, text=black!75},
+  contador/.style = {font=\scriptsize\ttfamily, rojo!75!black, inner sep=1pt},
+  criterio/.style = {font=\scriptsize\ttfamily, black!60, inner sep=1pt},
+}
+
+% #1 = punta de la flecha, #2 = estilo, #3 = contadores de abajo hacia arriba
+\newcommand{\contadores}[3]{%
+  \foreach \c [count=\i from 0] in {#3}
+    \node[#2] at ($(#1)+(0,0.24+0.4*\i)$) {\c};}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\node[trig, et, text width=1.6cm] (tr) at (-2.0,0) {\etq{disparo}{Schmitt del\\ multitrigger}};
+\node[bloque=amarillo!75, et, text width=2.1cm] (asg) at (1.45,0)
+  {\etq{asignador}{la ranura libre\\ de menor índice}};
+\node[bloque=verde!55, et, text width=2.1cm] (slt) at (5.05,0)
+  {\blk{mca\_slot {\normalfont$\times N$}}{miden; al cerrar\\ esperan publicar}};
+\node[bloque=naranja!30, et, text width=2.45cm] (pub) at (8.75,0)
+  {\blk{mca\_publish}{divisores,\\ 18 ciclos por evento}};
+\node[bloque=naranja!70, et, text width=2.35cm] (dis) at (12.4,0)
+  {\blk{mca\_discriminator}{una feature\\ en $[\min, \max]$}};
+\node[bloque=naranja!70, et, text width=1.9cm] (hst) at (16.0,0)
+  {\blk{mca\_hist {\normalfont$\times$} 2}{1D y 2D}};
+
+% qué hace cada etapa cuando no puede tomar el dato (el discriminador no se
+% llena nunca: decide en el mismo ciclo)
+\node[descarta] at ([yshift=1.5pt]tr.north east) {descarta};
+\node[descarta] at ([yshift=1.5pt]asg.north east) {descarta};
+\node[bloquea]  at ([yshift=1.5pt]slt.north east) {bloquea};
+\node[bloquea]  at ([yshift=1.5pt]pub.north east) {bloquea};
+\node[descarta] at ([yshift=1.5pt]hst.north east) {descarta};
+
+\draw[flujo] (-4.35,0) -- node[sen, above] {muestras}
+  node[below, font=\scriptsize\itshape, inner sep=2pt] {sin ready} (tr);
+\draw[flujo] (tr) -- node[below, font=\scriptsize\itshape, inner sep=2pt] {sin ready} (asg);
+\draw[ctrl] (-0.55,0.95) node[sen, above] {veto} |- ([yshift=2.5mm]asg.west);
+\draw[flujo] (asg) -- node[sen, above] {abre} (slt);
+\draw[flujo] (slt) -- node[sen, above] {cierra} (pub);
+\draw[flujo] (pub) -- (dis);
+\draw[flujo] (dis) -- node[below, font=\scriptsize\itshape, inner sep=2pt] {sin ready} (hst);
+
+% contrapresión: el publicador ocupado deja las ranuras cerradas, y sin ranura
+% libre el asignador no tiene dónde abrir
+\draw[contra] ([xshift=-5mm]pub.south) -- ++(0,-0.55) -| ([xshift=5mm]slt.south);
+\node[sen, anchor=north, inner sep=2pt] at (6.95,-1.1) {libera = 0};
+\draw[contra] ([xshift=-5mm]slt.south) -- ++(0,-0.55) -| ([xshift=4mm]asg.south);
+\node[sen, anchor=north, inner sep=2pt] at (3.25,-1.1) {puede\_abrir = 0};
+
+% descartes: falta de lugar, cada uno a su contador. El del disparo no tiene
+% cuenta (el pulso no genera flanco): se mide el tiempo desarmado.
+\draw[reloj] ([xshift=-4.5mm]tr.north) -- ++(0,0.5) coordinate (dt);
+\contadores{dt}{contador}{t\_rearm}
+\node[contador, font=\tiny\itshape] at ($(dt)+(0,0.58)$) {tiempo};
+\draw[descarte] ([xshift=-3mm]asg.north) -- ++(0,0.5) coordinate (da);
+\contadores{da}{contador}{cnt\_lost\_busy, cnt\_lost\_active, cnt\_lost\_veto}
+\draw[descarte] ([xshift=-3mm]hst.north) -- ++(0,0.5) coordinate (dh);
+\contadores{dh}{contador}{cnt\_full\_supp, dropped}
+
+% rechazos: un criterio, no falta de lugar
+\draw[filtro] ([xshift=-3mm]slt.north) -- ++(0,0.5) coordinate (fa);
+\contadores{fa}{criterio}{cnt\_rej\_amp}
+\draw[filtro] ([xshift=-3mm]pub.north) -- ++(0,0.5) coordinate (fp);
+\contadores{fp}{criterio}{cnt\_rej\_psd}
+\draw[filtro] ([xshift=-3mm]dis.north) -- ++(0,0.5) coordinate (fd);
+\contadores{fd}{criterio}{cnt\_rej\_discr}
+
+\end{tikzpicture}
+\end{document}

@@ -1,0 +1,105 @@
+% Panorama de EVENT_SLOT_WRITER: la última etapa del event_ring. Toma un evento
+% completo de la stage y lo serializa en un slot de 2^(slot_shift-3) palabras de
+% 64 b: cabecera, muestras empaquetadas, relleno y footer. Un mux elegido por el
+% estado de la FSM arma cada palabra; la salida se sostiene hasta que el
+% axi_wr_fifo la acepta. El borde grueso es el límite del módulo; lo que lo
+% cruza son sus puertos, sólo con el nombre.
+% Fuente: modulos/event_ring/rtl/event_slot_writer.sv.
+% Estilo: docs/figuras/estilo_tikz.tex.
+% El epígrafe no va en la figura: está en panorama_event_slot_writer.txt y en
+% los docs que la incluyen.
+%
+% Compilar:   pdflatex panorama_event_slot_writer.tex
+%             pdftocairo -svg panorama_event_slot_writer.pdf panorama_event_slot_writer.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{logica/.style = {etapa=naranja!25, text width=3.4cm}}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\def\xin{-0.6}    % donde arrancan las entradas
+\def\xout{15.0}   % donde terminan las salidas
+
+% ================================================================ bloques ===
+\node[registro, text width=3.6cm, inner ysep=5pt] (cnt) at (8.4,4.9)
+  {\etq{contadores de slot}{\texttt{wr\_slot}, \texttt{seq}: $+1$ cuando\\ el FIFO acepta el footer}};
+\node[registro, text width=3.4cm, inner ysep=5pt] (cab) at (3.4,2.5)
+  {\etq{cabecera}{\texttt{ts}, \texttt{snapshot}, \texttt{nsamp}\\ se toman al empezar}};
+\node[logica, minimum height=1.45cm] (emp) at (3.4,0.0)
+  {\etq{empaquetador}{4 muestras de 16 b $\to$ 64 b;\\ pide una por ciclo, y la que\\ cierra la palabra, sólo\\ con la salida libre}};
+\node[logica, minimum height=1.5cm] (fsm) at (3.4,-2.75)
+  {\etq{FSM del slot}{\textsc{idle} $\to$ \textsc{hdr} $\to$ \textsc{data} $\to$\\ \textsc{pad} $\to$ \textsc{foot} $\to$ \textsc{done}\\[1pt]
+   {\tiny toma un evento si hay crédito}}};
+\node[logica] (pal) at (3.4,-5.3)
+  {\etq{palabras del slot}{\texttt{word\_idx} hasta\\ $2^{\mathtt{slot\_shift}-3}-1$}};
+
+% --- el mux de la palabra: lo elige el estado ---
+\muxdec{mx}{(9.6,1.15)}{5.0}
+\node[font=\tiny, anchor=west] at ($(mx-in)+(0.02,1.85)$) {foot};
+\node[font=\tiny, anchor=west] at ($(mx-in)+(0.02,1.35)$) {hdr};
+\node[font=\tiny, anchor=west] at ($(mx-in)+(0.02,-1.15)$) {data};
+\node[font=\tiny, anchor=west] at ($(mx-in)+(0.02,-1.85)$) {pad};
+\node[registro, text width=2.2cm, inner ysep=5pt] (sal) at (12.0,1.15)
+  {\etq{salida}{\texttt{wr\_dat}, \texttt{wr\_val}\\ se sostiene hasta\\ \texttt{wr\_rdy}}};
+
+% ============================================================== el límite ===
+\node[contenedor, fit={(0.35,6.0) (13.6,-6.35)}] (lim) {};
+\node[titulo, anchor=south west, inner sep=2pt, align=left] at (lim.north west)
+  {\texttt{\bfseries event\_slot\_writer}\\
+   \prm{SW=16 & S\_AW=11 & N\_CH=2\\ TS\_W=64 & WCW=16}};
+
+% ============================================================== flechas ====
+% --- el metadato del evento, desde event_stage_fifo ---
+\draw[flujo] (\xin,0 |- cab.west) node[left, sen, align=right] {s\_ts\_i, s\_snap\_i\\ s\_nsamp\_i} -- (cab.west);
+\draw[flujo] (\xin,-2.2) node[left, sen] {s\_meta\_val\_i} -- (fsm.west |- 0,-2.2);
+\draw[flujo] (fsm.west |- 0,-2.58) -- (\xin,-2.58) node[left, sen] {s\_meta\_rd\_o};
+\draw[ctrl] (\xin,-2.96) node[left, sen, black!80] {credit\_ok\_i} -- (fsm.west |- 0,-2.96);
+\draw[ctrl] (\xin,-3.34) node[left, sen, black!80] {flush\_i} -- (fsm.west |- 0,-3.34);
+
+% --- las muestras ---
+\draw[flujo, ancho=16, ancho en=0.65] (\xin,0.3) node[left, sen] {s\_dat\_i} -- (emp.west |- 0,0.3);
+\draw[flujo] (emp.west |- 0,-0.3) -- (\xin,-0.3) node[left, sen] {s\_dat\_rd\_o};
+
+% --- las cuatro fuentes de la palabra ---
+\draw[flujo] (cnt.west) -| node[sen, above, pos=0.25] {seq} (cab.north);
+\draw[flujo] (7.2,0 |- cnt.south) -- (7.2,3.0)
+  -- node[sen, above, pos=0.5] {\{$\sim$seq, seq\}} (mx-in |- 0,3.0);
+\draw[flujo] (cab.east) -- (mx-in |- cab.east);
+\draw[flujo] (emp.east) -- (mx-in |- emp.east);
+\node[sen, anchor=east] (cero) at ($(mx-in |- 0,-0.7)+(-0.75,0)$) {0};
+\draw[flujo] (cero.east) -- (mx-in |- 0,-0.7);
+
+% --- el estado elige; la salida avisa cuándo está libre ---
+\draw[flujo] (fsm.east |- 0,-2.2) -| node[sen, above, pos=0.25] {estado} (mx-sel);
+\draw[flujo, ancho=64] (mx-out) -- (sal.west);
+\draw[flujo] (sal.south) |- node[sen, below, pos=0.75] {salida libre} (fsm.east |- 0,-2.9);
+\punto{6.2,-2.9}
+\draw[flujo, cruce] (6.2,-2.9) -- (6.2,-0.35) -- (emp.east |- 0,-0.35);
+
+% --- el FSM con el empaquetador y con la cuenta de palabras ---
+\draw[flujo] (2.9,0 |- fsm.north) -- node[sen, left] {W\_DATA} (2.9,0 |- emp.south);
+\draw[flujo] (3.9,0 |- emp.south) -- node[sen, right] {hay\_mas} (3.9,0 |- fsm.north);
+\draw[flujo] (3.4,0 |- pal.north) -- node[sen, right] {anteúltima} (3.4,0 |- fsm.south);
+\draw[ctrl] (\xin,0 |- pal.west) node[left, sen, black!80] {slot\_shift\_i} -- (pal.west);
+
+% --- salidas ---
+\draw[flujo, ancho=64, ancho en=0.55] (sal.east |- 0,1.55) -- (\xout,1.55) node[right, sen] {wr\_dat\_o};
+\draw[flujo] (sal.east |- 0,1.05) -- (\xout,1.05) node[right, sen] {wr\_val\_o};
+\draw[flujo] (\xout,0.55) node[right, sen] {wr\_rdy\_i} -- (sal.east |- 0,0.55);
+\draw[flujo] (cnt.east) -- (\xout,0 |- cnt.east) node[right, sen] {wr\_slot\_o, seq\_o};
+\draw[ctrl] (8.4,7.0) node[above, sen, black!80] {clr\_cnt\_i} -- (cnt.north);
+\draw[flujo] (fsm.east |- 0,-3.45) -- (\xout,-3.45) node[right, sen, align=left] {no\_credit\_o\\ busy\_o};
+\draw[flujo] (pal.east) -- (\xout,0 |- pal.east) node[right, sen] {err\_slot\_ovf\_o};
+
+% ================================================================= leyenda ===
+\leyenda{-1.6,-7.4}{naranja!25/lógica propia, grisr/registro}{}
+
+\end{tikzpicture}
+\end{document}

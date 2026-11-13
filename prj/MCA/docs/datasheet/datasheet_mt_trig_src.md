@@ -16,7 +16,7 @@
 | Módulo RTL | `mt_trig_src` |
 | Archivo | [`mt_trig_src.sv`](../../modulos/mt/rtl/mt_trig_src.sv) |
 | Parámetros | 2 |
-| Puertos | 23 (20 in / 3 out) |
+| Puertos | 25 (21 in / 4 out) |
 | Parte | `xc7z010clg400-1` |
 
 
@@ -41,6 +41,12 @@ instancia por canal dentro de
 [`mt_event_logic`](datasheet_mt_event_logic.md).
 
 ![Panorama de mt_trig_src](../mt/figuras/panorama_mt_trig_src.svg)
+
+*Los números sobre el bus son los bits de la máscara (`OR_MASK`); los 25–31
+están reservados. El software también pasa por la máscara: es el bit 0, así que
+con `OR_MASK = 0` ni `TRIG_SW` dispara. En modo continuo (`we_keep = 1`) la
+máscara no se limpia sola; el protect se engancha igual. `NOMBRE=valor`:
+parámetros con que lo instancia `mt_event_logic`.*
 
 *Por dentro:* las 25 fuentes, la máscara, el *protect* y la realimentación del disparo. Fuente TikZ en [`panorama_mt_trig_src.tex`](../mt/figuras/panorama_mt_trig_src.tex).
 
@@ -139,6 +145,7 @@ escritura de registro dispare en un momento en que la cadena no está lista.
 | `slope_p_i` | in | 4 | adc_clk_i | pendiente positiva por canal (mt_slope_trig) |
 | `slope_n_i` | in | 4 | adc_clk_i | pendiente negativa por canal |
 | `pz_p_i` | in | 4 | adc_clk_i | polo-cero por canal (mt_pz_trig) |
+| `armado_i` | in | 32 `[SRC_W-1: 0]` | adc_clk_i | Por fuente, con los mismos bits que la máscara: 1 = esa fuente puede disparar ya. Los Schmitt (pendiente, polo-cero) dan su estado de re-armado; el resto, 1. Ver mt_event_logic. |
 
 
 ##### Salidas
@@ -148,6 +155,7 @@ escritura de registro dispare en un momento en que la cadena no está lista.
 | `trg_state_o` | out | 32 `[SRC_W-1: 0]` | adc_clk_i | máscara activa (set_trig_src), 32 b |
 | `adc_trg_dis_o` | out | 1 | adc_clk_i | bit de disable (separado) |
 | `adc_trig_o` | out | 1 | adc_clk_i | trigger en sí (registrado) |
+| `puede_o` | out | 1 | adc_clk_i | 1 = el canal puede disparar en este ciclo: no está deshabilitado y alguna fuente habilitada está armada. Combinacional; lo registra mt_event_logic. |
 <!-- /AUTO:interfaces -->
 
 ### 1.3 Mapa de registros
@@ -287,18 +295,18 @@ make -C modulos/mt/work lint
 
 | Testbench | DUT | Escenas | Casos | Contra qué compara | Es el de este módulo |
 |---|---|---|---|---|---|
-| [`tb_mt_cfg`](../../modulos/mt/sim/tb_mt_cfg.sv) | `mt_cfg` | 14 | 59 | vectores a mano |  |
-| [`tb_mt_slope_trig`](../../modulos/mt/sim/tb_mt_slope_trig.sv) | `mt_slope_trig` | 8 | 15 | vectores a mano |  |
-| [`tb_mt_pz_trig`](../../modulos/mt/sim/tb_mt_pz_trig.sv) | `mt_pz_trig` | 8 | 1 | vectores a mano |  |
-| [`tb_mt_trig_src`](../../modulos/mt/sim/tb_mt_trig_src.sv) | `mt_trig_src` | 7 | 14 | vectores a mano | **sí** |
-| [`tb_mt_event_logic`](../../modulos/mt/sim/tb_mt_event_logic.sv) | `mt_event_logic` | 8 | 11 | vectores a mano |  |
+| [`tb_mt_cfg`](../../modulos/mt/sim/tb_mt_cfg.sv) | `mt_cfg` | 14 | 60 | vectores a mano |  |
+| [`tb_mt_slope_trig`](../../modulos/mt/sim/tb_mt_slope_trig.sv) | `mt_slope_trig` | 8 | 17 | vectores a mano |  |
+| [`tb_mt_pz_trig`](../../modulos/mt/sim/tb_mt_pz_trig.sv) | `mt_pz_trig` | 8 | 2 | vectores a mano |  |
+| [`tb_mt_trig_src`](../../modulos/mt/sim/tb_mt_trig_src.sv) | `mt_trig_src` | 8 | 21 | vectores a mano | **sí** |
+| [`tb_mt_event_logic`](../../modulos/mt/sim/tb_mt_event_logic.sv) | `mt_event_logic` | 9 | 19 | vectores a mano |  |
 | [`tb_trigger_shield`](../../modulos/mt/sim/tb_trigger_shield.sv) | `trigger_shield` | 8 | 19 | vectores a mano |  |
-| [`tb_mt_top`](../../modulos/mt/sim/tb_mt_top.sv) | `mt_top` | 20 | 51 | vectores a mano |  |
+| [`tb_mt_top`](../../modulos/mt/sim/tb_mt_top.sv) | `mt_top` | 20 | 55 | vectores a mano |  |
 
 
-**170 casos con nombre** en 7 testbenches (73 escenas). La lista completa, caso por caso, está en el plan de verificación.
+**193 casos con nombre** en 7 testbenches (75 escenas). La lista completa, caso por caso, está en el plan de verificación.
 
-Las escenas de [`tb_mt_trig_src`](../../modulos/mt/sim/tb_mt_trig_src.sv): 1) flanco habilitado dispara adc_trig, engancha dis, 2) trig_dis_clr limpia el disable, 3) fuente NO habilitada no dispara (mascara solo P1, 4) modo continuo, 5) SW trigger gateado por dly_valp, 6) pendiente, 7) polo-cero.
+Las escenas de [`tb_mt_trig_src`](../../modulos/mt/sim/tb_mt_trig_src.sv): 1) flanco habilitado dispara adc_trig, engancha dis, 2) trig_dis_clr limpia el disable, 3) fuente NO habilitada no dispara (mascara solo P1, 4) modo continuo, 5) SW trigger gateado por dly_valp, 6) pendiente, 7) polo-cero, 8) puede_o.
 
 **Assertions** — en `sim/sva/`, enganchadas por `bind` (no tocan el RTL sintetizable).
 

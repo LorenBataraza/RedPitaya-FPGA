@@ -16,6 +16,15 @@ disparó (`SNAPSHOT`) y qué canales quedaron deshabilitados (`DIS_FLAGS`)—.
 
 ![Panorama de mt_cfg](../../mt/figuras/panorama_mt_cfg.svg)
 
+*Los registros retienen el último valor escrito; los pulsos valen 1 sólo
+mientras dura la escritura. `OR_MASK` no se guarda acá para el datapath: la
+escritura emite `new_trg_src` y el dato pasa directo a `mt_trig_src`, que tiene
+su propia máscara (la que se limpia sola en single-shot); la copia es sólo para
+leer el último valor escrito. `TRIG_SW` y `TRIG_DIS_CLR` también llegan por el
+puente legacy del slot 1 (`0x004`, `0x094`) y se OR-ean. Los registros de
+pendiente no pasan por el fan-out: son de cada canal. `NOMBRE=valor`: parámetros
+con que lo instancia `rp_scope_mt_com`.*
+
 *Por dentro:* escritura, registros y pulsos, el puente legacy, el fan-out por `indep_mode` y la lectura. Fuente TikZ en [`panorama_mt_cfg.tex`](../../mt/figuras/panorama_mt_cfg.tex).
 
 Lo que resuelve es que el scope de fábrica tiene **una** fuente de trigger por

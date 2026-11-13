@@ -6,6 +6,7 @@
 % El recuadro punteado de mt_event_logic es la jerarquía del RTL.
 % Fuentes: modulos/mt/rtl/mt_top.sv y lo que instancia.
 % Estilo: docs/figuras/estilo_tikz.tex.
+% El epígrafe no va en la figura: está en panorama_mt.txt y en el doc que la incluye.
 %
 % Compilar:   pdflatex panorama_mt.tex
 %             pdftocairo -svg panorama_mt.pdf panorama_mt.svg
@@ -158,11 +159,7 @@
 \draw[<->, line width=0.8pt] (cfg.south) -- (sb.north);
 
 % ================================================================= leyenda ===
-\leyenda{-6.6,-11.0}{amarillo/trigger, grisr/registros y entradas, rojo!45/bus del sistema}
-  {El borde grueso es el límite de \texttt{mt\_top}; lo que lo cruza son sus puertos.
-   Las franjas numeradas son las tres partes del texto.\\ El recuadro punteado es la
-   jerarquía del RTL: \texttt{mt\_event\_logic} instancia \texttt{mt\_trig\_src} (uno
-   por canal) y \texttt{trigger\_shield}. \notaparam}
+\leyenda{-6.6,-11.0}{amarillo/trigger, grisr/registros y entradas, rojo!45/bus del sistema}{}
 
 \end{tikzpicture}
 \end{document}

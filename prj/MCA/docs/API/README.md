@@ -23,7 +23,9 @@ nombre de la función dice las dos cosas.
 | [`guia_de_uso.md`](guia_de_uso.md)                               | Recetas completas: espectro, captura de eventos, guardado, armado                                                                                    |
 | [`arquitectura_software.md`](arquitectura_software.md)           | Cómo está construida: los seis niveles, los hilos, el filesystem, los tipos, los tests y las responsabilidades en ejecución                          |
 | [`decisiones_del_refactor.md`](decisiones_del_refactor.md)       | Por qué dos clases sobre el mismo bloque, por qué el import perezoso, por qué el análisis no lleva prefijo                                           |
-| [`diseno_de_clases.md`](diseno_de_clases.md)                     | La API por niveles y por qué cada clase tiene la forma que tiene: libmca en C, el binding, los otros handles, el pipeline del osciloscopio, la red; los sustitutos y las pruebas; las simulaciones Monte Carlo |
+| [`libmca.md`](libmca.md)                                         | La biblioteca en C y su binding de Python: la forma de un bloque, el bus, los seis bloques, los dos lazos por lote, los handles de Python y el despacho, lo que cuesta |
+| [`adquisicion_de_eventos.md`](adquisicion_de_eventos.md)         | La adquisición de eventos del osciloscopio: las fuentes, la corrida como máquina de estados, los hilos con y sin el GIL, el pool de batches, la sesión y los annotators |
+| [`diseno_de_clases.md`](diseno_de_clases.md)                     | Por qué cada clase tiene la forma que tiene, el rol de cada módulo y el índice de los diagramas de clases; la red, los sustitutos y las pruebas, las simulaciones Monte Carlo, los shims |
 | [`compatibilidad_y_migracion.md`](compatibilidad_y_migracion.md) | Los shims, cómo se verifica que nada se rompió y cómo retirarlos                                                                                     |
 
 ---
@@ -68,7 +70,7 @@ formatos estructurados (`save_file_`).
 | [`API.osciloscope`](../../software/API/osciloscope.py) | osciloscopio clásico | `0x4010_0000` (slot 1) | [mapa](../osc/register_map_osc.md) |
 | [`API.multitrigger`](../../software/API/multitrigger.py) | máscaras OR, shield, snapshot, pendiente y polo-cero | `0x4030_0000` (slot 3) | [mapa](../mt/register_map_mt.md) |
 | [`API.osciloscope_ring`](../../software/API/osciloscope_ring.py) | event_ring en DDR | `0x4020_0000` (slot 2) | [mapa](../event_ring/diseno_y_register_map.md) |
-| [`API.osciloscope_store`](../../software/API/osciloscope_store/) | guardado continuo del flujo de eventos | — | [arquitectura](arquitectura_adquisicion_software.md) |
+| [`API.osciloscope_store`](../../software/API/osciloscope_store/) | guardado continuo del flujo de eventos | — | [adquisición](adquisicion_de_eventos.md) |
 | [`API.mca_net`](../../software/API/mca_net.py) | protocolo de red del MCA (JSON + binario) | — | — |
 | [`API.mca_remote`](../../software/API/mca_remote.py) | el MCA por socket, y un MCA simulado | `0x4070_0000` remoto | [mapa](../mca/register_map_mca.md) |
 | [`API.analisis`](../../software/API/analisis.py) | helpers puros, sin hardware | — | — |

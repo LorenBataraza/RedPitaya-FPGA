@@ -1,0 +1,99 @@
+% El ring de eventos, visto desde el PS: el contrato PS <-> event_ring.
+% Sólo dos actores, la PL y el PS. La DDR va del lado del PS: lo que la PL
+% escribe por HP aparece en su memoria sin que el PS haga nada, y lo que el PS
+% lee de ahí no cruza a la PL (\propio). La versión con los registros y la DDR
+% como actores aparte es ring_lote.tex.
+% Fuente: modulos/event_ring/rtl/event_ring_top.sv (registros, créditos, FSM
+% global) y software/libmca/src/osciloscope_ring.c (osciloscope_ring_configurar,
+% osciloscope_ring_leer_lote, descartes, publicar).
+%
+% Las reglas de cada paso van en el epígrafe, secuencia.json, no en la figura.
+% El trigger es una entrada del módulo: de dónde sale es asunto del
+% multitrigger, no de este contrato.
+%
+% Compilar:   pdflatex ring_secuencia.tex
+%             pdftocairo -svg ring_secuencia.pdf ring_secuencia.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../../figuras/estilo_tikz.tex}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+\def\xm{0} \def\xps{10.0}
+\def\yfin{-10.0}
+
+\node[actor=naranja!70] at (\xm,0)  {\textbf{event\_ring}\\ captura y writer};
+\node[actor=grisr]      at (\xps,0) {\textbf{PS}\\ software y su DDR};
+\foreach \x in {\xm,\xps} \draw[vida] (\x,-0.43) -- (\x,\yfin);
+
+% estados del módulo, los que el PS ve en STATUS
+\franja{\xm}{-0.95}{-2.85}{grisr}{parado (\textsc{stopped}):\\ acepta la geometría}
+\franja{\xm}{-2.85}{-9.8}{verde!55}{}
+
+% ---- 1: configurar, con el ring parado
+\draw[gp] (\xps,-1.2) -- node[rot] {escribir \texttt{CTRL.clr}: contadores en cero} (\xm+0.16,-1.2);
+\propio{\xps}{-1.75}{poner en cero los footers:\\ los de la corrida anterior}
+\draw[gp] (\xps,-2.35) -- node[rot] {configurar \texttt{SLOT\_BASE}, \texttt{RING\_SZ},
+  \texttt{SLOT\_SHIFT}, \texttt{PRE}, \texttt{POST}} (\xm+0.16,-2.35);
+
+% ---- 2: arrancar
+\draw[gp] (\xps,-2.85) -- node[rot] {escribir \texttt{CTRL.run} = 1} (\xm+0.16,-2.85);
+
+% ---- la PL escribe sola
+\draw[entrada] (-4.3,-3.35) -- node[rot, above=1pt, pos=0.45] {trigger} (\xm-0.16,-3.35);
+\draw[hp] (\xm+0.16,-3.65) -- node[rot, pos=0.4] {slot \texttt{seq} = 0, por HP} (\xps,-3.65);
+\draw[entrada] (-4.3,-4.0) -- (\xm-0.16,-4.0);
+\draw[hp] (\xm+0.16,-4.3) -- node[rot, pos=0.4] {slot \texttt{seq} = 1} (\xps,-4.3);
+\node[font=\scriptsize, black!60] at (-2.2,-4.55) {\dots};
+
+% ---- el marco de un lote
+\fill[marcolazo] (-4.7,-4.85) rectangle (14.1,-9.05);
+\draw[marcolazo, fill=none] (-4.7,-4.85) rectangle (14.1,-9.05);
+\node[rotlazo, anchor=north west] at (-4.7,-4.85) {un lote};
+\foreach \x in {\xm,\xps} \draw[vida] (\x,-4.85) -- (\x,-9.05);
+\franja{\xm}{-4.85}{-9.05}{verde!55}{}
+\node[rotfranja] at (\xm-0.3,-8.05) {corriendo (\textsc{running}):\\ escribe slots mientras\\
+  haya créditos, sin esperar al PS};
+
+% 1: cuántos hay
+\draw[gp] (\xps,-5.4) -- node[rot] {leer \texttt{WR\_SLOT}: hay $k$} (\xm+0.16,-5.4);
+% 2 y 3: en su DDR, sin bus
+\propio{\xps}{-6.15}{leer los footers: ¿llegó\\ el \texttt{seq} esperado?}
+\propio{\xps}{-6.95}{copiar los $n$ slots\\ con footer}
+% 4: los perdidos
+\draw[gp] (\xps,-7.65) -- node[rot] {leer \texttt{DROP\_BUSY} y \texttt{DROP\_FULL}: los perdidos, contados} (\xm+0.16,-7.65);
+% 5: devolver créditos
+\draw[gp] (\xps,-8.45) -- node[rot] {escribir \texttt{RD\_SLOT} = \texttt{seq} siguiente:
+  devuelve $n$ créditos} (\xm+0.16,-8.45);
+
+% la PL sigue mientras tanto
+\draw[entrada] (-4.3,-5.75) -- (\xm-0.16,-5.75);
+\draw[hp] (\xm+0.16,-6.05) -- node[rot, pos=0.4] {slot $k$} (\xps,-6.05);
+\draw[entrada] (-4.3,-6.75) -- (\xm-0.16,-6.75);
+\draw[hp] (\xm+0.16,-7.05) -- node[rot, pos=0.4] {slot $k{+}1$} (\xps,-7.05);
+
+% ---- y de vuelta
+\draw[->, line width=0.6pt, black!70] (\xps,-9.45) -- (\xps+0.9,-9.45)
+  node[right, font=\scriptsize, black!70, align=left] {vuelve a leer \texttt{WR\_SLOT}:\\ el lote siguiente};
+
+% leyenda
+\draw[gp] (-4.7,-10.55) -- ++(0.7,0);
+\node[font=\scriptsize, anchor=west] at (-3.95,-10.55)
+  {registro, por GP0: cuatro transacciones por lote, no por evento};
+\draw[hp] (-4.7,-11.0) -- ++(0.7,0);
+\node[font=\scriptsize, anchor=west] at (-3.95,-11.0)
+  {slot a la DDR, por HP: llega a la memoria del PS sin que el PS haga nada};
+\draw[->, naranja!60!black, line width=1.1pt, rounded corners=2pt] (-4.0,-11.32) -- (-3.85,-11.32) -- (-3.85,-11.58) -- (-4.0,-11.58);
+\node[font=\scriptsize, anchor=west] at (-3.75,-11.45)
+  {lo que el PS hace en su DDR, por \texttt{mmap}: no cruza a la PL};
+\draw[entrada] (-4.7,-11.9) -- ++(0.7,0);
+\node[font=\scriptsize, anchor=west] at (-3.95,-11.9)
+  {entrada del módulo: no la maneja el PS};
+\node[font=\scriptsize, black!70, anchor=west] at (-4.75,-12.35)
+  {El tiempo corre hacia abajo y no está a escala: lo que fija la figura es el orden.};
+\end{tikzpicture}
+\end{document}

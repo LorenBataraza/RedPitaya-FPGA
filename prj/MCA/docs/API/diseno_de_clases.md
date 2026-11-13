@@ -1,21 +1,23 @@
 # Diseño de las clases
 
 **Código:** [`software/libmca/`](../../software/libmca/) · [`software/API/`](../../software/API/) · [`software/app/`](../../software/app/)
-**Figuras:** [`clases_libmca`](figuras/clases_libmca.svg) · [`clases_mca`](figuras/clases_mca.svg) · [`clases_scope`](figuras/clases_scope.svg) · [`clases_fuentes`](figuras/clases_fuentes.svg) · [`clases_sesion`](figuras/clases_sesion.svg)
+**Figuras:** las siete `clases_*` y tres de la adquisición, en el índice de §3
 
-Este documento describe **la API como está hoy, nivel por nivel y de abajo
-hacia arriba**: qué rol cumple cada módulo y por qué cada clase tiene la forma
-que tiene. El orden es el de la pila:
+La API está descrita en tres documentos, **de abajo hacia arriba**:
 
-1. el MCA en C (§3);
-2. el binding de Python encima (§4);
-3. los handles del resto del bus, que siguen en Python (§5);
-4. el pipeline de formas de onda del osciloscopio (§6 y §7);
-5. la red (§8).
+1. [`libmca.md`](libmca.md): la biblioteca en C y su binding de Python. Los bloques,
+   el bus, los dos lazos por lote, los handles de Python y el despacho a C, a la
+   referencia o a la red;
+2. [`adquisicion_de_eventos.md`](adquisicion_de_eventos.md): la adquisición de eventos
+   del osciloscopio y la sesión. Las fuentes, la máquina de estados de una corrida,
+   los hilos, el pool de batches y los annotators;
+3. este: lo que cruza a los dos. Las tres preguntas que deciden la forma de una clase
+   (§1), el rol de cada módulo (§2), el índice de los diagramas (§3), la red (§4), los
+   sustitutos y las pruebas (§5), las simulaciones Monte Carlo (§6), la herencia, el
+   duck typing y los shims (§7), y los pendientes (§8).
 
-Los sustitutos que permiten probar todo sin placa no son parte de la API que
-usa un programa. Por eso no aparecen en los diagramas: están en §9, con las
-pruebas. Las simulaciones Monte Carlo tienen su sección aparte, la §10.
+Los sustitutos que permiten probar todo sin placa no son parte de la API que usa un
+programa. Por eso no aparecen en los diagramas: están en §5, con las pruebas.
 
 Lo que ya está escrito en otros documentos no se repite acá:
 
@@ -41,7 +43,7 @@ preguntas:
    barato es el sustituto y menos se desincroniza del original.
 3. **¿Herencia o duck typing?** Se usa herencia cuando el sustituto quiere
    **reusar la lógica** que el original construye encima del corte. Se usa duck
-   typing (§11.1) cuando las implementaciones no comparten código y lo único
+   typing (§7.1) cuando las implementaciones no comparten código y lo único
    común es el contrato.
 
 ---
@@ -59,19 +61,21 @@ Los niveles son los de [`arquitectura_software.md`](arquitectura_software.md#1-l
 | 5 | fuentes y sesión |
 | 6 | aplicación |
 
-Para el MCA, los niveles 1 a 4 están en C. Para los otros bloques del bus
-siguen en Python.
+Todos los bloques de la PL tienen sus niveles 1 a 4 en C, en libmca, y también los
+dos lazos por lote: el de la BRAM del osciloscopio y el del ring
+([`libmca.md`](libmca.md) §4).
 
 | Módulo | Nivel | Rol | Clases o tipos |
 |---|---|---|---|
-| [`libmca/`](../../software/libmca/) | 1 a 4 del MCA, en C | el **analizador multicanal** del slot 7: un handle opaco y una función por operación | `mca_h`, `mca_bus`, `devmem_bus` |
+| [`libmca/`](../../software/libmca/) | 1 a 4 del MCA, de TOP, del multitrigger, del osciloscopio, del ring y de los generadores, en C | el **analizador multicanal** del slot 7, la **región de TOP** del slot 6, el **multitrigger** del slot 3, el **osciloscopio** del slot 1, el **event_ring** del slot 2, con su región de DDR y su generador de eventos, y el **generador de pulsos** del slot 2 (`0x4021_0000`): un handle opaco por bloque y una función por operación | `mca_h`, `integration_h`, `multitrigger_h`, `osciloscope_h`, `osciloscope_ring_h`, `gen_pulsos_h`, `mca_bus`, `devmem_bus`, `mca_mem` |
 | [`API/mca.py`](../../software/API/mca.py) | 3 y 4, binding | el **handle de Python sobre libmca** y las 95 funciones `mca_*` de hardware, más las de guardado | `MCA` |
 | [`API/ref_py/`](../../software/API/ref_py/) | 3 y 4, en Python | la **referencia**: la misma superficie sin C. Contra ella se mide y se compara; `ref_py/mca.py` es la única que abre el bitstream MCA1 | `MCA` |
-| [`API/osciloscope.py`](../../software/API/osciloscope.py) | 1 a 4 | el **osciloscopio heredado** de Red Pitaya, slot 1: umbral, decimación, delay, BRAM | `Osciloscope` |
-| [`API/multitrigger.py`](../../software/API/multitrigger.py) | 1 a 4 | lo que **este proyecto agregó al trigger**: máscaras OR, `trigger_shield` y snapshot, disparo por pendiente y polo-cero, todo en el slot 3, y el armado del disparo del MCA | `MultiTrigger`, `MtRegion` |
-| [`API/integration.py`](../../software/API/integration.py) | 1 a 4 | la **región de TOP**, slot 6: identifica el bitstream, dice qué módulo vive en qué slot y rutea el datapath | `Integration` |
-| [`API/osciloscope_ring.py`](../../software/API/osciloscope_ring.py) | 5 | **fuente de eventos sobre el ring en DDR**. El `event_ring` no tiene handle: esta clase mapea sus registros y la DDR por su cuenta | `RingSource` |
-| [`API/osciloscope_store/`](../../software/API/osciloscope_store/) | 5 | el **pipeline de formas de onda del osciloscopio**: fuentes, batch, lector, escritor, sesión, annotators | `BramSource`, `EventBatch`, `ReaderThread`, `ChunkWriter`, `AcquisitionSession`, `Annotator` y sus subclases |
+| [`API/osciloscope.py`](../../software/API/osciloscope.py) | 3 y 4, binding | el **osciloscopio heredado** de Red Pitaya, slot 1, sobre libmca: umbral, decimación, delay, BRAM. Y lo que se compone sobre `r32`: `verify_bitstream`, `debug_*`, `acq_capture_sw` | `Osciloscope` |
+| [`API/multitrigger.py`](../../software/API/multitrigger.py) | 3 y 4, binding | lo que **este proyecto agregó al trigger**, sobre libmca: máscaras OR, `trigger_shield` y snapshot, disparo por pendiente y polo-cero, todo en el slot 3. Y el armado del disparo del MCA, que cruza con el osciloscopio | `MultiTrigger`, `MtRegion` |
+| [`API/integration.py`](../../software/API/integration.py) | 3 y 4, binding | la **región de TOP**, slot 6, sobre libmca: identifica el bitstream, dice qué módulo vive en qué slot y rutea el datapath | `Integration` |
+| [`API/osciloscope_ring.py`](../../software/API/osciloscope_ring.py) | 3 y 4, binding; 5 | el **event_ring**, slot 2, sobre libmca: el handle (registros y región de DDR), el lazo por lote, su generador de eventos y la **fuente de eventos** que lo usa | `OsciloscopeRing`, `LectorRing`, `RingSource` |
+| [`API/generadores.py`](../../software/API/generadores.py) | 3 y 4, binding | el **generador de pulsos**, slot 2 (`0x4021_0000`), sobre libmca: configurar, la tabla, arrancar, el lazo digital de HK; y las **cuentas del motor de disparos** que comparte con el del ring (umbral por tasa, la predicción de cada disparo) | `GenPulsos` |
+| [`API/osciloscope_store/`](../../software/API/osciloscope_store/) | 5 | el **pipeline de formas de onda del osciloscopio**: fuentes, batch, lector, escritor, sesión, annotators ([`adquisicion_de_eventos.md`](adquisicion_de_eventos.md)) | `BramSource`, `EventBatch`, `ReaderThread`, `ChunkWriter`, `AcquisitionSession`, `Annotator` y sus subclases |
 | [`API/mca_net.py`](../../software/API/mca_net.py) | transporte | el **formato de trama** del socket: una línea JSON y un bloque binario opcional | `Channel` |
 | [`API/mca_remote.py`](../../software/API/mca_remote.py) | 6, en la PC | **el MCA por red**: el proxy de la op `call` | `MCARemote` |
 | [`app/mca_server.py`](../../software/app/mca_server.py) | 6, en la placa | **el único proceso sobre `/dev/mem`**: expone el MCA, el osciloscopio y el multitrigger por TCP | `ServidorMCA` |
@@ -79,12 +83,12 @@ siguen en Python.
 | [`API/fpga.py`](../../software/API/fpga.py) | fuera de la pila | **poner la PL en marcha**: cargar el bitstream, bajar y subir los puentes AXI, sondear el bus. Ocurre antes de que exista cualquier handle | — |
 | [`API/analisis.py`](../../software/API/analisis.py) | fuera de la pila | **análisis puro**, sin hardware: picos, FWHM, DNL, FOM | — |
 | [`API/n42.py`](../../software/API/n42.py) | fuera de la pila | el **formato** ANSI N42.42-2011, sin hardware: lo usan `mca_save_file_n42` y `mca_load_file` | — |
-| [`monte-carlo/`](../../software/monte-carlo/) | fuera de la pila | **simulaciones**: réplicas del RTL en numpy, sin la API (§10) | — |
-| `mca_utils.py`, `multitrigger_utils.py`, `rigol_dg4162.py`, `mca/` | — | **shims de compatibilidad** (§11.2) | `MultiTriggerScope` |
+| [`monte-carlo/`](../../software/monte-carlo/) | fuera de la pila | **simulaciones**: réplicas del RTL en numpy, sin la API (§6) | — |
+| `mca_utils.py`, `multitrigger_utils.py`, `rigol_dg4162.py`, `mca/` | — | **shims de compatibilidad** (§7.2) | `MultiTriggerScope` |
 
 Los sustitutos sin placa (`FakeMCA`, `FakeOsc`, `FakeMultiTrigger`,
 `FakeMtRegion`, `FakeSource`) viven en `API/mca_remote.py` y en
-`osciloscope_store/sources.py`. Se describen en §9.1.
+`osciloscope_store/sources.py`. Se describen en §5.1.
 
 El patrón que se repite en los bloques de hardware es **un handle y funciones
 encima**: la clase (o el struct de C) es dueña del mapeo, y las funciones con
@@ -94,399 +98,44 @@ función aunque no se vea el import
 
 ---
 
-## 3. El MCA en C: `libmca`
+## 3. Los diagramas de clases
 
-![la capa de C: mca_h con sus funciones, los tipos que cruzan la interfaz, y el bus con el backend devmem](figuras/clases_libmca.svg)
+Diez figuras, una por pieza, y ninguna repite lo que dibuja otra: los métodos que son
+una función de C se listan una sola vez, en `clases_libmca`, y lo común a todos los
+bloques, una sola vez, en `clases_bloque`. Las cinco de la adquisición de eventos no
+son todas de clases: dos son de la ejecución (los hilos en el tiempo y el pool), y una
+de los estados.
 
-Los niveles 1 a 4 del MCA son una biblioteca en C con la forma de
-[`rp-api`](https://github.com/RedPitaya/RedPitaya/tree/master/rp-api). La
-razón es el costo: leer un espectro desde Python tardaba ~34 ms para 8192
-canales, y el 96 % era el intérprete. Desde C, una palabra cuesta 0.235 µs
-([`../TOP/bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) §10.1),
-y el mismo espectro baja a 1.9 ms (§9.4).
-
-### 3.1 El handle y las funciones
-
-- **`mca_h` es un struct opaco.** Guarda el bus, la geometría que se lee al
-  abrir (`caps`, `h_aw`, `h2_aw`, `psd_aw`) y el texto del último error.
-  `mca_open()` mapea `/dev/mem`, valida el *magic* y lee la geometría;
-  `mca_close()` libera.
-- **Todas las operaciones son funciones**, también las que en Python eran
-  métodos con lógica: `mca_configure`, `mca_read_counters`, `mca_read_acquire`,
-  `mca_autoscale_q_shift`.
-- **Cada función devuelve `MCA_OK` o un `MCA_E*` negativo**, y entrega el
-  resultado por puntero. El detalle del error queda en `mca_last_error(h)`.
-- **Los campos de configuración salen de una tabla**: la X-macro `MCA_FIELDS`
-  de [`mca_regs.h`](../../software/libmca/include/mca_regs.h). Cada entrada
-  (nombre, registro, bits, tipo) genera su `mca_get_<campo>`, su
-  `mca_set_<campo>` y su fila en `mca_field_info()`. Los campos que se validan
-  (`n_acc`, `pre_dly`, `dec`, `trap_k`, …) tienen setter propio, que recibe
-  `int64_t` para rechazar un negativo en vez de verlo como un `uint32_t`
-  enorme.
-- **La memoria es de quien llama.** `mca_read_histogram(h, dst, n)` escribe en
-  el buffer que le pasan. Los contadores llegan en un `mca_counters_t` de tipos
-  fijos. La configuración entera viaja en un `mca_config_t`, que
-  `mca_config_default()` llena con los valores por defecto.
-- **Lo que espera también corre en C.** `mca_read_acquire` arranca, duerme,
-  para, espera a que se vacíen las ranuras y lee.
-
-### 3.2 El bus: la única puerta a la PL
-
-`mca_h` no toca la PL. Llama a `mca_bus_r32`, `mca_bus_w32` y
-`mca_bus_read_words`, que despachan por la tabla `vt` del bus.
-
-**La herencia es a la manera de C**
-([`src/bus.h`](../../software/libmca/src/bus.h)). Cada backend lleva
-`struct mca_bus` como primer miembro, así que un puntero al backend también es
-un puntero a la base, y `vt` dice qué función corre. Es redefinir métodos sin
-la palabra clave.
-
-- **El backend de la placa es `devmem_bus`.** Es el único código de todo el
-  árbol que accede a la PL desde C:
-  [`src/bus_devmem.c`](../../software/libmca/src/bus_devmem.c), tres funciones
-  y un `ldr`/`str` de 32 b por acceso.
-- **`make -C libmca check-bus`** desensambla el binario de ARM. Falla si
-  aparece una ráfaga, un acceso de 64 b o uno de 1–2 bytes (los de §7.2–7.4 del
-  doc del bus), y también si el `.so` pide una glibc más nueva que la de la
-  placa. En una prueba ya atrapó a `log2()`, que pide `GLIBC_2.29`.
-
-El otro backend, `bus_callback`, recibe las funciones de acceso como punteros.
-Lo usan los sustitutos de prueba (§9.1).
-
-### 3.3 El mapa que habla: MCA2
-
-libmca habla sólo el mapa **MCA2**
-([`register_map_mca.md`](../mca/register_map_mca.md)):
-
-- **La ventana la abre sólo el disparo del multitrigger.** No hay Schmitt
-  interno, ni histéresis, ni `maxlen`, ni re-armado.
-- **Varias ranuras miden pulsos a la vez**: `n_acc`, `pre_dly`, `t_ocup`, la
-  cola de publicación.
-- **El trapecio** existe si CAPS trae el bit 2. `configure` relee sus
-  registros sólo en ese caso: en un bitstream sin trapecio leen cero.
-- **El banco de trapecios** existe si `0x134` dice `N_FORMAS` > 0. Es parte de
-  `mca_config_t`: `configure` es todo el estado, y su validez depende de la
-  compuerta. Sin pasarlo queda el reset, una sola forma.
-- **Once features.** Las cinco nuevas son `dt_anterior`, `dt_siguiente`, `solape`,
-  `trapecio` y `forma`.
-
-`mca_open` sobre un bitstream MCA1 falla, y el mensaje dice que se use
-`mca_open(impl='py')` desde Python (§4.3).
-
----
-
-## 4. El binding de Python: `MCA` y las `mca_*`
-
-![el binding: MCA guarda el mca_h*, las funciones mca_* despachan a libmca, a la referencia o a la red, y el camino remoto](figuras/clases_mca.svg)
-
-El binding es delgado, por `ctypes`, como el módulo `rp` es SWIG encima de
-`librp`. **No agrega operaciones**: hay una función de Python por cada función
-de C, con el mismo nombre y los mismos argumentos. Por eso la figura no repite
-la lista; está en la de §3.
-
-### 4.1 `MCA` guarda el handle de C
-
-`MCA` es dueña del `mca_h*` (`_c`) y de una copia de la geometría (`caps`,
-`h_aw`, `h2_aw`, `psd_aw`), con la que el binding dimensiona los arreglos de
-salida. Sus métodos (`configure()`, `counters()`, `spectrum()`, `acquire()`, …)
-llaman a la función de C del mismo nombre.
-
-| En C | En Python |
-|---|---|
-| `mca_h*`, struct opaco | `MCA`, que lo guarda en `_c` y es *context manager* |
-| `int mca_set_n_acc(mca_h*, int64_t)` | `mca_set_n_acc(h, v)`, sin valor de retorno |
-| `int mca_get_n_acc(mca_h*, uint32_t *out)` | `mca_get_n_acc(h)`, que devuelve el valor |
-| `mca_counters_t` | el dict de siempre, con las mismas claves en el mismo orden |
-| `mca_config_t` + `mca_config_default()` | los kwargs de `mca_configure(h, **cfg)` |
-| `MCA_FIELDS` y `MCA_REGS` (los `MCA_R_*`) | `_CAMPOS` y las `R_*`, como constantes públicas. Un test exige que coincidan una por una |
-
-### 4.2 Lo que cambia para quien la usa
-
-1. **Errores.** El binding convierte el código de C en la excepción de
-   siempre, con el texto de `mca_last_error`: `ValueError`, `TimeoutError`,
-   `MCANotPresent` o `RuntimeError`.
-2. **El GIL.** ctypes lo suelta mientras corre C, así que un espectro o una
-   adquisición entera dejan correr a los otros hilos del proceso.
-3. **Nada más.** Los nombres, las firmas y los resultados son los mismos que en
-   la referencia en Python, y eso está verificado escritura por escritura
-   (§9.2).
-
-### 4.3 El despacho: c, py o remoto
-
-Todas las funciones públicas de hardware llevan el decorador `@_api`
-([`_despacho.py`](../../software/API/_despacho.py)), que mira `h._via`:
-
-| `h._via` | Qué corre | Quién lo devuelve |
+| Figura | Qué muestra | Dónde |
 |---|---|---|
-| `'c'` | libmca, por ctypes | `mca_open()`, `MCA(...)` |
-| `'py'` | la homónima de la referencia en Python ([`ref_py/mca2.py`](../../software/API/ref_py/mca2.py)) | `mca_open(impl='py')` |
-| `'remoto'` | `h.call(nombre, …)`: la función entera viaja por la red (§8) | `MCARemote.connect()` |
+| [`clases_bloque`](figuras/clases_bloque.svg) | la forma de un bloque de libmca: el handle, `mca_bloque`, los códigos, el bus, la PL y la DDR | [`libmca.md`](libmca.md) §1 |
+| [`clases_libmca`](figuras/clases_libmca.svg) | los seis handles de C con sus operaciones, y el motor de los generadores | [`libmca.md`](libmca.md) §3 |
+| [`clases_lotes`](figuras/clases_lotes.svg) | los dos lazos por lote: sus structs, los handles que reciben, `Lector` y `LectorRing`, y el batch donde escriben | [`libmca.md`](libmca.md) §4 |
+| [`clases_binding`](figuras/clases_binding.svg) | el binding de Python: los handles de cada bloque, el despacho de `@_api`, la referencia y el shim | [`libmca.md`](libmca.md) §5 |
+| [`clases_red`](figuras/clases_red.svg) | `MCARemote`, `Channel` y `ServidorMCA` | §4 |
+| [`clases_fuentes`](figuras/clases_fuentes.svg) | la interfaz `EventSource`, por lote, y sus dos implementaciones | [`adquisicion_de_eventos.md`](adquisicion_de_eventos.md) §1 |
+| [`maquinas_estados`](figuras/maquinas_estados.svg) | una corrida del osciloscopio: el lazo del lector, y lo que hace `read_batch` con el ring y con la BRAM | [`adquisicion_de_eventos.md`](adquisicion_de_eventos.md) §2 |
+| [`corrida_mca`](figuras/corrida_mca.svg) | una corrida del MCA, lineal | [`adquisicion_de_eventos.md`](adquisicion_de_eventos.md) §2 |
+| [`hilos_captura`](figuras/hilos_captura.svg) | los hilos de la captura en el tiempo, con y sin el GIL | [`adquisicion_de_eventos.md`](adquisicion_de_eventos.md) §3 |
+| [`pool_batches`](figuras/pool_batches.svg) | los `EventBatch` que circulan entre el lector, las colas y el escritor | [`adquisicion_de_eventos.md`](adquisicion_de_eventos.md) §4 |
+| [`clases_sesion`](figuras/clases_sesion.svg) | `AcquisitionSession` y lo que compone | [`adquisicion_de_eventos.md`](adquisicion_de_eventos.md) §5 |
 
-- **`mca_open()` usa `$MCA_IMPL`** si está definido, y si no, C. Si libmca no
-  carga, cae a Python **y lo avisa**.
-- **El MCA1 se abre sólo por la referencia.** `mca_open(impl='py')` lee el
-  *magic* y, si es MCA1, usa [`ref_py/mca.py`](../../software/API/ref_py/mca.py),
-  que está congelada.
-- **La metadata de cada medición guarda `api_impl` y `libmca_version`**, así
-  que un espectro guardado dice con qué implementación se midió.
-- **El registro del decorador (`API_REGISTRADA`) es también la lista blanca de
-  la red** (§8).
-
-### 4.4 El disparo: `multitrigger_armar_mca`
-
-Sin el disparo del multitrigger el MCA2 no mide. Por eso armarlo es una función
-de la API ([`multitrigger.py`](../../software/API/multitrigger.py)), que
-recibe los dos handles: `multitrigger_armar_mca(osc, mtr, ch, L, G, thr,
-hyst)`. Hace la secuencia validada en placa por `test_mca2_placa.py`, escritura
-por escritura:
-
-1. la pendiente, en `MtRegion`;
-2. el shield;
-3. el arm con `we_keep`, **antes** de la máscara;
-4. la máscara;
-5. la comprobación de `we_keep` en `FLAGS`.
-
-Por red es la op `mca.disparo`.
-
-### 4.5 Lo que cuesta cruzar ctypes
-
-Lo que lee en bloque gana ×18 contra Python (§9.4). Lo que es un registro o
-unos pocos perdía, porque cada cruce por ctypes costaba unos 50 µs en el ARM de
-la placa. Medido aparte, ese tiempo se repartía así:
-
-- 4.8 µs una llamada vacía;
-- 18 µs con el puntero de salida y la conversión de argumentos;
-- el resto, Python del binding.
-
-Se achicó sin tocar la biblioteca:
-
-- **Sin `argtypes` donde es seguro.** Convertir `(void*, uint32_t*)` cuesta
-  10.7 µs con `argtypes` y 4.4 µs sin ellos. El binding llama a una copia de
-  cada función sin `argtypes` si todos sus parámetros son punteros o enteros de
-  32 b (`_libmca.version_rapida`, que lo comprueba contra lo declarado). Las
-  que reciben `int64` o `double` siguen con `argtypes`.
-- **Un `struct.Struct` por struct de C.** `counters`, `get_config` y
-  `configure` se convierten con un solo `unpack` o `pack`. El layout se
-  comprueba contra ctypes al importar.
-- **Menos capas de Python.** Un despacho genérico con `*args, **kw` cuesta
-  ~5 µs por llamada, contra ~2 µs con la firma exacta. Por eso `@_api` genera
-  una envoltura con la firma de cada función. Además, el contexto del error se
-  arma sólo si hay error, y `MCA.configure` pasa los argumentos posicionales en
-  vez de 32 kwargs por tres capas.
-
-Con eso, un get de un registro sigue siendo más lento que en Python (30 contra
-16 µs), porque Python lo lee con un `unpack_from` sobre el mmap sin cruzar a C.
-Desde un read-modify-write en adelante, C gana.
+Las convenciones de notación están en
+[`figuras/README.md`](figuras/README.md#lo-que-los-diagramas-de-clases-no-dibujan).
 
 ---
 
-## 5. Los otros handles: osciloscopio, multitrigger y TOP
+## 4. La red: `MCARemote` y la op `call`
 
-![las clases del osciloscopio, el multitrigger y la región de TOP|985](figuras/clases_scope.svg)
+![la red: MCARemote en la PC, que hereda de MCA, Channel con la trama, y ServidorMCA en la placa, que corre cada función de API_REGISTRADA sobre su handle](figuras/clases_red.svg)
 
-Estos tres bloques siguen en Python. Pasarlos a C son las fases siguientes de
-libmca (§12).
+*`MCARemote` es un handle del MCA (hereda de `MCA`) cuyas funciones corren del otro
+lado del socket: con `_via = 'remoto'`, el despacho de `@_api` manda cada función
+entera por la op `call`. Del otro lado, `ServidorMCA`, el único proceso sobre
+`/dev/mem`, la corre sobre su handle, bajo su lock. `MCA` y `API_REGISTRADA` están
+dibujados en la figura del binding.*
 
-**Por qué una clase.** El mapeo es estado: un `mmap`, un descriptor de archivo
-y la geometría que se lee al abrir (`n_buf`, `caps`). La clase es su dueña.
-Las cuatro tienen el mismo esqueleto: `open()` como `classmethod`, `close()`,
-`w32()` por slice y `r32()` por `unpack_from`. Las cuatro son *context
-managers*.
-
-**Por qué handle y funciones, y no sólo métodos.** Las funciones
-`osciloscope_*` y `multitrigger_*` son la superficie pública. Los métodos
-quedan para el acceso y lo que tiene lógica propia. Como las funciones entran
-al hardware sólo por `r32` y `w32`, se puede cambiar el handle sin tocarlas
-(§9.1).
-
-**Por qué una clase por región y no una `Placa` con todo.** Cada región es un
-slot distinto, con su propio *magic*, y **puede no estar** en el bitstream
-cargado. El servidor las abre por separado y sigue andando si falta alguna: sin
-el slot 6 desaparece la pestaña de Integración, pero el MCA funciona igual. Una
-clase única fallaría entera por la ausencia de una parte. Con libmca el MCA
-sigue la misma regla: su handle es aparte.
-
-Dos casos particulares:
-
-- **`Osciloscope` y `MultiTrigger` son regiones distintas**, el slot 1 y el 3, cada
-  una con su mapeo; `Osciloscope.mt` abre el segundo si hace falta. El porqué de
-  partirlos está en [`decisiones_del_refactor.md`](decisiones_del_refactor.md) §2.
-- **`MtRegion` es la región propia del multitrigger**, en el slot 3, con magic
-  `"MTRG"`. Maneja el disparo por pendiente, las máscaras OR, el shield y los
-  flags. `multitrigger_armar_mca` (§4.4) la usa entera. `MultiTrigger` es la otra
-  fachada de los mismos registros, y es la que usan las fuentes de eventos: difieren
-  en la firma (`set_or_mask(m0, m1)` contra `set_or_mask(ch, m)`).
-
----
-
-## 6. Las fuentes de eventos del osciloscopio: una interfaz sin clase base
-
-![la interfaz EventSource, quién llama cada método y las dos implementaciones sobre la placa](figuras/clases_fuentes.svg)
-
-**Por qué una interfaz.** Para poder cambiar **de dónde salen los eventos**
-—la BRAM del scope, el ring en DDR— tocando sólo esta capa. El lector y la
-sesión no saben qué fuente tienen: `RingSource` reemplazó a `BramSource` sin
-cambiar una línea del lector.
-
-**Por qué sin clase base.** Las implementaciones no comparten código:
-
-| Fuente | Cómo detecta un evento | Cómo lee la ventana |
-|---|---|---|
-| `BramSource` | polea `adc_we` hasta que la FSM congela el buffer | `rp_AcqGetDataPosV` de `librp`, un canal por llamada, y re-arma por software |
-| `RingSource` | prefetchea un lote de slots y valida el footer de cada uno | un reshape sobre memoria ya copiada; el hardware re-arma solo |
-
-No hay nada que heredar. El contrato está escrito en el docstring de
-[`sources.py`](../../software/API/osciloscope_store/sources.py), y cada clase
-lo cumple por su cuenta.
-
-**Dos consumidores, dos mitades del contrato.**
-
-- `AcquisitionSession` llama una vez a `arm()`, `close()` y `meta()`, y lee
-  `n_ch`, `samples` y `scalar_fields` para armar el pool.
-- `ReaderThread` llama en cada evento a `wait_event()`, `snapshot()`,
-  `read_into()` y `rearm()`, y mira `exhausted` si existe.
-
-Las decisiones que están dentro del contrato:
-
-- **`read_into()` escribe en el destino** que le pasan, en vez de devolver un
-  arreglo. Así no reserva memoria por evento, y la versión DDR es una copia
-  directa.
-- **`rearm()` es un método aparte** y no el final de `read_into()`, para que el
-  lector pueda re-armar también cuando descarta. Cuando estaba adentro, el camino
-  de descarte no re-armaba y se contaban eventos fantasma: 14 996 vistos contra
-  10 251 generados.
-- **`snapshot()` es aparte** porque en la BRAM cuesta una lectura más (2.3 µs)
-  y se puede apagar con `read_snap=False`.
-- **`exhausted` es opcional.** Sólo lo definen las fuentes finitas, para que el
-  lector distinga «todavía no llegó nada» de «no va a llegar nunca más».
-
-**Por qué reciben un `MultiTriggerScope`.** Las dos arman el trigger con el scope
-(`arm_for_adc_trigger()`, `disarm()`), y reciben la clase del shim porque son
-anteriores a la partición en `Osciloscope` y `MultiTrigger`. Migrarlas a
-`multitrigger_arm(osc, mt)` está pendiente. `BramSource` además polea y re-arma por
-las dos regiones: la FSM y `wp_trig` en el slot 1 (`sc`), las máscaras y el snapshot
-en el slot 3 (`sc.mt`).
-
-> ⚠️ **El precio del duck typing, con dos casos reales.** Nada verifica que una
-> fuente cumpla el contrato, y `RingSource` no lo cumple entero:
->
-> 1. **No tiene `meta()`**, así que `AcquisitionSession(RingSource(...))` falla
->    con `AttributeError` al construirse.
-> 2. **El orden `snapshot()` antes de `read_into()` es parte implícita del
->    contrato**, y `RingSource` toma el snapshot recién en `read_into()`. Con el
->    lector real, la columna `snap` queda corrida un evento.
->
-> Los tests de `RingSource` llaman a los métodos en otro orden y sin sesión, por
-> eso no lo ven. El remedio es declarar la interfaz como `typing.Protocol` y
-> agregar un test que pase cada fuente por el `ReaderThread` y la
-> `AcquisitionSession` reales.
-
----
-
-## 7. La sesión de adquisición del osciloscopio: una clase que compone
-
-![AcquisitionSession, los dos hilos, el pool de EventBatch y los annotators, con la fuente como interfaz](figuras/clases_sesion.svg)
-
-**La sesión es sólo del osciloscopio.** Guarda una forma de onda por evento.
-El MCA no pasa por acá: histogramea en la FPGA y guarda **un espectro por
-medición**, con su metadata (configuración, contadores, geometría, sello de
-tiempo e implementación, `mca_get_metadata`), sin nada por evento ni
-annotators.
-
-La figura muestra la fuente como lo que la sesión ve de ella: la interfaz de
-§6. Cuál es la fuente no le importa a ninguna clase de este dibujo.
-
-**`AcquisitionSession` es dueña del ciclo de vida de una corrida.** Recibe la
-fuente y los annotators, arma el esquema (`merge_fields()`), dimensiona el pool
-a partir de un presupuesto de RAM (`batches_for_budget()`) y crea las colas y
-los dos hilos. Lo importante es el **orden**, y por eso vive en un solo lugar:
-
-```
-start():  annotators → source.arm() → escritor → lector
-stop():   lector → centinela → escritor → annotators → source.close() → run_summary.json
-```
-
-Compone y no hereda porque **no es un hilo**: orquesta dos. Es *context
-manager* para que el `stop()` ocurra aunque la corrida termine con una
-excepción.
-
-**Qué es un hilo y qué no.** En la figura, el color naranja quiere decir que la
-clase **es** un hilo: hereda de `threading.Thread`, y por eso lleva `(Thread)`
-en el nombre. Son sólo dos:
-
-- **`ReaderThread`** (`osc-reader`) espera el evento, lo lee y re-arma.
-- **`ChunkWriter`** (`osc-writer`) escribe los batches llenos.
-
-Las demás clases corren en el hilo que las llama. La sesión, en el del
-programa. Los annotators, en `sample_into()`, dentro del lazo del lector.
-`CachedAnnotator` no es un hilo, pero lanza uno propio para `poll()`: es el
-atributo `_thread`.
-
-**Por qué dos hilos y no uno.** El lector no puede esperar al disco: si lo
-hiciera, el tiempo muerto pasaría a depender de la microSD y dejaría de ser una
-constante del hardware.
-
-**`EventBatch` es un bloque preasignado**, no un evento. Los arreglos se crean
-una vez y se reciclan entre las dos colas; el porqué del pool está en
-[`arquitectura_software.md`](arquitectura_software.md) §2. No tiene
-`__slots__` porque **las columnas se deciden en runtime**: las que declare la
-fuente más las de cada annotator.
-
-**Qué guarda cada evento.** Un evento es **un disparo**. La máscara OR del
-multitrigger decide qué fuentes pueden darlo: por defecto, el flanco positivo
-de IN1 (`BIT_ADC_P0`). Cualquiera de las fuentes de la máscara arranca la
-captura; no hace falta que disparen todos los canales.
-
-Con ese disparo se guarda la ventana de los `n_ch` canales en las mismas
-muestras: `wave[i]` es `[n_ch, samples]`, y la columna `snap` dice qué fuente
-disparó. El arreglo es denso, sin huecos. Si IN2 no tiene señal, su fila es la
-línea de base con su ruido. En la práctica:
-
-- **Con un solo detector se usa `--channels 1`** (`n_ch=1`), en `run_acquire.py`
-  y `run_poisson_loss.py`: lee y guarda sólo IN1.
-- **`n_ch = 2` sigue siendo el default** de `BramSource`, `RingSource` y de los
-  dos scripts. Con un default de 1, un segundo canal conectado se perdería sin
-  aviso.
-- **Cuánto ahorra con la BRAM.** `BramSource` arma los dos canales con la misma
-  máscara y lee los dos en el puntero de disparo del canal 0. El segundo canal
-  cuesta unos 86 µs de los 252.7 µs del ciclo medido: una llamada a
-  `rp_AcqGetDataPosV` y la copia al batch
-  ([`arquitectura_adquisicion_software.md`](arquitectura_adquisicion_software.md)
-  Parte 3). El techo pasaría de 3.7 a unos 6 kev/s; es una cuenta sobre ese
-  desglose, no una medición. En disco, sin comprimir y con 32 muestras, un evento
-  ocupa 90 B en vez de 154 B.
-- **El ring escribe siempre los `N_CH` canales** intercalados en cada slot, por
-  decisión del RTL ([`../event_ring/diseno_y_register_map.md`](../event_ring/diseno_y_register_map.md)).
-  Por eso `RingSource` sigue con `n_ch = 2` y `--channels` sólo llega a la BRAM.
-- **Hay un solo stream de eventos.** El multitrigger junta los disparos de los
-  canales en un OR, y ese evento va a la captura de todos
-  ([`mt_event_logic.v`](../../modulos/mt/rtl/mt_event_logic.v)). Un pulso en IN1
-  congela también IN2. Dos detectores independientes compartirían el tiempo
-  muerto, y `n_ch` no cambia eso: separarlos pide tocar el RTL.
-- **El canal sin señal sí sirvió una vez.** En la campaña del 2026-05-28, IN2
-  en vacío dio 3.6 millones de muestras de línea de base pura. Con ellas,
-  `ruido.py` midió el espectro del ruido y el crosstalk entre canales, en
-  −56.5 dB ([`../ruido_del_sistema.md`](../ruido_del_sistema.md)).
-
-**Los annotators son un concepto aparte de las fuentes.** Un GPS no define
-cuándo ocurre un evento: lo *anota*. Acá **sí hay clase base**, porque hay
-código que compartir:
-
-- `Annotator` trae `start()`, `stop()` y `meta()` por defecto.
-- `CachedAnnotator` trae el hilo, la caché y el campo `<prefijo>_age_ns` que
-  todo annotator lento necesita.
-
-La regla que no se negocia es que `sample_into()` corre en el lazo del lector y
-**no puede hacer I/O**: sólo copia un valor ya cacheado.
-
----
-
-## 8. La red: `MCARemote` y la op `call`
-
-Las clases están en la figura de §4: `MCARemote` a la izquierda, arriba, y
-`ServidorMCA` debajo.
-
-### 8.1 El problema y dónde se corta
+### 4.1 El problema y dónde se corta
 
 Dos restricciones tiran en sentidos opuestos:
 
@@ -526,7 +175,7 @@ hist = mca_read_histogram(h)   # una, con el espectro como bloque binario
 Como el cliente usa las mismas funciones de guardado, **un archivo escrito
 desde la GUI es indistinguible de uno escrito en la placa**.
 
-### 8.2 Cómo funciona
+### 4.2 Cómo funciona
 
 - **La lista blanca es el registro de `@_api`.** El servidor sólo corre
   funciones de `API.mca` registradas con `remoto=True`. Una función nueva está
@@ -549,7 +198,7 @@ desde la GUI es indistinguible de uno escrito en la placa**.
   Las ops del MCA de antes de `call` (`config.*`, `ctrl.*`, `read.*`) siguen,
   porque las usa la GUI.
 
-### 8.3 Lo que cuesta
+### 4.3 Lo que cuesta
 
 `make bench-api-red` mide ~0.6 ms por ida y vuelta desde la PC:
 
@@ -560,9 +209,9 @@ desde la GUI es indistinguible de uno escrito en la placa**.
 
 ---
 
-## 9. Comprobación: los sustitutos y las pruebas
+## 5. Comprobación: los sustitutos y las pruebas
 
-### 9.1 Los sustitutos sin placa
+### 5.1 Los sustitutos sin placa
 
 Sirven para **desarrollar y probar el servidor, la GUI y el pipeline sin
 placa** (`make app-demo`, la suite offline). No son parte de la API que usa un
@@ -570,11 +219,11 @@ programa.
 
 | Sustituto | Sustituye a | Cómo | Dónde |
 |---|---|---|---|
-| `FakeMCA` | `MCA` | hereda de `MCA` y entrega un **modelo del mapa de registros** del MCA2 como callbacks de C (el backend `bus_callback` de §3.2): la lógica que corre contra el simulador es la misma de C que corre en la placa | [`mca_remote.py`](../../software/API/mca_remote.py) |
-| `FakeOsc` | `Osciloscope` | un dict de registros más una captura simulada; no hereda | ídem |
-| `FakeMultiTrigger` | `MultiTrigger` | un dict de registros; no hereda | ídem |
-| `FakeMtRegion` | `MtRegion` | hereda y redefine el acceso sobre un dict | ídem |
-| `FakeSource` | una fuente de §6 | un reloj nominal y un pulso con ruido; cumple la interfaz sin heredar | [`sources.py`](../../software/API/osciloscope_store/sources.py) |
+| `FakeMCA` | `MCA` | hereda de `MCA` y entrega un **modelo del mapa de registros** del MCA2 como callbacks de C (el backend `bus_callback` de [`libmca.md`](libmca.md) §2): la lógica que corre contra el simulador es la misma de C que corre en la placa | [`mca_remote.py`](../../software/API/mca_remote.py) |
+| `FakeOsc` | `Osciloscope` | hereda y entrega un dict de registros como callbacks de C, con la geometría en el mapa canónico. La captura es simulada | ídem |
+| `FakeMultiTrigger` | `MultiTrigger` | hereda y entrega un dict de registros como callbacks de C: la lógica es la de libmca | ídem |
+| `FakeMtRegion` | `MtRegion` | ídem, con el `we_keep` que sale del `FakeOsc` | ídem |
+| `FakeSource` | una fuente ([`adquisicion_de_eventos.md`](adquisicion_de_eventos.md) §1) | un reloj nominal y un pulso con ruido; cumple la interfaz sin heredar | [`sources.py`](../../software/API/osciloscope_store/sources.py) |
 
 **Por qué el corte va en el acceso.** `FakeMCA` simula el mapa de registros y
 no una API paralela:
@@ -588,15 +237,15 @@ no una API paralela:
   real y en `--fake`. Lo único que cambia es qué objeto es `self.h`.
 
 **El precio de un sustituto parcial.** La captura de formas de onda del
-servidor real no pasa por `r32`: usa `librp` (`osciloscope_read_window`), que un
-objeto simulado no puede imitar. Por eso el servidor tiene una rama
-`if self.fake:` en la captura
-([`mca_server.py:599`](../../software/app/mca_server.py#L599)): **el código que
+servidor real lee la BRAM por libmca, con la calibración de la EEPROM
+(`osciloscope_read_window`), y `FakeOsc` simula la captura en vez de modelar la BRAM.
+Por eso el servidor tiene una rama `if self.fake:` en la captura
+([`mca_server.py:601`](../../software/app/mca_server.py#L601)): **el código que
 lo usa tiene que saber que existe**. Las demás ramas `if self.fake:` están
 donde no hay nada que simular: abrir los handles, el slot 6, cargar un
 bitstream y leer el estado del FPGA.
 
-### 9.2 Las pruebas que atan C con Python
+### 5.2 Las pruebas que atan C con Python
 
 - **Equivalencia**
   ([`test_libmca_equivalencia.py`](../../software/API/tests/test_libmca_equivalencia.py)).
@@ -626,8 +275,58 @@ bitstream y leer el estado del FPGA.
   anda con la carga de libmca saboteada.
 - **El disparo** (`test_disparo_mca.py`). La traza de
   `multitrigger_armar_mca` es la de `test_mca2_placa.py`, en el mismo orden.
+- **La región de TOP**
+  ([`test_libmca_integration.py`](../../software/API/tests/test_libmca_integration.py)).
+  La misma equivalencia, contra `ref_py/integration.py`. Además compara el mapa de
+  C con los offsets que decodifica `integration_cfg.sv`, así que no alcanza con que
+  C y Python coincidan entre sí. Las 69 mutaciones puestas a propósito en C y en el
+  binding hacen fallar algún test; tres no lo hacían en la primera pasada, y por
+  ellas se agregaron tres casos.
+- **El multitrigger**
+  ([`test_libmca_multitrigger.py`](../../software/API/tests/test_libmca_multitrigger.py)).
+  La misma equivalencia, contra `ref_py/multitrigger2.py`, con las dos fachadas y las
+  secuencias que cruzan con el osciloscopio lado a lado. El modelo retiene lo que
+  retiene `mt_cfg.sv`, y el mapa se compara con lo que ese RTL decodifica.
+  `test_disparo_mca.py` sigue fijando el armado contra la secuencia validada en la
+  placa, ahora corriendo sobre C.
+- **El osciloscopio**
+  ([`test_libmca_osciloscope.py`](../../software/API/tests/test_libmca_osciloscope.py)).
+  La misma equivalencia, contra `ref_py/osciloscope2.py`, con todas las cuentas de volts
+  (empates, y valores desde 2⁶³) y las composiciones lado a lado. El modelo retiene lo
+  que retiene `osc_cfg.sv`. La BRAM no tiene referencia: se compara contra un modelo de
+  la apertura con el alias del RTL, y contra la cuenta de `bench_reader_budget.py`. Las
+  164 mutaciones puestas a propósito hacen fallar algún test; diez no lo hacían en la
+  primera pasada: siete eran huecos de los tests, dos eran cosas que el binding le
+  tapaba a C, y una era equivalente y se cambió por otra.
+- **La captura y el lazo por evento** (Parte 6). No tienen referencia en la PC: la de
+  Python era `rp`. La calibración de C se compara contra una tabla de la cuenta de
+  librp, sacada de compilar una vez `cmn_CalibCntsSigned` de rp-api 2.00-35 sobre las
+  16384 cuentas con diez calibraciones
+  ([`datos_ref/generar_calib_rp.py`](../../software/API/tests/datos_ref/generar_calib_rp.py);
+  el repo guarda la tabla, no rp-api). Las ventanas, `read_buffers` y las esperas se
+  comparan contra esa cuenta y los bits que leía librp. El lazo corre en
+  [`test_bram_source.py`](../../software/API/tests/test_bram_source.py) contra un modelo
+  de `rp_bram_sm` y `mt_trig_src` por el backend de callbacks: los re-armados, el
+  snapshot del slot 3, las ventanas que dan la vuelta, los descartes y el `gap`, el
+  plazo, el modo continuo y la sesión de punta a punta. El lector por lote se prueba
+  aparte con una fuente guionada. Las 37 mutaciones puestas a propósito (en la
+  calibración, el lazo, el lector, los annotators y el binding) hacen fallar algún
+  test, entre ellas la del plan: un desplazamiento que redondee hacia abajo. Dos no lo
+  hacían en la primera pasada, y eran huecos de los tests.
+- **El event_ring** (Parte 7). Tampoco tiene referencia viva, y el bitstream del ring
+  (2026-11-08) no se probó en la placa. [`test_ring_source.py`](../../software/API/tests/test_ring_source.py) corre el C
+  contra un modelo de `event_ring_top` (la geometría que sólo se toma parada, los
+  créditos, `DROP_FULL`, el slot con su footer) por los dos backends de callbacks: el
+  bus y `Mem.sobre`, que C lee en el lugar. Y contra dos referencias de afuera: el
+  volcado de DDR del RTL (`ring_dump.hex`, de `tb_event_ring_top`) leído por C contra
+  `decode_slot`, y el camino de mmap con ficheros comunes. Las 15 mutaciones puestas a
+  propósito en `osciloscope_ring.c` (el footer sin el `seq`, no borrar los footers, el
+  crédito sólo al final, el bloque que da la vuelta, configurar sin esperar el
+  drenaje, el `snap` del slot anterior, entre otras) hacen fallar algún test.
+  [`test_bus.c`](../../software/libmca/tests/test_bus.c) prueba `mca_mem` con sus
+  cuatro backends.
 
-### 9.3 Lo que dio la placa
+### 5.3 Lo que dio la placa
 
 Sobre el MCA2, el 2026-11-02, con el disparo armado por la API sobre el ruido
 del ADC (umbral de pendiente 60):
@@ -652,63 +351,81 @@ con 3.45 M eventos en el histograma.
 **Algo que encontró la placa.** El MCA2 cargado es el de la fase A, **sin el
 trapecio**, y en ese bitstream los registros del trapecio leen cero. La
 relectura de `configure` incluía `trap_k`, así que fallaba siempre. Por eso
-ahora relee el trapecio sólo con el CAPS bit 2 (§3.3).
+ahora relee el trapecio sólo con el CAPS bit 2 ([`libmca.md`](libmca.md) §3.1).
 
-### 9.4 Rendimiento
+**TOP, multitrigger y osciloscopio en C, el 2026-11-07** (bitstream `c1be6d6d`, con el
+anillo del osciloscopio de 8192 muestras, y libmca 0.6.0 compilada en la PC):
 
-Los bench **miden, no aprueban**: no tienen asserts. Son tres:
+- **Las baterías de placa pasaron:** `test_integration_hw.py` 27/27,
+  `test_multitrigger_hw.py` 28/28 (con el disparo del MCA armado y desarmado por la
+  API), `test_osciloscope_hw.py` 53/53 (con la BRAM de un buffer congelado igual en C
+  que palabra por palabra en Python, también dando la vuelta al anillo) y
+  `test_mca_hw.py` 37/37 con la entrada al aire.
+- **Las equivalencias corren en el ARM:** las de los cuatro bloques, `test_bram_source.py`
+  y `test_compat_api.py` dan 2950 pasados y 21 salteados (el RTL no está en la placa).
+- **`BramSource` arreglado:** con el código viejo `run_acquire.py` leía un evento y
+  quedaba ciego, con 1 y con 2 canales; con el nuevo lee ~2950 de 3000 ev/s, con `snap`
+  = `BIT_ADC_P0`. Con Poisson, el lector sigue el modelo de τ = 252.7 µs.
+- **El banco con Poisson** (`test_banco_poisson.py`, armado por la API) repite la
+  corrida del 2026-11-05: la mayor diferencia en una fracción de formas es 0.0008.
+- **El servidor** con `--impl c` y `--impl py` contesta igual las operaciones de las
+  pestañas de Integración, OSC y Multitrigger.
+- **Lo que cuesta:** C puro hace un get en ~1.4 µs, pero los bindings de TOP, multitrigger
+  y osciloscopio cuestan 3 a 5 veces lo que la referencia en un get de un registro
+  (`osc.get_decim` 64.5 contra 11.8 µs). En bloque gana C: `osc.read_bram` de 32
+  muestras, 196 contra 402 µs. El lazo por evento no lo paga: polea sobre la región
+  mapeada. `bench_reader_c.c` da 19.29 µs por evento con el mapa nuevo.
+  Casi todo el costo de un get es cruzar a C, no la lectura. En la PC, de los 0.83 µs de
+  `osciloscope_get_decim`, la llamada de ctypes es 0.33; el resto es Python del binding:
+  `_i64(ch)`, el puntero de salida, `_cargar()` y el despacho. La receta del MCA ([`libmca.md`](libmca.md) §6.1)
+  lo baja a 0.56 µs, ×1.5, igual que bajó el MCA de ~50 a 30 µs en la placa. Ni así
+  alcanza a la referencia, que lee el mmap sin cruzar.
+- **LH5 en la placa** (`h5py` 3.6.0 de apt, HDF5 1.10.7): ver §8 y
+  [`arquitectura_adquisicion_software.md`](arquitectura_adquisicion_software.md). Escribe
+  sin quedarse atrás, pero frena al lector más que `.npz`, y a ρ = 2 pierde unos 2 pp más.
+  `.npz` sigue de default.
 
-- [`bench/bench_impl.py`](../../software/API/bench/bench_impl.py) mide cada
-  operación en tres columnas: `py` (la referencia), `c` (por ctypes) y
-  `c_puro` (sin intérprete,
-  [`tests/bench_libmca.c`](../../software/libmca/tests/bench_libmca.c)).
-- [`bench/comparar_bench.py`](../../software/API/bench/comparar_bench.py)
-  compara corridas de distintas fechas.
-- `testbench_mca.py --impl {c,py}` guarda en cada `.npz` la implementación y
-  los tiempos de lectura.
+**El lazo por evento en C (Parte 6), el 2026-11-08** (el mismo bitstream, libmca 0.8.0
+compilada en la PC; datos en `software/datos/placa_parte6_20261108/`, ignorado por git):
 
-**Sobre el MCA1, después de los cambios de §4.5**
-(`datos/bench_impl_20261030_112657/`). Mediana en µs; la columna «`c` antes»
-es la primera corrida, del mismo día:
+- **El mismo buffer congelado, por `rp` y por C** (`make verificar-placa-buffer`): 11/11.
+  Las 8192 muestras de los dos canales dan la misma cuenta, y también la ventana del
+  disparo, una que da la vuelta al anillo y `read_buffers` contra
+  `rp_AcqGetOldestDataV`, en float y exacto. La calibración de la EEPROM: canal 0
+  `gain` 34216 y `offset` −64, canal 1 34327 y −100, con `base` 2¹⁵.
+- **El tiempo muerto del lazo**, con disparos por software: mediana 18.2 µs, p99 19.2,
+  máximo 45.9, contra 252.7 µs del lazo de Python.
+- **`run_poisson_loss.py`, a las tasas del 2026-11-07** (ρ = 0.1/0.5/1/2 con τ =
+  252.7 µs, de 0.4 a 7.9 kHz): se pierde 1.7/7.4/9.2/15.6 % con `.npz` y
+  1.6/7.2/9.4/15.6 % con LH5, contra 30/48/67 % del lazo de Python. Casi todo es el
+  apilamiento del estímulo (6 a 8 % de los pulsos). LH5 y `.npz` ya no se distinguen,
+  y no hubo descartes por falta de batch.
+- **El techo**, con τ = 20 µs (5 a 100 kHz, pulsos de 2 µs): la pérdida sigue a Poisson
+  con τ = 20 µs a menos de 2.3 pp, y se guardan hasta 34 kev/s. Desde 25 kev/s el
+  límite es el escritor: a 100 kHz descartó por falta de batch 41.7 k eventos en 20 s
+  con `.npz` y 57.5 k con LH5, con la pérdida total a 1 pp.
+- **`e2e_espectro.py`**: el MCA y el pipeline comparten el disparo con la BRAM en
+  single-shot, que era lo que faltaba confirmar: 20068 eventos en el pipeline y 20069
+  en el MCA, y la amplitud de software difiere +0.22 % de la del MCA. El espectro de
+  software sale ancho (23 % de FWHM, contra 0.29 % del MCA) por cómo estima la base:
+  `pre` = 32 no cubre la subida de 47 muestras, y el disparo, que compara la cuenta
+  cruda, cruza unas muestras después que la traza calibrada. Los picos de las trazas
+  varían ±0.3 %.
+- **El servidor** de `make app-servidor-remoto` captura sin `rp`: 24 ventanas en 24
+  posiciones del anillo, 16 de ellas dando la vuelta, sin errores.
+- **Lo que deja `rp_Init()`:** los registros del ecualizador tienen los coeficientes de
+  LV (`aa` 0x7D93, `bb` 0x437C7, `kk` 0xD9999A, `pp` 0x2666), y el reset del RTL es otro
+  (0, 0, 0xFFFFFF, 0). No cambia las muestras: el bitstream del MCA se arma con
+  `EN_FILT = 0` y el ecualizador no está en el camino. Queda por compatibilidad ([`libmca.md`](libmca.md) §3.4).
+- **En el ARM**, `test_ring_source.py`, `test_bram_source.py` y
+  `test_libmca_osciloscope.py`: 1872 pasados, 16 salteados (el RTL no está en la placa).
 
-| Operación | `py` | `c` antes | `c` ahora | `c_puro` | py / c |
-|---|---:|---:|---:|---:|---:|
-| `r32` | 10.6 | 56.8 | 28.7 | 1.5 | 0.37 |
-| `get_thr` | 15.8 | 63.7 | 29.9 | 1.4 | 0.53 |
-| `set_thr` | 27.6 | 52.1 | 24.1 | 1.7 | 1.14 |
-| `identify` | 75.6 | 77.4 | 52.2 | 3.2 | 1.45 |
-| `counters` | 271 | 215 | 113 | 10.6 | 2.4 |
-| `get_config` | 343 | 193 | 101 | 10.6 | 3.4 |
-| `configure` | 253 | 280 | 84 | 9.4 | 3.0 |
-| `spectrum` (8192 canales) | 34 429 | 1 880 | 1 848 | 1 700 | 18.6 |
-
-En la primera corrida, `map2d` (128 × 64) dio ×18.1 (34 278 contra 1 897 µs)
-y `acquire(0)` ×16.7 (68 936 contra 4 122 µs).
-
-**Sobre el MCA2** (`datos/bench_impl_20261102_165500/`): se repiten los
-factores. El espectro da ×18, `configure` ×3.3 y `counters` ×2.9. `clear`
-tardaba 176 µs en C por el mínimo de `nanosleep`; ahora espera sin dormir
-durante el primer milisegundo y quedó en 95.5 µs.
-
-**Sin el bus: `make bench-api-shm-remoto`.** Corre el mismo bench con el MCA en
-un fichero de `/dev/shm` (`bench_impl.py --shm`). `py` lo lee por mmap y `c`
-por el backend devmem, como en la PL. No toca la PL, así que sirve con
-cualquier bitstream cargado, y es el que hay que correr al tocar `API/mca.py` o
-`API/_libmca.py`. La primera corrida (`datos/bench_shm_20261030_112615/`)
-separa de dónde sale cada tiempo:
-
-- **En Python, el espectro tarda lo mismo sin bus que con bus** (34.2 ms
-  contra 34.4 ms): todo ese tiempo es intérprete.
-- **En C, baja de 1.85 ms a 0.21 ms.** Los 1.64 ms de diferencia son el bus:
-  0.20 µs por palabra, el costo de cruzar al reloj de la PL
-  ([`../TOP/bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) §10).
-  A partir de acá, acelerar el espectro es cosa del hardware, no del software.
-
-Por red, los tiempos están en §8.3.
+El rendimiento de C contra la referencia (los bench) está en [`libmca.md`](libmca.md)
+§6.2.
 
 ---
 
-## 10. Las simulaciones Monte Carlo
+## 6. Las simulaciones Monte Carlo
 
 **Código:** [`software/monte-carlo/`](../../software/monte-carlo/) · `make montecarlo` (todas, ~15 min) · `make verificar-montecarlo` (los tests del motor)
 
@@ -768,9 +485,9 @@ con ese bitstream, y repetirlas sobre el MCA2 no las explicaría. `montecarlo.py
 
 ---
 
-## 11. Herencia, duck typing y shims
+## 7. Herencia, duck typing y shims
 
-### 11.1 Duck typing
+### 7.1 Duck typing
 
 > *«Si camina como un pato y hace cuac como un pato, es un pato.»*
 
@@ -779,11 +496,13 @@ métodos**. Si el objeto los tiene, funciona; si no, falla recién en ese moment
 con `AttributeError`.
 
 ```python
-# API/multitrigger.py: sirve cualquier mt que tenga r32()
-def multitrigger_get_status(mt):
-    crudo = mt.r32(R_TRIG_SNAP)
-    runtime = mt.r32(R_SHIELD_RUN)
-    return {'snapshot': crudo, 'flags': mt.r32(R_FLAGS), …}
+# API/multitrigger.py: sirve cualquier osc que tenga w32(), y cualquier mtr con
+# estos métodos: el real, `FakeOsc`, o el de la referencia
+def multitrigger_desarmar_mca(osc, mtr, ch=0):
+    mtr.set_or_mask(ch, 0)
+    mtr.disable_slope(ch)
+    …
+    osc.w32(0x000, 0)
 ```
 
 En Java o C++ habría que declarar una interfaz y que cada clase dijera que la
@@ -792,20 +511,21 @@ implementa. En Python no hace falta, y este árbol lo usa en tres lugares:
 | Dónde | Qué objetos son intercambiables |
 |---|---|
 | el `h` de las funciones `mca_*` | `MCA`, `MCARemote` y `FakeMCA`, que además heredan de `MCA` |
-| el `osc` y el `mt` de las funciones `osciloscope_*` y `multitrigger_*` | los reales y sus sustitutos, que no heredan de nada |
+| el `osc` de las secuencias `multitrigger_*` | cualquiera con `w32` y `r32`: el real, `FakeOsc` o el de la referencia |
 | la fuente de `AcquisitionSession` y `ReaderThread` | `BramSource`, `RingSource` y `FakeSource` |
 
-En C, el pato es la tabla `vt` del bus (§3.2): cualquier backend que la llene
+En C, el pato es la tabla `vt` del bus ([`libmca.md`](libmca.md) §2): cualquier backend que la llene
 sirve.
 
 - **La ventaja:** no hace falta una jerarquía para sustituir, y un sustituto es
   trivial de escribir.
 - **El costo:** nada verifica el contrato hasta que se llama el método que
-  falta. Es exactamente lo que le pasa a `RingSource.meta()` (§6).
+  falta. Es lo que le pasaba a `RingSource.meta()` hasta la Parte 7
+  ([`adquisicion_de_eventos.md`](adquisicion_de_eventos.md) §1).
   `typing.Protocol` permite declarar el contrato y chequearlo sin obligar a
   heredar.
 
-### 11.2 Shims
+### 7.2 Shims
 
 Un shim es una **capa delgada que sólo existe para que los nombres viejos sigan
 funcionando** después de mover el código. No tiene comportamiento propio:
@@ -828,7 +548,7 @@ El árbol usa tres formas, de la más simple a la más elaborada:
 
 El paquete `mca/` es un nombre viejo. Que `from mca import AcquisitionSession`
 funcione no quiere decir que la sesión sea del MCA: es la del osciloscopio
-(§7).
+([`adquisicion_de_eventos.md`](adquisicion_de_eventos.md)).
 
 Python tiene además dos mecanismos que el árbol **no** usa:
 
@@ -848,22 +568,20 @@ cosas distintas, porque tienen comportamiento propio:
 | `MultiTriggerScope` | **shim** | la vieja clase única del scope | nada: delega |
 | `MCARemote` | **proxy remoto** | `MCA` | dónde corre: cada función, en la placa |
 | `ref_py.mca2.MCA` | **implementación de referencia** | `MCA` | el lenguaje: la misma lógica, sin C |
-| `FakeMCA`, `FakeOsc`, `FakeMultiTrigger`, `FakeMtRegion`, `FakeSource` | **dobles de prueba** (*fakes*, §9.1) | `MCA`, `Osciloscope`, `MultiTrigger`, `MtRegion`, `EventSource` | el comportamiento: simulan el hardware |
+| `FakeMCA`, `FakeOsc`, `FakeMultiTrigger`, `FakeMtRegion`, `FakeSource` | **dobles de prueba** (*fakes*, §5.1) | `MCA`, `Osciloscope`, `MultiTrigger`, `MtRegion`, `EventSource` | el comportamiento: simulan el hardware |
 
 ---
 
-## 12. Pendientes que el diseño deja a la vista
+## 8. Pendientes que el diseño deja a la vista
 
 | Pendiente | Dónde | Arreglo |
 |---|---|---|
-| el osciloscopio, el multitrigger y la región de TOP siguen en Python | [`osciloscope.py`](../../software/API/osciloscope.py), [`multitrigger.py`](../../software/API/multitrigger.py), [`integration.py`](../../software/API/integration.py) | las fases 3 y 4 de libmca; después, el lazo por evento |
+| los bindings de TOP, multitrigger y osciloscopio cuestan 3 a 5 veces la referencia por llamada en la placa (§5.3) | [`integration.py`](../../software/API/integration.py), [`multitrigger.py`](../../software/API/multitrigger.py), [`osciloscope.py`](../../software/API/osciloscope.py) | lo que ya tiene el binding del MCA ([`libmca.md`](libmca.md) §6.1): copias sin `argtypes`, structs reusados, y el puntero de un arreglo sin `data_as`. Da ×1.5 (prototipo en la PC), no la paridad. No es urgente: el lazo por evento no usa estos gets, y desde la Parte 6 cruza a C una vez por lote |
 | `ref_py/mca2.py` todavía no está congelada | [`ref_py/mca2.py`](../../software/API/ref_py/mca2.py) | congelarla al cerrar el port, como `ref_py/mca.py` |
-| `RingSource` no tiene `meta()` | [`osciloscope_ring.py`](../../software/API/osciloscope_ring.py) | agregarlo, con la misma forma que el de `BramSource` |
-| `snap` corrido un evento con `RingSource` | ídem, `snapshot()` | leer el snapshot de la cabecera del slot actual, no del último leído |
+| el event_ring en C (Parte 7) pasa `make verificar-placa-ring` con los bitstreams del 2026-11-09 (disparos por software), pero no se midió con tasa real | [`osciloscope_ring.c`](../../software/libmca/src/osciloscope_ring.c), `RingSource` | la tasa real con `run_poisson_loss.py --fuente ring` o con el generador del ring, y medir cómo copiar desde la DDR (hoy `memcpy`) |
 | las fuentes dependen del shim | `BramSource`, `RingSource` | recibir `osc` y `mt` y armar con `multitrigger_arm()` |
-| `BramSource` pasó al slot 3 por el RTL y un modelo, sin correr en la placa | [`sources.py`](../../software/API/osciloscope_store/sources.py), [`test_bram_source.py`](../../software/API/tests/test_bram_source.py) | `run_acquire.py` en la placa, con `--channels 1` y `2`: más de un evento y `snap` distinto de 0 |
 | el contrato de `EventSource` no se verifica | `sources.py` | un `typing.Protocol` y un test con el lector y la sesión reales |
-| las campañas de caracterización están portadas al MCA2, pero sólo probadas contra el simulado | `campanas/testbench_mca.py`, `e2e_espectro.py` | correrlas en la placa: `single_peak`, `sweep_rate`, `test_pulse_pair`, `sweep_threshold` y `e2e_espectro` (que el disparo llegue al MCA con la BRAM en single-shot, `--pre-dly`) |
+| las campañas de caracterización están portadas al MCA2, pero sólo probadas contra el simulado. `e2e_espectro.py` ya corrió en la placa (§5.3): el disparo compartido llega al MCA; su espectro de software sale ancho porque `pre` = 32 no cubre la subida | `campanas/testbench_mca.py`, `e2e_espectro.py` | correr en la placa `single_peak`, `sweep_rate`, `test_pulse_pair` y `sweep_threshold`; en `e2e_espectro`, `--pre` de 64 o la base del `min` |
 | la GUI guarda N42.42 sin calibrar y sin detector | `panel_espectro.py` | pedir la calibración y el detector al guardar; desde Python ya se pueden pasar |
 | `StartDateTime` del N42.42 sale del reloj de la placa cuando el `t_wall` lo arma el servidor | `app/mca_server.py`, `read.metadata` | poner la hora en la placa, o que el cliente pase la suya |
 | el banco y el disparo con polo-cero no se pueden usar desde la GUI | `mca.disparo`, `panel_espectro.py`, `panel_config_mca.py` | después de la placa: `k`, `m`, `sh` y el umbral por red, armar `pz` desde el Espectro, y las formas y sus umbrales en la pestaña MCA |
@@ -874,9 +592,10 @@ cosas distintas, porque tienen comportamiento propio:
 
 ## Ver también
 
+- [`libmca.md`](libmca.md): la biblioteca en C y su binding
+- [`adquisicion_de_eventos.md`](adquisicion_de_eventos.md): las fuentes, los hilos, el pool y la sesión
 - [`arquitectura_software.md`](arquitectura_software.md): los niveles, los hilos, el filesystem
 - [`decisiones_del_refactor.md`](decisiones_del_refactor.md): por qué los nombres y los ficheros quedaron así
 - [`compatibilidad_y_migracion.md`](compatibilidad_y_migracion.md): los shims y cómo retirarlos
 - [`../APP/flujo_de_datos.md`](../APP/flujo_de_datos.md): el servidor, el cliente y la red
-- [`../../software/libmca/README.md`](../../software/libmca/README.md): compilar e instalar libmca
 - [`figuras/README.md`](figuras/README.md): cómo regenerar los diagramas

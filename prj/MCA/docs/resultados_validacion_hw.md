@@ -42,7 +42,7 @@ del 2026-08-11 por la noche).
 | Placa | Red Pitaya STEMlab 125-14, `10.73.28.27` |
 | Bitstream | `mca_red_pitaya.bit.bin` (top `mca_red_pitaya_top`, slot 7) |
 | Configuración | `H_AW=14` (16384 canales), `H2_AW=7` × `PSD_AW=6` (mapa 128×64) |
-| Estímulo | Rigol DG4162, forma **arbitraria**, CH1 → IN1 |
+| Estímulo | Rigol DG4162, forma **arbitraria**, CH1 → IN1 (qué condiciona el instrumento: [§20](#20-el-generador-externo-qué-condicionó-el-dg4162--2026-11-11)) |
 | Forma | `detector_pulse(128 pts, t_rise, tau=16)`, 2 kHz de repetición, 0.5 Vpp |
 | Config del MCA | `thr=100`, `hyst=40`, base automática `bl_k=12`, `maxlen=60000`, `tail_dly=8` |
 
@@ -1571,3 +1571,61 @@ recalcula todo desde el `.npz`.
 | Histéresis de 10.9 canales | **abierto**: no es tiempo ni base; apunta al generador. Lo dirime el pulser de referencia digital |
 | Throughput y `cnt_lost_busy` | sin re-medir: el barrido llegó a 794 kcps **sin saturar**, así que no hay curvatura para ajustar tiempo muerto. Hay que extender `rates` |
 | FWHM en canales | sin re-medir con el eje de 8192 |
+
+---
+
+# 20. El generador externo: qué condicionó el DG4162 — 2026-11-11
+
+Todas las campañas de este documento son de **generación externa controlada**:
+los comandos van a un instrumento externo, el Rigol DG4162, y su salida entra a
+la placa por IN1. Es la cuarta de las cinco etapas con las que se valida la
+cadena de adquisición ([`etapas_de_validacion.md`](etapas_de_validacion.md)).
+
+Para el diseño del HW lo que importa llega hasta la generación externa
+controlada; el setup experimental agrega lo que es propio del detector. Por
+eso hay que separar en cada número qué es del MCA y qué del instrumento. §20.1 y
+§20.2 juntan lo que el DG4162 condicionó, con un enlace a la sección que lo
+mide. §20.3 dice qué etapa cubre lo que el DG4162 no deja medir.
+
+## 20.1 Especificaciones del instrumento
+
+| Especificación | Valor | Cómo condicionó las campañas | Dónde |
+|---|---|---|---|
+| **Modo PULSE: ancho contra período** | ancho < T/2; ciclo de trabajo mínimo de ~0.3125 % | A 100 Hz entregó pulsos de **31 µs** en vez de 2 µs (punto inválido); a 182 Hz, de 17 µs. El barrido de tasa usó ancho = min(2 µs, 0.2·T), así que arriba de ~100 kHz el estímulo cambiaba: el +6.45 % de corrimiento del centroide estaba confundido con el ancho, y con ancho fijo es **+1.28 %** en ×36 de tasa. También explica el salto de la base entre 72 y 132 kHz | [§13.1](#131-throughput-794-kcps-sin-perder-un-evento), [§19.5](#195-tres-defectos-del-análisis-que-encontraron-los-datos-reales), [`polo_cero.md`](mca/polo_cero.md#el-salto-entre-72-y-132-khz-no-es-de-tasa) |
+| **Modo PULSE: tren periódico** | arribos deterministas | Esconde el tiempo muerto: un sistema K=1 no pierde nada mientras T > τ. El 99.1 % de eficiencia del lector a 2 kev/s es del estímulo; con Poisson se predice ~67 %. A 30 kHz el tren periódico no pierde ningún evento y el de Poisson pierde 10.9 %. De acá salen `poisson_train_wave` y los barridos con arribos Poisson | [`tiempo_muerto.md`](mca/tiempo_muerto.md), [`arquitectura_adquisicion_software.md`](API/arquitectura_adquisicion_software.md), [`APP/pruebas.md`](APP/pruebas.md) |
+| **Techo del barrido en PULSE** | 794 kHz | El MCA lo siguió exacto (794 331 cps, sin pérdidas): el techo es del barrido, no del MCA, y no hay curvatura para ajustar el tiempo muerto. Con un tren Poisson en ARB se llegó a ~1 Mcps en el banco de trapecios | [§13.1](#131-throughput-794-kcps-sin-perder-un-evento), [`pruebas_banco_trapecios.md` §6](mca/pruebas_banco_trapecios.md#6-en-la-placa) |
+| **Memoria ARB** | 16 384 puntos por canal | Cada forma es un ciclo que se repite, con una variedad finita de amplitudes. La DNL da 26.5 % rms, y el piso por discretización ya es de 21.8 % (1500 amplitudes repartidas en 71 canales): **la DNL no se puede medir**. Las dos poblaciones de la FOM no entran por debajo de ~4 kHz con pulsos de 2 µs. En Poisson se cambia memoria por tasa: dt = 18 ns a 217 kcps y 9.8 µs a 400 ev/s | [§13.7](#137-dnl-no-se-puede-medir-con-este-generador), [`APP/pruebas.md`](APP/pruebas.md), [`rigol_dg4162.py`](../software/API/rigol_dg4162.py) |
+| **Muestreo del ARB y DAC** | 500 MSa/s máx., 14 bits | Acota los puntos por período, con un flanco de 4 puntos como mínimo (`_geometria_tren`). En las capturas se ven los escalones de la forma, un punto cada ~4 muestras, y en Poisson el arribo queda cuantizado a la grilla del DAC (`jitter_dt_s`) | [`pruebas_banco_trapecios.md` §1](mca/pruebas_banco_trapecios.md#1-lo-que-se-reemplazó-y-de-dónde-sale) |
+| **Recarga del ARB** | ~0.6 s (un comando de ~130 KB) | Barrer amplitud recargando no alcanza: bajar la DNL a 1 % pediría ~710 000 amplitudes. En los barridos Poisson se carga una semilla por trozo | [§13.7](#137-dnl-no-se-puede-medir-con-este-generador) |
+| **Flanco de subida** (Rigol + cable + entrada) | 5 ns → 1.6 muestras de 10 a 90 %; 1 ns → ~8 % de sobrepaso | El disparo con polo-cero separa pares desde 9–10 muestras en la placa, no desde 7–8 como en la simulación (1.2 muestras). Con 1 ns cada pulso dispara 1.65 veces y a 1 Mcps los buenos bajan de 665 a 565 k/s: se usa 5 ns, u holdoff ≥ 5 | [`pruebas_banco_trapecios.md` §6](mca/pruebas_banco_trapecios.md#6-en-la-placa) |
+| **Cola del pulso** | no es una sola exponencial: τ de 243 a 213 muestras y un rebote de −1.4 cuentas | M se ajusta con un tren a la tasa de trabajo, no con un par: a 1 Mcps, M = 242.8 da 514 k/s buenos y M = 237.5 da 665 k/s | [`pruebas_banco_trapecios.md` §6](mca/pruebas_banco_trapecios.md#6-en-la-placa) |
+| **Exactitud de amplitud** | error de consigna, el mismo para todas las formas | La INL (0.501 % en la 1ª campaña, 1.13 % FS en la 2ª) es de generador, ADC y MCA juntos. Las formas de Knoll separan la parte de la cadena (0.57 mV, diferencial) de la común (9.69 mV: generador + ADC). La INL no se corrige a ciegas: inyectaría el error del DG4162 | [§13.4](#134-linealidad-la-inl-es-sistemática-y-es-del-conjunto), [§13.11](#1311-inl-vs-forma-del-pulso--medido-2026-08-14) |
+| **Historia de consignas** | sospechada, sin confirmar | A igual tasa y con la misma base, el centroide difiere **10.9 canales** entre la ida y la vuelta del barrido, con hasta +12.5 pp de asimetría de live time: lo que cambia está aguas arriba del MCA | [§19.4](#194-la-histéresis-no-es-el-seguidor-de-base--mi-hipótesis-refutada) |
+| **Ruido de salida** | despreciable | 4.49 cuentas con el Rigol conectado contra 4.55 en vacío: el ruido medido es de la placa | [`ruido_del_sistema.md` §3](ruido_del_sistema.md#3-lo-primero-que-hay-que-medir-el-ruido-no-es-blanco) |
+| **Entrada de referencia de 10 MHz** | sin usar | Los relojes son independientes y la fase de muestreo barre uniforme, así que el jitter de muestreo sí entra en la resolución medida | [`fuentes_de_jitter.md` §3](mca/fuentes_de_jitter.md#3-fase-de-muestreo--el-jitter-de-muestreo-de-los-otros-documentos) |
+
+## 20.2 Firmware 00.01.05 y control
+
+| Comportamiento | Cómo condicionó las campañas | Qué se hizo |
+|---|---|---|
+| Se maneja por USBTMC desde la placa, cuyo kernel no trae `usbtmc` | Hubo que escribir el transporte en pyusb. El instrumento traba el bulk-OUT si se lo reconfigura | `_TransportUSBRaw`; los `rigol-*` corren en la placa y desde la PC se usan los `-remoto` ([`puesta_en_marcha.md` §0](puesta_en_marcha.md#0-lo-que-hace-falta)) |
+| No existe `:DATA:CATenate` (responde -113) | La forma no se puede mandar en trozos | los 16 384 puntos van en un solo comando |
+| **Se cuelga con comandos de largo múltiplo de 1536 bytes** | Una forma de cada 1536 lo dejaba sin contestar hasta un `*RST`, y parecía un timeout al azar (medido el 2026-11-05) | `load_arb` agrega un espacio al final |
+| No hay modulación por SCPI (`:MOD:STATe` responde -113) | Sin AM de ruido no hay sliding pulser continuo: la DNL queda pendiente | sólo desde el panel frontal ([§13.7](#137-dnl-no-se-puede-medir-con-este-generador)) |
+| **Informa una frecuencia y emite otra** | La tabla de throughput de la 1ª campaña era falsa: 100 cps "exactos" y 2.3 µs de tiempo muerto, contra ~0.5 µs | un test por proceso, y `sweep_rate` marca `INVÁLIDO` el punto si sin pérdidas `total/realtime` difiere de la tasa pedida. El disparador no se aisló ([§13.8](#138-dos-trampas-del-instrumento-que-hay-que-conocer)) |
+| Aplica la forma nueva con demora | Se medía con la forma anterior: la tasa medida daba la del estímulo previo | handshake: `_aplicar` consulta `:FREQuency?` ([`estimulo.py`](../software/campanas/estimulo.py)) |
+| La forma queda cargada entre corridas | El 2026-11-09 `periodico` falló (114 kHz de disparos, base 226 cuentas arriba) por una forma vieja; repetida, pasó | cargar el estímulo antes de cada medición ([`pruebas_banco_trapecios.md` §7](mca/pruebas_banco_trapecios.md#7-tres-ranuras-y-tres-formas-2026-11-09)) |
+| Cola de errores SCPI FIFO | `assert_ok` le atribuía a un `load_arb` correcto los errores de la modulación rechazada | `clear_errors()` ([§13.8](#138-dos-trampas-del-instrumento-que-hay-que-conocer)) |
+| `*OPC?` no contesta durante `*RST` | `reset()` quedaba esperando | se sondea con `*IDN?` |
+
+## 20.3 Lo que el DG4162 no deja medir, y qué etapa lo cubre
+
+| Medición | Por qué no con el DG4162 | Etapa que la cubre | Estado |
+|---|---|---|---|
+| Pérdidas evento por evento (cuál pulso, con qué amplitud) | sólo se sabe cuántos pulsos llegaron, y el ruido analógico deja comparar estadísticas, no eventos | **generación interna** con el lazo digital: la placa se compara contra la réplica evento por evento | `gen_pulsos` validado en la placa con el bitstream del ring (78e26188); el del MCA (6156e5a3) todavía no lo trae |
+| Histéresis de 10.9 canales | se sospecha del propio generador | **generación interna**: pulser de referencia digital, inmune al generador | pendiente, por lo mismo |
+| Tasa del event_ring, por etapa | la pérdida que se ve es el apilamiento del estímulo, y el ring no se llega a exigir | **generación interna**: el generador de eventos del ring, con las etapas de [`generador.md`](event_ring/generador.md) §6 | medido el 2026-11-12. El techo del writer y `DROP_BUSY` dan lo de la simulación en las seis ventanas. El lector de C lee 23–439 k/s según la ventana, y la sesión entera 10–200 k/s. Criterio de 10⁸ eventos con el ARM ocupado (32 muestras): A lo cumple a 1,4 M/s, y B a 200 k/s sin margen; a 300 k/s B no (el lector lee 233 k/s) |
+| Techo de throughput del MCA | el barrido en PULSE terminó en 794 kHz sin saturar | **generación interna**, sin los límites del ARB | sin medir; con Poisson en ARB ya se llegó a ~1 Mcps en el banco de trapecios |
+| DNL | hace falta amplitud continua: ni la memoria ARB ni la recarga alcanzan, y la AM no existe por SCPI | **generación externa controlada**, con AM desde el panel frontal | pendiente |
+| Separar la INL del generador de la del ADC | el error de consigna del DG4162 es común a todas las formas | **generación externa controlada**, con una referencia de tensión trazable | parcial: §13.11 separa la cadena de medición; generador contra ADC sigue abierto |
+| Forma, cola, subida y sobrepaso reales | son los del Rigol y su cable, y de ellos dependen M, el disparo y el holdoff | **medición con setup experimental** | sin detector todavía |

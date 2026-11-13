@@ -1,0 +1,4 @@
+Cada banda es un sistema de concurrencia aparte: no comparten hilos ni primitivas. A
+la izquierda, el recurso que se protege; a la derecha, lo que sale de la máquina. En el
+pipeline, el lector llena los batches con el lazo de C, sin el GIL; su detalle en el
+tiempo está en [`hilos_captura`](figuras/hilos_captura.svg).

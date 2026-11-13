@@ -1,0 +1,107 @@
+% Por qué hace falta Channel. El socket TCP es un flujo de bytes sin límites
+% entre mensajes (al medio: tres respuestas seguidas, placa -> PC). Arriba, lo
+% que trae cada recv(): pedazos de cualquier largo, y algunos mezclan partes
+% distintas (el final de una cabecera y el principio del payload, o el final del
+% payload y la cabecera siguiente). Abajo, los cortes de Channel.recv():
+% readline() hasta el '\n' y read(nbytes) para el payload, y lo que devuelve.
+% Lo rayado es lo que se leyó de más y queda en el buffer de lectura, que dura
+% lo que la conexión: por eso Channel es un objeto y no dos funciones.
+% Fuentes: software/API/mca_net.py (Channel.recv, _read_exact; el
+% BufferedReader de sock.makefile('rb')). El texto que acompaña está en
+% docs/APP/protocolo.md, "La trama"; el epígrafe, en trama_flujo.txt. Estilo:
+% docs/figuras/estilo_tikz.tex.
+%
+% Compilar:   pdflatex trama_flujo.tex
+%             pdftocairo -svg trama_flujo.pdf trama_flujo.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+\usetikzlibrary{patterns}
+
+\tikzset{
+  seg/.style    = {draw=black, line width=0.5pt},
+  txt/.style    = {font=\tiny\ttfamily, inner sep=0pt},
+  fila/.style   = {anchor=east, font=\scriptsize, align=right, inner sep=0pt},
+  rec/.style    = {line width=0.7pt, black!70},
+  cruza/.style  = {line width=0.9pt, rojo!80!black},
+  cha/.style    = {line width=0.7pt, azul!80!black},
+}
+\newcommand{\LF}{\textbackslash n}
+% un tramo de la cinta: x0, x1, relleno
+\newcommand{\tramo}[3]{\filldraw[seg, fill=#3] (#1,-0.23) rectangle (#2,0.23);}
+% un corte de recv(), arriba: x0, x1, estilo
+\newcommand{\recv}[3]{\draw[#3] (#1+0.03,0.33) -- (#1+0.03,0.55) -- (#2-0.03,0.55) -- (#2-0.03,0.33);
+  \node[txt, font=\scriptsize\ttfamily, #3, above=2pt] at ({(#1+#2)/2},0.55) {recv()};}
+% un corte de Channel, abajo: x0, x1, y, rótulo
+\newcommand{\cort}[4]{\draw[cha] (#1+0.03,#3+0.2) -- (#1+0.03,#3) -- (#2-0.03,#3) -- (#2-0.03,#3+0.2);
+  \node[txt, font=\scriptsize\ttfamily, azul!60!black, below=2pt, align=center] at ({(#1+#2)/2},#3) {#4};}
+% corte de "sin escala" sobre la cinta, en x
+\newcommand{\corte}[1]{%
+  \fill[white] (#1-0.07,-0.23) -- (#1+0.03,0.23) -- (#1+0.15,0.23) -- (#1+0.05,-0.23) -- cycle;
+  \draw[line width=0.5pt] (#1-0.07,-0.23) -- (#1+0.03,0.23) (#1+0.05,-0.23) -- (#1+0.15,0.23);}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+\frenchspacing
+
+% =============================================== la cinta: tres mensajes ===
+% x: cab1 0-2.3 · \n · cab2 2.75-6.15 · \n · payload 6.6-13.4 · cab3 13.4-15.7 · \n
+\tramo{0}{2.3}{white}         \node[txt] at (1.15,0)   {\{"ok": true, …\}};
+\tramo{2.3}{2.75}{black!15}   \node[txt] at (2.525,0)  {\LF};
+\tramo{2.75}{6.15}{white}     \node[txt] at (4.45,0)   {\{"ok": true, … "nbytes": 65536\}};
+\tramo{6.15}{6.6}{black!15}   \node[txt] at (6.375,0)  {\LF};
+\tramo{6.6}{13.4}{naranja!45}
+\node[font=\scriptsize, inner sep=0pt] at (8.95,0) {65536 B};
+\corte{10.3} \corte{11.8}
+\tramo{13.4}{15.7}{white}     \node[txt] at (14.55,0)  {\{"ok": true, …\}};
+\tramo{15.7}{16.15}{black!15} \node[txt] at (15.925,0) {\LF};
+\node[font=\small] at (16.5,0) {…};
+
+% lo leído de más: queda en el buffer para lo que sigue
+\foreach \a/\b in {2.75/3.65, 6.6/7.6, 13.4/14.3}
+  \fill[pattern=north east lines, pattern color=black!28] (\a,-0.23) rectangle (\b,0.23);
+
+% ===================================================== arriba: recv() ===
+\recv{0}{3.65}{cruza}
+\recv{3.65}{7.6}{cruza}
+\recv{7.6}{10.3}{rec}
+\node[font=\small, black!70] at (11.05,0.62) {…};
+\recv{11.8}{14.3}{cruza}
+\recv{14.3}{16.15}{rec}
+
+% ============================================ abajo: Channel.recv() ===
+% lo que lee cada paso
+\cort{0}{2.75}{-0.45}{readline()}
+\cort{2.75}{6.6}{-0.45}{readline()}
+\cort{6.6}{13.4}{-0.45}{read(65536)}
+\cort{13.4}{16.15}{-0.45}{readline()}
+% lo que devuelve
+\cort{0}{2.75}{-1.2}{(cabecera, None)}
+\cort{2.75}{13.4}{-1.2}{(cabecera, payload)}
+\cort{13.4}{16.15}{-1.2}{(cabecera, None)}
+
+% ======================================================== las filas ===
+\node[fila] at (-0.35,0.75)  {lo que trae cada \texttt{recv()}};
+\node[fila] at (-0.35,0)     {el flujo TCP, placa $\to$ PC};
+\node[fila] at (-0.35,-0.68) {cómo lo corta \texttt{Channel}};
+\node[fila] at (-0.35,-1.43) {lo que devuelve \texttt{Channel.recv()}};
+
+% ============================================================== leyenda ===
+\begin{scope}[shift={(-4.6,-2.35)}, every node/.style={font=\scriptsize}]
+  \draw[cruza] (0,-0.08) -- (0,0.1) -- (0.5,0.1) -- (0.5,-0.08);
+  \node[anchor=west] at (0.65,0) {un \texttt{recv()} que mezcla dos partes};
+  \fill[pattern=north east lines, pattern color=black!28] (5.0,-0.12) rectangle (5.45,0.12);
+  \draw[seg] (5.0,-0.12) rectangle (5.45,0.12);
+  \node[anchor=west] at (5.6,0) {leído de más: queda en el buffer de \texttt{Channel}};
+  \filldraw[seg, fill=naranja!45] (11.4,-0.12) rectangle (11.85,0.12);
+  \node[anchor=west] at (12.0,0) {payload};
+  \filldraw[seg, fill=black!15] (13.3,-0.12) rectangle (13.75,0.12);
+  \node[anchor=west] at (13.9,0) {fin de línea};
+\end{scope}
+
+\end{tikzpicture}
+\end{document}

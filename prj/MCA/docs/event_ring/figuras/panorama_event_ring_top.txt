@@ -1,0 +1,5 @@
+El PS no lee ningún registro por evento: polea el footer del próximo slot en DDR
+y publica `RD_SLOT` una vez por lote. Sin créditos el writer se frena y el
+descarte ocurre arriba, en la captura, por evento entero. `NOMBRE=valor`:
+parámetros con que el padre instancia el bloque (se omiten los que sólo pasan el
+del padre sin cambio).

@@ -1,0 +1,7 @@
+Una corrida con `BramSource`, de `start()` a `stop()`, sin escala. El color sobre
+cada hilo dice qué corre y si tiene el GIL. El lector pasa casi todo el tiempo en C
+(rojo, sin el GIL) y vuelve a Python (azul) una vez por lote; el escritor pasa su
+tramo largo en el `write()` (gris, también sin el GIL). Por eso no se frenan: el
+escritor guarda Bₖ mientras el lector ya llena Bₖ₊₁. Con `RingSource` el tramo
+de C es `osciloscope_ring_leer_lote` y los mensajes a la PL son los del ring; el resto
+no cambia.

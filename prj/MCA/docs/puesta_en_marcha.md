@@ -278,7 +278,11 @@ ssh):
 | Comando | Qué contesta |
 |---|---|
 | `verificar-placa-mem` | la regresión del SIGBUS al escribir `/dev/mem` |
+| `verificar-placa-bus` | un registro que cambia mientras se lo lee (`wp_cur`, el `TS_LO` del ring) llega entero; falla con un bitstream anterior al arreglo de `sys_bus_cdc` (2026-11-08) |
 | `verificar-placa-mca` | el bus y los registros del MCA responden |
+| `verificar-placa-integration` | la región de TOP: C y Python leen lo mismo, y el ruteo latchea (lo pasa por todos los taps y lo deja como estaba) |
+| `verificar-placa-multitrigger` | el multitrigger: C y Python leen lo mismo, lo que escribe C lo lee Python, y el disparo del MCA se arma con `we_keep` y se desarma |
+| `verificar-placa-osciloscope` | el osciloscopio: C y Python leen lo mismo, lo que escribe C lo lee Python, y la BRAM de un buffer congelado por software se lee igual, sin señal |
 | `verificar-placa-datapath` | el camino de datos **con señal real** del Rigol |
 | `verificar-placa-e2e` | adquisición de punta a punta, deja datos |
 

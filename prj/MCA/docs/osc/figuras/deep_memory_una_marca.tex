@@ -1,0 +1,126 @@
+% El deep memory del osciloscopio stock (rp_axi_sm), dibujado como generador,
+% buffer y consumidor, igual que docs/figuras/buffering_generador_consumidor.tex.
+% Las muestras van a DDR por HP y no cruzan el bus: en DDR hay lugar para muchas
+% ventanas. Pero dónde cayó el trigger se anota en UN registro (WP_TRIG, uno por
+% canal), y la máquina es la misma de rp_bram_sm: tras el post-trigger la
+% entrada queda congelada hasta que el PS lee la marca por el bus y re-arma.
+% Abajo, el mismo tren de nueve eventos que en (a) de la figura de buffering:
+% K = 1 otra vez. Es un esquema, no una medición.
+% Fuente: rtl/classic/rp_axi_sm.v — docs/osc/sistema_adquisicion_original.md §5.
+%
+% Compilar:   pdflatex deep_memory_una_marca.tex
+%             pdftocairo -svg deep_memory_una_marca.pdf deep_memory_una_marca.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+% Línea de tiempo: t en unidades de τ, x = \xo + \ux·t (la misma que la figura
+% de buffering, para que los trenes se puedan comparar).
+\def\xo{2.1} \def\ux{0.85}
+\newcommand{\tx}[1]{{\xo+\ux*(#1)}}
+\newcommand{\arribo}[2]{\draw[azul!55!black, line width=1.2pt] (\tx{#1},#2) -- ++(0,0.45);}
+\newcommand{\perdido}[2]{\draw[rojo!75!black, line width=1.2pt] (\tx{#1},#2) -- ++(0,0.26);}
+\newcommand{\servicio}[3]{%
+  \fill[black!22] (\tx{#1},#3) rectangle (\tx{#2},{#3+0.32});
+  \draw[white, line width=1pt] (\tx{#1},#3) -- ++(0,0.32);}
+\newcommand{\congelada}[3]{\fill[rojo!28] (\tx{#1},#3) rectangle (\tx{#2},{#3+0.2});}
+\newcommand{\carril}[2]{\node[font=\scriptsize, black!75, anchor=east, inner sep=1pt] at (\xo-0.15,#1) {#2};}
+\newcommand{\eje}[1]{%
+  \draw[->, black!55, line width=0.5pt] (\xo,#1) -- (\tx{12.3},#1);
+  \node[font=\scriptsize, black!60, anchor=west, inner sep=1pt] at (\tx{12.3},#1) {tiempo};
+  \foreach \k in {0,...,12} \draw[black!55, line width=0.4pt] (\tx{\k},#1) -- ++(0,-0.06);}
+
+\tikzset{
+  rearma/.style = {->, rojo!65!black, line width=0.9pt, densely dashed},
+  apunta/.style = {->, azul!60!black, line width=0.6pt, densely dotted},
+  pierde/.style = {font=\scriptsize, rojo!75!black, inner sep=1pt},
+  rotb/.style   = {font=\scriptsize, inner sep=1.5pt, fill=white, text=black},
+}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+% ==================================================================== título
+\node[titulo] at (-0.4,0.95) {\textbf{\emph{Deep memory} de Red Pitaya (\texttt{rp\_axi\_sm}): las muestras
+  tienen muchos lugares, la marca uno solo}\\[1pt]
+  {\scriptsize la ventana va a DDR sin cruzar el bus; dónde cayó el trigger se pregunta por el bus,
+  y el próximo evento espera el re-armado}};
+
+% ==================================================================== bloques
+\node[trig, text width=1.9cm] (g) at (0.9,-1.85) {\etq{generador}{el detector:\\ no puede esperar}};
+\node[comp, text width=1.9cm, minimum height=2.3cm] (ps) at (12.1,-1.85) {\etq{consumidor}{el PS}};
+
+% DDR: doce celdas de una región circular; la ventana del último evento, oscura
+\foreach \i in {0,...,11} {
+  \pgfmathsetmacro\xa{4.8+\i*0.3}
+  \ifnum\i<3 \def\colb{naranja!22}\else\ifnum\i<8 \def\colb{naranja!80}\else\def\colb{naranja!22}\fi\fi
+  \draw[fill=\colb, line width=0.5pt] (\xa,-1.35) rectangle ++(0.3,0.7);
+}
+\fill[amarillo!35!black] (6.45,-0.62) -- ++(-0.09,0.15) -- ++(0.18,0) -- cycle;
+\node[font=\scriptsize, anchor=south west, inner sep=1pt] at (4.75,-0.45)
+  {\textbf{DDR}: región circular de 2\,MB, con lugar para muchas ventanas};
+\node[font=\scriptsize, black!70, anchor=north west, align=left, inner sep=1pt] at (6.7,-1.4)
+  {oscuro: la ventana\\ del último evento};
+
+% WP_TRIG: un solo lugar, ocupado
+\draw[fill=naranja!80, line width=0.5pt] (4.8,-2.95) rectangle ++(0.42,0.5);
+\node[font=\scriptsize, anchor=west, inner sep=1pt] at (5.3,-2.32)
+  {\texttt{WP\_TRIG}: la marca, \textbf{un solo lugar} por canal};
+\draw[apunta] (5.01,-2.45) to[out=80, in=-90] (6.45,-1.37);
+
+% la entrada: una sola compuerta para muestras y trigger, cerrada hasta el re-armado
+\draw[rojo!75!black, line width=2pt] (4.5,-3.05) -- (4.5,-0.6);
+\draw[hp] (g.north) |- node[rotb, above=1pt, pos=0.75] {muestras, por HP} (4.42,-1.0);
+\draw[entrada] (g.south) |- node[rotb, below=1pt, pos=0.75] {trigger: dónde cayó} (4.42,-2.7);
+\node[pierde, align=center] at (3.2,-1.85) {congelada\\ para la entrada:\\ lo que llega\\ se pierde};
+
+% el PS: la ventana por DDR, la marca y el re-armado por el bus
+\draw[hp] (8.4,-1.0) -- node[rotb, above=1pt] {leer la ventana} node[rotb, below=1pt] {por \texttt{mmap}, sin bus} (8.4,-1.0 -| ps.west);
+\draw[gp] (5.22,-2.7) -- (5.22,-2.7 -| ps.west);
+\node[rotb, anchor=north, align=center] at (8.5,-2.78) {sondear el estado y leer la marca:\\ por el bus, por cada evento};
+\draw[rearma] (ps.south) |- node[rotb, below=1pt, pos=0.75]
+  {re-armar: por el bus, por cada evento; recién ahí se abre la entrada} (4.5,-3.6) -- (4.5,-3.11);
+
+% ============================================================ el mismo tren
+\begin{scope}[shift={(0,-1.6)}]
+\carril{-2.95}{trigger}
+\carril{-3.55}{entrada}
+\carril{-4.15}{consumidor}
+\foreach \t in {0.5, 4.0, 6.0, 9.5} {\arribo{\t}{-3.2}}
+\foreach \t in {0.8, 1.2, 6.3, 6.5, 10.0} {\perdido{\t}{-3.2}}
+\congelada{0.5}{1.5}{-3.65} \congelada{4.0}{5.0}{-3.65}
+\congelada{6.0}{7.0}{-3.65} \congelada{9.5}{10.5}{-3.65}
+\servicio{0.5}{1.5}{-4.3} \servicio{4.0}{5.0}{-4.3}
+\servicio{6.0}{7.0}{-4.3} \servicio{9.5}{10.5}{-4.3}
+\eje{-4.45}
+\node[font=\scriptsize, black!70, anchor=west, inner sep=1pt] at (\tx{11.6},-3.55) {$K = 1$};
+\end{scope}
+
+% =================================================================== leyenda
+\begin{scope}[shift={(0,-6.9)}]
+\draw[azul!55!black, line width=1.2pt] (0,0) -- ++(0,0.3);
+\node[font=\scriptsize, anchor=west] at (0.15,0.15) {registrado};
+\draw[rojo!75!black, line width=1.2pt] (2.0,0) -- ++(0,0.3);
+\node[font=\scriptsize, anchor=west] at (2.15,0.15) {perdido, sin contar};
+\fill[rojo!28] (5.0,0.05) rectangle ++(0.6,0.2);
+\node[font=\scriptsize, anchor=west] at (5.7,0.15) {entrada congelada};
+\fill[black!22] (8.3,0) rectangle ++(0.6,0.3);
+\node[font=\scriptsize, anchor=west] at (9.0,0.15) {consumidor ocupado, $\tau$ por evento};
+\draw[hp] (0,-0.45) -- ++(0.6,0);
+\node[font=\scriptsize, anchor=west] at (0.7,-0.45) {DDR, por HP};
+\draw[gp] (2.6,-0.45) -- ++(0.6,0);
+\node[font=\scriptsize, anchor=west] at (3.3,-0.45) {bus del sistema (GP0)};
+\node[font=\scriptsize, black!70, anchor=north west, text width=13.4cm, align=left, inner sep=0pt] at (-0.05,-0.8)
+  {Las muestras ya no cruzan el bus, así que $\tau$ es más corto que leyendo la BRAM. Pero la
+   máquina es la misma: después del post-trigger la escritura se detiene, y un trigger nuevo no
+   tiene dónde anotarse hasta que el PS lee la marca y re-arma. Con el mismo tren y el mismo
+   $\tau$, se pierde lo mismo que con la BRAM: el tiempo muerto ya no lo ponen las muestras,
+   lo pone la marca.};
+\end{scope}
+
+\end{tikzpicture}
+\end{document}

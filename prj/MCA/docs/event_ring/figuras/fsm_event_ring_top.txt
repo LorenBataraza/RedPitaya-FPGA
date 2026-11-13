@@ -1,0 +1,7 @@
+`CTRL.clr` no cambia el estado: es un ciclo de `flush` en cualquiera de los
+tres, y además pone en cero `DROP_BUSY`, `DROP_FULL`, `EV_CNT` y los errores.
+libmca lo usa sólo en `STOPPED`. `RD_SLOT` se puede escribir en cualquier
+estado. Por eso, si se para con el ring lleno, `DRAINING` no termina hasta que
+el PS devuelve créditos, porque el writer los espera para vaciar la stage.
+También se destraba con `CTRL.clr`. Llegar a `STOPPED` pone los contadores de
+slot en cero: lo que quedó en la DDR ya no tiene `WR_SLOT` que lo cuente.

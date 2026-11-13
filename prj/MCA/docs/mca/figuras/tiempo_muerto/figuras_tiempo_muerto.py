@@ -30,6 +30,11 @@ rcParams se importan de ahí.
           paralizable es exactamente el área; el no paralizable coincide
           a primer orden y se separa a ρ ~ 1.
 
+  03a_tren_cola_K.png
+      La última fila de 02a (ρ = 1, mismo tren) con K = 1, 2 y 3 lugares en
+      el sistema. Con cola el que llega ocupado espera en vez de perderse, y
+      los servicios quedan pegados: la pérdida se vuelve demora.
+
   03_cola_K.png
       Poisson, servicio fijo τ, y K lugares en el sistema (1 = sin cola).
       (a) fracción perdida contra ρ para K = 1, 2, 3, 5, 10 y K = ∞. Sale
@@ -180,6 +185,28 @@ def servir_k1(t_arribos, tau):
     return ok
 
 
+def servir_cola(t_arribos, tau, K):
+    """Servidor con K lugares en el sistema contando al que se atiende
+    (M/D/1/K, FIFO): K=1 es `servir_k1`. Un arribo se pierde sólo si encuentra
+    K adentro; si entra, empieza cuando termina el anterior.
+
+    El borde es el mismo de `servir_k1`: uno que sale justo cuando llega otro
+    ya no ocupa lugar. Devuelve (máscara de aceptados, inicio de servicio de
+    cada aceptado, en el orden de los aceptados).
+    """
+    ok = np.zeros(t_arribos.size, bool)
+    salidas = []                         # fin de servicio de los que están adentro
+    inicios = []
+    for i, t in enumerate(t_arribos):
+        salidas = [s for s in salidas if s > t + 1e-12]
+        if len(salidas) < K:
+            ok[i] = True
+            ini = max(t, salidas[-1]) if salidas else t
+            salidas.append(ini + tau)
+            inicios.append(ini)
+    return ok, np.array(inicios)
+
+
 def _tren(ax, t, ok, tau, t_fin):
     """Dibuja arribos (aceptados azul, perdidos rojo) y ventanas muertas."""
     for ti in t[ok]:
@@ -275,6 +302,66 @@ def fig_tren_poisson(out, rhos=(0.2, 0.5, 1.0), seed=11, t_fin=40.0):
     fig.savefig(os.path.join(out, '02a_tren_poisson.png'))
     plt.close(fig)
     print('  02a_tren_poisson.png')
+
+
+def fig_tren_cola(out, rho=1.0, Ks=(1, 2, 3), seed=11, t_fin=40.0):
+    """La última fila de 02a (ρ = 1, misma semilla) con K lugares en el
+    sistema: el MISMO tren, una fila por K.
+
+    Con cola, estar ocupado deja de implicar perder: el que llega con el
+    servidor ocupado espera (barra celeste) y se atiende cuando termina el
+    anterior, así que los servicios quedan pegados uno al otro. Se separan con
+    un filete blanco para que se puedan contar. Las esperas simultáneas van a
+    alturas distintas según el lugar en la cola al llegar.
+    """
+    rng = np.random.default_rng(seed)
+    t = np.cumsum(rng.exponential(1.0 / rho, size=int(4 * rho * t_fin) + 200))
+    t = t[t < t_fin]
+
+    fig, axs = plt.subplots(len(Ks), 1, figsize=(8.6, 0.95 * len(Ks) + 1.1),
+                            sharex=True, layout='constrained')
+    perdidas = {}
+    for ax, K in zip(np.atleast_1d(axs), Ks):
+        ok, ini = servir_cola(t, 1.0, K)
+        for s in ini:
+            ax.axvspan(s, min(s + 1.0, t_fin), color=GRILLA, lw=0)
+        # filete en cada comienzo de servicio, para separar los que van pegados
+        ax.vlines(ini[ini > 0], 0, 1.15, color='white', lw=1.2)
+        # esperas: de la llegada al comienzo del servicio, una altura por lugar
+        fin_previos = []
+        for ti, si in zip(t[ok], ini):
+            fin_previos = [f for f in fin_previos if f > ti + 1e-12]
+            if si > ti + 1e-12:
+                lugar = len(fin_previos)          # 1 = primero en la cola
+                y = 1.0 - 0.16 * (lugar - 1)
+                ax.hlines(y, ti, si, color=AZUL, lw=3.0, alpha=0.35)
+            fin_previos.append(si + 1.0)
+        ax.vlines(t[ok], 0, 1, color=AZUL, lw=1.4)
+        ax.vlines(t[~ok], 0, 0.55, color=ROJO, lw=1.4)
+        ax.set_xlim(0, t_fin)
+        ax.set_ylim(0, 1.15)
+        ax.set_yticks([])
+        ax.grid(False)
+        for lado in ('top', 'right', 'left'):
+            ax.spines[lado].set_visible(False)
+        ax.set_ylabel(rf'$K = {K}$', rotation=0, labelpad=20,
+                      va='center', ha='right', color=TINTA2)
+        perdidas[K] = (int((~ok).sum()), t.size)
+
+    ax0 = np.atleast_1d(axs)[0]
+    ax0.vlines([], 0, 1, color=AZUL, lw=1.4, label='registrado')
+    ax0.vlines([], 0, 1, color=ROJO, lw=1.4, label='perdido')
+    ax0.fill_between([], [], [], color=GRILLA, label=r'servicio $\tau$')
+    ax0.hlines([], 0, 1, color=AZUL, lw=3.0, alpha=0.35,
+               label='espera en la cola')
+    ax0.legend(loc='lower left', ncol=4, fontsize=8.5,
+               bbox_to_anchor=(0.0, 1.02))
+    np.atleast_1d(axs)[-1].set_xlabel(r'tiempo  $[\tau]$')
+
+    fig.savefig(os.path.join(out, '03a_tren_cola_K.png'))
+    plt.close(fig)
+    print('  03a_tren_cola_K.png   perdidos en la realización: ' +
+          ', '.join(f'K={K}: {p}/{n}' for K, (p, n) in perdidas.items()))
 
 
 def fig_integral(out):
@@ -905,6 +992,7 @@ def main():
     fig_ventana_muerta_tren(a.out, 1.5, '02d_tren_rho15.png')
     fig_largo_ventana_muerta(a.out)
     fig_largo_vs_tasa(a.out)
+    fig_tren_cola(a.out)
     fig_cola(a.out)
     fig_trenes_periodicos(a.out)
     fig_periodico(a.out)

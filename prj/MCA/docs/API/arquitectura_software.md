@@ -1,7 +1,7 @@
 # Arquitectura de software de la API
 
 **Código:** [`prj/MCA/software/API/`](../../software/API/) · [`prj/MCA/software/app/`](../../software/app/)
-**Figuras:** [`figuras/`](figuras/) — seis, en TikZ
+**Figuras:** [`figuras/`](figuras/) — cinco, en TikZ
 **Tests:** `make verificar` desde [`software/`](../../software/) — 249 tests, todos en la PC
 
 Este documento describe el software **como pieza de software**: cómo está
@@ -28,7 +28,7 @@ sin una vista única. Este reúne la vista y **delega el detalle por enlace**:
 | Tema                           | Acá                                          | El detalle está en                                                                          |
 | ------------------------------ | -------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | Niveles y dónde corre cada uno | la vista completa (§1)                       | [`platform.md`](../platform.md) §4.8                                                        |
-| Hilos y rendimiento            | los tres modelos lado a lado (§2)            | [`arquitectura_adquisicion_software.md`](arquitectura_adquisicion_software.md) Partes 2 y 3 |
+| Hilos y rendimiento            | los tres modelos lado a lado (§2)            | [`adquisicion_de_eventos.md`](adquisicion_de_eventos.md) §3 y §4 · [`arquitectura_adquisicion_software.md`](arquitectura_adquisicion_software.md) Parte 3 |
 | Hilos de la aplicación         | el carril del servidor y el de la GUI (§2)   | [`APP/flujo_de_datos.md`](../APP/flujo_de_datos.md)                                         |
 | Protocolo de red               | que existe y dónde se inserta (§1)           | [`APP/protocolo.md`](../APP/protocolo.md)                                                   |
 | Filesystem y caminos del dato  | qué rutas y qué formatos (§3)                | [`movimiento_de_datos.md`](../movimiento_de_datos.md)                                       |
@@ -41,13 +41,21 @@ sin una vista única. Este reúne la vista y **delega el detalle por enlace**:
 
 ## 1. Los niveles
 
-![los seis niveles de software de la API, del mapeo crudo a la aplicación, sobre los registros de la PL, y la máquina donde corre cada uno, con los niveles 1 a 4 del MCA en C](figuras/niveles.svg)
+![los seis niveles de software de la API, del mapeo crudo a la aplicación, sobre los registros de la PL, y la máquina donde corre cada uno, con los niveles 1 a 4 de todos los bloques en C](figuras/niveles.svg)
+
+*Los niveles son una jerarquía de dependencias: cada uno puede usar cualquiera de los
+de abajo y ninguno de los de arriba. Los registros no son software: son la base sobre
+la que se apoya la pila. Lo que cruza entre máquinas son las fronteras físicas: el bus
+AXI GP0, por donde el PS lee y escribe los registros; el AXI HP0, por donde el
+`event_ring` escribe sus slots en la DDR, que el PS lee por el mmap sin pasar por la
+PL; y la red. Los niveles 1 a 4 de todos los bloques son C (libmca), y Python los
+llama por `ctypes`.*
 
 Seis niveles de software, apoyados sobre los registros de la PL. **Los niveles
 no son más que una jerarquía de dependencias**: cada uno puede usar cualquiera
 de los de abajo y ninguno de los de arriba. No dicen que cada nivel hable sólo
-con el inmediato inferior —`RingSource`, en el 5, lee la DDR por su propio
-mapeo, y `mcamon` llama métodos del handle—, sino que **nada de abajo importa
+con el inmediato inferior —`AcquisitionSession`, en el 5, arma el disparo con el
+handle del multitrigger, y `mcamon` llama métodos del handle—, sino que **nada de abajo importa
 nada de arriba**. Esa es la propiedad que permite sustituir un nivel sin tocar
 los que lo usan.
 
@@ -57,24 +65,30 @@ alcanza, en el mapeo. Lo que ordena los niveles tampoco es la elegancia sino
 **dónde está la frontera física**: entre los registros y el nivel 2 hay un bus
 AXI con reglas propias, y entre el 6 y el resto puede haber una red. En la
 figura cada fila es un nivel y cada contenedor una máquina (PL, PS, PC); lo
-único que cruza entre máquinas son esas dos fronteras. El camino remoto, en
-azul, es el de la sección siguiente. La columna en rojo es el MCA en C
-(`libmca/`), y a su lado está el binding de Python, que la llama por `ctypes`.
-Los otros bloques tienen todavía sus niveles 1 a 4 en Python.
+único que cruza entre máquinas son esas fronteras. El bus tiene dos puertos: por el
+GP0 el PS lee y escribe los registros, y por el HP0 el `event_ring` escribe sus
+eventos en una región reservada de la DDR (`labuf`, 32 MB en `0x0A00_0000`), que el
+PS lee por el mmap sin pasar por la PL. El camino remoto, en
+azul, es el de la sección siguiente. La columna en rojo son los seis bloques en C
+(`libmca/`): el osciloscopio, el `event_ring`, el generador de pulsos, el multitrigger,
+la región de TOP y el MCA. A su lado está el binding de Python, que la llama por
+`ctypes`.
 
 | #   | Nivel            | Qué es                                                                                                                        | Corre en | Sustituible por                                       |
 | --- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------- | ----------------------------------------------------- |
 | 6   | aplicación       | [`campanas/`](../../software/campanas/), `_pitaya_run.ipynb`, [`app/mcamon.py`](../../software/app/mcamon.py)                 | PS · PC  | —                                                     |
 | 5   | fuentes y sesión | [`osciloscope_store/`](../../software/API/osciloscope_store/): `EventSource` (`BramSource`, `RingSource`), `AcquisitionSession`, `Annotator` | PS       | `FakeSource`                                          |
-| 4   | funciones        | `mca_*`, `osciloscope_*`, `multitrigger_*`, `integration_*`. Las `mca_*` son, desde la fase 1 de libmca, una llamada por ctypes a la función de C del mismo nombre ([`libmca/`](../../software/libmca/)) | PS       | la referencia Python `API/ref_py/` (`impl='py'`)       |
-| 3   | handles          | `MCA` (sobre un `mca_h*` de libmca), `Osciloscope`, `MultiTrigger`, `MtRegion`, `Integration`                                  | PS       | `MCARemote`, `FakeMCA`, `FakeOsc`, `FakeMultiTrigger` |
-| 2   | acceso de 32 b   | MCA: `mca_bus` de libmca ([`bus_devmem.c`](../../software/libmca/src/bus_devmem.c)). Los demás bloques: `w32` / `r32` en Python | PS       | el backend por callbacks de libmca (`FakeMCA`, tests) |
-| 1   | mapeo crudo      | `/dev/mem` + `mmap`, una región por slot (el del MCA lo abre libmca)                                                          | PS       | —                                                     |
+| 4   | funciones        | `mca_*`, `osciloscope_*`, `osciloscope_ring_*`, `multitrigger_*`, `integration_*`: una llamada por ctypes a la función de C del mismo nombre ([`libmca/`](../../software/libmca/)) | PS       | la referencia Python `API/ref_py/` (`impl='py'`)       |
+| 3   | handles          | `MCA`, `Integration`, `MultiTrigger`, `MtRegion`, `Osciloscope`, `OsciloscopeRing` y `GenPulsos`, sobre un handle de libmca                                | PS       | `MCARemote`, `FakeMCA`, `FakeOsc`, `FakeMultiTrigger` |
+| 2   | acceso de 32 b   | `mca_bus` de libmca ([`bus_devmem.c`](../../software/libmca/src/bus_devmem.c)); la DDR del `event_ring`, por `mca_mem` ([`mem.c`](../../software/libmca/src/mem.c)), que copia de a bloques | PS       | los backends por callbacks de libmca (`FakeMCA`, tests) |
+| 1   | mapeo crudo      | `/dev/mem` + `mmap`, una región por slot y la de DDR del ring: todas las abre libmca                                                          | PS       | —                                                     |
 | —   | registros        | los bloques del bus de sistema: la base, no un nivel de software                                                              | PL       | —                                                     |
 
-El `event_ring` no tiene handle: `RingSource` mapea sus registros y la región
-de DDR por su cuenta. Por qué cada clase quedó como quedó está en
-[`diseno_de_clases.md`](diseno_de_clases.md).
+El `event_ring` tiene dos regiones: sus registros por el bus y la DDR donde escribe
+los slots, que no es el bus y se copia de a bloques. Por qué cada clase quedó como quedó
+está en [`libmca.md`](libmca.md) (la biblioteca y su binding),
+[`adquisicion_de_eventos.md`](adquisicion_de_eventos.md) (las fuentes y la sesión) y
+[`diseno_de_clases.md`](diseno_de_clases.md) (la red, las pruebas y los shims).
 
 Y, fuera de la pila, tres módulos a los que no les importa en qué máquina
 corren: [`analisis.py`](../../software/API/analisis.py) (picos, FWHM, DNL, FOM,
@@ -113,11 +127,12 @@ propiedad del binario: todo acceso a la PL está en
 `ldr`/`str` de 32 b por transacción (0.235 µs medidos desde C, ~4 ms un espectro
 estimado), y `make -C libmca check-bus` desensambla el `.so` de ARM y falla si
 encuentra una ráfaga, un acceso de 64 b o uno de 1-2 bytes. Ver
-[`diseno_de_clases.md`](diseno_de_clases.md) §3.2.
+[`libmca.md`](libmca.md) §2.
 
-Para el camino de formas de onda el costo **sí** importa, porque es por evento.
-Ahí se usa `rp_AcqGetDataPosV` y no un acceso directo, hasta la fase de libmca
-que porte el lazo del lector.
+Para el camino de formas de onda el costo importa más, porque es por evento, y por
+eso ese lazo también está en C: `osciloscope_leer_lote` espera el disparo, lee la
+ventana de a una palabra y re-arma sin volver a Python
+([`libmca.md`](libmca.md) §4).
 
 ### El camino remoto se inserta, no se apila
 
@@ -142,6 +157,11 @@ La interfaz la fija el consumidor, no el transporte.
 
 ![los tres sistemas de concurrencia: pipeline, servidor y GUI](figuras/hilos.svg)
 
+*Cada banda es un sistema de concurrencia aparte: no comparten hilos ni primitivas. A
+la izquierda, el recurso que se protege; a la derecha, lo que sale de la máquina. En el
+pipeline, el lector llena los batches con el lazo de C, sin el GIL; su detalle en el
+tiempo está en [`hilos_captura`](figuras/hilos_captura.svg).*
+
 **No hay un modelo de hilos: hay tres**, independientes entre sí, y cada uno
 elige una primitiva distinta porque resuelve un problema distinto. No hay
 `multiprocessing` ni `asyncio` en ninguno. En la figura, cada banda es uno de
@@ -151,7 +171,7 @@ socket.
 
 | Hilo | Fichero | Nombre | De qué es dueño |
 |---|---|---|---|
-| lector | [`reader.py`](../../software/API/osciloscope_store/reader.py) | `osc-reader` | el scope: es el único que lo toca |
+| lector | [`reader.py`](../../software/API/osciloscope_store/reader.py) | `osc-reader` | la fuente, y por ella la PL: es el único que la toca |
 | escritor | [`storage.py`](../../software/API/osciloscope_store/storage.py) | `osc-writer` | el directorio de la corrida |
 | annotator | [`annotators.py`](../../software/API/osciloscope_store/annotators.py#L107) | `annot-<prefijo>` | su sensor lento (GPS, temperatura) |
 | principal | [`session.py`](../../software/API/osciloscope_store/session.py#L142) | — | la condición de corte |
@@ -161,54 +181,21 @@ socket.
 
 ### Pipeline: colas
 
-Productor y consumidor con dos colas y un **pool de batches preasignados**. El
-pool es lo que hace que la RAM sea una constante conocida de antemano y que
-descartar cueste O(1).
+Productor y consumidor con dos colas y un **pool de batches preasignados**: el lector
+(`osc-reader`) llena un `EventBatch` con el lazo de libmca, en C y sin el GIL, y lo
+pone en `full_q`; el escritor (`osc-writer`) lo guarda y lo devuelve por `free_q`. El
+pool hace que la RAM sea una constante conocida de antemano y que descartar cueste
+O(1).
 
 La decisión de diseño central es la política ante contrapresión: **descartar y
-contar, nunca bloquear**. Si el lector bloqueara esperando lugar en la cola, el
-tiempo muerto pasaría a depender del disco y dejaría de ser una constante del
-hardware, que es justo lo que rompe la estadística de conteo.
+contar, nunca bloquear**. Si el lector esperara un batch libre, el tiempo muerto
+pasaría a depender del disco y dejaría de ser una constante del hardware, que es justo
+lo que rompe la estadística de conteo. Los annotators no son hilos del carril: corren
+dentro del lector, sobre un valor que ya cacheó su propio hilo.
 
-> La rama de descarte **igual llama a `rearm()`**. Cuando eso no estaba, el
-> buffer quedaba congelado, `wait_event` volvía a disparar con el mismo evento y
-> el contador se llenaba de fantasmas: **14 996 «eventos» vistos contra 10 251
-> realmente generados**.
-
-Tres números medidos en la placa explican tres decisiones. Todos salen de
-[`arquitectura_adquisicion_software.md`](arquitectura_adquisicion_software.md)
-Parte 3:
-
-- El stall máximo del lector con el escritor de fondo era **5288 µs**, que es
-  exactamente el `sys.getswitchinterval()` por defecto: la firma de libro de la
-  contención de GIL. Por eso la sesión lo baja a 1 ms al arrancar.
-- `savez` tarda **86 ms** para un chunk de 1.07 MB contra **628 ms** de
-  `savez_compressed` para 0.95 MB: 7.3 veces el tiempo por 12 % de espacio. Y
-  además comprimir es CPU con el GIL disputado, mientras que escribir es I/O con
-  el GIL suelto.
-- La conversión `float32 → int16` vive en el **hilo escritor**, que tiene tiempo
-  de sobra, y no en el lector.
-
-Los annotators son un concepto aparte y no un `EventSource`: un GPS no define
-cuándo ocurre un evento, lo *anota*, y va tres o cuatro órdenes de magnitud más
-lento. La regla que hace que no rompan el tiempo muerto es que `sample_into()`
-**no puede hacer I/O**: sólo copia un valor ya cacheado por el hilo del
-annotator. Y como ese valor puede estar viejo, todo annotator asincrónico
-declara además un campo `<prefijo>_age_ns` — sin eso, un GPS que perdió el fix
-hace diez minutos escribe coordenadas plausibles y silenciosamente falsas en
-cada evento.
-
-**Los cuatro invariantes del carril.** Son los que hay que no romper al tocar
-el pipeline:
-
-- **Descartar y contar, nunca bloquear.** Si el lector bloqueara, el tiempo
-  muerto pasaría a depender del disco.
-- **`sys.setswitchinterval(0.001)`.** El stall máximo del lector medido era de
-  5288 µs, que es exactamente el default del GIL.
-- **Sin comprimir.** `savez` 86 ms contra `savez_compressed` 628 ms para el
-  mismo chunk: 7.3× de costo por un 12 % de tamaño.
-- **Cierre por centinela.** El lector pone `None` en `full_q` y el escritor
-  drena antes de salir; sin eso, el último chunk se pierde.
+Cómo corre cada hilo en el tiempo y qué hace con el GIL, cuántos batches hay y por
+qué, y los invariantes que no hay que romper al tocar el carril están en
+[`adquisicion_de_eventos.md`](adquisicion_de_eventos.md) §3 y §4.
 
 ### Servidor: locks
 
@@ -291,6 +278,7 @@ no son rutas, son procedimientos:
 | Formato            | Qué lleva                                                                                           | Quién lo escribe           |
 | ------------------ | --------------------------------------------------------------------------------------------------- | -------------------------- |
 | `chunk_%06d.npz`   | `wave` int16 `(eventos, canal, muestra)` + una columna por campo escalar + `meta` como array 0-d    | `ChunkWriter`              |
+| `evt_%06d.lh5`     | lo mismo en LH5, con `formato='lh5'`: lo abre el lector oficial de LEGEND                           | `ChunkWriter`              |
 | `run_summary.json` | los totales de la corrida                                                                           | `AcquisitionSession`       |
 | `.csv`             | el espectro con la metadata en cabecera `#` — **el formato por defecto**, se abre en Excel u Origin | `mca_write_file_histogram` |
 | `.npz` / `.json`   | el espectro estructurado                                                                            | `mca_save_file_*`          |
@@ -334,7 +322,10 @@ antes de tocar la tarjeta, porque escribe al page cache del kernel; el sustrato
 real es una microSD a **12.4 MB/s** medidos, y no hay SSD en esta placa. NFS es
 la bifurcación que saca el disco de la placa del lazo.
 
-No se usa `/dev/uio*`, ni `devmem`, ni HDF5, ni ningún binario crudo propio.
+No se usa `/dev/uio*`, ni `devmem`, ni ningún binario crudo propio. HDF5 se usa sólo como
+LH5, que es opcional hasta comprobarlo en la placa
+([`arquitectura_adquisicion_software.md`](arquitectura_adquisicion_software.md), «El formato
+del archivo»).
 
 ---
 
@@ -391,25 +382,14 @@ familias de constantes de módulo:
 > diccionario porque apuntar a una ranura reservada daría **el espectro entero
 > acumulado en el canal 0, sin lanzar ningún error**.
 
-### Las dos máquinas de estados
+### Las máquinas de estados
 
-![el lazo de EventSource y el flujo del MCA](figuras/maquinas_estados.svg)
-
-El lazo de `EventSource` vuelve a `wait_event()`, no a `arm()`: `arm()` se llama
-una sola vez, al abrir la corrida, y `close()` una vez al cerrarla; las dos las
-llama `AcquisitionSession` desde el hilo principal. Entre que `wait_event()`
-devuelve y `rearm()` termina, el scope no puede disparar: ese tramo es el tiempo
-muerto del método, y por eso `rearm()` va apenas se copia la ventana y los
-annotators recién después. `read_into` escribe **en el destino provisto**
-en vez de devolver arrays —evita la basura de GC de hacer un `np.zeros` por
-llamada y por canal, y hace que la versión DDR sea un memcpy sin capa
-intermedia—. Y `rearm()` es parte de la **interfaz** y no un detalle de
-`read_into`, precisamente para que el lector pueda re-armar también cuando
-descarta.
-
-El flujo del MCA es más corto porque el hardware acumula solo: se configura, se
-limpia, se arranca, y la lectura es de un espectro ya formado. **Eso es lo que
-saca la tasa de eventos del cuello de botella del bus.**
+Lo que pasa en una corrida del osciloscopio, por la BRAM y por el ring, y del MCA, está
+en [`adquisicion_de_eventos.md`](adquisicion_de_eventos.md) §2, con su figura. Lo
+esencial: `arm()` y `close()` una vez por corrida, `read_batch()` una vez por lote, y
+el lazo por evento —esperar, leer, re-armar— adentro de libmca, en C. El re-armado no
+es una llamada de la API. El MCA es lineal porque el hardware acumula solo: **eso es
+lo que saca la tasa de eventos del cuello de botella del bus.**
 
 Las dos trampas de orden cuestan una sesión de laboratorio cada una:
 
@@ -442,7 +422,7 @@ Las filas son los seis niveles de §1 y los registros, en el mismo orden. Los co
 | Nivel | offline, en la PC | en la placa | bench | RTL |
 |---|---|---|---|---|
 | **6** aplicación | `test_mcamon_gui.py` 27 · `test_mca_remote.py` 24 | `app/tests/placa/` · `e2e_rigol_app.py` | — | — |
-| **5** fuentes y sesión | `test_mca_pipeline.py` 4 · `test_ring_source.py` 10 | `test_mca_e2e.py` | `bench_reader_budget.py` | — |
+| **5** fuentes y sesión | `test_mca_pipeline.py` 4 · `test_ring_source.py` 45 | `test_mca_e2e.py` | `bench_reader_budget.py` | — |
 | **4** funciones | `test_api_mca.py` 23 · `test_api_osc.py` 15 · `test_compat_api.py` 5 | — | — | — |
 | **3** handles | `test_guarda_bitstream.py` 19 · `test_geometria_scope.py` 23 | `test_mca_hw.py` · `diag_mca_hw.py` | — | — |
 | **2** acceso de 32 b | *no se puede verificar acá: el mmap es falso* | `test_rw_dev_mem.py` | `bench_buffer_read.py` · `bench_read_vs_length.py` | — |
@@ -512,7 +492,8 @@ garantías en vez de desde quién arranca:
 | Responsable | De qué responde | Qué pasa si no cumple |
 |---|---|---|
 | la PL | detectar el flanco y **congelar** el buffer hasta el próximo arm | con `we_keep=1` el buffer da la vuelta cada 131 µs y la ventana ya fue sobrescrita cuando el lector llega: 0.001 V en vez de 0.600 V |
-| `osc-reader` | ser el único que toca el scope, y re-armar **siempre**, también al descartar | `wait_event` vuelve a disparar con el mismo buffer y el contador se llena de fantasmas |
+| `osc-reader` | ser el único que toca la fuente, y no esperar nunca un batch libre | el tiempo muerto pasa a depender del disco |
+| el lazo de libmca | re-armar **siempre**, también al descartar | el buffer queda congelado, vuelve a disparar con el mismo evento y el contador se llena de fantasmas |
 | `osc-writer` | que todo archivo visible esté completo, y convertir fuera del camino crítico | un consumidor del directorio lee un `.npz` a medias |
 | el pool | acotar la RAM de antemano y hacer que descartar cueste O(1) | con una lista que crece, un corte se lleva toda la corrida — el problema de `guardado_mariana.py` |
 | `AcquisitionSession` | cortar limpio por duración, eventos, disco o error, y dejar el resumen | una corrida que termina en una ráfaga de descartes no cierra las cuentas |
@@ -539,8 +520,8 @@ experimento que está en el árbol y se puede volver a correr:
 | Leer cuesta ~6.7 µs por palabra       | cronometrar la lectura contra la longitud                                                   | ~110 ms un espectro de 16384               | [`bench_read_vs_length.py`](../../software/API/bench/bench_read_vs_length.py) |
 | El GIL es lo que para al lector       | el stall máximo del lector con el escritor de fondo                                         | 5288 µs = `sys.getswitchinterval()`        | [`bench_reader_budget.py`](../../software/API/bench/bench_reader_budget.py)   |
 | Comprimir no paga                     | `savez` contra `savez_compressed` sobre el mismo chunk                                      | 86 ms / 1.07 MB contra 628 ms / 0.95 MB    | [`bench_reader_budget.py`](../../software/API/bench/bench_reader_budget.py)   |
-| El lazo caliente en C se pagaría      | el mismo lazo de lectura escrito en C                                                       | 13×                                        | [`bench_reader_c.c`](../../software/API/bench/bench_reader_c.c)               |
-| Hay que re-armar también al descartar | contar eventos vistos contra generados, con y sin ese `rearm()`                             | 14 996 contra 10 251 reales                | [`reader.py`](../../software/API/osciloscope_store/reader.py#L86-L98)         |
+| El lazo por evento en C paga          | el tiempo muerto por evento, con disparos por software, contra el lazo de Python            | 18.2 µs contra 252.7 µs                    | [`libmca.md`](libmca.md) §6.2                                                  |
+| Hay que re-armar también al descartar | contar eventos vistos contra generados, con y sin ese `rearm()`                             | 14 996 contra 10 251 reales                | [`reader.py`](../../software/API/osciloscope_store/reader.py) (`_loop`)       |
 | El modo continuo pierde el dato       | leer la ventana con demora deliberada, `we_keep=1` contra single-shot                       | 0.001 V contra 0.600 V a 100 µs            | [`sources.py`](../../software/API/osciloscope_store/sources.py#L35-L60)       |
 | El disco es el techo del guardado     | throughput del filesystem de la placa                                                       | 12.4 MB/s en microSD                       | [`movimiento_de_datos.md`](../movimiento_de_datos.md)                         |
 | El formato no se desincroniza del RTL | comparar el layout contra el volcado del testbench                                          | 7 tests, sin placa                         | [`test_ring_format.py`](../../software/API/tests/test_ring_format.py)         |
@@ -557,7 +538,7 @@ Rigol: `make verificar-placa`, `verificar-placa-datapath`, `verificar-placa-e2e`
 
 ```bash
 cd prj/MCA/docs/API/figuras
-for f in niveles hilos secuencia_bitstream escritura_corrida esquema_evento maquinas_estados; do
+for f in niveles hilos secuencia_bitstream escritura_corrida esquema_evento; do
   pdflatex $f.tex && pdftocairo -svg $f.pdf $f.svg
 done
 rm -f *.aux *.log
@@ -574,7 +555,9 @@ figuras por ellas. Ver [`figuras/README.md`](figuras/README.md).
 - [`referencia_api.md`](referencia_api.md) — todas las funciones, con el registro al que pega cada una
 - [`guia_de_uso.md`](guia_de_uso.md) — recetas completas, con la marca de si van en la Pitaya o en la PC
 - [`decisiones_del_refactor.md`](decisiones_del_refactor.md) — por qué el árbol quedó así
-- [`diseno_de_clases.md`](diseno_de_clases.md) — el rol de cada módulo y por qué cada clase tiene la forma que tiene
+- [`libmca.md`](libmca.md) — la biblioteca en C y su binding, bloque por bloque
+- [`adquisicion_de_eventos.md`](adquisicion_de_eventos.md) — las fuentes, los hilos, el pool de batches y la sesión
+- [`diseno_de_clases.md`](diseno_de_clases.md) — el rol de cada módulo, la red, los sustitutos y las pruebas
 - [`arquitectura_adquisicion_software.md`](arquitectura_adquisicion_software.md) — el pipeline con todos sus números
 - [`movimiento_de_datos.md`](../movimiento_de_datos.md) — los caminos del dato de ADC a PC
 - [`APP/README.md`](../APP/README.md) — la aplicación cliente/servidor

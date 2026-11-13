@@ -1,8 +1,10 @@
 # Figuras: ondas del módulo MCA
 
-Cinco diagramas de tiempo. Cuatro salen de los VCD de
-`tb_mca_pulse_feature`, `tb_mca_hist` y `tb_mca_top`; el quinto es un esquema
-de la secuencia de uso.
+Cuatro diagramas de tiempo, de los VCD de `tb_mca_pulse_feature`,
+`tb_mca_hist` y `tb_mca_top`. La secuencia de uso (el contrato PS ↔ módulo) no
+es una figura de ondas: es un diagrama de secuencia,
+[`../secuencia/mca_secuencia.svg`](../secuencia/mca_secuencia.svg), y va en la
+§1.3 del datasheet de `mca_top`.
 
 | Figura | Archivo | Qué muestra | Datos | Origen |
 |---|---|---|---|---|
@@ -10,12 +12,11 @@ de la secuencia de uso.
 | Apilamiento de pulsos | [`mca_apilamiento.svg`](mca_apilamiento.svg) | la ventana llega a maxlen: el pulso se cuenta pero NO se acepta | simulación | `tb_mca_pulse_feature`, escena 5 (apilamiento) |
 | Lectura-modificación-escritura del histograma | [`mca_hist_rmw.svg`](mca_hist_rmw.svg) | la cuenta no se pierde aunque los eventos lleguen pegados | simulación | `tb_mca_hist`, escena 3 (forwarding) |
 | Borrado del histograma sin bloquear el bus | [`mca_ack_borrado.svg`](mca_ack_borrado.svg) | el barrido de borrado dura miles de ciclos y el bus no se entera | simulación | `tb_mca_top`, escena 5 (lectura durante el borrado) |
-| Flujo de uso del MCA | [`mca_flujo.svg`](mca_flujo.svg) | mca_top | esquema | esquema (sin VCD) |
 
 Los epígrafes —con los números medidos— están en
 [`epigrafes.txt`](epigrafes.txt), que escribe el mismo script para que no
 puedan desincronizarse de los dibujos. El visor
-[`ondas_mca.html`](ondas_mca.html) muestra las 5 con sus notas y
+[`ondas_mca.html`](ondas_mca.html) muestra las cuatro con sus notas y
 no necesita nada instalado.
 
 ## Regenerar

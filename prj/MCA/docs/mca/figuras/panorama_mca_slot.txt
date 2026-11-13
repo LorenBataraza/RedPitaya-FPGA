@@ -1,0 +1,14 @@
+Arriba, el control. Al abrir, la ranura retiene las dos
+compuertas, y `len` cuenta las muestras desde el disparo. Cierra en la primera
+muestra válida con `len ≥ g_long`, que ya no se acumula: la ventana tiene
+`gate_long` muestras, contando la del disparo. Si la amplitud está en
+[min, max] (`amp_ok`), pasa a CERRADA y espera a `libera_i`; si no, vuelve a
+LIBRE. Abajo va una fila por acumulador: la lógica calcula el valor siguiente, y
+el control (la barra gris) elige entre ese, el de apertura y el que ya tenía. La
+ventana de amplitud se evalúa un ciclo antes del cierre, con dos sombras de
+Q_tot contra los umbrales ya desplazados, para sacarla del camino crítico.
+`amp_ok` toma la integral (`ge_min_r` y `le_max_r`, o `sat_ok`) o el pico
+(`peak_ok_r`), según `cfg_amp_src`. Las marcas de solape no corrigen nada:
+dejan escrito en el resultado que se midió sobre otro pulso. `estancada_o`:
+abierta y vencida, pero sin muestras válidas que la cierren. `NOMBRE=valor`:
+parámetros con que la instancia `mca_window`.

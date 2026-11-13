@@ -3,6 +3,7 @@
 % axi_wr_fifo hacia el puerto HP; créditos contra el PS, contrapresión del
 % FIFO, la FSM global y el banco de registros.
 % Fuente: modulos/event_ring/rtl/*.sv. Estilo: docs/figuras/estilo_tikz.tex.
+% El epígrafe no va en la figura: está en panorama_event_ring_top.txt y en el doc que la incluye.
 %
 % Compilar:   pdflatex panorama_event_ring_top.tex
 %             pdftocairo -svg panorama_event_ring_top.pdf panorama_event_ring_top.svg
@@ -19,7 +20,7 @@
 
 % ============================================================ camino del dato
 \node[ddr, text width=2.6cm] (cap) at (2.6,0)
-  {\blk{event\_window\_capture}{pre-buffer circular\\ ventana pre + post\\ acepta en el SOF}};
+  {\blk{event\_window\_capture}{pre-buffer circular\\ ventana pre + post\\ entera o nada, al trigger}};
 \node[ddr, text width=2.6cm] (stg) at (6.6,0)
   {\blk{event\_stage\_fifo}{muestras ($2^{\mathtt{DATA\_AW}}$)\\ + metadatos ($E$ eventos)}};
 \node[ddr, text width=2.6cm] (wrt) at (10.6,0)
@@ -88,15 +89,12 @@
 \draw[ctrl] (15.6,0 |- reg.north) -- (15.6,0 |- fifo.south)
   node[sen, pos=0.3, left, black!80, align=right] {slot\_base,\\ ring\_sz};
 \draw[ctrl, cruce] (16.2,0 |- reg.north) -- (16.2,0 |- cre.east) -- (cre.east)
-  node[sen, pos=0.0, above left, black!80, align=right] {rd\_slot, n\_slots};
+  node[sen, pos=0.0, above left, black!80, align=right] {rd\_slot, n\_slots\\[-1pt]\normalfont\scriptsize rd\_slot: lo escribe el PS};
 \draw[<->, line width=0.8pt] (reg.south) -- (sb.north);
 
 % ================================================================= leyenda ===
 \leyenda{0.5,-8.9}{naranja!70/submódulo del camino a DDR, naranja!25/lógica dentro del módulo,
-  grisr/registros, rojo!45/bus del sistema}
-  {El PS no lee ningún registro por evento: polea el footer del próximo slot en
-   DDR y publica \texttt{RD\_SLOT} una vez por lote. Sin créditos el writer se
-   frena y el descarte ocurre arriba, en la captura, por evento entero. \notaparam}
+  grisr/registros, rojo!45/bus del sistema}{}
 
 \end{tikzpicture}
 \end{document}

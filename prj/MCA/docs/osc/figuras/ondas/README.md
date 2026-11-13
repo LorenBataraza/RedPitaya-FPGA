@@ -1,6 +1,6 @@
 # Figuras: ondas del módulo OSC
 
-Tres diagramas de tiempo. Los dos primeros salen del VCD de
+Dos diagramas de tiempo. Salen del VCD de
 [`tb_osc_filter`](../../../../modulos/osc/sim/tb_osc_filter.sv), que es un
 testbench de **equivalencia**: corre `osc_filter` y `osc_filter_ref` —el filtro
 original del repo— lado a lado con el mismo estímulo y cuenta las discrepancias
@@ -11,12 +11,15 @@ se ve es la prueba de que el rediseño no cambió la respuesta.
 |---|---|---|---|---|
 | Respuesta al impulso del ecualizador | [`osc_filter_impulso.svg`](osc_filter_impulso.svg) | coeficientes de reset (la cadena es transparente), osc_filter vs osc_filter_ref | simulación | `tb_osc_filter`, caso de coeficientes de reset |
 | Compensación polo-cero del ecualizador | [`osc_filter_polocero.svg`](osc_filter_polocero.svg) | compensacion polo-cero (aa=25000): la cola que compensa el preamplificador | simulación | `tb_osc_filter`, caso de compensacion polo-cero |
-| Flujo de adquisición del osciloscopio | [`osc_cfg_adquisicion.svg`](osc_cfg_adquisicion.svg) | osc_cfg | esquema | esquema (sin VCD: `osc_cfg` no tiene testbench) |
+
+La secuencia de programación de `osc_cfg` —qué escribe y qué lee el PS, en
+qué orden— no es una figura de ondas: está en
+[`../secuencia/`](../secuencia/) como diagrama de secuencia.
 
 Los epígrafes —con los números medidos— están en
 [`epigrafes.txt`](epigrafes.txt), que escribe el mismo script para que no
 puedan desincronizarse de los dibujos. El visor
-[`ondas_osc.html`](ondas_osc.html) muestra las 3 con sus notas y
+[`ondas_osc.html`](ondas_osc.html) muestra las 2 con sus notas y
 no necesita nada instalado.
 
 ## Regenerar

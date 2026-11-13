@@ -119,7 +119,8 @@ datos = osciloscope_read_capture_sw(osc, thr=0.5)
 ## 4. Guardado continuo del flujo de eventos
 
 **En la Pitaya.** Es la API de guardado: mientras la de lectura da una estructura
-puntual, ésta escribe el flujo entero a disco, un `.npz` por chunk.
+puntual, ésta escribe el flujo entero a disco, un archivo por chunk: `.npz`, o `.lh5` con
+`formato='lh5'`.
 
 ```python
 from API.osciloscope import Osciloscope
@@ -134,11 +135,12 @@ print(s.summary())
 ```
 
 Con el event_ring en vez de la BRAM, el lector no cambia — `RingSource` expone la
-misma interfaz:
+misma interfaz, y abre el ring y su región de DDR al armar. Necesita el bitstream del
+ring (`make bitstream-event-ring`), y todavía no se probó en la placa:
 
 ```python
 from API.osciloscope_ring import RingSource
-src = RingSource(osc, ring_mem, ddr_mem, ddr_phys, ddr_size, pre=8, post=24)
+src = RingSource(osc, pre=8, post=24, thr=0.5)
 ```
 
 **En la PC, sin placa**, para probar el pipeline entero:
@@ -150,8 +152,18 @@ from API.osciloscope_store import FakeSource, AcquisitionSession
 Releer un chunk:
 
 ```python
-from API.osciloscope_store import load_chunk
-arrays, meta = load_chunk('chunk_000000.npz')
+from API.osciloscope_store import archivos_de_corrida, load_chunk
+for archivo in archivos_de_corrida('corrida_01'):   # da lo mismo el formato
+    arrays, meta = load_chunk(archivo)
+```
+
+`.lh5` necesita `h5py`. Para abrirlo en la PC sin este código, con el lector oficial
+(`pip install legend-lh5io`):
+
+```python
+import lh5
+tabla = lh5.read('raw', ['evt_000000.lh5', 'evt_000001.lh5'])
+tabla['waveform_in1']['values'].nda     # (eventos, muestras), en cuentas
 ```
 
 ---

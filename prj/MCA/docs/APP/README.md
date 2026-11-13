@@ -25,7 +25,7 @@ MCA de este proyecto, que tiene otro hardware debajo.
 | Documento | Qué contiene |
 |---|---|
 | [`flujo_de_datos.md`](flujo_de_datos.md) | **empezar por acá**: el camino de control y el de datos, hilo por hilo, con las restricciones de cada salto |
-| [`protocolo.md`](protocolo.md) | las 23 operaciones, el formato de trama, los errores, y una sesión con `nc` |
+| [`protocolo.md`](protocolo.md) | las 36 operaciones, el formato de trama, los errores, y una sesión con `nc` |
 | [`pruebas.md`](pruebas.md) | qué demuestra cada test — y, sobre todo, **qué no cubre ninguno** |
 | [`../puesta_en_marcha.md`](../puesta_en_marcha.md) | el paso a paso de todo el sistema, si venís de cero y la placa todavía no está lista |
 | [`../publicar_release.md`](../publicar_release.md) | armar el paquete instalable y publicarlo en GitHub — para quien sólo quiere **usar** el sistema |
@@ -70,12 +70,13 @@ refresco en el hilo de la interfaz la congelaría.
 | Pestaña | Contenido |
 |---|---|
 | **Mensajes** | cada operación y cada error con hora. Es lo que permite reconstruir qué pasó cuando el síntoma llega tarde y desfigurado |
-| **Espectro** | el histograma 1D, umbrales, exposición, contadores, **la lista de picos detectados con su FWHM**, y guardado |
+| **Espectro** | el histograma 1D, umbrales, exposición, la tasa de entrada, contadores con el **tiempo muerto en total o desglosado por etapa**, **la lista de picos detectados con su FWHM**, y guardado |
 | **MCA** | los 24 parámetros del slot 7, agrupados, con **cuándo se puede tocar cada uno** |
 | **Mapa 2D (PSD)** | amplitud × factor de forma y la FOM. **Aparece sólo si el bitstream lo trae** (bit `CAP_HIST_H_PSD` de `CAPS`) |
 | **Integración** | ruteo del datapath y control global del slot 6. **Aparece sólo si el bitstream trae `integration_cfg`** |
 | **OSC** | **las últimas formas capturadas** y, con el mismo eje de tiempo, **la tasa instantánea** de ese momento. Más los registros del osciloscopio |
 | **Multitrigger** | máscaras OR con los bits nombrados, `trigger_shield`, y qué fuente disparó |
+| **Generador** | el generador de pulsos (`gen_pulsos`, slot 2) y el **lazo digital**, para probar el MCA sin el Rigol: tasa, amplitudes con sus pesos, τ_d, base y ruido, arrancar y parar, y la Mq para el trapecio. **Aparece sólo si el bitstream lo trae**. Con el lazo prendido, la barra superior lo avisa en rojo |
 
 En la barra superior van la IP, el puerto, el canal (IN1/IN2), el estimador
 (pico o integral de carga), la decimación y el período de refresco.
@@ -109,7 +110,7 @@ Casi todas las impone el hardware, que no es el mismo:
 | 4096 canales | `2^h_aw`, leído del registro `WIDTHS` — el cliente **no hardcodea** la geometría (ver el recuadro de abajo) |
 | temporizador de exposición en hardware | no existe: lo implementa un hilo del servidor contra `livetime_s` |
 | `negator` por canal | no hay negador en el RTL; en su lugar está el selector `amp_src` (pico o integral de carga) |
-| — | contadores propios: `rej_amp`, `rej_psd`, `pileup`, `dropped`, y real/vivo/muerto |
+| — | contadores propios: `rej_amp`, `rej_psd`, `pileup`, los disparos perdidos, y real/vivo/muerto con el muerto desglosable por etapa |
 | — | mapa 2D de forma de pulso y figura de mérito |
 
 ---

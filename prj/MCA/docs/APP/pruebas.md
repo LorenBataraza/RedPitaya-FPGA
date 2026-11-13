@@ -38,7 +38,7 @@ Ocho pruebas sobre `socket.socketpair()`, sin red real. Lo que prueban es lo que
 
 ## 2. El handle remoto — `app/tests/test_mca_remote.py`
 
-Quince pruebas que levantan `mca_server.py --fake` en un puerto de loopback y le
+Treinta pruebas que levantan `mca_server.py --fake` en un puerto de loopback y le
 hablan con `MCARemote`.
 
 **Es la prueba que sostiene el diseño.** Si la superficie `mca_*` entera pasa por
@@ -48,19 +48,23 @@ no contra un protocolo. Cubre los accesores por campo, el read-modify-write de
 los registros que empaquetan varios campos, `configure` en bloque, la
 adquisición completa, `clear`, la ventana de amplitud, el mapa 2D, la metadata
 con el round-trip de los tres formatos de guardado, `acquire` heredado sin
-redefinir, las tasas y la exposición, el rechazo del segundo cliente, la
-operación inventada y el rechazo de `load_bitstream` en modo fake.
+redefinir, las tasas y la exposición, la tasa de entrada (la cuenta a mano, con
+veto y re-armado, y contra los 1000/s del MCA falso), el rechazo del segundo
+cliente, la operación inventada, el rechazo de `load_bitstream` en modo fake, y
+el generador de pulsos: la tabla reconstruida en líneas con sus pesos, que una
+amplitud fuera de rango no deje la configuración a medias, y que con el lazo el
+MCA falso vea la tasa del generador (y 0 con el generador parado).
 
 > **La espera al arranque del servidor lee su stdout, no sondea el puerto.** El
 > servidor acepta un solo cliente: una conexión de sondeo se gastaría el cupo
-> justo antes de la prueba. Cuesta descubrirlo, porque el síntoma es que las
-> quince pruebas fallan con `Ocupado`.
+> justo antes de la prueba. Cuesta descubrirlo, porque el síntoma es que todas
+> las pruebas fallan con `Ocupado`.
 
 ---
 
 ## 3. La GUI — `app/tests/test_mcamon_gui.py`
 
-Doce pruebas con `QT_QPA_PLATFORM=offscreen`, así que corren en CI y por ssh. No
+Treinta y siete pruebas con `QT_QPA_PLATFORM=offscreen`, así que corren en CI y por ssh. No
 prueban estética: prueban **el hilo del socket, las señales entre hilos y el
 guardado**, que es donde una GUI se rompe de verdad.
 
@@ -71,7 +75,12 @@ dibuje sus límites; que el rebin **no pierda cuentas** en ninguno de los siete
 factores; que la lista encuentre el pico donde el simulador lo puso y le mida
 el FWHM que le corresponde; que guardar y
 recargar dé el mismo array en los tres formatos; que el mapa 2D **sólo se lea
-con su pestaña visible**; y que desconectar y volver a conectar funcione.
+con su pestaña visible**; que el tiempo muerto se muestre en total
+(`deadtime_real_s`, no la ocupación) y se desglose por etapa con «detalle»; que
+el tope de ranuras sea el `n_acc_max` de la placa; que la pestaña del generador
+aplique y relea, avise un error sin diálogo modal, lleve su Mq al trapecio, y que
+prender el lazo muestre el aviso arriba y lleve la tasa del generador al
+espectro; y que desconectar y volver a conectar funcione.
 
 La pestaña 2D tiene su propia prueba porque aparece o desaparece según lo que
 publique `CAPS`, y eso es una decisión que se toma en tiempo de conexión. Lo
@@ -198,6 +207,13 @@ make rigol-off
 | `mca_server.py --selftest` | placa | identify + clear + 1 s + espectro completo, con `/proc/uptime` a los lados: si la placa se reinició durante la lectura, el uptime del final es menor |
 | `API/tests/placa/diag_mca_hw.py` | placa | el camino de lectura palabra a palabra sigue intacto |
 | `API/tests/test_compat_api.py` | PC | que nada público de `API/mca.py` cambió, contra un baseline congelado |
+| `app/tests/placa/e2e_lazo_app.py` (`make verificar-placa-lazo`) | PC contra el servidor de la placa | la app con el generador de pulsos por el **lazo digital**, sin el Rigol: λ̂ contra la tasa del generador, las dos líneas del espectro (dónde caen y cuánto pesa cada una), el teselado y el modo con N pulsos. Deja el generador parado y el lazo apagado |
+
+`e2e_lazo_app.py` pasó en la placa el 2026-11-13 (cce7b66b, 20 de 20). Con una
+ranura, a 20 000/s y con el 6.1 % de tiempo muerto: λ̂ = 19 964/s (−0.18 %),
+contra −5.9 % de los aceptados por segundo real; las líneas de 1500 y 4000
+cuentas en 1492 y 3992, con razón 2.676 contra 2.667, y las áreas a −2.6 % de los
+pesos de la tabla.
 
 El `--selftest` y `diag_mca_hw.py` comparten una idea que vale la pena copiar en
 cualquier prueba nueva sobre esta placa: **medir el uptime antes y después**. El
@@ -226,13 +242,17 @@ Esto es lo más útil de este documento.
 - **El driver del slot 6 contra hardware.** La pestaña de Integración tiene su
   prueba, pero el MCA simulado **no simula el slot 6**: la prueba le da
   directamente lo que devolvería `integracion.get`. O sea que está cubierto el
-  contrato entre las dos mitades, y no el driver
-  ([`API/integration.py`](../../software/API/integration.py)) contra la placa.
+  contrato entre las dos mitades. El driver
+  ([`API/integration.py`](../../software/API/integration.py) sobre libmca) está
+  probado contra un modelo de registros
+  ([`test_libmca_integration.py`](../../software/API/tests/test_libmca_integration.py)),
+  no contra la placa.
   El ruteo de taps nunca se ejercitó desde la aplicación.
 - **El RTL del osciloscopio contra hardware, y por la misma razón.** Las
   pestañas de OSC y Multitrigger tienen sus pruebas, pero el simulado
   (`FakeOsc`, `FakeMultiTrigger` de
-  [`mca_remote.py`](../../software/API/mca_remote.py)) **no simula el RTL**: no
+  [`mca_remote.py`](../../software/API/mca_remote.py), con la lógica de libmca sobre
+  registros simulados) **no simula el RTL**: no
   hay FSM de captura, ni disparo, ni BRAM. Hay registros que retienen lo escrito
   y formas gaussianas sintéticas. Está cubierto que la captura viaje, que el
   dibujo la alinee en `t=0` y que las casillas armen la máscara que

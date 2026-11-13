@@ -1,8 +1,7 @@
-% Los créditos: wr_slot y rd_slot sobre el ring, y dónde se frena y dónde se
-% descarta cuando se agotan. Los números de la cadena son las filas de la tabla
-% de logica_de_captura_y_axi.md §5.6.
-% Fuente: modulos/event_ring/rtl/event_ring_top.sv (occupied, credit_ok, wr_rdy),
-% event_slot_writer.sv y event_window_capture.sv.
+% Los créditos: wr_slot y rd_slot sobre el ring, con cuatro estados de
+% ocupación. Dónde se frena y dónde se descarta cuando se agotan está aparte,
+% en ring_freno_descarte.tex.
+% Fuente: modulos/event_ring/rtl/event_ring_top.sv (occupied, credit_ok).
 %
 % Compilar:   pdflatex ring_creditos.tex
 %             pdftocairo -svg ring_creditos.pdf ring_creditos.svg
@@ -48,7 +47,7 @@
 \begin{document}
 \begin{tikzpicture}[fondo]
 
-\node[titulo] at (-2.35,3.45) {\textbf{a) Los créditos} \quad {\scriptsize contadores libres: la resta, y no la posición, dice cuánto hay. Dibujo con $N = 12$ slots}};
+\node[titulo] at (-2.35,3.45) {\textbf{Los créditos} \quad {\scriptsize contadores libres: la resta, y no la posición, dice cuánto hay. Dibujo con $N = 12$ slots}};
 
 \anillo{0}{15}{15}
 \pie{0}{vacío}{15}{15}{0}{12 créditos}
@@ -62,51 +61,6 @@
 \node[font=\scriptsize, black!75, anchor=north west, inner sep=0pt, text width=19.6cm, align=left] at (-2.3,-3.72)
   {\texttt{wr}: el próximo slot a escribir. \texttt{rd}: el próximo a leer. Vacío y lleno tienen los dos punteros en el mismo lugar;
    la resta módulo $2^{32}$ los distingue sin sacrificar un slot, y sigue valiendo cuando los contadores dan la vuelta.};
-
-% ============================================================== b) la cadena
-\begin{scope}[shift={(0,-6.4)}]
-\node[titulo] at (-2.35,2.0) {\textbf{b) Cuando algo no alcanza} \quad {\scriptsize del writer a la DDR se frena sin perder nada; en la captura se descarta el evento entero y se cuenta}};
-
-\tikzset{eslabon/.style={ddr, text width=2.45cm, minimum height=1.05cm}}
-\node[trig, text width=1.35cm, minimum height=1.05cm] (tr) at (-1.5,0) {\etq{trigger}{y muestras}};
-\node[captura, text width=2.8cm, minimum height=1.05cm] (cap) at (1.65,0) {\blk{event\_window\_capture}{no se puede frenar}};
-\node[eslabon] (stg) at (5.45,0) {\blk{event\_stage\_fifo}{4 eventos, 4096 muestras}};
-\node[eslabon] (wrt) at (9.25,0) {\blk{event\_slot\_writer}{se puede frenar}};
-\node[eslabon, text width=1.75cm] (fif) at (12.65,0) {\blk{axi\_wr\_fifo}{256 palabras}};
-\node[comp, text width=1.6cm, minimum height=1.05cm] (ddr) at (16,0) {\etq{ring en DDR}{$N$ slots}};
-
-\draw[flujo] (tr) -- (cap);
-\draw[flujo] (cap) -- (stg);
-\draw[flujo] (stg) -- (wrt);
-\draw[flujo] (wrt) -- (fif);
-\draw[flujo] (fif) -- (ddr);
-
-% frena: azul, hacia atrás
-\tikzset{frena/.style={->, azul!60!black, line width=1pt, densely dashed}, descarta/.style={rojo!60!black, line width=1pt}}
-\draw[frena] (ddr.south) -- ++(0,-0.55) -| (wrt.south);
-\node[marca, fill=azul!60!black] at (12.65,-1.08) {1};
-\node[font=\scriptsize, anchor=north, align=center, inner sep=2pt] at (12.65,-1.22) {sin slots libres: \texttt{credit\_ok = 0}\\ espera en \texttt{W\_IDLE}};
-\draw[frena] (fif.north) -- ++(0,0.42) -| (wrt.north);
-\node[marca, fill=azul!60!black] at (10.95,0.95) {2};
-\node[font=\scriptsize, anchor=south, inner sep=2pt] at (10.95,1.14) {FIFO casi lleno: \texttt{wr\_rdy = 0}, espera a mitad de slot};
-
-% descarta: rojo, y se va a un contador
-\draw[frena] ([xshift=-5mm]wrt.south) -- ++(0,-0.55) -| ([xshift=5mm]stg.south);
-\node[font=\scriptsize, anchor=north, align=center, inner sep=2pt] at (7.35,-1.22) {writer frenado:\\ el stage se llena};
-\draw[->, rojo!60!black, line width=1pt, densely dashed] ([xshift=-5mm]stg.south) -- ++(0,-0.55) -| ([xshift=4mm]cap.south);
-\node[marca, fill=rojo!60!black] at (3.45,-1.08) {3};
-\node[font=\scriptsize, anchor=north, align=center, inner sep=2pt] at (3.45,-1.22) {no entra la ventana entera:\\ \texttt{s\_accept = 0} $\to$ \texttt{DROP\_FULL}};
-\node[marca, fill=rojo!60!black] at (-1.5,-1.08) {4};
-\draw[->, rojo!60!black, line width=1pt, densely dashed] ([xshift=-4mm]cap.south) -- ++(0,-0.55) -| (tr.south);
-\node[font=\scriptsize, anchor=north, align=center, inner sep=2pt, text width=3.3cm] at (-0.85,-1.22) {trigger durante la ventana anterior $\to$ \texttt{DROP\_BUSY}};
-
-% leyenda
-\draw[frena] (-2.2,-2.75) -- ++(0.7,0);
-\node[font=\scriptsize, anchor=west] at (-1.45,-2.75) {se frena: no se pierde nada};
-\draw[->, rojo!60!black, line width=1pt, densely dashed] (2.5,-2.75) -- ++(0.7,0);
-\node[font=\scriptsize, anchor=west] at (3.25,-2.75) {se descarta el evento entero y queda contado};
-\node[font=\scriptsize, black!70, anchor=west] at (9.0,-2.75) {los números son las filas de la tabla de §5.6};
-\end{scope}
 
 \end{tikzpicture}
 \end{document}

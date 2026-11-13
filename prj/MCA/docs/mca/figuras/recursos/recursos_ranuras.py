@@ -67,7 +67,9 @@ def leer_corrida(d, n):
 
 
 def sintetizar():
-    srcs = " ".join(str(MOD_DIR / l.strip()) for l in (MOD_DIR / "files.f").read_text().splitlines()
+    # comun primero: mca_trap vive ahi desde 2026-11-03 (es el DEPS del Makefile del modulo)
+    srcs = " ".join(str(MODULOS / m / l.strip()) for m in ("comun", "mca")
+                    for l in (MODULOS / m / "files.f").read_text().splitlines()
                     if l.strip() and not l.startswith("#"))
     filas = []
     with tempfile.TemporaryDirectory() as tmp:

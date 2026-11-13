@@ -6,6 +6,8 @@
 % Fuentes: rtl/mine/tops/{mca,event_ring}_red_pitaya_top.sv.
 %
 % Este archivo no compila solo: lo incluye cada envoltorio.
+% El epígrafe no va en la figura: está en panorama_mca_red_pitaya_top.txt y
+% panorama_event_ring_red_pitaya_top.txt, y en el doc que incluye cada una.
 
 \usepackage[none]{hyphenat}
 \input{../../figuras/estilo_tikz.tex}
@@ -96,9 +98,12 @@
 % --- datapath ---
 \draw[flujo] (itg.east) -- node[sen, above] {route\_*} (itg.east -| scp.west);
 \draw[flujo] (adc.north) -- node[sen, left] {adc\_dat} (adc.north |- scp.south);
-\draw[flujo] ([yshift=4mm]scp.east) -- node[sen, above] {mca\_dat} ([yshift=4mm]scp.east -| mca.west);
-\draw[flujo] (scp.east) -- node[sen, above] {veto} (scp.east -| mca.west);
-\draw[flujo] ([yshift=-4mm]scp.east) -- node[sen, above] {trig} ([yshift=-4mm]scp.east -| mca.west);
+\draw[flujo] ([yshift=6mm]scp.east) -- node[sen, above] {mca\_dat} ([yshift=6mm]scp.east -| mca.west);
+% veto y trig_arm son NIVELES del multitrigger que el MCA usa sólo para su
+% teselado de relojes (vetotime y t_rearm); trig es el flanco que abre ranura
+\draw[flujo] ([yshift=2mm]scp.east) -- node[sen, above] {trig} ([yshift=2mm]scp.east -| mca.west);
+\draw[flujo] ([yshift=-2mm]scp.east) -- node[sen, above] {veto} ([yshift=-2mm]scp.east -| mca.west);
+\draw[flujo] ([yshift=-6mm]scp.east) -- node[sen, above] {trig\_arm} ([yshift=-6mm]scp.east -| mca.west);
 \ifring
   % el ring toma las mismas muestras que el MCA y el mismo trigger conjunto
   \draw[flujo] (16.3,0 |- scp.south) |- node[sen, above, pos=0.75, align=center]
@@ -123,10 +128,7 @@
 
 % ================================================================= leyenda ===
 \leyenda{-0.4,-13.0}{azul!35/acondicionamiento y trigger, verde!55/MCA,
-  naranja!70/camino a DDR, grisr/periferia e infraestructura, rojo!45/bus del sistema}
-  {Los pines físicos quedan en el borde. Control: GP0 $\to$ \texttt{sys\_bus}. Datos:
-   \texttt{i\_scope}\ifring{} y \texttt{event\_ring\_top}\fi{} $\to$ HP $\to$ DDR, sin pasar por el ARM.
-   \notaparam{} En \texttt{integration\_cfg} se muestran 4 de sus 21.}
+  naranja!70/camino a DDR, grisr/periferia e infraestructura, rojo!45/bus del sistema}{}
 
 \end{tikzpicture}
 \end{document}

@@ -1,0 +1,10 @@
+`m_accept` lo da la stage: hay `(pre + post)·N_CH` lugares libres **y** un lugar
+de metadato. 
+
+
+Se mira una sola vez, en el ciclo del trigger, antes de que salga
+la primera muestra (el SOF; ver §2.5). Desde la FSM global, `STOPPED` (`run_i =
+0`) la devuelve a `IDLE` desde cualquier estado, y `DRAINING` (`accept_trig =
+0`) no la deja aceptar triggers nuevos pero sí terminar la ventana en vuelo. Con
+el ring en `RUNNING`, todo flanco queda contado: `EV_CNT + DROP_BUSY +
+DROP_FULL` = triggers.

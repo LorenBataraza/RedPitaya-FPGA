@@ -2,6 +2,7 @@
 % fabricación del trigger, captura en BRAM, camino a DDR y bloques compartidos.
 % Fuente: rtl/classic/rp_scope_com.v — documentado en
 % docs/osc/sistema_adquisicion_original.md §1
+% El epígrafe no va en la figura: está en panorama_rp_scope_com.txt y en el doc que la incluye.
 %
 % Compilar:   pdflatex panorama_rp_scope_com.tex
 %             pdftocairo -svg panorama_rp_scope_com.pdf panorama_rp_scope_com.svg
@@ -130,8 +131,7 @@
 % ================================================================= leyenda ===
 \leyenda{-1.3,-10.8}{azul!35/acondicionamiento, amarillo/trigger,
   verde!55/captura en BRAM, naranja!70/camino a DDR,
-  grisr/compartido (una vez), rojo!45/bus del sistema}
-  {Un solo dominio de reloj: \texttt{axi\_clk = adc\_clk}. \notaparam}
+  grisr/compartido (una vez), rojo!45/bus del sistema}{}
 
 \end{tikzpicture}
 \end{document}

@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
-"""Versiones ESTÁTICAS de la figura 7, para el informe impreso.
+"""Versión ESTÁTICA de la figura 7, para el informe impreso.
 
 Los tres videos de [`animacion_cadena_mca.py`](animacion_cadena_mca.py) no se
-pueden poner en un informe, así que cada uno tiene acá su gemelo estático:
+pueden poner en un informe, así que tienen su gemelo estático:
 
-  07a_senal.png       una ventana de la señal con el umbral y la segmentación
-  07b_cadena.png      el camino de datos y el tren de registros de evento
-  07c_histograma.png  el espectro en tres momentos de la acumulación
-  07_cadena.png       las tres cosas en una sola figura (la que va al informe)
+  07_cadena.png       las tres etapas en una sola figura (la que va al informe)
+
+Las tres sueltas --07a_senal, 07b_cadena y 07c_histograma-- están en TikZ y las
+escribe [`figuras_cadena_tikz.py`](figuras_cadena_tikz.py), que toma de acá la
+ventana (`elegir_ventana`) y los cuadros (`cuadro_con`, `HITOS`). Este script
+escribe además el manifiesto de transacciones que lee el datasheet, con las
+cuatro.
 
 Salen de la MISMA simulación que los videos —`simular()` con la semilla y el
 número de cuadros por omisión—, así que los pulsos, las amplitudes y el espectro
 final son los mismos; lo que cambia es cómo se muestra el paso del tiempo. El
 video lo muestra avanzando, el estático lo muestra desplegado: 07a elige una
-ventana donde se ven todos los casos a la vez, y 07c elige tres cuadros en vez
-de uno.
+ventana donde se ven todos los casos a la vez, y 07c apila tres tramos de la
+acumulación en vez de mostrar un solo cuadro.
 
 Como en el resto de las figuras, los números que se muestran son los del RTL:
 la amplitud es la muestra de pico sobre la línea de base y el canal es
@@ -48,7 +51,8 @@ from animacion_cadena_mca import (DT_TRAZA, VENTANA, UMBRAL, H_SHIFT,
 
 _AQUI = os.path.dirname(os.path.abspath(__file__))
 
-# cuántas cuentas lleva acumuladas cada panel de 07c (el último es el final)
+# dónde termina cada capa de 07c (figuras_cadena_tikz.py): cuántas cuentas lleva
+# acumuladas; la última capa llega al final de la simulación
 HITOS = (12, 64)
 
 # Histéresis de la ilustración: el módulo cierra al bajar de thr - hyst, no de
@@ -269,25 +273,6 @@ def panel_cadena(ax, eventos):
             color=MUDO, style='italic')
 
 
-def panel_tabla(ax, eventos):
-    """Los eventos del panel A, como los ve el histograma."""
-    cols = ((0.6, 'pulso', 'left'), (3.0, 't [µs]', 'right'),
-            (5.8, 'amp [cuentas]', 'right'),
-            (9.3, f'canal = amp >> {H_SHIFT}', 'right'))
-    filas = []
-    for ev in eventos:
-        ok = ev['ok']
-        col = TINTA if ok else MUDO
-        filas.append([
-            {'t': f"#{ev['n']}", 'color': col},
-            {'t': f"{ev['t']:.1f}", 'color': col},
-            {'t': f"{ev['amp']:.0f}", 'color': col, 'bold': ok},
-            {'t': f"{ev['canal']}" if ok else 'rechazado: amp < thr',
-             'color': col, 'bold': ok, 'italic': not ok},
-        ])
-    T.panel_tabla(ax, cols, filas)
-
-
 # =============================================================================
 # Panel C — el histograma
 # =============================================================================
@@ -311,36 +296,8 @@ def panel_histograma(ax, cuentas, n, ejex=True):
 
 
 # =============================================================================
-# Las cuatro figuras
+# La figura completa (las tres sueltas son TikZ: figuras_cadena_tikz.py)
 # =============================================================================
-def fig_senal(sim, win, out):
-    fig, ax = plt.subplots(figsize=(9.6, 4.4))
-    panel_senal(ax, sim, *win)
-    fig.tight_layout()
-    return _guardar(fig, out, '07a_senal.png')
-
-
-def fig_cadena(win, out):
-    eventos = win[2]
-    fig = plt.figure(figsize=(9.6, 4.8))
-    gs = GridSpec(2, 1, height_ratios=[1.25, 1.0], hspace=0.05, figure=fig)
-    panel_cadena(fig.add_subplot(gs[0]), eventos)
-    panel_tabla(fig.add_subplot(gs[1]), eventos)
-    return _guardar(fig, out, '07b_cadena.png')
-
-
-def fig_histograma(sim, out):
-    cuadros = [cuadro_con(sim, n) for n in HITOS] + [len(sim['estados']) - 1]
-    fig, axs = plt.subplots(len(cuadros), 1, figsize=(7.6, 6.6), sharex=True)
-    for i, (ax, f) in enumerate(zip(axs, cuadros)):
-        e = sim['estados'][f]
-        panel_histograma(ax, e['cuentas'], e['emitidos'],
-                         ejex=(i == len(cuadros) - 1))
-        _panel(ax, f"({'abc'[i]})")
-    fig.tight_layout()
-    return _guardar(fig, out, '07c_histograma.png')
-
-
 def fig_completa(sim, win, out):
     """Las tres etapas en una sola figura: es la que va al informe.
 
@@ -378,8 +335,8 @@ def _guardar(fig, out, nombre):
 # Manifiesto
 #
 # Las figuras del MCA son ANTERIORES a la convencion de
-# `docs/<m>/figuras/transacciones/`, y mover cuatro PNG versionados para que la
-# ruta quede prolija no vale la pena. Lo que se escribe es el manifiesto, en el
+# `docs/<m>/figuras/transacciones/`, y mover cuatro figuras versionadas para que
+# la ruta quede prolija no vale la pena. Lo que se escribe es el manifiesto, en el
 # lugar donde `datasheet.py` lo busca, apuntando a los archivos donde estan.
 # =============================================================================
 
@@ -401,25 +358,32 @@ ITEMS = [
               'y la que cae en un canal en (c), con el mismo `amp >> h_shift` '
               'que hace el RTL. Es la unica figura del proyecto que muestra '
               'la cuenta completa de punta a punta.'),
-    dict(archivo='../07a_senal.png',
+    dict(archivo='../07a_senal.svg',
          titulo='(a) LA SENAL: UN PULSO POR EVENTO',
-         origen='la misma simulacion, panel (a) suelto',
+         origen='la misma simulacion, panel (a) suelto, en TikZ '
+                '(`figuras_cadena_tikz.py`)',
          nota='Las bandas parten el eje de TIEMPO en estados --ventana '
               'abierta, reposo-- y no la senal en eventos. La ventana abre al '
               'cruzar `thr` y cierra recien al bajar de `thr - hyst`, que es '
               'lo que hace que termine bastante despues del pico.'),
-    dict(archivo='../07b_cadena.png',
+    dict(archivo='../07b_cadena.svg',
          titulo='(b) EL CAMINO DE DATOS: UN NUMERO POR PULSO',
-         origen='la misma simulacion, panel (b) suelto',
+         origen='la misma simulacion, panel (b) suelto, en TikZ '
+                '(`figuras_cadena_tikz.py`)',
          nota='`pulse_feature` emite un registro de evento por pulso y el '
               'histograma lo convierte en una cuenta. La tabla de abajo son '
               'los mismos pulsos como los ve el histograma, incluido el que '
               'no cruza el umbral y no produce nada.'),
-    dict(archivo='../07c_histograma.png',
+    dict(archivo='../07c_histograma.svg',
          titulo='(c) EL ESPECTRO: UNA CUENTA POR NUMERO',
-         origen='la misma simulacion, panel (c) suelto',
-         nota='El mismo espectro en tres momentos de la acumulacion (12, 64 y '
-              '227 cuentas): la forma aparece recien cuando hay estadistica.'),
+         origen='la misma simulacion, panel (c) suelto, en TikZ '
+                '(`figuras_cadena_tikz.py`)',
+         nota='El espectro final en barras apiladas: cada capa es un tramo de '
+              'la acumulacion (las primeras 12 cuentas, de la 13 a la 64 y de '
+              'la 65 a la 227), asi que el borde de arriba de cada capa es el '
+              'espectro en ese momento. La capa de abajo son cuentas sueltas; '
+              'la forma de las dos lineas aparece recien cuando hay '
+              'estadistica.'),
 ]
 
 
@@ -443,9 +407,6 @@ def main():
     win = elegir_ventana(sim)
     t0, t1, eventos = win
 
-    fig_senal(sim, win, args.out)
-    fig_cadena(win, args.out)
-    fig_histograma(sim, args.out)
     fig_completa(sim, win, args.out)
 
     ult = sim['estados'][-1]
@@ -455,7 +416,7 @@ def main():
           f"umbral y {len(eventos) - len(acep)} bajo el umbral")
     print('  amplitudes y canales: ' +
           ', '.join(f"{e['amp']:.0f}→{e['canal']}" for e in acep))
-    print(f"espectro: {ult['emitidos']} cuentas, hitos en "
+    print(f"espectro: {ult['emitidos']} cuentas, capas de 07c hasta "
           f"{', '.join(str(n) for n in HITOS)}, canal más poblado {pico} "
           f"({int(ult['cuentas'][pico])} cuentas)")
     escribir_manifiesto()

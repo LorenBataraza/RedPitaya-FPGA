@@ -4,7 +4,7 @@ Todas las funciones públicas por módulo, y **a qué registro pega cada una**. 
 nomenclatura de tres capas está en [`README.md`](README.md).
 
 Los mapas de registros completos (con la semántica de cada bit) viven aparte:
-[MCA](../mca/register_map_mca.md) · [OSC](../osc/register_map_osc.md) · [multitrigger](../mt/register_map_mt.md) · [event_ring](../event_ring/diseno_y_register_map.md).
+[MCA](../mca/register_map_mca.md) · [OSC](../osc/register_map_osc.md) · [multitrigger](../mt/register_map_mt.md) · [event_ring](../event_ring/diseno_y_register_map.md) · [TOP](../TOP/register_map_top.md).
 
 ---
 
@@ -167,14 +167,17 @@ también el disparo, con el mismo `mq`: `multitrigger_armar_banco` (§3.4).
 | `mca_read_acquire_chunks(h, seconds, chunk_s, on_chunk=None)` | acumula en el mismo histograma, llamando a `on_chunk` por rebanada |
 
 > **Los relojes cambiaron de significado respecto del MCA1.** `deadtime_real_s
-> = t_win + t_div` es el tiempo muerto (sin ranura libre); `deadtime_s` es la
+> = t_win + t_div + t_rearm` es el tiempo muerto: sin ranura libre, o con
+> ranura libre pero el disparo del multitrigger esperando re-armar (`t_rearm_s`,
+> desde libmca 0.11.0; `rearm_pend` es ese estado ahora). `deadtime_s` es la
 > **ocupación** (alguna ranura ocupada), que con varias ranuras no es tiempo
-> muerto. `t_ocup_s[j]` es el tiempo con exactamente j ranuras ocupadas.
+> muerto. `t_ocup_s[j]` es el tiempo con exactamente j ranuras ocupadas. El
+> período muerto (`dead_*`) es sólo el del MCA, `t_win + t_div`.
 
 > **Un espectro de 8192 canales tarda ~1.9 ms en C** (~34 ms en Python): se lee
 > palabra a palabra a propósito, porque `rtl/axi4_slave.sv` rechaza toda ráfaga
 > y en esta placa el error de AXI **reinicia el sistema**. Ver
-> [`diseno_de_clases.md`](diseno_de_clases.md) §9.4.
+> [`libmca.md`](libmca.md) §6.2.
 
 ### 1.5 Guardado
 
@@ -225,6 +228,17 @@ hist = mca_read_histogram(h)
 
 Extras que sólo tienen sentido por red — `h.status()` (contadores + tasas + exposición en una vuelta), `h.config()`, `h.metadata()`, `h.fpga_state()` y `h.load_bitstream(path)`.
 
+**El event_ring por red** (las ops `ring.*`, [`protocolo.md`](../APP/protocolo.md)): una
+adquisición que corre en la placa y escribe en un camino de la placa. La forma de que los
+archivos lleguen a la PC es que ese camino sea un directorio de la PC montado por NFS.
+
+| Método | Qué hace |
+|---|---|
+| `h.has_ring`, `h.has_gen` | si el bitstream de la placa trae el ring y su generador |
+| `h.ring_iniciar(run_dir, **kw)` | arranca una `AdquisicionRing` en la placa, con sus argumentos. Devuelve `run_dir`, `fs`, `n_slots` y `pool` |
+| `h.ring_estado()` | `corriendo`, `motivo`, `stats`, `hw` y `error`, sin frenarla |
+| `h.ring_parar()` | la para; devuelve `stats`, `hw_final`, `n_slots` y `error` |
+
 > **La exposición la implementa el servidor, no el hardware.** El MCA es
 > free-running y no tiene registro de tiempo de medida: `ctrl.start` con
 > `seconds` arma un hilo que poléa `livetime_s` y para al llegar. Es la misma
@@ -241,13 +255,20 @@ Extras que sólo tienen sentido por red — `h.status()` (contadores + tasas + e
 
 ## 2. `API.osciloscope` — osciloscopio clásico
 
-Base `0x4010_0000` (slot 1). Código: [`API/osciloscope.py`](../../software/API/osciloscope.py).
+Base `0x4010_0000` (slot 1). Código: [`API/osciloscope.py`](../../software/API/osciloscope.py),
+sobre [`libmca/include/osciloscope.h`](../../software/libmca/include/osciloscope.h).
+`open(..., impl='py')` abre la referencia (`API/ref_py/osciloscope2.py`), y si libmca no
+carga se cae a ella avisando.
 
 ### 2.1 Ciclo de vida y comandos
 
-`osciloscope_open(phys, size, check_pl=True)` · `osciloscope_close(osc)` ·
+`osciloscope_open(phys, size, check_pl=True, impl=None)` · `osciloscope_close(osc)` ·
 `osciloscope_reset(osc)` · `osciloscope_sw_trigger(osc)` ·
-`osciloscope_wait_triggered(timeout_ms)` · `osciloscope_wait_fill(timeout_ms)`
+`osciloscope_wait_triggered(osc, timeout_ms)` · `osciloscope_wait_fill(osc, timeout_ms)`
+
+> Las esperas reciben el `osc` desde la Parte 6: miran los bits 2 (`adc_trg_rd`) y 4
+> (`adc_dly_end`) de `0x000` del canal 0, que es lo que leía librp. Antes eran estáticas
+> y llamaban a `rp`.
 
 > `check_pl=True` mira el FPGA manager **antes** de mapear: si la PL no está
 > `operating` no hay quién conteste en el bus y la primera lectura mata el
@@ -301,7 +322,8 @@ valores por defecto con `descubierta=False` en vez de negarse a operar.
 | `filter_bypass` | `0x098` | |
 | `calibration` | `0x200`/`0x204`, `0x208`/`0x20C` | offset y ganancia |
 
-Los `set_` aceptan `ch=None` (los dos canales, por defecto) o `ch=0`/`ch=1`.
+Los `set_` aceptan `ch=None` (los dos canales, por defecto) o `ch=0`/`ch=1`. Otro canal
+es un `ValueError`, sin escribir nada.
 
 > **`delay` es dead-time real**: mientras corre, `adc_dly_do` bloquea la
 > actualización de `adc_wp_trig` (`rp_bram_sm.v:91`). Para medir dead-time hay
@@ -324,6 +346,27 @@ Los `set_` aceptan `ch=None` (los dos canales, por defecto) o `ch=0`/`ch=1`.
 | `osciloscope_read_window(osc, channels, pre, post=None, at_trigger)` | ventana alrededor del trigger; rechaza `pre+post` mayor que el anillo |
 | `osciloscope_read_events(osc, n, timeout_ms)` | captura `n` eventos |
 | `osciloscope_read_capture_sw(osc, thr, delay, timeout_ms)` | captura forzada por SW trigger (no depende de que haya señal) |
+| `osciloscope_read_bram(osc, ch, start, n)` | `n` muestras de la BRAM desde `start`, en un `np.int16`: cuentas con signo y **sin calibrar**, de a una palabra. La ventana da la vuelta al anillo y `wp - pre` se puede pasar tal cual. Más que el anillo es un `ValueError`. Sólo en C |
+| `osciloscope_read_cal(osc, ch, start, n, cal)` | lo mismo, **calibrado** con la cuenta de librp: `cal` es `{'gain', 'base', 'offset'}`. En LV, la cuenta sobre 8192 es el volt de `rp_AcqGetDataPosV`. Sólo en C |
+| `osciloscope_calibrar(cal, crudo, dw=14)` | la cuenta de librp sobre palabras crudas, sin hardware |
+| `calibracion_adc(canales=(0, 1))` | la calibración de cada canal, leída de la EEPROM por `rp_hw_calib` (LV, DC). Si no se puede leer, `RuntimeError`; con HV pedido a librp, `ValueError` |
+
+Desde la Parte 6, `read_buffers`, `read_window` (`capture_window_np`) y `read_events`
+(`capture_n_events`) leen por libmca, no por `librp`: los volts son la cuenta calibrada
+sobre 8192, los mismos que daba librp. La calibración la guarda cada handle
+(`osc.calibracion(ch)`, que la lee la primera vez; `osc.set_calibracion(...)` la fija a
+mano, para los tests y los simuladores). `rp_Init()` ya no hace falta para leer.
+
+### 2.4.1 El lazo por evento
+
+`Lector(osc, mt, pre, post, n_ch, mascara, cal, wp_off, single_shot, rearmar,
+leer_snap)` envuelve `osciloscope_leer_lote`: `iniciar()` después de armar, y
+`leer(cols, i0, n_max, plazo_ns)` llena las columnas (`wave`, `t_ns`, `wp`, `snap`, `gap`,
+`dead_ns`, las que estén) desde la fila `i0` hasta `n_max` eventos o el plazo, en el
+reloj de `time.perf_counter_ns`. Con `cols=None` descarta y re-arma. Devuelve
+`(guardados, descartados, asignados)`, y `pendientes` son los descartados que todavía no
+fueron a un `gap`. Lo usan `BramSource.read_batch` y `capture_n_events`; el contrato
+de C está en [`osciloscope_lote.h`](../../software/libmca/include/osciloscope_lote.h).
 
 ### 2.5 Análisis offline de buffers
 
@@ -353,10 +396,15 @@ escribía ahí se perdía sin error. El mapa completo está en
 
 ### 3.2 Clase `MultiTrigger`
 
-`MultiTrigger.open(osc=None, phys=MTRG_PHYS, size=MTRG_SIZE, check_magic=True)` abre
-la región y comprueba el MAGIC: un bitstream sin ella falla acá. `osc` se acepta y no
-se usa. `phys` es para otro top: `Integration.base('mtrg')` da la base real.
-`Osciloscope.mt` da un handle ya abierto.
+`MultiTrigger.open(osc=None, phys=MTRG_PHYS, size=MTRG_SIZE, check_magic=True,
+impl=None)` abre la región y comprueba el MAGIC: un bitstream sin ella falla acá. `osc`
+se acepta y no se usa. `phys` es para otro top: `Integration.base('mtrg')` da la base
+real. `impl` es como en `mca_open`: `'c'` (libmca) o `'py'` (la referencia), y si libmca
+no carga se cae a Python avisando. `Osciloscope.mt` da un handle ya abierto.
+
+Los métodos son las funciones de
+[`libmca/include/multitrigger.h`](../../software/libmca/include/multitrigger.h). Un
+canal fuera de 0..3 da `ValueError` y no escribe nada.
 
 Métodos: `set_or_mask` · `configure_shield_autorearm` · `disable_shield` ·
 `get_or_mask` · `get_shield` · `read_snapshot` · `read_snapshot_raw` ·
@@ -434,18 +482,82 @@ la cola en la placa, no la nominal.
 
 ## 4. `API.osciloscope_ring` — event_ring en DDR
 
-Base `0x4020_0000` (slot 2), magic `"EVNT"`. Código:
-[`API/osciloscope_ring.py`](../../software/API/osciloscope_ring.py).
+Base `0x4020_0000` (slot 2), magic `"EVNT"`, y una región reservada de DDR donde el
+ring escribe un slot por evento. Código:
+[`API/osciloscope_ring.py`](../../software/API/osciloscope_ring.py), sobre
+[`libmca/include/osciloscope_ring.h`](../../software/libmca/include/osciloscope_ring.h).
+Necesita el bitstream del ring (`make bitstream-event-ring`); la prueba es
+`make verificar-placa-ring`, que pasa con los bitstreams del 2026-11-09 (e58f7888 y
+78e26188).
 
-`class RingSource` implementa la **misma interfaz** que `BramSource`
-(`arm` / `wait_event` / `snapshot` / `read_into` / `rearm` / `close` / `meta`),
-así que el lector no distingue una fuente de otra. Añade `hw_counters()`.
+```python
+from API.osciloscope_ring import OsciloscopeRing, RingSource
 
-> El ring prefetchea en lote: leer un slot suelto de 512 B cuesta ~27 µs, y en
-> bloques de 64 KB baja a ~2.3 µs/slot. La ganancia de ~20× **sólo existe
-> leyendo en lote**. Y se miran dos cosas — `WR_SLOT` para saber cuántos pedir y
-> el footer `{~seq, seq}` para validar cada slot — porque `WR_SLOT` se
-> incrementa cuando el footer fue aceptado por el FIFO, no cuando llegó a DDR.
+src = RingSource(MultiTriggerScope.open(), pre=8, post=24)   # abre el ring al armar
+ses = AcquisitionSession(src, run_dir)
+```
+
+| Qué | Para qué |
+|---|---|
+| `region_ddr()` | `(phys, size)` de la región: `$RING_DDR` (`"0xADDR:SIZE"`) o la del device tree (`labuf@a000000`, 32 MB) |
+| `geometria(pre, post, n_ch=2, slot_shift=None, ring_bytes=None, ddr_size=0)` | la geometría de una ventana sin tocar el hardware, o `ValueError` con el motivo del RTL |
+| `registros()` | `{nombre: offset}`, como lo exporta libmca |
+| `OsciloscopeRing.open(phys, size, ddr=None, check_magic=True)` | el handle: registros y DDR. `RingNotPresent` sin el ring |
+| `OsciloscopeRing.sobre(bus, mem)` | sobre un `Bus` y una `Mem` de `API._libmca`: los tests |
+| `.r32`, `.w32`, `.ddr`, `.correr()`, `.parar(timeout_s)`, `.contadores()` | acceso crudo, la región, y el control |
+| `LectorRing(ring, pre, post, n_ch, cal, …)` | el lazo por lote: `.configurar()`, `.leer(cols, i0, n_max, plazo_ns)`, `.pendientes` |
+| `.medir(modo, plazo_ns, n_max, disparos=None)`, `.medida` | consume sin entregar, para medir la tasa: `'creditos'`, `'copia'` o `'verificar'` (`MEDIR_*`), con lo medido acumulado hasta `configurar`. Los campos y qué verifica: [`generador.md`](../event_ring/generador.md) §6 |
+| `RingSource(scope, ring=None, pre, post, n_ch, thr, hyst, mask, slot_shift, ring_bytes, calib, generador=None)` | la fuente de eventos, por lote. Con `generador` (un dict de `disparos`), los disparos salen del generador del ring y cada slot trae el patrón: el scope no se toca y puede ser None. `hw_counters()` suma `hw_gen_cnt` y `hw_gen_terminado`, y `meta()['hw_final']` son los contadores de después de parar. Si al cerrar el ring no para (lleno y sin créditos), lo destraba: `.destrabe` y `hw_destrabe` dicen cómo |
+| `destrabar(ring, lector)` | para un ring que `parar` no pudo parar. Devuelve `'creditos'` (devolvió los créditos), `'parado'` (ya había parado) o `'clr'` (`CTRL ← 0x2`: **borra los contadores**) |
+| `AdquisicionRing(ring, run_dir, pre, post, n_ch, slot_shift, generador=None, disparo=None, osc=None, mt=None, calib=None, formato, capacity, ram_mb, margen_mb, meta)` | una adquisición entera: `RingSource` y `AcquisitionSession`, con argumentos que viajan en JSON. El estímulo es `generador` o `disparo` (`{thr, hyst, mask}`, con `osc` y `mt`). `run_dir` es absoluto y su padre tiene que existir. `.iniciar()` → `run_dir`, `fs` (el tipo del sistema de archivos), `n_slots`, `pool`; `.estado()` sin bloquear; `.parar()`, idempotente. Es lo que corre el servidor con las ops `ring.*` |
+
+`RingSource` cumple la interfaz `EventSource` por lote (`arm` / `read_batch` /
+`pending` / `close` / `meta`), como `BramSource`: el lector no distingue una de otra.
+Añade `hw_counters()`, y `meta()['hw_final']` trae los contadores del hardware al
+cerrar.
+
+- **`wave`** son cuentas calibradas (int16), las de la BRAM. `calib=None` las lee de la
+  EEPROM al armar.
+- **Las columnas propias:** `ts_hw` (ciclos de 8 ns desde que arrancó el ring) y `seq`.
+  `snap` sale de la cabecera del mismo slot. `wp` es -1 y `dead_ns` 0.
+- **`gap` es por bloque.** Los descartes los cuenta el hardware (`DROP_BUSY`, PL
+  ocupado; `DROP_FULL`, el PS no consumió) y van al primer evento leído después; el
+  total es exacto.
+- **Sin batch libre no se consume:** los eventos esperan en la DDR y, si el ring se
+  llena, el hardware los descarta y los cuenta.
+- **`n_ch=1`** entrega sólo IN1, pero el RTL escribe los dos canales: el slot no se
+  achica.
+
+> El ring se lee por bloque: leer un slot suelto de 512 B costaba ~27 µs desde Python,
+> y en bloques de 64 KB, ~2.3 µs/slot. `WR_SLOT` dice cuántos slots pedir, y el footer
+> `{~seq, seq}` valida cada uno, **antes** de leer sus datos: `WR_SLOT` se incrementa
+> cuando el footer fue aceptado por el FIFO, no cuando llegó a DDR. El crédito
+> (`RD_SLOT`) se devuelve una vez por bloque.
+
+La región de DDR es `API._libmca.Mem` (`mca_mem*`): `Mem.devmem(phys, size)`,
+`Mem.archivo(path, phys, size)`, `Mem.sobre(arreglo, phys)` y `Mem.callbacks(leer,
+size, escribir=None, phys=0)`, con `.read(off, n)` y `.write(off, datos)` en palabras
+de 64 b.
+
+### 4.1 El generador de eventos
+
+Lo trae el bitstream del ring desde 78e26188 (`EN_GEN = 1`): adentro del ring,
+reemplaza los disparos del multitrigger por los del motor de disparos y el dato por un
+patrón que se verifica en forma absoluta. Qué genera y por qué:
+[`docs/event_ring/generador.md`](../event_ring/generador.md). Registros `R_GEN_*`, desde
+`0x100`.
+
+| Qué | Para qué |
+|---|---|
+| `.gen_presente()` | `True` si el ring tiene el generador (`GEN_MAGIC` `"GEN1"`) |
+| `.gen_configurar(disparos=None, patron=False)` | con el ring parado (`ValueError` si no): los disparos (un dict de `API.generadores.disparos`; `None` deja los del multitrigger) y el patrón. Lo deja prendido: corre cuando corra el ring. `LibMCAError` (`MCA_ENOSYS`) si el bitstream no lo tiene |
+| `.gen_apagar()` | el ring vuelve a los disparos y al dato del scope |
+| `.gen_estado()` | `{gen_cnt, estado, generando, terminado, desborde}`. Después de parar, `ev_cnt + drop_busy + drop_full == gen_cnt` |
+| `patron_gen(ts, pre, muestras)` | la ventana que tiene que haber en un slot de marca `ts` (int16, como la entrega `LectorRing` con la calibración identidad); con un arreglo de marcas, todas. Con `ts < pre`, las primeras `pre − ts` muestras no son ésas sino lo que quedó en el buffer de pre-trigger ([logica_de_captura_y_axi.md §2.3](../event_ring/logica_de_captura_y_axi.md#23-una-sola-memoria-para-el-pre-y-el-post)) |
+
+La marca de cada slot generado es `predecir(n_ciclos, GEN_LAT_TS, **disparos)[k]`, con
+`k` el índice del snapshot (`{1, k[15:0]}`, `GEN_SNAP_MARCA`). La prueba en la placa es
+la parte C de `make verificar-placa-generadores`.
 
 ---
 
@@ -460,8 +572,10 @@ Es el antiguo paquete `mca/`, renombrado por lo que hace. Exporta
 `EventBatch`, `load_chunk`, los anotadores y `scope_regs`.
 
 Es la **API de guardado** del flujo OSC: mientras la API de lectura da una
-estructura puntual, ésta hace guardado continuo del flujo de entrada, un `.npz`
-por chunk más un `run_summary.json` por corrida.
+estructura puntual, ésta hace guardado continuo del flujo de entrada, un archivo
+por chunk más un `run_summary.json` por corrida. El archivo es `.npz`, o `.lh5` con
+`AcquisitionSession(..., formato='lh5')`, que necesita `h5py`. `load_chunk(path)` lee
+los dos, y `archivos_de_corrida(dir)` los encuentra.
 
 ### Anotadores
 
@@ -601,3 +715,109 @@ la PL, así que no le aplica la nomenclatura de tres capas.
 `poisson_train_wave`, `sliding_pulser_wave`, …) y la familia de formas de Knoll
 (`FORMAS_KNOLL`). Descritos en
 [`testbenches_software_mca.md`](../mca/testbenches_software_mca.md).
+
+---
+
+## 9. `API.integration` — región de TOP
+
+Código: [`API/integration.py`](../../software/API/integration.py), sobre
+[`libmca/include/integration.h`](../../software/libmca/include/integration.h). Slot 6,
+base `0x4060_0000`. Dice qué bitstream está cargado, qué módulos trae, en qué slot vive
+cada uno y de dónde toma sus muestras cada consumidor de la cadena DSP.
+
+Que falte no es fatal: un bitstream anterior al refactor de registros no la trae, y los
+demás bloques andan igual con sus bases por defecto.
+
+| Función | Registro | Qué hace |
+|---|---|---|
+| `integration_open(phys, size, check_magic, impl=None)` | `MAGIC` | el handle. `IntegrationNotPresent` si el magic no es `"INTG"`. `impl` como en `mca_open` |
+| `integration_close(ig)` | — | |
+| `integration_identify(ig, verbose=True)` | `MAGIC`, `VERSION`, `GITH_*` | `{magic, version, gith}` |
+| `integration_get_modules(ig)` | `MODULES` | `{osc, mtrg, mca, ring, asg, pid, pulsos}`, de bool |
+| `integration_get_slots(ig)` | `SLOTS` | `{osc, ring, mtrg, top, mca, pulsos}` |
+| `integration_get_base(ig, m)` | `SLOTS` | la dirección física del módulo; la de `pulsos`, `PULSOS_OFFSET` (64 KB) arriba de su slot. `KeyError` si no publica su slot |
+| `integration_get_caps(ig)` | `CAPS_0`, `CAPS_1` | `{n_ch, dw, rsz, en_filt, h_aw, h2_aw, psd_aw}` |
+| `integration_get_route_{osc,mtrg,mca,ring}(ig)` | `ROUTE_*` | `{tap, nombre, enable}` |
+| `integration_get_routes(ig)` | `ROUTE_*` | los cuatro, por consumidor |
+| `integration_set_route_{osc,mtrg,mca,ring}(ig, tap, enable)` | `ROUTE_*` | escribe y relee. `ValueError` si el tap no es válido; `RuntimeError` si no latchea |
+| `integration_reset_routes(ig)` | `ROUTE_*` | los cuatro a nativo y habilitados: el estado de reset |
+| `integration_get_run(ig)`, `integration_set_run(ig, on)` | `CTRL` bit 0 | |
+| `integration_clear(ig)`, `integration_soft_reset(ig)` | `CTRL` bits 1 y 2 | pulsos autolimpiantes; conservan el run |
+| `integration_get_status(ig)` | `STATUS` | `{pll_locked, adc_rstn}` |
+| `integration_dump(ig)` | todos | imprime la región entera |
+| `slot_base(modulo, default=None)` | `SLOTS` | abre, lee y cierra. Sin región de TOP, sin `/dev/mem` o con un módulo sin slot da `default`, sin lanzar |
+
+Los taps son `TAP_NATIVE` (el reset), `TAP_ADC`, `TAP_DEC_IN` y `TAP_BRAM_IN`. Cambiar de
+tap corre la latencia, y el camino a DDR por AXI no se rutea: ver el docstring de
+`Integration.set_route`.
+
+La clase `Integration` tiene los mismos métodos: `identify`, `modules`, `slots`, `base`,
+`caps`, `get_route(consumidor)`, `set_route(consumidor, tap, enable, verify)`, `routes`,
+`reset_routes`, `set_run`, `get_run`, `clear`, `soft_reset`, `status` y `dump`. Agrega
+`geometria_coincide(mca)`, que compara la geometría de `CAPS_1` con la del MCA: **la
+fuente de verdad es `WIDTHS` del MCA**, y estas dos copias ya divergieron una vez.
+
+`pulsos` es el generador de pulsos (bit 6 de `MODULES`, `SLOTS[23:20]`). Un bitstream
+sin él lo publica en el slot 0, y su base no sirve: mirar antes `modules()['pulsos']`.
+
+---
+
+## 10. `API.generadores` — los generadores de prueba
+
+Código: [`API/generadores.py`](../../software/API/generadores.py), sobre
+[`libmca/include/gen_pulsos.h`](../../software/libmca/include/gen_pulsos.h) y
+[`gen_disparos.h`](../../software/libmca/include/gen_disparos.h). Qué genera cada uno y
+cómo se verificó: [el generador de pulsos](../gen_eventos/generador_pulsos.md) y
+[el del ring](../event_ring/generador.md). El del ring se maneja desde
+`OsciloscopeRing` (§4.1); este módulo tiene el de pulsos y las cuentas del motor que
+comparten.
+
+```python
+from API.generadores import GenPulsos, mq_de, tabla_cdf
+
+with GenPulsos.open() as g:                       # 0x4021_0000 y la página de HK
+    cfg = g.configurar(aleatorio=True, tasa=200e3, n=100_000, tau=250.0,
+                       amp_aleat=True, ruido=True, ruido_sh=6)
+    g.cargar_tabla(tabla_cdf([1500, 4000], [0.6, 0.4]))
+    g.lazo = True                                 # adc_dat <- el generador
+    # ... el MCA corriendo, con trap_mq = mq_de(cfg['decae']) ...
+    g.arrancar()
+    g.esperar(timeout_s=5)
+    g.parar()
+    g.lazo = False
+```
+
+La configuración usa los nombres de `CFG` del modelo (`gen_pulsos_model.py`), más
+`salidas` (`SAL_OUT1`, `SAL_OUT2`), `tasa` (Hz, en lugar de `umbral` o `periodo`) y `tau`
+(muestras, en lugar de `decae`). Lo que no se pasa queda en el reset del RTL, con
+`salidas = SAL_OUT1`.
+
+| Qué | Registro | Para qué |
+|---|---|---|
+| `GenPulsos.open(phys, size, check_magic=True)` | `MAGIC` | el generador y la página de HK. `GenPulsosNotPresent` si el slot 2 no lo tiene |
+| `GenPulsos.sobre(bus, hk=None)` | — | sobre `Bus` de `API._libmca`: los tests. Sin `hk` no hay lazo |
+| `.configurar(tasa=None, tau=None, **cfg)` | todos menos la tabla | lo apaga, escribe, relee y devuelve lo escrito. No lo arranca. `ValueError` con el motivo si algo no entra en su registro |
+| `.leer_config()` | ídem | lo escrito (`amp_n` 0 se lee como 1024) |
+| `.cargar_tabla(amp)`, `.leer_tabla(n=1024)` | `TABLA` | hasta 1024 amplitudes de 14 bits con signo, el resto en 0; relee |
+| `.arrancar()`, `.parar()` | `CTRL.en` | arrancar reinicia todo el estado (siempre, aunque estuviera prendido); parar pone la salida y el disparo en cero |
+| `.estado()` | `GEN_CNT`, `ESTADO` | `{gen_cnt, estado, generando, terminado, desborde}` |
+| `.esperar(timeout_s)` | `ESTADO` | hasta N. `ValueError` sin N o apagado; `TimeoutError` |
+| `.lazo` | HK `digital_loop[0]` | propiedad: con `True`, `adc_dat` toma el generador. No toca `digital_loop[1]` |
+| `.r32`, `.w32`, `registros()` | — | acceso crudo y el mapa |
+
+Las cuentas, sin hardware (en C, iguales a las del modelo):
+
+| Qué | Para qué |
+|---|---|
+| `disparos(tasa=None, **cfg)` | la configuración del motor, como dict |
+| `umbral_para(tasa_hz, dt_min=2)`, `periodo_para(tasa_hz)` | el `UMBRAL` (aleatorio) o el `PERIODO` de una tasa |
+| `tasa(**cfg)` | la tasa media de una configuración |
+| `predecir(n_ciclos, lat, n_max=None, **cfg)` | los ciclos de cada disparo: con `LAT_TRIG`, los de `trig_o` del generador de pulsos; con `GEN_LAT_TS` (del ring), la marca de cada slot del ring |
+| `decae_para(tau)`, `tau_de(decae)`, `mq_de(decae)` | la caída y la `Mq` del polo-cero que la cancela (`trap_mq` y el disparo con polo-cero) |
+| `sigma_ruido(sh)` | el sigma del ruido para un `ruido_sh` |
+| `tabla_cdf(valores, pesos)` | la tabla del modo `amp_aleat` para un espectro de líneas |
+
+Para el MCA por el lazo digital hacen falta además el tap ADC en el multitrigger y el MCA
+(`integration_set_route_*`) y, con el disparo del ASG (`OR_MASK = 0x800`), `DEB_LEN = 0`
+en el osciloscopio. Lo hace, bloque por bloque, la parte B de
+`make verificar-placa-generadores`, contra la réplica del MCA.

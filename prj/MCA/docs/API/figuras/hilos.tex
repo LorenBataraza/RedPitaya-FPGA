@@ -3,9 +3,12 @@
 % elige su primitiva y no comparte hilos con los otros; el servidor y la GUI
 % sólo se hablan por el socket. A la izquierda de cada banda, el recurso que se
 % protege; a la derecha, lo que sale de la máquina (disco o red).
+% El detalle del pipeline (el lazo de C sin el GIL, el pool y las colas en el
+% tiempo) está en hilos_captura y pool_batches.
 % Fuentes: software/API/osciloscope_store/{session,reader,storage,annotators}.py,
 % software/app/mca_server.py, software/app/mcamon.py. El texto que acompaña está
-% en docs/API/arquitectura_software.md §2. Estilo: docs/figuras/estilo_tikz.tex.
+% en docs/API/arquitectura_software.md §2; el epígrafe, en hilos.txt. Estilo:
+% docs/figuras/estilo_tikz.tex.
 %
 % Compilar:   pdflatex hilos.tex
 %             pdftocairo -svg hilos.pdf hilos.svg
@@ -52,16 +55,16 @@
 \node[donde] at (16.2,-8.55){en la PC · \texttt{app/mcamon.py}};
 
 % ============================================================ pipeline ===
-\node[recurso] (src) at (\xA,-1.95) {\blk{EventSource}{el scope}};
-\node[hilo]    (rd)  at (\xB,-1.95) {\blk{osc-reader}{único que toca el scope}};
+\node[recurso] (src) at (\xA,-1.95) {\blk{EventSource}{la fuente, sobre la PL}};
+\node[hilo]    (rd)  at (\xB,-1.95) {\blk{osc-reader}{único que toca la fuente; el lazo, en C sin el GIL}};
 \node[cola]    (fq)  at (\xC,-1.65) {};
 \node[cola]    (frq) at (\xC,-2.25) {};
 \node[sen, above=1pt of fq]  {full\_q};
 \node[sen, below=1pt of frq] {free\_q};
-\node[hilo]    (wr)  at (\xD,-1.95) {\blk{osc-writer}{un \texttt{.npz} por batch}};
-\node[recurso] (dir) at (\xE,-1.95) {\blk{run\_dir/}{\texttt{chunk\_*.npz}}};
+\node[hilo]    (wr)  at (\xD,-1.95) {\blk{osc-writer}{un archivo por batch}};
+\node[recurso] (dir) at (\xE,-1.95) {\blk{run\_dir/}{\texttt{chunk\_*.npz} o \texttt{evt\_*.lh5}}};
 \node[grupo, fit={(\xC-0.85,-0.95) (\xC+0.85,-2.95)}] (pool) {};
-\node[rotulo, anchor=south] at (pool.north) {pool fijo de batches};
+\node[rotulo, anchor=south] at (pool.north) {pool: \texttt{n\_batches} \texttt{EventBatch}};
 
 \draw[flujo] (src) -- (rd);
 \draw[flujo] (rd.east |- fq) -- (fq.west);
@@ -71,7 +74,7 @@
 \draw[flujo] (wr) -- (dir);
 
 \node[hilo]     (an)  at (\xA+0.3,-3.75) {\blk{annot-<prefijo>}{uno por annotator lento}};
-\node[descarte] (dsc) at (\xC,-3.75) {\etq{descarte}{\texttt{n\_dropped += 1}\\ \texttt{rearm()}}};
+\node[descarte] (dsc) at (\xC,-3.75) {\etq{descarte}{\texttt{read\_batch(None)}}};
 \draw[flujo] (an.east) -- (\xB-0.5,0 |- an.east) -- node[sen, left, pos=0.55] {valor cacheado} (\xB-0.5,0 |- rd.south);
 \draw[flujo, rojo!80!black] (\xB+0.5,0 |- rd.south) |- node[sen, right, pos=0.3] {sin batch libre} (dsc.west);
 
@@ -107,8 +110,7 @@
 \draw[<->, line width=1.0pt, dashed] (pg) -- node[sen, right=2pt] {TCP :1001} (ps);
 
 % ============================================================== leyenda ===
-\leyenda{0.3,-12.25}{azul!30/hilo, amarillo/primitiva de sincronización, grisr/recurso, rojo!25/descarte}
-  {Cada banda es un sistema de concurrencia aparte: no comparten hilos ni primitivas.}
+\leyenda{0.3,-12.25}{azul!30/hilo, amarillo/primitiva de sincronización, grisr/recurso, rojo!25/descarte}{}
 
 \end{tikzpicture}
 \end{document}

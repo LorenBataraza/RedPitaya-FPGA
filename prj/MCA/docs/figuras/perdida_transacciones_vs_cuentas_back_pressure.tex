@@ -1,0 +1,121 @@
+% Cómo se suman las pérdidas en una red de procesamiento feed-forward, en un
+% solo diagrama y sin texto: la explicación va en
+% perdida_transacciones_vs_cuentas_back_pressure.txt.
+% a) Cadena lineal: la etapa 3 se frena (contrapresión) y su parte la descarta
+%    la 2; la pérdida total es la suma de lo que descarta cada etapa.
+% b) Ramas exclusivas, con los componentes de handshake de los circuitos
+%    asíncronos: DEMUX (con su canal de control) y MERGE.
+% c) Ramas no exclusivas: el fork (el punto) copia cada evento a las dos; el
+%    nudo "?" es el criterio de supervivencia, y el Venn, los perdidos.
+% Números de ejemplo, no una medición.
+%
+% Compilar:   pdflatex perdida_transacciones_vs_cuentas_back_pressure.tex
+%             pdftocairo -svg perdida_transacciones_vs_cuentas_back_pressure.pdf perdida_transacciones_vs_cuentas_back_pressure.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{estilo_tikz.tex}
+
+\tikzset{
+  et/.style       = {comp, text width=1.45cm, minimum height=0.8cm},
+  cuenta/.style   = {font=\scriptsize\bfseries, azul!45!black, inner sep=1.5pt, above=1pt},
+  descarte/.style = {->, rojo!75!black, line width=0.9pt},
+  perdida/.style  = {font=\scriptsize, rojo!75!black, inner sep=1pt},
+  contra/.style   = {->, black!70, line width=0.8pt},
+  nudo/.style     = {circle, draw=black, line width=0.6pt, fill=white, inner sep=0pt,
+                     minimum size=0.42cm, font=\scriptsize},
+  letra/.style    = {font=\small\bfseries, anchor=west, inner sep=1pt},
+}
+
+% Componentes de handshake. #1 = nombre, #2 = x del centro (y = 0 en el scope).
+% DEMUX: lado angosto (la entrada) a la izquierda, el ancho (las salidas) a la
+% derecha, y el canal de control por abajo. MERGE: el espejo, sin control.
+\newcommand{\demux}[2]{%
+  \draw[line width=0.6pt, fill=grisr] (#2-0.3,0.45) -- (#2+0.3,1.0) --
+    (#2+0.3,-1.0) -- (#2-0.3,-0.45) -- cycle;
+  \node[font=\tiny\ttfamily, rotate=90] at (#2,0) {DEMUX};
+  \coordinate (#1-in) at (#2-0.3,0);
+  \coordinate (#1-a)  at (#2+0.3,0.7);
+  \coordinate (#1-b)  at (#2+0.3,-0.7);
+  \draw[ctrl] (#2,-1.45) node[below, font=\tiny\ttfamily, inner sep=1pt] {ctl} -- (#2,-0.73);}
+\newcommand{\merge}[2]{%
+  \draw[line width=0.6pt, fill=grisr] (#2-0.3,1.0) -- (#2+0.3,0.45) --
+    (#2+0.3,-0.45) -- (#2-0.3,-1.0) -- cycle;
+  \node[font=\tiny\ttfamily, rotate=90] at (#2,0) {MERGE};
+  \coordinate (#1-a)   at (#2-0.3,0.7);
+  \coordinate (#1-b)   at (#2-0.3,-0.7);
+  \coordinate (#1-out) at (#2+0.3,0);}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+% ======================================================= a) cadena lineal
+\node[letra] at (-1.3,0) {(a)};
+\node[et] (e1) at (1.2,0) {etapa 1};
+\node[et] (e2) at (3.6,0) {etapa 2};
+\node[et] (e3) at (6.0,0) {etapa 3};
+\draw[flujo] (-0.5,0) -- node[cuenta] {100} (e1.west);
+\draw[flujo] (e1.east) -- node[cuenta] {90} (e2.west);
+\draw[flujo] (e2.east) -- node[cuenta] {72} (e3.west);
+\draw[flujo] (e3.east) -- node[cuenta] {72} (8.0,0);
+\draw[contra] (e3.north) -- ++(0,0.38) -| (e2.north);
+\draw[descarte] (e1.south) -- ++(0,-0.45) node[perdida, below] {$D_1 = 10$};
+\draw[descarte] (e2.south) -- ++(0,-0.45) node[perdida, below] {$D_2 = 9 + 9$};
+\node[font=\scriptsize, black!60, anchor=north, inner sep=1pt] at ($(e3.south)+(0,-0.45)$) {$D_3 = 0$};
+
+% ================================================ b) ramas exclusivas
+\begin{scope}[shift={(0,-3.5)}]
+\node[letra] at (-1.3,0) {(b)};
+\demux{d}{0.9}
+\node[et] (eA) at (3.3,0.7) {rama A};
+\node[et] (eB) at (3.3,-0.7) {rama B};
+\merge{m}{5.7}
+\draw[flujo] (-0.5,0) -- node[cuenta] {100} (d-in);
+\draw[flujo] (d-a) -- node[cuenta] {60} (eA.west);
+\draw[flujo] (d-b) -- node[cuenta] {40} (eB.west);
+\draw[flujo] (eA.east) -- node[cuenta] {54} (m-a);
+\draw[flujo] (eB.east) -- node[cuenta] {36} (m-b);
+\draw[flujo] (m-out) -- node[cuenta] {90} (8.0,0);
+\draw[descarte] (eA.north) -- ++(0,0.4) node[perdida, above] {$D_A = 6$};
+\draw[descarte] (eB.south) -- ++(0,-0.4) node[perdida, below] {$D_B = 4$};
+\end{scope}
+
+% ============================================= c) ramas no exclusivas
+\begin{scope}[shift={(0,-7.4)}]
+\node[letra] at (-1.3,0) {(c)};
+\coordinate (f) at (0.9,0);
+\node[et] (eA) at (3.3,0.7) {rama A};
+\node[et] (eB) at (3.3,-0.7) {rama B};
+\node[nudo] (j) at (5.7,0) {?};
+\draw[line width=0.8pt] (-0.5,0) -- node[cuenta] {100} (f);
+\draw[flujo] (f) |- node[cuenta, pos=0.72] {100} (eA.west);
+\draw[flujo] (f) |- node[cuenta, pos=0.72] {100} (eB.west);
+\fill (f) circle (2pt);
+\draw[flujo] (eA.east) -| node[cuenta, pos=0.3] {90} (j.north);
+\draw[flujo] (eB.east) -| node[cuenta, pos=0.3] {90} (j.south);
+\draw[flujo] (j.east) -- node[cuenta] {83 / 97} (8.0,0);
+\draw[descarte] (eA.north) -- ++(0,0.4) node[perdida, above] {$D_A = 10$};
+\draw[descarte] (eB.south) -- ++(0,-0.4) node[perdida, below] {$D_B = 10$};
+
+% los perdidos, como conjuntos
+\def\va{9.1} \def\vb{10.1}
+\fill[rojo!14] (\va,0) circle (0.72);
+\fill[rojo!14] (\vb,0) circle (0.72);
+\begin{scope}
+  \clip (\va,0) circle (0.72);
+  \fill[rojo!38] (\vb,0) circle (0.72);
+\end{scope}
+\draw[rojo!75!black, line width=0.6pt] (\va,0) circle (0.72) (\vb,0) circle (0.72);
+\node[font=\scriptsize] at ({\va-0.33},0) {7};
+\node[font=\scriptsize\bfseries] at ({(\va+\vb)/2},0) {3};
+\node[font=\scriptsize] at ({\vb+0.33},0) {7};
+\node[perdida, anchor=south] at ({\va-0.35},0.74) {$D_A$};
+\node[perdida, anchor=south] at ({\vb+0.35},0.74) {$D_B$};
+\node[perdida, anchor=north] at ({(\va+\vb)/2},-0.76) {$D_{AB}$};
+\end{scope}
+
+\end{tikzpicture}
+\end{document}

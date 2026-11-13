@@ -4,6 +4,7 @@
 % Fuentes: rtl/axi4_slave.sv, rtl/sys_bus_interconnect.sv, rtl/sys_bus_cdc.sv,
 % prj/MCA/rtl/red_pitaya_ps.sv. Documentado en docs/TOP/bus_sistema_redpitaya.md.
 % Estilo: docs/figuras/estilo_tikz.tex.
+% El epígrafe no va en la figura: está en panorama_sys_bus.txt y en el doc que la incluye.
 %
 % Compilar:   pdflatex panorama_sys_bus.tex
 %             pdftocairo -svg panorama_sys_bus.pdf panorama_sys_bus.svg
@@ -106,11 +107,7 @@
 % ================================================================= leyenda ===
 \leyenda{-0.5,-12.4}{rojo!45/bus del sistema, rojo!18/lógica dentro del módulo,
   azul!35/OSC, amarillo/MULTITRIGGER, naranja!35/event ring, verde!55/MCA,
-  grisr/Red Pitaya y TOP}
-  {La línea punteada vertical es el cruce de reloj: cada \texttt{sys\_bus\_cdc}
-   tiene una mitad en cada dominio. El slot 2 es un \texttt{sys\_bus\_stub} en
-   \texttt{mca\_red\_pitaya\_top} y el \texttt{event\_ring\_top} en
-   \texttt{event\_ring\_red\_pitaya\_top}. \notaparam}
+  grisr/Red Pitaya y TOP}{}
 
 \end{tikzpicture}
 \end{document}

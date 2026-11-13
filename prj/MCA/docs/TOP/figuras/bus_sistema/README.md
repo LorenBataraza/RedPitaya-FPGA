@@ -88,12 +88,16 @@ simulación.
 ```bash
 cd prj/MCA/sim
 make tb_sys_bus_proto                 # corre los chequeos
-make vcd TB=tb_sys_bus_proto          # vuelca waves/tb_sys_bus_proto.vcd
+make vcd TB=tb_sys_bus_proto VCD_ADD="/tb_sys_bus_proto/*"   # waves/tb_sys_bus_proto.vcd
 vcd2fst waves/tb_sys_bus_proto.vcd \
         ../docs/TOP/figuras/bus_sistema/tb_sys_bus_proto.fst
 ```
 
-Lo que se versiona es el **FST** (26 kB contra 271 kB del VCD), así que las
+`VCD_ADD` vuelca sólo el scope raíz del testbench, que es lo único que lee el
+script (los espías con nombre plano). Con el default (`-r /*`) entra todo
+`mca_top` y el FST pasa de 7 a 100 kB sin cambiar ninguna figura.
+
+Lo que se versiona es el **FST** (7 kB contra 75 kB del VCD), así que las
 figuras se regeneran en un clon limpio sin Questa: el script lo destraduce con
 `fst2vcd` de la oss-cad-suite. El `.vcd` está en `.gitignore`.
 

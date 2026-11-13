@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="828" height="1093" viewBox="0 0 828 1093" font-family="&quot;Latin Modern Mono&quot;,&quot;CMU Typewriter Text&quot;,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
+<svg xmlns="http://www.w3.org/2000/svg" width="828" height="1114" viewBox="0 0 828 1114" font-family="&quot;Latin Modern Mono&quot;,&quot;CMU Typewriter Text&quot;,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
 <style>
   .bg{fill:#ffffff}            .box{stroke:#000000;stroke-width:1.3}
   .hdr{stroke:none}
@@ -19,8 +19,8 @@
   .dotm{fill:#fccea0;stroke:#000000;stroke-width:1.1}
   .dots{fill:#f08080;stroke:#000000;stroke-width:1.1}
 </style>
-<rect class="bg" x="0" y="0" width="828" height="1093"/>
-<rect class="box" x="250.2" y="14.0" width="322.0" height="1043.5" rx="4" fill="#fef8e2"/>
+<rect class="bg" x="0" y="0" width="828" height="1114"/>
+<rect class="box" x="250.2" y="14.0" width="322.0" height="1064.5" rx="4" fill="#fef8e2"/>
 <rect class="hdr" x="250.9" y="14.7" width="320.6" height="150.8" rx="3.5" fill="#fce8a0"/>
 <text class="ti" x="411.2" y="42.0" font-size="16" text-anchor="middle">mt_cfg</text>
 <text class="sb" x="411.2" y="56.5" font-size="9.5" text-anchor="middle">prj/MCA/modulos/mt/rtl/mt_cfg.sv</text>
@@ -47,11 +47,11 @@
 <path class="arr" d="M243.2,214.6 L250.2,218.0 L243.2,221.4 Z"/>
 <text class="nm" x="262.2" y="222.0" font-size="12">adc_rstn_i</text>
 <line class="sep" x1="250.2" y1="228.5" x2="572.2" y2="228.5"/>
-<ellipse class="bus" cx="225.8" cy="333.5" rx="12.0" ry="80.5"/>
-<path class="brc" d="M150.0,256.0 Q143.0,256.0 143.0,264.0 L143.0,325.5 Q143.0,333.5 138.8,333.5 Q143.0,333.5 143.0,341.5 L143.0,403.0 Q143.0,411.0 150.0,411.0"/>
-<text class="gp" x="137.0" y="325.5" font-size="10" text-anchor="end">estado desde el</text>
-<text class="gp" x="137.0" y="337.5" font-size="10" text-anchor="end">resto del scope</text>
-<text class="gp" x="137.0" y="349.5" font-size="10" text-anchor="end">(para readback)</text>
+<ellipse class="bus" cx="225.8" cy="344.0" rx="12.0" ry="91.0"/>
+<path class="brc" d="M150.0,256.0 Q143.0,256.0 143.0,264.0 L143.0,336.0 Q143.0,344.0 138.8,344.0 Q143.0,344.0 143.0,352.0 L143.0,424.0 Q143.0,432.0 150.0,432.0"/>
+<text class="gp" x="137.0" y="336.0" font-size="10" text-anchor="end">estado desde el</text>
+<text class="gp" x="137.0" y="348.0" font-size="10" text-anchor="end">resto del scope</text>
+<text class="gp" x="137.0" y="360.0" font-size="10" text-anchor="end">(para readback)</text>
 <line class="pin" x1="192.2" y1="260.0" x2="250.2" y2="260.0"/>
 <path class="arr" d="M243.2,256.6 L250.2,260.0 L243.2,263.4 Z"/>
 <text class="wd" x="186.2" y="263.4" font-size="9.5" text-anchor="end">[31:0]</text>
@@ -80,151 +80,154 @@
 <text class="nm" x="262.2" y="390.0" font-size="12">mca_veto_i</text>
 <line class="pin" x1="192.2" y1="407.0" x2="250.2" y2="407.0"/>
 <path class="arr" d="M243.2,403.6 L250.2,407.0 L243.2,410.4 Z"/>
-<text class="wd" x="186.2" y="410.4" font-size="9.5" text-anchor="end">[28:0]</text>
-<text class="nm" x="262.2" y="411.0" font-size="12">trig_snapshot_i</text>
-<line class="sep" x1="250.2" y1="417.5" x2="572.2" y2="417.5"/>
-<ellipse class="bus" cx="225.8" cy="459.5" rx="12.0" ry="17.5"/>
-<path class="brc" d="M150.0,445.0 Q143.0,445.0 143.0,452.2 L143.0,452.2 Q143.0,459.5 138.8,459.5 Q143.0,459.5 143.0,466.8 L143.0,466.8 Q143.0,474.0 150.0,474.0"/>
-<text class="gp" x="137.0" y="445.5" font-size="10" text-anchor="end">puente legacy desde</text>
-<text class="gp" x="137.0" y="457.5" font-size="10" text-anchor="end">osc_cfg (offsets</text>
-<text class="gp" x="137.0" y="469.5" font-size="10" text-anchor="end">0x004 y 0x094 del</text>
-<text class="gp" x="137.0" y="481.5" font-size="10" text-anchor="end">slot 1)</text>
-<line class="pin" x1="192.2" y1="449.0" x2="250.2" y2="449.0"/>
-<path class="arr" d="M243.2,445.6 L250.2,449.0 L243.2,452.4 Z"/>
-<text class="wd" x="186.2" y="452.4" font-size="9.5" text-anchor="end">[3:0]</text>
-<text class="nm" x="262.2" y="453.0" font-size="12">legacy_trig_sw_i</text>
+<text class="nm" x="262.2" y="411.0" font-size="12">trig_arm_i</text>
+<line class="pin" x1="192.2" y1="428.0" x2="250.2" y2="428.0"/>
+<path class="arr" d="M243.2,424.6 L250.2,428.0 L243.2,431.4 Z"/>
+<text class="wd" x="186.2" y="431.4" font-size="9.5" text-anchor="end">[28:0]</text>
+<text class="nm" x="262.2" y="432.0" font-size="12">trig_snapshot_i</text>
+<line class="sep" x1="250.2" y1="438.5" x2="572.2" y2="438.5"/>
+<ellipse class="bus" cx="225.8" cy="480.5" rx="12.0" ry="17.5"/>
+<path class="brc" d="M150.0,466.0 Q143.0,466.0 143.0,473.2 L143.0,473.2 Q143.0,480.5 138.8,480.5 Q143.0,480.5 143.0,487.8 L143.0,487.8 Q143.0,495.0 150.0,495.0"/>
+<text class="gp" x="137.0" y="466.5" font-size="10" text-anchor="end">puente legacy desde</text>
+<text class="gp" x="137.0" y="478.5" font-size="10" text-anchor="end">osc_cfg (offsets</text>
+<text class="gp" x="137.0" y="490.5" font-size="10" text-anchor="end">0x004 y 0x094 del</text>
+<text class="gp" x="137.0" y="502.5" font-size="10" text-anchor="end">slot 1)</text>
 <line class="pin" x1="192.2" y1="470.0" x2="250.2" y2="470.0"/>
 <path class="arr" d="M243.2,466.6 L250.2,470.0 L243.2,473.4 Z"/>
 <text class="wd" x="186.2" y="473.4" font-size="9.5" text-anchor="end">[3:0]</text>
-<text class="nm" x="262.2" y="474.0" font-size="12">legacy_trig_dis_clr_i</text>
-<line class="sep" x1="250.2" y1="480.5" x2="572.2" y2="480.5"/>
-<ellipse class="bus" cx="596.6" cy="575.0" rx="12.0" ry="70.0"/>
-<path class="brc" d="M678.1,508.0 Q685.1,508.0 685.1,516.0 L685.1,567.0 Q685.1,575.0 689.3,575.0 Q685.1,575.0 685.1,583.0 L685.1,634.0 Q685.1,642.0 678.1,642.0"/>
-<text class="gp" x="691.1" y="573.0" font-size="10" text-anchor="start">salidas hacia</text>
-<text class="gp" x="691.1" y="585.0" font-size="10" text-anchor="start">mt_event_logic</text>
-<line class="pin" x1="572.2" y1="512.0" x2="630.2" y2="512.0"/>
-<path class="arr" d="M623.2,508.6 L630.2,512.0 L623.2,515.4 Z"/>
-<text class="wd" x="636.2" y="515.4" font-size="9.5">[3:0]</text>
-<text class="nm" x="560.2" y="516.0" font-size="12" text-anchor="end">adc_trig_sw_o</text>
+<text class="nm" x="262.2" y="474.0" font-size="12">legacy_trig_sw_i</text>
+<line class="pin" x1="192.2" y1="491.0" x2="250.2" y2="491.0"/>
+<path class="arr" d="M243.2,487.6 L250.2,491.0 L243.2,494.4 Z"/>
+<text class="wd" x="186.2" y="494.4" font-size="9.5" text-anchor="end">[3:0]</text>
+<text class="nm" x="262.2" y="495.0" font-size="12">legacy_trig_dis_clr_i</text>
+<line class="sep" x1="250.2" y1="501.5" x2="572.2" y2="501.5"/>
+<ellipse class="bus" cx="596.6" cy="596.0" rx="12.0" ry="70.0"/>
+<path class="brc" d="M678.1,529.0 Q685.1,529.0 685.1,537.0 L685.1,588.0 Q685.1,596.0 689.3,596.0 Q685.1,596.0 685.1,604.0 L685.1,655.0 Q685.1,663.0 678.1,663.0"/>
+<text class="gp" x="691.1" y="594.0" font-size="10" text-anchor="start">salidas hacia</text>
+<text class="gp" x="691.1" y="606.0" font-size="10" text-anchor="start">mt_event_logic</text>
 <line class="pin" x1="572.2" y1="533.0" x2="630.2" y2="533.0"/>
 <path class="arr" d="M623.2,529.6 L630.2,533.0 L623.2,536.4 Z"/>
 <text class="wd" x="636.2" y="536.4" font-size="9.5">[3:0]</text>
-<text class="nm" x="560.2" y="537.0" font-size="12" text-anchor="end">trig_dis_clr_o</text>
+<text class="nm" x="560.2" y="537.0" font-size="12" text-anchor="end">adc_trig_sw_o</text>
 <line class="pin" x1="572.2" y1="554.0" x2="630.2" y2="554.0"/>
 <path class="arr" d="M623.2,550.6 L630.2,554.0 L623.2,557.4 Z"/>
 <text class="wd" x="636.2" y="557.4" font-size="9.5">[3:0]</text>
-<text class="nm" x="560.2" y="558.0" font-size="12" text-anchor="end">new_trg_src_o</text>
+<text class="nm" x="560.2" y="558.0" font-size="12" text-anchor="end">trig_dis_clr_o</text>
 <line class="pin" x1="572.2" y1="575.0" x2="630.2" y2="575.0"/>
 <path class="arr" d="M623.2,571.6 L630.2,575.0 L623.2,578.4 Z"/>
-<text class="wd" x="636.2" y="578.4" font-size="9.5">[127:0]</text>
-<text class="nm" x="560.2" y="579.0" font-size="12" text-anchor="end">trg_src_o</text>
+<text class="wd" x="636.2" y="578.4" font-size="9.5">[3:0]</text>
+<text class="nm" x="560.2" y="579.0" font-size="12" text-anchor="end">new_trg_src_o</text>
 <line class="pin" x1="572.2" y1="596.0" x2="630.2" y2="596.0"/>
 <path class="arr" d="M623.2,592.6 L630.2,596.0 L623.2,599.4 Z"/>
-<text class="wd" x="636.2" y="599.4" font-size="9.5">[6:0]</text>
-<text class="nm" x="560.2" y="600.0" font-size="12" text-anchor="end">shield_src_o</text>
+<text class="wd" x="636.2" y="599.4" font-size="9.5">[127:0]</text>
+<text class="nm" x="560.2" y="600.0" font-size="12" text-anchor="end">trg_src_o</text>
 <line class="pin" x1="572.2" y1="617.0" x2="630.2" y2="617.0"/>
 <path class="arr" d="M623.2,613.6 L630.2,617.0 L623.2,620.4 Z"/>
-<text class="wd" x="636.2" y="620.4" font-size="9.5">[4:0]</text>
-<text class="nm" x="560.2" y="621.0" font-size="12" text-anchor="end">shield_dst_o</text>
+<text class="wd" x="636.2" y="620.4" font-size="9.5">[6:0]</text>
+<text class="nm" x="560.2" y="621.0" font-size="12" text-anchor="end">shield_src_o</text>
 <line class="pin" x1="572.2" y1="638.0" x2="630.2" y2="638.0"/>
 <path class="arr" d="M623.2,634.6 L630.2,638.0 L623.2,641.4 Z"/>
-<text class="wd" x="636.2" y="641.4" font-size="9.5">[15:0]</text>
-<text class="nm" x="560.2" y="642.0" font-size="12" text-anchor="end">shield_dur_o</text>
-<line class="sep" x1="250.2" y1="648.5" x2="572.2" y2="648.5"/>
-<ellipse class="bus" cx="596.6" cy="722.0" rx="12.0" ry="49.0"/>
-<path class="brc" d="M678.1,676.0 Q685.1,676.0 685.1,684.0 L685.1,714.0 Q685.1,722.0 689.3,722.0 Q685.1,722.0 685.1,730.0 L685.1,760.0 Q685.1,768.0 678.1,768.0"/>
-<text class="gp" x="691.1" y="714.0" font-size="10" text-anchor="start">salidas hacia</text>
-<text class="gp" x="691.1" y="726.0" font-size="10" text-anchor="start">mt_slope_trig (una</text>
-<text class="gp" x="691.1" y="738.0" font-size="10" text-anchor="start">rebanada por canal)</text>
-<line class="pin" x1="572.2" y1="680.0" x2="630.2" y2="680.0"/>
-<path class="arr" d="M623.2,676.6 L630.2,680.0 L623.2,683.4 Z"/>
-<text class="wd" x="636.2" y="683.4" font-size="9.5">[3:0]</text>
-<text class="nm" x="560.2" y="684.0" font-size="12" text-anchor="end">slope_en_o</text>
+<text class="wd" x="636.2" y="641.4" font-size="9.5">[4:0]</text>
+<text class="nm" x="560.2" y="642.0" font-size="12" text-anchor="end">shield_dst_o</text>
+<line class="pin" x1="572.2" y1="659.0" x2="630.2" y2="659.0"/>
+<path class="arr" d="M623.2,655.6 L630.2,659.0 L623.2,662.4 Z"/>
+<text class="wd" x="636.2" y="662.4" font-size="9.5">[15:0]</text>
+<text class="nm" x="560.2" y="663.0" font-size="12" text-anchor="end">shield_dur_o</text>
+<line class="sep" x1="250.2" y1="669.5" x2="572.2" y2="669.5"/>
+<ellipse class="bus" cx="596.6" cy="743.0" rx="12.0" ry="49.0"/>
+<path class="brc" d="M678.1,697.0 Q685.1,697.0 685.1,705.0 L685.1,735.0 Q685.1,743.0 689.3,743.0 Q685.1,743.0 685.1,751.0 L685.1,781.0 Q685.1,789.0 678.1,789.0"/>
+<text class="gp" x="691.1" y="735.0" font-size="10" text-anchor="start">salidas hacia</text>
+<text class="gp" x="691.1" y="747.0" font-size="10" text-anchor="start">mt_slope_trig (una</text>
+<text class="gp" x="691.1" y="759.0" font-size="10" text-anchor="start">rebanada por canal)</text>
 <line class="pin" x1="572.2" y1="701.0" x2="630.2" y2="701.0"/>
 <path class="arr" d="M623.2,697.6 L630.2,701.0 L623.2,704.4 Z"/>
-<text class="wd" x="636.2" y="704.4" font-size="9.5">[19:0]</text>
-<text class="nm" x="560.2" y="705.0" font-size="12" text-anchor="end">slope_len_o</text>
+<text class="wd" x="636.2" y="704.4" font-size="9.5">[3:0]</text>
+<text class="nm" x="560.2" y="705.0" font-size="12" text-anchor="end">slope_en_o</text>
 <line class="pin" x1="572.2" y1="722.0" x2="630.2" y2="722.0"/>
 <path class="arr" d="M623.2,718.6 L630.2,722.0 L623.2,725.4 Z"/>
 <text class="wd" x="636.2" y="725.4" font-size="9.5">[19:0]</text>
-<text class="nm" x="560.2" y="726.0" font-size="12" text-anchor="end">slope_gap_o</text>
+<text class="nm" x="560.2" y="726.0" font-size="12" text-anchor="end">slope_len_o</text>
 <line class="pin" x1="572.2" y1="743.0" x2="630.2" y2="743.0"/>
 <path class="arr" d="M623.2,739.6 L630.2,743.0 L623.2,746.4 Z"/>
-<text class="wd" x="636.2" y="746.4" font-size="9.5">[71:0]</text>
-<text class="nm" x="560.2" y="747.0" font-size="12" text-anchor="end">slope_thr_o</text>
+<text class="wd" x="636.2" y="746.4" font-size="9.5">[19:0]</text>
+<text class="nm" x="560.2" y="747.0" font-size="12" text-anchor="end">slope_gap_o</text>
 <line class="pin" x1="572.2" y1="764.0" x2="630.2" y2="764.0"/>
 <path class="arr" d="M623.2,760.6 L630.2,764.0 L623.2,767.4 Z"/>
 <text class="wd" x="636.2" y="767.4" font-size="9.5">[71:0]</text>
-<text class="nm" x="560.2" y="768.0" font-size="12" text-anchor="end">slope_hyst_o</text>
-<line class="sep" x1="250.2" y1="774.5" x2="572.2" y2="774.5"/>
-<ellipse class="bus" cx="596.6" cy="869.0" rx="12.0" ry="70.0"/>
-<path class="brc" d="M678.1,802.0 Q685.1,802.0 685.1,810.0 L685.1,861.0 Q685.1,869.0 689.3,869.0 Q685.1,869.0 685.1,877.0 L685.1,928.0 Q685.1,936.0 678.1,936.0"/>
-<text class="gp" x="691.1" y="861.0" font-size="10" text-anchor="start">salidas hacia</text>
-<text class="gp" x="691.1" y="873.0" font-size="10" text-anchor="start">mt_pz_trig (una</text>
-<text class="gp" x="691.1" y="885.0" font-size="10" text-anchor="start">rebanada por canal)</text>
-<line class="pin" x1="572.2" y1="806.0" x2="630.2" y2="806.0"/>
-<path class="arr" d="M623.2,802.6 L630.2,806.0 L623.2,809.4 Z"/>
-<text class="wd" x="636.2" y="809.4" font-size="9.5">[3:0]</text>
-<text class="nm" x="560.2" y="810.0" font-size="12" text-anchor="end">pz_en_o</text>
+<text class="nm" x="560.2" y="768.0" font-size="12" text-anchor="end">slope_thr_o</text>
+<line class="pin" x1="572.2" y1="785.0" x2="630.2" y2="785.0"/>
+<path class="arr" d="M623.2,781.6 L630.2,785.0 L623.2,788.4 Z"/>
+<text class="wd" x="636.2" y="788.4" font-size="9.5">[71:0]</text>
+<text class="nm" x="560.2" y="789.0" font-size="12" text-anchor="end">slope_hyst_o</text>
+<line class="sep" x1="250.2" y1="795.5" x2="572.2" y2="795.5"/>
+<ellipse class="bus" cx="596.6" cy="890.0" rx="12.0" ry="70.0"/>
+<path class="brc" d="M678.1,823.0 Q685.1,823.0 685.1,831.0 L685.1,882.0 Q685.1,890.0 689.3,890.0 Q685.1,890.0 685.1,898.0 L685.1,949.0 Q685.1,957.0 678.1,957.0"/>
+<text class="gp" x="691.1" y="882.0" font-size="10" text-anchor="start">salidas hacia</text>
+<text class="gp" x="691.1" y="894.0" font-size="10" text-anchor="start">mt_pz_trig (una</text>
+<text class="gp" x="691.1" y="906.0" font-size="10" text-anchor="start">rebanada por canal)</text>
 <line class="pin" x1="572.2" y1="827.0" x2="630.2" y2="827.0"/>
 <path class="arr" d="M623.2,823.6 L630.2,827.0 L623.2,830.4 Z"/>
-<text class="wd" x="636.2" y="830.4" font-size="9.5">[19:0]</text>
-<text class="nm" x="560.2" y="831.0" font-size="12" text-anchor="end">pz_k_o</text>
+<text class="wd" x="636.2" y="830.4" font-size="9.5">[3:0]</text>
+<text class="nm" x="560.2" y="831.0" font-size="12" text-anchor="end">pz_en_o</text>
 <line class="pin" x1="572.2" y1="848.0" x2="630.2" y2="848.0"/>
 <path class="arr" d="M623.2,844.6 L630.2,848.0 L623.2,851.4 Z"/>
 <text class="wd" x="636.2" y="851.4" font-size="9.5">[19:0]</text>
-<text class="nm" x="560.2" y="852.0" font-size="12" text-anchor="end">pz_m_o</text>
+<text class="nm" x="560.2" y="852.0" font-size="12" text-anchor="end">pz_k_o</text>
 <line class="pin" x1="572.2" y1="869.0" x2="630.2" y2="869.0"/>
 <path class="arr" d="M623.2,865.6 L630.2,869.0 L623.2,872.4 Z"/>
-<text class="wd" x="636.2" y="872.4" font-size="9.5">[23:0]</text>
-<text class="nm" x="560.2" y="873.0" font-size="12" text-anchor="end">pz_sh_o</text>
+<text class="wd" x="636.2" y="872.4" font-size="9.5">[19:0]</text>
+<text class="nm" x="560.2" y="873.0" font-size="12" text-anchor="end">pz_m_o</text>
 <line class="pin" x1="572.2" y1="890.0" x2="630.2" y2="890.0"/>
 <path class="arr" d="M623.2,886.6 L630.2,890.0 L623.2,893.4 Z"/>
-<text class="wd" x="636.2" y="893.4" font-size="9.5">[79:0]</text>
-<text class="nm" x="560.2" y="894.0" font-size="12" text-anchor="end">pz_mq_o</text>
+<text class="wd" x="636.2" y="893.4" font-size="9.5">[23:0]</text>
+<text class="nm" x="560.2" y="894.0" font-size="12" text-anchor="end">pz_sh_o</text>
 <line class="pin" x1="572.2" y1="911.0" x2="630.2" y2="911.0"/>
 <path class="arr" d="M623.2,907.6 L630.2,911.0 L623.2,914.4 Z"/>
-<text class="wd" x="636.2" y="914.4" font-size="9.5">[71:0]</text>
-<text class="nm" x="560.2" y="915.0" font-size="12" text-anchor="end">pz_thr_o</text>
+<text class="wd" x="636.2" y="914.4" font-size="9.5">[79:0]</text>
+<text class="nm" x="560.2" y="915.0" font-size="12" text-anchor="end">pz_mq_o</text>
 <line class="pin" x1="572.2" y1="932.0" x2="630.2" y2="932.0"/>
 <path class="arr" d="M623.2,928.6 L630.2,932.0 L623.2,935.4 Z"/>
 <text class="wd" x="636.2" y="935.4" font-size="9.5">[71:0]</text>
-<text class="nm" x="560.2" y="936.0" font-size="12" text-anchor="end">pz_hyst_o</text>
-<line class="sep" x1="250.2" y1="942.5" x2="572.2" y2="942.5"/>
-<ellipse class="buss" cx="225.8" cy="1005.5" rx="12.0" ry="38.5"/>
-<circle class="dots" cx="225.8" cy="967.0" r="3.6"/>
-<path class="brc" d="M150.0,970.0 Q143.0,970.0 143.0,978.0 L143.0,997.5 Q143.0,1005.5 138.8,1005.5 Q143.0,1005.5 143.0,1013.5 L143.0,1033.0 Q143.0,1041.0 150.0,1041.0"/>
-<text class="gp" x="137.0" y="1009.5" font-size="10" text-anchor="end">bus de sistema</text>
-<ellipse class="buss" cx="596.6" cy="995.0" rx="12.0" ry="28.0"/>
-<circle class="dots" cx="596.6" cy="967.0" r="3.6"/>
-<path class="brc" d="M678.1,970.0 Q685.1,970.0 685.1,978.0 L685.1,987.0 Q685.1,995.0 689.3,995.0 Q685.1,995.0 685.1,1003.0 L685.1,1012.0 Q685.1,1020.0 678.1,1020.0"/>
-<text class="gp" x="691.1" y="999.0" font-size="10" text-anchor="start">bus de sistema</text>
-<line class="pin" x1="192.2" y1="974.0" x2="250.2" y2="974.0"/>
-<path class="arr" d="M243.2,970.6 L250.2,974.0 L243.2,977.4 Z"/>
-<text class="wd" x="186.2" y="977.4" font-size="9.5" text-anchor="end">[31:0]</text>
-<text class="nm" x="262.2" y="978.0" font-size="12">sys_addr</text>
+<text class="nm" x="560.2" y="936.0" font-size="12" text-anchor="end">pz_thr_o</text>
+<line class="pin" x1="572.2" y1="953.0" x2="630.2" y2="953.0"/>
+<path class="arr" d="M623.2,949.6 L630.2,953.0 L623.2,956.4 Z"/>
+<text class="wd" x="636.2" y="956.4" font-size="9.5">[71:0]</text>
+<text class="nm" x="560.2" y="957.0" font-size="12" text-anchor="end">pz_hyst_o</text>
+<line class="sep" x1="250.2" y1="963.5" x2="572.2" y2="963.5"/>
+<ellipse class="buss" cx="225.8" cy="1026.5" rx="12.0" ry="38.5"/>
+<circle class="dots" cx="225.8" cy="988.0" r="3.6"/>
+<path class="brc" d="M150.0,991.0 Q143.0,991.0 143.0,999.0 L143.0,1018.5 Q143.0,1026.5 138.8,1026.5 Q143.0,1026.5 143.0,1034.5 L143.0,1054.0 Q143.0,1062.0 150.0,1062.0"/>
+<text class="gp" x="137.0" y="1030.5" font-size="10" text-anchor="end">bus de sistema</text>
+<ellipse class="buss" cx="596.6" cy="1016.0" rx="12.0" ry="28.0"/>
+<circle class="dots" cx="596.6" cy="988.0" r="3.6"/>
+<path class="brc" d="M678.1,991.0 Q685.1,991.0 685.1,999.0 L685.1,1008.0 Q685.1,1016.0 689.3,1016.0 Q685.1,1016.0 685.1,1024.0 L685.1,1033.0 Q685.1,1041.0 678.1,1041.0"/>
+<text class="gp" x="691.1" y="1020.0" font-size="10" text-anchor="start">bus de sistema</text>
 <line class="pin" x1="192.2" y1="995.0" x2="250.2" y2="995.0"/>
 <path class="arr" d="M243.2,991.6 L250.2,995.0 L243.2,998.4 Z"/>
 <text class="wd" x="186.2" y="998.4" font-size="9.5" text-anchor="end">[31:0]</text>
-<text class="nm" x="262.2" y="999.0" font-size="12">sys_wdata</text>
+<text class="nm" x="262.2" y="999.0" font-size="12">sys_addr</text>
 <line class="pin" x1="192.2" y1="1016.0" x2="250.2" y2="1016.0"/>
 <path class="arr" d="M243.2,1012.6 L250.2,1016.0 L243.2,1019.4 Z"/>
-<text class="nm" x="262.2" y="1020.0" font-size="12">sys_wen</text>
+<text class="wd" x="186.2" y="1019.4" font-size="9.5" text-anchor="end">[31:0]</text>
+<text class="nm" x="262.2" y="1020.0" font-size="12">sys_wdata</text>
 <line class="pin" x1="192.2" y1="1037.0" x2="250.2" y2="1037.0"/>
 <path class="arr" d="M243.2,1033.6 L250.2,1037.0 L243.2,1040.4 Z"/>
-<text class="nm" x="262.2" y="1041.0" font-size="12">sys_ren</text>
-<line class="pin" x1="572.2" y1="974.0" x2="630.2" y2="974.0"/>
-<path class="arr" d="M623.2,970.6 L630.2,974.0 L623.2,977.4 Z"/>
-<text class="wd" x="636.2" y="977.4" font-size="9.5">[31:0]</text>
-<text class="nm" x="560.2" y="978.0" font-size="12" text-anchor="end">sys_rdata</text>
+<text class="nm" x="262.2" y="1041.0" font-size="12">sys_wen</text>
+<line class="pin" x1="192.2" y1="1058.0" x2="250.2" y2="1058.0"/>
+<path class="arr" d="M243.2,1054.6 L250.2,1058.0 L243.2,1061.4 Z"/>
+<text class="nm" x="262.2" y="1062.0" font-size="12">sys_ren</text>
 <line class="pin" x1="572.2" y1="995.0" x2="630.2" y2="995.0"/>
 <path class="arr" d="M623.2,991.6 L630.2,995.0 L623.2,998.4 Z"/>
-<text class="nm" x="560.2" y="999.0" font-size="12" text-anchor="end">sys_err</text>
+<text class="wd" x="636.2" y="998.4" font-size="9.5">[31:0]</text>
+<text class="nm" x="560.2" y="999.0" font-size="12" text-anchor="end">sys_rdata</text>
 <line class="pin" x1="572.2" y1="1016.0" x2="630.2" y2="1016.0"/>
 <path class="arr" d="M623.2,1012.6 L630.2,1016.0 L623.2,1019.4 Z"/>
-<text class="nm" x="560.2" y="1020.0" font-size="12" text-anchor="end">sys_ack</text>
-<circle class="dotm" cx="250.2" cy="1068.1" r="3.6"/>
-<text class="lg" x="259.2" y="1071.5" font-size="9.5">maestro: el módulo inicia las transacciones</text>
-<circle class="dots" cx="526.3" cy="1068.1" r="3.6"/>
-<text class="lg" x="535.3" y="1071.5" font-size="9.5">esclavo: las recibe y contesta</text>
+<text class="nm" x="560.2" y="1020.0" font-size="12" text-anchor="end">sys_err</text>
+<line class="pin" x1="572.2" y1="1037.0" x2="630.2" y2="1037.0"/>
+<path class="arr" d="M623.2,1033.6 L630.2,1037.0 L623.2,1040.4 Z"/>
+<text class="nm" x="560.2" y="1041.0" font-size="12" text-anchor="end">sys_ack</text>
+<circle class="dotm" cx="250.2" cy="1089.1" r="3.6"/>
+<text class="lg" x="259.2" y="1092.5" font-size="9.5">maestro: el módulo inicia las transacciones</text>
+<circle class="dots" cx="526.3" cy="1089.1" r="3.6"/>
+<text class="lg" x="535.3" y="1092.5" font-size="9.5">esclavo: las recibe y contesta</text>
 </svg>

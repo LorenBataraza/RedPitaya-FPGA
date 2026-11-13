@@ -1,0 +1,4 @@
+Los pines físicos quedan en el borde. Control: GP0 → `sys_bus`. Datos: `i_scope`
+y `event_ring_top` → HP → DDR, sin pasar por el ARM. `NOMBRE=valor`: parámetros
+con que el padre instancia el bloque (se omiten los que sólo pasan el del padre
+sin cambio). En `integration_cfg` se muestran 4 de sus 21.

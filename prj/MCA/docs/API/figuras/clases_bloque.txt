@@ -1,0 +1,6 @@
+Lo que comparten todos los handles de libmca, dibujado una sola vez. `<bloque>_h` es
+un struct opaco que lleva `mca_bloque` como primer miembro: el bus, si el handle es su
+dueño y el detalle del último error. Todo acceso pasa por `mca_bus`, y el único backend
+que toca la PL es `devmem_bus`. `mca_mem` es la región de DDR que escribe la PL; sólo
+la usa el event_ring. Las figuras de los bloques y de los lazos no repiten nada de
+esto.

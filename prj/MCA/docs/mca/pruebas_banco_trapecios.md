@@ -349,14 +349,23 @@ en 50 cuentas con `pz_ganancia`, que con el M nominal da 353/177.
 
 ### El banco en el MCA
 
-![Qué son k, m y la ventana, y cómo se elige la forma](figuras/trapecio/banco_formas.svg)
+![Una forma por dentro: k, m y la ventana](figuras/trapecio/banco_formas_anatomia.svg)
 
-*a) Una forma: el pulso entra con su cola y sale un trapecio que sube en k, se queda m y
-baja en k, y `F_TRAP` es el promedio de la salida en la ventana. b) Dos pulsos a 40
-muestras: los cuatro trapecios corren a la vez y la ranura de A suma las cuatro ventanas.
-Las dos formas largas están contaminadas por B; gana la más larga que queda limpia.
-c) La regla, con los pulsos del ejemplo: A tiene un vecino después y B uno antes, y a los
-dos les toca la forma 2. El uso es el medido en la placa. Lo genera
+*Una forma, la 16/12: el pulso entra con su cola y sale un trapecio que sube en k, se
+queda m y baja en k, y `F_TRAP` es el promedio de la salida en la ventana. `off` se
+cuenta desde que abre la ranura, que es antes del disparo.*
+
+![Un par a 40 muestras, medido con cada forma](figuras/trapecio/banco_formas_par.svg)
+
+*Dos pulsos a 40 muestras: los cuatro trapecios corren a la vez y la ranura de A suma las
+cuatro ventanas. Las dos formas largas están contaminadas por B; gana la más larga que
+queda limpia.*
+
+![La regla que elige la forma](figuras/trapecio/banco_formas_regla.svg)
+
+*La regla, con los pulsos del ejemplo: A tiene un vecino después y B uno antes, y a los
+dos les toca la forma 2. El uso es el medido en la placa. Las tres figuras son del banco
+de 4 formas con que se midió en §6 (desde §7 la 16/12 no está), y las genera
 [`figuras_banco.py`](figuras/trapecio/figuras_banco.py) con el golden model.*
 
 `mca_window` corre `N_FORMAS` = 4 trapecios sobre la misma muestra, con el M y el
@@ -365,6 +374,44 @@ se elige al publicar (`mca_publish`), cuando `F_DTNEXT` ya es definitivo: gana l
 primera con antes ≤ `F_DTPREV` y después ≤ `F_DTNEXT`. Si ninguna cumple, el
 pulso queda **marcado**: `F_TRAP` = 0 y `F_FORMA` (feature 10) = 0xFFFF. Si
 cumple, `F_FORMA` es el índice de la forma.
+
+![Cómo deciden los disparos vecinos la forma de cada pulso, y cuánto se usa cada una](figuras/trapecio/banco_uso.svg)
+
+*a) Un tren de siete pulsos por el golden model. Cada fila es la ranura de un pulso, y sus
+cuatro barras van de t − antes a t + después, con t su disparo: arriba la 64/48, abajo la
+8/8. Una barra no sirve si tiene otro disparo adentro (×). Gana la de más arriba que
+queda limpia; las de abajo también entran, pero promedian menos muestras. `F_DTNEXT` sólo
+ve los disparos de adentro de la compuerta (> 112). P4 y P5, a 18 muestras, se limitan
+uno al otro y los dos usan la 8/8; P6 y P7, a 10, quedan marcados. b) Qué parte de los
+eventos publicados usa cada forma, con el golden model sobre trenes de Poisson como los
+del §4. La barra es la placa a 1 Mcps (§6), con otro tren, el del Rigol: 27 / 28 / 20 /
+14 % y 10 % marcados, contra 25 / 27 / 24 / 14 y 10 del modelo. Lo genera
+[`figuras_banco.py`](figuras/trapecio/figuras_banco.py).*
+
+**"La primera" es la primera de la tabla, no la que termina antes.** La tabla va de la
+forma más larga a la más corta, y no hay carrera entre ellas: la ranura suma las cuatro
+en paralelo y elige recién al cerrar la compuerta. Por eso cada pulso ocupa su ranura las
+112 muestras aunque termine usando la 8/8. A 100 kcps, el 87 % de los pulsos usa la
+64/48; la 8/8 la supera recién entre 1 y 1.4 Mcps.
+
+![Cómo usa las ranuras el banco](figuras/trapecio/banco_ranuras.svg)
+
+*Un tren de siete pulsos por el golden model, con el banco de hoy: 3 formas y 3 ranuras
+(§7). Hay un trapecio por forma para toda la señal, no uno por ranura: las tres curvas
+son la salida de los tres `mca_trap`, y los rectángulos, las ventanas que leen las
+ranuras (en oscuro, la que se publicó). Cada ranura suma las tres ventanas mientras su
+compuerta está abierta (112 muestras), y queda ocupada hasta que el publicador elige la
+forma y termina con ella: 18 ciclos, más la espera si está con otra (P7 espera a P6).
+Por eso un pulso ocupa lo mismo si usa la 64/48, la 8/8 o queda marcado. P5 llega con las
+tres ocupadas y se pierde, pero su trapecio sigue en la salida y sus vecinos lo ven en
+`F_DTPREV` y `F_DTNEXT`: las marcas cuentan disparos, no ranuras. Lo genera
+[`figuras_banco.py`](figuras/trapecio/figuras_banco.py).*
+
+**La idea no es nueva.** Elegir el largo del filtro pulso a pulso, según la distancia a
+los vecinos, aparece en la bibliografía desde Lakatos (1990) con el nombre de
+procesamiento adaptativo. Lo más parecido a esto es Saxena y Hawari (2017): en una FPGA,
+eligen la subida y la meseta del trapecio de cada pulso según la separación entre pulsos
+sucesivos. Ver la *Bibliografía* al final.
 
 Los registros son `0x134` (`n_formas`, `N_FORMAS`, `umbr_ok`) y un bloque por
 forma desde `0x180`; la forma 0 es la misma de `0x128`/`0x130`. Al reset quedan
@@ -567,6 +614,11 @@ los arribos conocidos; el hardware da el mismo 4.7 % sin disparo):
 Los sin disparo, por la distancia al anterior: 5 de 5 entre 0 y 3 muestras, 4 de 4 entre 3
 y 5, 5 de 6 entre 5 y 7, 1 de 6 entre 8 y 9, y ninguno de los 300 restantes desde 9.
 
+Desde el 2026-11-13 el hardware mide esa ceguera: el tiempo con el disparo sin re-armar y
+alguna ranura libre es `t_rearm` (0x0D8). A 1 Mcps da 4.3 % del tiempo vivo, igual que el
+golden model sobre la misma señal (`figuras/trapecio/trearm_placa.py`; ver
+[`tiempo_muerto.md`](tiempo_muerto.md)).
+
 ### Cuántas ranuras hacen falta
 
 La elección de la forma no mira las ranuras: sólo `F_DTPREV` y `F_DTNEXT`. Hacen falta
@@ -598,6 +650,97 @@ que da esa misma ocupación, sobre las señales capturadas:
 **Lo que no se probó:** un detector real. La cola, el sobrepaso y la subida de todo esto son
 los del Rigol y su cable, y esos tres cambian los ajustes de arriba.
 
+## 7. Tres ranuras y tres formas (2026-11-09)
+
+El bitstream del MCA estaba al 99.86 % de los slices y el del ring al 100 %. Para dejar
+margen, los tops instancian ahora `mca_top` con **`N_ACC = 3`** y **`N_FORMAS = 3`**:
+el banco queda en **64/48, 32/24 y 8/8**. El default del módulo sigue en 4 y 4.
+
+**Lo que se pierde.** Es el golden model sobre las trazas del tren de Poisson capturadas
+en la placa el 2026-11-07 (las de §6). «Bueno» es a ±2 % de una línea, como en §6:
+
+| variante | LUT (OOC) | buenos a 300 k / 600 k / 1 Mcps (k/s) |
+|---|---|---|
+| 4 ranuras, 4 formas (antes) | 7737 | 262 / 452 / 650 |
+| 3 ranuras, 4 formas | 7030 | 262 / 449 / 641 |
+| 4 ranuras, sin la 16/12 | 7106 | 262 / 458 / 656 |
+| **3 ranuras, sin la 16/12 (ahora)** | **6506** | **262 / 455 / 647** |
+| 4 ranuras, sin la 8/8 | 7106 | 238 / 400 / 519 |
+| 3 ranuras, 64/48 + 16/12 | 5767 | 238 / 409 / 555 |
+| 2 ranuras, 4 formas | — | 253 / 418 / 531 |
+
+- **Sacar una forma del medio no cuesta cuentas: cuesta ruido.** Los pulsos que la
+  usaban pasan a la siguiente, más corta, y siguen cayendo a ±2 %. Para A = 1000 la 16/12
+  da σ = 0.157 % y la 8/8, 0.223 % (§2): esos pulsos quedan con ×1.4 de ruido. A 1 Mcps
+  son el 20 % de los pulsos; a menos tasa, menos. Con el Rigol no se nota, pero con un
+  detector de buena resolución sí.
+- **Se sacó la 16/12 y no la 32/24** porque la 32/24 cubre vecinos más lejanos (de 49 a
+  96 muestras) y la usa más gente (28 % a 1 Mcps, contra 20 %).
+- **Sin la 32/24 daría +6.6 % de buenos, pero eso no es una mejora.** A 1 Mcps la 32/24
+  deja la línea chica en −2.4 % por la cola del pulso anterior, fuera de ±2 %, y la
+  16/12 la deja en −1.4 %. Es el criterio de ±2 %. Además, las trazas son unos cientos
+  de pulsos distintos por forma, repetidos 40 veces, y no alcanzan para comparar
+  resolución.
+- **La 8/8 no se puede sacar:** −20 % a 1 Mcps y −9 % a 300 kcps.
+
+**Los bitstreams** (Vivado 2020.1; los anteriores, respaldados en
+`out/banco_4x4_c1be6d6d/` y `out/v3_event_ring/build2_726da451/`):
+
+| | MCA antes | MCA ahora | ring antes | ring ahora |
+|---|---|---|---|---|
+| md5 | c1be6d6d | 6156e5a3 | 726da451 | e58f7888 |
+| LUT | 14 257 (81.0 %) | 12 910 (73.4 %) | 14 404 (81.8 %) | 13 051 (74.2 %) |
+| FF | 15 073 | 14 285 | 15 369 | 14 377 |
+| slices | 4394 | 4326 | 4400 | 4370 |
+| BRAM / DSP | 31 / 10 | 29.5 / 9 | 34 / 10 | 32.5 / 9 |
+| WNS / WHS (ns) | +0.007 / +0.008 | +0.029 / +0.031 | +0.151 / +0.015 | +0.163 / +0.018 |
+
+- **Los slices siguen en 98-99 %** porque el placer reparte la lógica en todos los que
+  haya; la medida de cuánto entra es la de LUT.
+- **El MCA nuevo trae además el arreglo del bus** (`docs/TOP/bus_sistema_redpitaya.md`
+  §6.1): su build ya no da el CRITICAL WARNING del `false_path` de `reg_rdata`.
+
+**En la placa (2026-11-09).** Datos y logs en `software/datos/placa_recorte_20261109/`.
+
+- **El MCA (6156e5a3).** Pasan la batería sin generador y las etapas `regs`, `par`,
+  `poisson`, `trapecio`, `disparo`, `banco_rtl` y `falsos` de `test_mca2_placa.py`, con
+  `--disparo pz` para las del banco. `periodico` falló la primera vez, con 114 kHz de
+  disparos y la base 226 cuentas arriba: el Rigol venía con otra forma cargada. Corrida de
+  nuevo, pasa entera. `verificar-placa-bus` dio una lectura rota en 14 millones (ver
+  `docs/TOP/bus_sistema_redpitaya.md` §6.1).
+- **El ring (e58f7888).** Pasan `verificar-placa-bus` y `verificar-placa-ring`.
+  `run_poisson_loss.py --fuente ring` da las mismas pérdidas que el segundo build, sin
+  descartes del ring ni a 100 kHz.
+- **El tren de Poisson** (`test_banco_poisson.py`, M = 237.5). Se midió el mismo día el
+  bitstream viejo y el nuevo, porque el viejo dio 665 el 2026-11-05 y 651 hoy. Buenos a
+  1 Mcps, en k/s:
+
+  | bitstream | ranuras y formas | placa | modelo sobre la captura |
+  |---|---|---|---|
+  | c1be6d6d | 4 y 4 | 651 | 644 |
+  | c1be6d6d | 3 y 3, configuradas | 646 | 659 |
+  | **6156e5a3** | **3 y 3** | **644** | 659 |
+
+  - **El recorte cuesta ~1 % en la placa**, lo que predecía el golden model.
+  - **El bitstream nuevo cuenta lo mismo que el viejo configurado con 3 y 3**, forma por
+    forma.
+  - **El modelo sobre una sola captura se aleja ±2 % para los dos lados.** Repite 40
+    veces la misma realización del ruido, y la placa ve ruido nuevo en cada período.
+    Que el RTL con 3 y 3 es el modelo lo prueba `tb_pulsos_mca` con
+    `-gN_ACC=3 -gN_FORMAS=3`: da el mismo volcado que con 4 y 4.
+
+**Lo que cambió en el resto.**
+
+- **Software.** `API.mca.BANCO_PZ` tiene las 3 formas. `BANCO_PZ_4` es el de antes, y
+  lo usan los scripts que reproducen mediciones viejas: `banco_placa.py`,
+  `figuras_banco.py`, el Monte Carlo y el volcado de `test_replica_mca2.py`.
+- **`multitrigger_armar_banco`** usa las ranuras del bitstream (`n_acc=None`), y
+  `test_mca2_placa.py` las lee de la placa en vez de suponer 4. libmca ya validaba
+  `n_acc` y `n_formas` contra lo que dice la placa.
+- **Tests de RTL.** `tb_mca_top` corre con 3 y 3 por default (151 PASS; con
+  `-gN_ACC=4 -gN_FORMAS=4`, los 153 de antes), y `tb_mca_multi` suma la configuración
+  3/3, con cobertura 25 de 25.
+
 ## Cómo se rehace
 
 - `python3 figuras/trapecio/pruebas_banco.py` (~40 s): imprime todas las tablas
@@ -627,3 +770,38 @@ banco y por qué), [`separacion_trapezoidal.md`](separacion_trapezoidal.md) (có
 separa un trapecio), [`../mt/trigger_pendiente.md`](../mt/trigger_pendiente.md)
 (el disparo por pendiente) y [`register_map_mca.md`](register_map_mca.md) (los
 registros del trapecio y el ajuste de M en la placa).
+
+## Bibliografía
+
+De los trabajos sobre filtros adaptativos se leyeron sólo los resúmenes y los registros
+bibliográficos, no el texto completo. Antes de comparar el banco contra ellos en detalle
+hay que leerlos.
+
+- **T. Lakatos**, *Adaptive digital signal processing for X-ray spectrometry*, Nucl.
+  Instrum. Methods B **47** (1990) 307 — el antecedente más viejo encontrado.
+  Según el resumen, el modo adaptativo da una tasa de salida unas 20 veces la del
+  conformado semigaussiano, con poca pérdida de resolución.
+- **V. T. Jordanov, G. F. Knoll**, *Digital synthesis of pulse shapes in real time for
+  high resolution radiation spectroscopy*, Nucl. Instrum. Methods A **345** (1994) 337
+  — el trapecio digital y la cancelación polo-cero, la base de cada forma del banco.
+- **A. Abba, A. Geraci**, *Dynamic maximization of filter length in digital
+  spectroscopy*, IEEE Trans. Nucl. Sci. **59**(5) (2012) — el largo del filtro,
+  maximizado evento por evento: la misma idea que el banco. Un trabajo posterior del
+  mismo grupo reporta hasta 30 % más de tasa máxima que con filtros fijos.
+- **A. Regadío, S. Sánchez-Prieto, M. Prieto, J. Tabero**, *Implementation of a
+  real-time adaptive digital shaping for nuclear spectroscopy*, Nucl. Instrum. Methods
+  A **735** (2014) 297 — un conformador adaptativo en FPGA que ajusta sus coeficientes
+  en tiempo real. El resumen no dice con qué criterio.
+- **S. Saxena, A. I. Hawari**, *Investigation of FPGA-based real-time adaptive digital
+  pulse shaping for high-count-rate applications*, IEEE Trans. Nucl. Sci. (2017) — lo
+  más parecido: la subida y la meseta del trapecio de cada pulso salen de la separación
+  entre pulsos sucesivos, en una FPGA.
+- **S. Saxena, A. I. Hawari**, *Digital pulse deconvolution with adaptive shaping for
+  real-time high-resolution high-throughput gamma spectroscopy*, Nucl. Instrum. Methods
+  A **954** (2020; OSTI lo fecha en 2018) — la continuación, con una deconvolución
+  antes del trapecio. Lo mismo está patentado: US 11,029,416.
+
+Lo que habría que comparar contra ellos: un banco fijo de cuatro formas calculadas en
+paralelo en vez de un filtro de largo variable; la elección por los dos vecinos, con el
+pulso marcado en vez de descartado si ninguna forma alcanza; y las ranuras, que dejan
+solapar las ventanas.

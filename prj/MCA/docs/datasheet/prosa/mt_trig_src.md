@@ -19,6 +19,12 @@ instancia por canal dentro de
 
 ![Panorama de mt_trig_src](../../mt/figuras/panorama_mt_trig_src.svg)
 
+*Los números sobre el bus son los bits de la máscara (`OR_MASK`); los 25–31
+están reservados. El software también pasa por la máscara: es el bit 0, así que
+con `OR_MASK = 0` ni `TRIG_SW` dispara. En modo continuo (`we_keep = 1`) la
+máscara no se limpia sola; el protect se engancha igual. `NOMBRE=valor`:
+parámetros con que lo instancia `mt_event_logic`.*
+
 *Por dentro:* las 25 fuentes, la máscara, el *protect* y la realimentación del disparo. Fuente TikZ en [`panorama_mt_trig_src.tex`](../../mt/figuras/panorama_mt_trig_src.tex).
 
 Es el reemplazo de `rp_trig_src.v`, y las dos diferencias con el original son

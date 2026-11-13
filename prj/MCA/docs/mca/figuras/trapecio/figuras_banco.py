@@ -1,15 +1,30 @@
 #!/usr/bin/env python3
-"""La figura del banco de trapecios: qué son k, m y la ventana, y cómo se elige la forma.
+"""Las figuras del banco de trapecios.
+
+- banco_formas_anatomia: qué son k, m y la ventana, en una forma.
+- banco_formas_par: un par de pulsos medido con cada forma, y cuál se publica.
+- banco_formas_regla: la regla que elige la forma, con el uso medido en la placa.
+- banco_uso: cómo los disparos vecinos deciden la forma de cada pulso de un tren, y
+  cuánto se usa cada forma según la tasa.
+- banco_ranuras: cómo usa las ranuras el banco: un trapecio por forma para toda la
+  señal, cada ranura suma una ventana de cada uno durante su compuerta, y queda
+  ocupada hasta que se publica, use la forma que use.
 
 Todo sale de monte-carlo/replica_mca2.py, el golden model que coincide con el RTL: el
-trapecio de cada forma, el instante del disparo con polo-cero, dónde cae cada ventana y
-la forma que elige el publicador. Con pulsos sin ruido, de 1000 y 600 cuentas, τ = 243
-muestras y 1.6 muestras de subida, y el banco de `mca_banco_config`.
+trapecio de cada forma, el instante del disparo con polo-cero, dónde cae cada ventana,
+la ranura que toma cada disparo y la forma que elige el publicador. Con pulsos sin
+ruido, τ = 243 muestras y 1.6 muestras de subida, y el banco de `mca_banco_config`. El
+uso contra la tasa corre el golden model sobre los trenes de Poisson de
+pruebas_banco.tren() (unos 30 s).
+
+Las cuatro primeras son del banco de 4 formas que se midió en la placa (antes del
+recorte del 2026-11-09). banco_ranuras es del de hoy: 3 ranuras y 3 formas.
 
 Lo único medido en la placa es el uso de cada forma a 1 Mcps
 (docs/mca/pruebas_banco_trapecios.md §6).
 
-    python3 figuras_banco.py
+    python3 figuras_banco.py                   # todas
+    python3 figuras_banco.py banco_ranuras     # sólo las nombradas
 """
 import math
 import shutil
@@ -25,8 +40,10 @@ SW = AQUI.parents[3] / "software"
 sys.path.insert(0, str(SW))
 sys.path.insert(0, str(SW / "monte-carlo"))
 import replica_mca2 as r                                     # noqa: E402
-from API.mca import BANCO_PZ, mca_banco_config               # noqa: E402
-from API.multitrigger import pz_ganancia                     # noqa: E402
+from API.mca import BANCO_PZ, BANCO_PZ_4, mca_banco_config    # noqa: E402
+# Las figuras de las formas y del uso son del banco de 4 formas que se midió en la placa
+# (anterior al recorte del 2026-11-09), con la barra de la placa al lado. La de las
+# ranuras es del banco de hoy (BANCO_PZ: 3 formas) con las 3 ranuras de los tops.
 
 TAU, TR10, N, T0 = 243.0, 1.6, 420, 40
 MQ = round(16.0 / (math.exp(1.0 / TAU) - 1.0))
@@ -64,11 +81,11 @@ def pulso(a, t0, n=N):
     return np.round(x).astype(np.int64)
 
 
-def configuracion():
-    kw = mca_banco_config(MQ, pre_dly=PRE)
+def configuracion(formas=BANCO_PZ_4, n_acc=4):
+    kw = mca_banco_config(MQ, pre_dly=PRE, formas=formas)
     disp = r.disparo_pz_para(r.forma_preamp(tau=TAU, tr10=TR10), MQ)
     disp.pop('pre_dly')
-    return r.cfg(n_acc=4, baseline=0, **disp, **kw)
+    return r.cfg(n_acc=n_acc, baseline=0, **disp, **kw)
 
 
 def forma_kw(cf, f):
@@ -111,7 +128,7 @@ def anatomia(cf, ox, oy):
     esc = alto / 1100.0
     X = lambda i: ox + (i - desde) * dx          # noqa: E731
     L = [f"\\node[titulo, anchor=west] at ({ox - 0.1:.3f},{oy + alto + 0.72:.3f}) "
-         f"{{\\textbf{{a) Una forma por dentro}} \\quad {{\\scriptsize la 2: "
+         f"{{\\textbf{{Una forma por dentro}} \\quad {{\\scriptsize la 2: "
          f"{q['k']}/{q['m']}, ventana de {1 << q['lw']}}}}};"]
     k, m = q['k'], q['m']
     # La meseta, de fondo; la ventana encima
@@ -151,7 +168,7 @@ def regla(cf, ox, oy):
     Xp = lambda v: ox + min(v, tope) * esc        # noqa: E731
     Yn = lambda v: oy + min(v, tope) * esc        # noqa: E731
     L = [f"\\node[titulo, anchor=west] at ({ox - 0.75:.3f},{oy + tope * esc + 0.42:.3f}) "
-         "{\\textbf{c) La regla} \\quad {\\scriptsize gana la primera que cumple}};"]
+         "{\\textbf{La regla} \\quad {\\scriptsize gana la primera que cumple}};"]
     L.append(f"\\fill[fm] ({Xp(0):.3f},{Yn(0):.3f}) rectangle ({Xp(tope):.3f},{Yn(tope):.3f});")
     formas = [forma_kw(cf, f) for f in range(4)]
     for f in (3, 2, 1, 0):
@@ -213,7 +230,7 @@ def par(cf, ox, oy):
     esc = alto / 1700.0
     X = lambda i: ox + (i - desde) * dx           # noqa: E731
     L = [f"\\node[titulo, anchor=west] at ({ox - 2.05:.3f},{oy + 0.72:.3f}) "
-         f"{{\\textbf{{b) Un par a $\\Delta t = {DT_EJEMPLO}$: la ranura de A mide las cuatro y publica una}} "
+         f"{{\\textbf{{Un par a $\\Delta t = {DT_EJEMPLO}$: la ranura de A mide las cuatro y publica una}} "
          "\\quad {\\scriptsize \\texttt{F\\_DTNEXT} dice cuál}};"]
     y = oy
     for f in range(4):
@@ -263,13 +280,417 @@ def par(cf, ox, oy):
     return L, elegida
 
 
-def figura():
+# ------------------------------------------------- la figura del uso (banco_uso)
+# Un tren de siete pulsos que pasa por las cuatro formas y por el marcado. El
+# hueco de 120 entre P5 y P6 separa a los dos marcados del resto: si van todos
+# juntos, P7 no encuentra ranura libre.
+GAPS_EJ = (150, 60, 30, 18, 120, 10)
+AMPS_EJ = (1000, 700, 900, 600, 800, 500, 700)
+TASAS_USO = (10, 20, 50, 100, 200, 300, 500, 700, 1000, 1400, 2000)   # kcps de arribos
+NINGUNO = 0xFFFF            # F_DTPREV / F_DTNEXT sin vecino
+
+
+def tren_ejemplo(cf):
+    pies = np.concatenate([[120], 120 + np.cumsum(GAPS_EJ)]).astype(int)
+    n = int(pies[-1]) + 300
+    x = sum(pulso(a, int(p), n) for a, p in zip(AMPS_EJ, pies))
+    m = r.medir(x, cf)
+    assert len(m['trig']) == len(pies) and (m['estado'] == r.ABRE).all(), m['estado']
+    assert len(m['eventos']['feat']) == len(pies)
+    return x, m
+
+
+def vecinos(cf, ox, oy):
+    """(a) El tren de ejemplo: cada pulso, sus cuatro formas y los disparos vecinos."""
+    x, m = tren_ejemplo(cf)
+    trig, ev = m['trig'], m['eventos']['feat']
+    formas = [forma_kw(cf, f) for f in range(4)]
+    desde = int(trig[0]) - formas[0]['antes'] - 12
+    hasta = int(trig[-1]) + formas[0]['despues'] + 12
+    dx = 13.5 / (hasta - desde)
+    X = lambda i: ox + (i - desde) * dx           # noqa: E731
+    L = [f"\\node[titulo, anchor=west] at ({ox - 0.75:.3f},{oy + 0.62:.3f}) "
+         "{\\textbf{a) Un tren de siete pulsos: cada uno mira dónde caen los disparos vecinos} "
+         "\\quad {\\scriptsize gana la barra de más arriba sin otro disparo adentro}};"]
+    # La leyenda de los tres estados de una barra
+    ly, lx = oy + 0.12, ox
+    L.append(f"\\fill[f1] ({lx:.3f},{ly - 0.05:.3f}) rectangle ++(0.4,0.1);")
+    L.append(f"\\node[nodo, anchor=west] at ({lx + 0.45:.3f},{ly:.3f}) {{la elegida}};")
+    lx += 2.0
+    L.append(f"\\fill[f1, opacity=0.2] ({lx:.3f},{ly - 0.05:.3f}) rectangle ++(0.4,0.1);")
+    L.append(f"\\draw[rojo!70!black, line width=0.7pt] ({lx + 0.15:.3f},{ly - 0.07:.3f}) -- ++(0.1,0.14) "
+             f"({lx + 0.15:.3f},{ly + 0.07:.3f}) -- ++(0.1,-0.14);")
+    L.append(f"\\node[nodo, anchor=west] at ({lx + 0.45:.3f},{ly:.3f}) {{un vecino adentro ($\\times$): no sirve}};")
+    lx += 4.6
+    L.append(f"\\draw[f1, line width=0.6pt] ({lx:.3f},{ly - 0.05:.3f}) rectangle ++(0.4,0.1);")
+    L.append(f"\\node[nodo, anchor=west] at ({lx + 0.45:.3f},{ly:.3f}) {{entra, pero promedia menos}};")
+    lx += 4.1
+    L.append(f"\\node[nodo, anchor=west] at ({lx:.3f},{ly:.3f}) "
+             "{cada barra: de $t - $antes a $t + $después};")
+    # La señal, con los disparos
+    s_alto, s_top = 1.1, oy - 0.2
+    s_bot = s_top - s_alto
+    esc = s_alto / float(x[desde:hasta + 1].max())
+    L.append(f"\\draw[black!40, line width=0.4pt] ({X(desde):.3f},{s_bot:.3f}) -- ({X(hasta):.3f},{s_bot:.3f});")
+    L.append(curva(x[desde:hasta + 1], X(desde), s_bot, dx, esc, "black!55, line width=0.7pt"))
+    L.append(f"\\node[nodo, anchor=east, align=right] at ({X(desde) - 0.1:.3f},{s_bot + 0.5 * s_alto:.3f}) "
+             "{entrada\\\\[-1pt]y disparos};")
+    for j, t in enumerate(trig):
+        cerca_sig = j + 1 < len(trig) and trig[j + 1] - t < 25
+        cerca_ant = j > 0 and t - trig[j - 1] < 25
+        ancla = "south east" if cerca_sig else ("south west" if cerca_ant else "south")
+        L.append(f"\\node[nodo, anchor={ancla}, text=black] at ({X(t):.3f},{s_top + 0.02:.3f}) {{P{j + 1}}};")
+    # Las ranuras: una fila de cuatro barras por pulso
+    paso_b, alto_b, paso_f = 0.15, 0.1, 0.8
+    y0 = s_bot - 0.3
+    y_fin = y0 - (len(trig) - 1) * paso_f - 3 * paso_b - alto_b
+    for t in trig:
+        L.insert(1, f"\\draw[black!15, line width=0.4pt] ({X(t):.3f},{s_top:.3f}) -- ({X(t):.3f},{y_fin:.3f});")
+    for i, t in enumerate(trig):
+        dtp, dtn, fe = int(ev[i, r.F_DTPREV]), int(ev[i, r.F_DTNEXT]), int(ev[i, r.F_FORMA])
+        if i:
+            assert dtp == trig[i] - trig[i - 1], (i, dtp)
+        sirve = [q['antes'] <= dtp and q['despues'] <= dtn for q in formas]
+        assert fe == next((f for f in range(4) if sirve[f]), r.MARCADO), (i, fe, sirve)
+        yb = y0 - i * paso_f
+        for f, q in enumerate(formas):
+            y = yb - f * paso_b
+            a, b = X(t - q['antes']), X(t + q['despues'])
+            if f == fe:
+                L.append(f"\\fill[f{f}] ({a:.3f},{y - alto_b:.3f}) rectangle ({b:.3f},{y:.3f});")
+            elif fe == r.MARCADO or f < fe:
+                L.append(f"\\fill[f{f}, opacity=0.2] ({a:.3f},{y - alto_b:.3f}) rectangle ({b:.3f},{y:.3f});")
+                for v in ((t - dtp) if q['antes'] > dtp else None, (t + dtn) if q['despues'] > dtn else None):
+                    if v is not None:
+                        L.append(f"\\draw[rojo!70!black, line width=0.7pt] ({X(v) - 0.05:.3f},{y - alto_b - 0.02:.3f}) "
+                                 f"-- ++(0.1,{alto_b + 0.04:.3f}) ({X(v) - 0.05:.3f},{y + 0.02:.3f}) "
+                                 f"-- ++(0.1,{-alto_b - 0.04:.3f});")
+            else:
+                L.append(f"\\draw[f{f}, line width=0.6pt] ({a:.3f},{y - alto_b:.3f}) rectangle ({b:.3f},{y:.3f});")
+        y_med = yb - 1.5 * paso_b - alto_b / 2
+        L.append(f"\\draw[black, line width=0.9pt] ({X(t):.3f},{yb + 0.05:.3f}) -- ({X(t):.3f},{yb - 3 * paso_b - alto_b - 0.05:.3f});")
+        L.append(f"\\node[font=\\scriptsize, anchor=east] at ({X(desde) - 0.1:.3f},{y_med:.3f}) {{P{i + 1}}};")
+        # F_DTNEXT solo ve los disparos de adentro de la compuerta
+        t_ant = "no hay" if dtp == NINGUNO else str(dtp)
+        t_sig = f"$>${cf['gate_long']}" if dtn == NINGUNO else str(dtn)
+        if fe == r.MARCADO:
+            res = "$\\to$ marcado"
+        else:
+            res = f"$\\to$ forma {fe}, {formas[fe]['k']}/{formas[fe]['m']}"
+        L.append(f"\\node[nodo, anchor=west, align=left] at ({X(hasta) + 0.15:.3f},{y_med:.3f}) "
+                 f"{{antes {t_ant}, después {t_sig}\\\\[-1pt]{res}}};")
+    # Las formas, al lado de la primera fila; la escala, abajo
+    for f, q in enumerate(formas):
+        y = y0 - f * paso_b - alto_b / 2
+        L.append(f"\\node[nodo, anchor=east, text=black!60] at ({X(trig[0] - q['antes']) - 0.06:.3f},{y:.3f}) "
+                 f"{{{q['k']}/{q['m']}}};")
+    L.append(f"\\draw[|-|, line width=0.5pt] ({X(desde):.3f},{y_fin - 0.25:.3f}) -- ++({100 * dx:.3f},0) "
+             f"node[midway, below, nodo] {{100 muestras = 0.8\\,$\\mu$s}};")
+    return L, y_fin - 0.25
+
+
+def uso_por_tasa(cf, semilla=1):
+    """La fracción de los eventos publicados que usa cada forma (y los marcados),
+    con el golden model sobre los trenes de Poisson de pruebas_banco.tren()."""
+    import pruebas_banco as pb
+    rng = np.random.default_rng(semilla)
+    filas = []
+    for tasa in TASAS_USO:
+        n = int(min(20e6, 40000 / (tasa * 1e3 / 125e6)))
+        _, _, x = pb.tren(tasa, n, rng, tr10=TR10)
+        f = r.medir(np.round(x).astype(np.int64), cf)['eventos']['feat'][:, r.F_FORMA]
+        filas.append([np.mean(f == k) for k in range(4)] + [np.mean(f == r.MARCADO)])
+        print(f"  {tasa:5d} kcps, {len(f):6d} eventos: "
+              + " ".join(f"{100 * v:5.1f}" for v in filas[-1]) + " %")
+    return np.array(filas)
+
+
+def uso(cf, ox, oy):
+    """(b) Cuánto se usa cada forma según la tasa, y la placa a 1 Mcps."""
+    U = uso_por_tasa(cf)
+    ancho, alto = 9.0, 3.2
+    l0, l1 = math.log10(TASAS_USO[0]), math.log10(TASAS_USO[-1])
+    X = lambda t: ox + (math.log10(t) - l0) / (l1 - l0) * ancho  # noqa: E731
+    Y = lambda v: oy + v * alto                                  # noqa: E731
+    L = [f"\\node[titulo, anchor=west] at ({ox - 1.0:.3f},{oy + alto + 0.5:.3f}) "
+         "{\\textbf{b) Cuánto se usa cada forma según la tasa} \\quad {\\scriptsize golden model, "
+         "trenes de Poisson; la barra es la placa}};"]
+    acum = np.cumsum(U, axis=1)
+    base = np.hstack([np.zeros((len(U), 1)), acum[:, :-1]])
+    for f in range(5):
+        col = f"f{f}" if f < 4 else "fm"
+        pts = [(X(t), Y(acum[i, f])) for i, t in enumerate(TASAS_USO)] + \
+              [(X(t), Y(base[i, f])) for i, t in enumerate(TASAS_USO)][::-1]
+        L.append(f"\\fill[{col}] " + " -- ".join(f"({a:.3f},{b:.3f})" for a, b in pts) + " -- cycle;")
+    for f in range(4):
+        L.append("\\draw[white, line width=1pt] "
+                 + " -- ".join(f"({X(t):.3f},{Y(acum[i, f]):.3f})" for i, t in enumerate(TASAS_USO)) + ";")
+    # Un rótulo en cada región, donde es más ancha, sin pisar la línea de 1 Mcps
+    for f in range(5):
+        i = int(np.argmax(U[:, f]))
+        if U[i, f] * alto < 0.3:
+            continue
+        i = min(max(i, 1), len(TASAS_USO) - 2)
+        if TASAS_USO[i] == 1000:
+            i -= 1
+        col = "white" if f <= 1 else "black"
+        L.append(f"\\node[font=\\scriptsize\\bfseries, text={col}] at ({X(TASAS_USO[i]):.3f},"
+                 f"{Y(base[i, f] + U[i, f] / 2):.3f}) {{{f if f < 4 else 'm'}}};")
+    # Los ejes
+    L.append(f"\\draw[black!45, line width=0.4pt] ({ox:.3f},{oy:.3f}) -- ({ox + ancho:.3f},{oy:.3f});")
+    for t, txt in ((10, "10\\,k"), (30, "30\\,k"), (100, "100\\,k"), (300, "300\\,k"), (1000, "1\\,M"), (2000, "2\\,M")):
+        L.append(f"\\draw[black!45] ({X(t):.3f},{oy:.3f}) -- ++(0,-0.05) node[below, nodo, inner sep=1pt] {{{txt}}};")
+    for v in (0, 50, 100):
+        L.append(f"\\draw[black!45] ({ox:.3f},{Y(v / 100):.3f}) -- ++(-0.05,0) "
+                 f"node[left, nodo, inner sep=1pt] {{{v}\\,\\%}};")
+    L.append(f"\\node[nodo, anchor=north] at ({ox + ancho / 2:.3f},{oy - 0.3:.3f}) "
+             "{arribos por segundo};")
+    L.append(f"\\node[nodo, rotate=90, anchor=south] at ({ox - 0.55:.3f},{Y(0.5):.3f}) "
+             "{de los eventos publicados};")
+    L.append(f"\\draw[black!60, dashed, line width=0.5pt] ({X(1000):.3f},{oy:.3f}) -- ({X(1000):.3f},{Y(1):.3f});")
+    # La placa a 1 Mcps
+    bx = ox + ancho + 0.35
+    p = np.array(USO_1MCPS) / sum(USO_1MCPS)
+    ac = 0.0
+    for f in range(5):
+        col = f"f{f}" if f < 4 else "fm"
+        L.append(f"\\fill[{col}] ({bx:.3f},{Y(ac):.3f}) rectangle ({bx + 0.3:.3f},{Y(ac + p[f]):.3f});")
+        if ac > 0:
+            L.append(f"\\draw[white, line width=1pt] ({bx:.3f},{Y(ac):.3f}) -- ++(0.3,0);")
+        ac += p[f]
+    L.append(f"\\node[nodo, anchor=north, align=center] at ({bx + 0.15:.3f},{oy - 0.05:.3f}) "
+             "{placa\\\\[-1pt]1\\,Mcps};")
+    # La leyenda
+    formas = [forma_kw(cf, f) for f in range(4)]
+    lx, ly = bx + 0.75, Y(1)
+    L.append(f"\\node[nodo, anchor=north west] at ({lx - 0.05:.3f},{ly + 0.08:.3f}) "
+             "{\\textbf{forma}\\quad modelo / placa a 1\\,Mcps};")
+    i1m = TASAS_USO.index(1000)
+    for f in range(5):
+        y_l = ly - 0.52 - f * 0.34
+        col = f"f{f}" if f < 4 else "fm"
+        L.append(f"\\fill[{col}] ({lx:.3f},{y_l - 0.1:.3f}) rectangle ({lx + 0.2:.3f},{y_l + 0.1:.3f});")
+        txt = f"{f}: {formas[f]['k']}/{formas[f]['m']}" if f < 4 else "m: marcado"
+        L.append(f"\\node[nodo, anchor=west] at ({lx + 0.22:.3f},{y_l:.3f}) "
+                 f"{{{txt}, {100 * U[i1m, f]:.0f} / {100 * p[f]:.0f}\\,\\%}};")
+    return L
+
+
+def figura_uso():
     cf = configuracion()
-    La, x_fin = anatomia(cf, 0.0, 0.0)
-    Lc = regla(cf, x_fin + 1.25, -0.5)
-    Lb, elegida = par(cf, 0.0, -2.95)
+    La, y_fin = vecinos(cf, 0.0, 0.0)
+    Lb = uso(cf, 0.55, y_fin - 4.5)
+    return La + Lb
+
+
+# ------------------------------------------- las ranuras y el banco (banco_ranuras)
+# Un tren que pasa por todo lo que le puede pasar a un pulso con 3 ranuras y 3 formas:
+# P1 solo (64/48), P2 con un vecino a 60 (32/24), P3 y P4 cerca (8/8), P5 sin ranura
+# libre (las tres ocupadas), y P6 y P7 a 10 muestras (marcados, pero con ranura). P1 y
+# P2 están a 140: P2 encuentra libre la ranura 0, que P1 ya publicó.
+GAPS_RAN = (140, 60, 30, 25, 80, 10)
+AMPS_RAN = (1000, 700, 900, 600, 800, 500, 700)
+COLOR_K = {64: "f0", 32: "f1", 16: "f2", 8: "f3"}    # el color sigue a la forma, no al índice
+ESPERADO_RAN = ((0, 0), (0, 1), (1, 2), (2, 2), (None, None), (0, r.MARCADO), (1, r.MARCADO))
+
+
+def ranuras(cf, ox, oy):
+    """El tren, los tres trapecios del banco y lo que hace cada ranura con ellos."""
+    pies = np.concatenate([[60], 60 + np.cumsum(GAPS_RAN)]).astype(int)
+    n = int(pies[-1]) + 400
+    x = sum(pulso(a, int(p), n) for a, p in zip(AMPS_RAN, pies))
+    m = r.medir(x, cf)
+    trig, estado, ev = m['trig'], m['estado'], m['ev']
+    assert len(trig) == len(pies), trig
+    formas = [forma_kw(cf, f) for f in range(int(cf['n_formas']))]
+    nf, nh, g_l = len(formas), int(cf['n_acc']), int(cf['gate_long'])
+    D = PRE + r.LAT_MCA                     # la ranura del ciclo t ve la muestra t - D
+
+    # Por disparo: la ranura, la forma, y los tramos abierta / cerrada en muestras
+    fila = {}
+    for j, i in enumerate(ev['i']):
+        t = int(trig[i])
+        s0 = t - D
+        assert s0 == int(ev['s0'][j])
+        cierre = t + g_l + 1                 # C: procesa la muestra g_l y cierra
+        libre = int(ev['emite'][j]) + 1      # el publicador terminó con ella
+        fila[i] = dict(s0=s0, ranura=int(ev['ranura'][j]), forma=int(ev['forma'][j]),
+                       cierra=cierre - D, libre=libre - D)
+    for i, (ran, fe) in enumerate(ESPERADO_RAN):
+        if ran is None:
+            assert estado[i] != r.ABRE and i not in fila, (i, estado[i])
+        else:
+            assert fila[i]['ranura'] == ran and fila[i]['forma'] == fe, (i, fila[i])
+
+    desde = int(trig[0]) - D - 25
+    hasta = max(v['libre'] for v in fila.values()) + 15
+    ancho = 15.6
+    dx = ancho / (hasta - desde)
+    X = lambda i: ox + (i - desde) * dx           # noqa: E731
+    L = [f"\\node[titulo, anchor=west] at ({ox - 1.55:.3f},{oy + 0.62:.3f}) "
+         "{\\textbf{Cómo usa las ranuras el banco} \\quad {\\scriptsize un trapecio por forma "
+         "para toda la señal; cada ranura suma una ventana de cada uno y publica una}};"]
+
+    # La leyenda
+    ly, lx = oy + 0.12, ox
+    for f, q in enumerate(formas):
+        L.append(f"\\fill[{COLOR_K[q['k']]}] ({lx:.3f},{ly - 0.06:.3f}) rectangle ++(0.3,0.12);")
+        L.append(f"\\node[nodo, anchor=west] at ({lx + 0.33:.3f},{ly:.3f}) {{{q['k']}/{q['m']}}};")
+        lx += 1.25
+    lx += 0.2
+    L.append(f"\\fill[f1!22] ({lx:.3f},{ly - 0.06:.3f}) rectangle ++(0.3,0.12);")
+    L.append(f"\\node[nodo, anchor=west] at ({lx + 0.33:.3f},{ly:.3f}) "
+             "{ventana sumada, no publicada};")
+    lx += 3.9
+    L.append(f"\\filldraw[fill=black!5, draw=black!45, line width=0.4pt] ({lx:.3f},{ly - 0.08:.3f}) "
+             "rectangle ++(0.5,0.16);")
+    L.append(f"\\node[nodo, anchor=west] at ({lx + 0.55:.3f},{ly:.3f}) "
+             f"{{abierta: la compuerta, {g_l} muestras}};")
+    lx += 4.15
+    L.append(f"\\fill[black!45] ({lx:.3f},{ly - 0.08:.3f}) rectangle ++(0.5,0.16);")
+    L.append(f"\\node[nodo, anchor=west] at ({lx + 0.55:.3f},{ly:.3f}) "
+             f"{{cerrada: espera y publica ({r.SERV} ciclos)}};")
+
+    rot = lambda y, txt: L.append(                # noqa: E731
+        f"\\node[font=\\scriptsize, anchor=east, align=right] at ({ox - 0.12:.3f},{y:.3f}) {{{txt}}};")
+
+    # 1. La entrada, con los disparos
+    s_alto, s_top = 0.95, oy - 0.25
+    s_bot = s_top - s_alto
+    esc = s_alto / float(x[desde:hasta + 1].max())
+    L.append(f"\\draw[black!40, line width=0.4pt] ({X(desde):.3f},{s_bot:.3f}) -- ({X(hasta):.3f},{s_bot:.3f});")
+    L.append(curva(x[desde:hasta + 1], X(desde), s_bot, dx, esc, "black!60, line width=0.7pt"))
+    rot(s_bot + s_alto / 2, "entrada")
+    for i, p in enumerate(pies):
+        cerca = i + 1 < len(pies) and pies[i + 1] - p < 30
+        ancla = "south east" if cerca else "south"
+        L.append(f"\\node[nodo, anchor={ancla}, text=black] at ({X(int(trig[i]) - D):.3f},{s_top + 0.02:.3f}) "
+                 f"{{P{i + 1}}};")
+
+    # 2. Los trapecios del banco, uno por forma, con las ventanas que leen las ranuras
+    t_alto, t_paso = 0.5, 0.62
+    y_t0 = s_bot - 0.3
+    # Cada trapecio, en unidades de amplitud: su ganancia con un pulso de 1000 solo
+    xg = pulso(1000, 50, 400)
+    tg = int(r.flancos_trig(xg, cf)[0])
+    T = []
+    for q in formas:
+        _, a, b = ventana(tg, q)
+        T.append(trapecio(x, q) / (trapecio(xg, q)[a:b].mean() / 1000.0))
+    esc_t = t_alto / max(float(Tf[desde:hasta + 1].max()) for Tf in T)
+    for f, q in enumerate(formas):
+        yb = y_t0 - f * t_paso - t_alto
+        col = COLOR_K[q['k']]
+        for i, v in fila.items():
+            a = v['s0'] + q['off']
+            b = a + (1 << q['lw'])
+            tono = col if v['forma'] == f else f"{col}!22"
+            L.append(f"\\fill[{tono}] ({X(a):.3f},{yb:.3f}) rectangle ({X(b):.3f},{yb + t_alto:.3f});")
+        L.append(f"\\draw[black!40, line width=0.4pt] ({X(desde):.3f},{yb:.3f}) -- ({X(hasta):.3f},{yb:.3f});")
+        L.append(curva(T[f][desde:hasta + 1], X(desde), yb, dx, esc_t, "line width=0.8pt"))
+        rot(yb + t_alto / 2, f"trapecio {q['k']}/{q['m']}")
+    y_r0 = y_t0 - (nf - 1) * t_paso - t_alto - 0.45
+
+    # 3. Las ranuras: la compuerta abierta, con una franja por forma, y la espera cerrada
+    r_alto, r_paso = 0.5, 0.78
+    sub = r_alto / nf
+    for k in range(nh):
+        yb = y_r0 - k * r_paso - r_alto
+        rot(yb + r_alto / 2, f"ranura {k}")
+        L.append(f"\\draw[black!25, line width=0.4pt] ({X(desde):.3f},{yb:.3f}) -- ({X(hasta):.3f},{yb:.3f});")
+        for i, v in sorted(fila.items()):
+            if v['ranura'] != k:
+                continue
+            a, c, e = v['s0'], v['cierra'], v['libre']
+            L.append(f"\\filldraw[fill=black!5, draw=black!45, line width=0.4pt] ({X(a):.3f},{yb:.3f}) "
+                     f"rectangle ({X(c):.3f},{yb + r_alto:.3f});")
+            L.append(f"\\fill[black!45] ({X(c):.3f},{yb:.3f}) rectangle ({X(e):.3f},{yb + r_alto:.3f});")
+            for f, q in enumerate(formas):
+                wa = a + q['off']
+                wb = wa + (1 << q['lw'])
+                y1 = yb + r_alto - f * sub
+                tono = COLOR_K[q['k']] + ("" if v['forma'] == f else "!22")
+                L.append(f"\\fill[{tono}] ({X(wa):.3f},{y1 - sub:.3f}) "
+                         f"rectangle ({X(wb):.3f},{y1:.3f});")
+            if v['forma'] == r.MARCADO:
+                res = "marcado"
+            else:
+                res = f"{formas[v['forma']]['k']}/{formas[v['forma']]['m']}"
+            L.append(f"\\node[nodo, anchor=south west, text=black] at ({X(a):.3f},{yb + r_alto:.3f}) "
+                     f"{{P{i + 1} $\\to$ {res}}};")
+    y_fin_r = y_r0 - (nh - 1) * r_paso - r_alto
+
+    # 4. Los que no encontraron ranura
+    y_p = y_fin_r - 0.32
+    rot(y_p, "sin ranura")
+    for i in range(len(trig)):
+        if estado[i] == r.ABRE:
+            continue
+        xp = X(int(trig[i]) - D)
+        L.append(f"\\draw[rojo!70!black, line width=0.9pt] ({xp - 0.07:.3f},{y_p - 0.07:.3f}) -- ++(0.14,0.14) "
+                 f"({xp - 0.07:.3f},{y_p + 0.07:.3f}) -- ++(0.14,-0.14);")
+        L.append(f"\\node[nodo, anchor=west, text=rojo!60!black] at ({xp + 0.1:.3f},{y_p:.3f}) "
+                 f"{{P{i + 1}: las {nh} ranuras ocupadas, se pierde}};")
+
+    # 5. Cuántas ranuras hay ocupadas, muestra a muestra
+    o_alto = 0.75
+    y_o = y_p - 0.35 - o_alto
+    occ = np.zeros(hasta - desde + 2, np.int64)
+    for v in fila.values():
+        occ[v['s0'] + 1 - desde] += 1
+        occ[v['libre'] - desde] -= 1
+    occ = np.cumsum(occ)[:hasta - desde + 1]
+    esc_o = o_alto / nh
+    for lv in range(1, nh + 1):
+        L.append(f"\\draw[black!12, line width=0.4pt] ({X(desde):.3f},{y_o + lv * esc_o:.3f}) -- "
+                 f"({X(hasta):.3f},{y_o + lv * esc_o:.3f});")
+        L.append(f"\\node[nodo, anchor=west, inner sep=1pt] at ({X(hasta) + 0.03:.3f},{y_o + lv * esc_o:.3f}) {{{lv}}};")
+    pts = []
+    for j, v in enumerate(occ):
+        if j == 0 or v != occ[j - 1]:
+            if j:
+                pts.append((X(desde + j), y_o + occ[j - 1] * esc_o))
+            pts.append((X(desde + j), y_o + v * esc_o))
+    pts.append((X(hasta), y_o + occ[-1] * esc_o))
+    L.append(f"\\draw[black!40, line width=0.4pt] ({X(desde):.3f},{y_o:.3f}) -- ({X(hasta):.3f},{y_o:.3f});")
+    L.append("\\draw[line width=0.9pt] " + " -- ".join(f"({a:.3f},{b:.3f})" for a, b in pts) + ";")
+    rot(y_o + o_alto / 2, "ranuras\\\\[-1pt]ocupadas")
+
+    # Las líneas de los disparos, de arriba abajo, detrás de todo
+    for i in range(len(trig)):
+        xp = X(int(trig[i]) - D)
+        L.insert(1, f"\\draw[black!15, line width=0.4pt] ({xp:.3f},{s_top:.3f}) -- ({xp:.3f},{y_o:.3f});")
+    L.append(f"\\draw[|-|, line width=0.5pt] ({X(desde):.3f},{y_o - 0.3:.3f}) -- ++({100 * dx:.3f},0) "
+             f"node[midway, below, nodo] {{100 muestras = 0.8\\,$\\mu$s}};")
+    return L
+
+
+def figura_anatomia():
+    L, _ = anatomia(configuracion(), 0.0, 0.0)
+    return L
+
+
+def figura_par():
+    L, elegida = par(configuracion(), 0.0, 0.0)
     assert elegida == 2, f'con dt = {DT_EJEMPLO} tenía que elegir la forma 2 y eligió {elegida}'
-    return La + Lc + Lb
+    return L
+
+
+def figura_regla():
+    return regla(configuracion(), 0.0, 0.0)
+
+
+def figura_ranuras():
+    return ranuras(configuracion(BANCO_PZ, n_acc=3), 0.0, 0.0)
+
+
+FIGURAS = {
+    "banco_formas_anatomia": figura_anatomia,
+    "banco_formas_par": figura_par,
+    "banco_formas_regla": figura_regla,
+    "banco_uso": figura_uso,
+    "banco_ranuras": figura_ranuras,
+}
 
 
 def escribir(nombre, lineas):
@@ -288,4 +709,9 @@ def escribir(nombre, lineas):
 
 
 if __name__ == "__main__":
-    escribir("banco_formas", figura())
+    nombres = sys.argv[1:] or list(FIGURAS)
+    malas = set(nombres) - set(FIGURAS)
+    if malas:
+        sys.exit(f"no conozco {sorted(malas)}; hay {list(FIGURAS)}")
+    for nombre in nombres:
+        escribir(nombre, FIGURAS[nombre]())

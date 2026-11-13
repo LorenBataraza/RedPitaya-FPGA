@@ -1,4 +1,5 @@
-% Cómo encuentra el PS un evento: buffer circular contra ring de slots.
+% Dónde queda un evento: buffer circular contra ring de slots. Es la
+% estructura; lo que hace el PS con cada una está en ring_vs_buffer_ps.tex.
 % Fuente: rtl/classic/rp_bram_sm.v y rp_axi_sm.v (un solo wp_trig por armado),
 % software/API/osciloscope_store/sources.py (BramSource),
 % modulos/event_ring/rtl/event_slot_writer.sv y software/API/osciloscope_ring.py.
@@ -16,9 +17,6 @@
 \newcommand{\pulso}[3]{% x0, amplitud, largo: subida vertical y cola exponencial
   \draw[#3, line width=0.7pt] (#1,0.08) -- (#1,{0.08+#2})
      plot[domain=0:1.1, samples=14, smooth] ({#1+\x},{0.08+#2*exp(-\x/0.42)});}
-\newcommand{\paso}[3]{% y, número, texto
-  \node[marca, minimum size=3.9mm, font=\tiny\bfseries] at (0.2,#1) {#2};
-  \node[anchor=west, font=\scriptsize, inner sep=0pt, text width=8.6cm, align=left] at (0.5,#1) {#3};}
 
 \begin{document}
 \begin{tikzpicture}[fondo]
@@ -60,20 +58,6 @@
 \node[font=\scriptsize, black!75, anchor=south west, inner sep=1pt] at (0.02,1.52) {la ventana sigue acá};
 \end{scope}
 
-% lo que hace el PS
-\begin{scope}[shift={(0,-1.05)}]
-\node[font=\scriptsize\bfseries, anchor=west, inner sep=0pt] at (0,0) {Lo que hace el PS por cada evento};
-\paso{-0.42}{1}{armar el canal y esperar}
-\paso{-0.84}{2}{polear \texttt{adc\_we = 0}: el hardware disparó y congeló (GP0)}
-\paso{-1.26}{3}{leer \texttt{wp\_trig} (GP0): \textbf{el único puntero, uno por armado}}
-\paso{-1.68}{4}{calcular \texttt{inicio = (wp\_trig $-$ pre) mod N} y resolver la vuelta}
-\paso{-2.10}{5}{leer cada canal desde la BRAM (45.6 µs por canal, GP0)}
-\paso{-2.52}{6}{leer aparte qué fuente disparó (GP0)}
-\paso{-2.94}{7}{re-armar}
-\node[anchor=north west, draw=black!55, rounded corners=2pt, font=\scriptsize, text width=9.0cm, inner sep=4pt, align=left] at (0,-3.25)
-  {\textbf{252.7 µs por evento}, $K = 1$. Mientras el PS lee, la captura está congelada y un trigger
-   que llegue \textbf{no queda en ningún contador}.};
-\end{scope}
 \end{scope}
 
 % ===================================================================== b) ring
@@ -116,18 +100,6 @@
 \node[font=\scriptsize, anchor=north, inner sep=1.5pt, align=left] at (7.1,0.72) {\texttt{\{$\sim$seq, seq\}}: si está,\\ todo lo anterior llegó};
 \draw[->, line width=0.5pt, black!70] (8.7,0.72) -- (8.7,1.3);
 
-% lo que hace el PS
-\begin{scope}[shift={(0,-1.05)}]
-\node[font=\scriptsize\bfseries, anchor=west, inner sep=0pt] at (0,0) {Lo que hace el PS por cada \emph{lote} de eventos};
-\paso{-0.42}{1}{leer \texttt{WR\_SLOT} (GP0): cuántos hay. Una lectura por lote}
-\paso{-0.84}{2}{copiar los slots contiguos de DDR: hasta 64 KB de una vez}
-\paso{-1.26}{3}{por cada slot, validar el footer contra \texttt{seq}}
-\paso{-1.68}{4}{tomar \texttt{ts}, \texttt{snapshot} y las muestras de offsets fijos}
-\paso{-2.10}{5}{publicar \texttt{RD\_SLOT} (GP0): una escritura por lote}
-\node[anchor=north west, draw=black!55, rounded corners=2pt, font=\scriptsize, text width=9.0cm, inner sep=4pt, align=left] at (0,-3.25)
-  {\textbf{2.3 µs por slot} de 512 B, leyendo en lote, sin punteros de muestra ni re-armado: la captura nunca se
-   congela. Lo que se pierde \textbf{queda contado}: \texttt{EV\_CNT + DROP\_BUSY + DROP\_FULL} = triggers.};
-\end{scope}
 \end{scope}
 
 \end{tikzpicture}

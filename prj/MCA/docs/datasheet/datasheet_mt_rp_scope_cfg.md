@@ -255,14 +255,6 @@ La misma entrada que la figura anterior --un impulso-- con el lazo recursivo act
 
 _Origen: `tb_osc_filter`, caso de compensacion polo-cero._
 
-**FLUJO DE UNA ADQUISICION  -  osc_cfg**
-
-![FLUJO DE UNA ADQUISICION  -  osc_cfg](../osc/figuras/ondas/osc_cfg_adquisicion.svg)
-
-Es un esquema de la SECUENCIA, no una medicion: no hay testbench de osc_cfg del que sacar las ondas (ver §1.7 de su datasheet, que lo marca como deuda de verificacion). Lo que la figura fija es el orden y las dependencias: la configuracion del filtro y del diezmado va ANTES del armado, porque cambiarla con el buffer llenandose mezcla muestras de dos configuraciones en la misma traza; y la lectura va despues de que el puntero deje de moverse, porque leer durante la captura devuelve una traza partida entre dos vueltas del buffer.
-
-_Origen: esquema (sin VCD: `osc_cfg` no tiene testbench)._
-
 ---
 
 Las figuras y sus epígrafes los escribe [`ondas_osc.py`](../osc/figuras/ondas/ondas_osc.py): los tiempos y las latencias se **miden sobre el VCD**, no se escriben a mano, así que no pueden desincronizarse del RTL. Los epígrafes completos, con los números, están en [`epigrafes.txt`](../osc/figuras/ondas/epigrafes.txt).

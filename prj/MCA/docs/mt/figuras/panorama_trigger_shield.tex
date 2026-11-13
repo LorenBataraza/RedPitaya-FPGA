@@ -4,6 +4,7 @@
 % MCA. El borde grueso es el límite del módulo; lo que lo cruza son sus
 % puertos, sólo con el nombre.
 % Fuente: modulos/mt/rtl/trigger_shield.sv. Estilo: docs/figuras/estilo_tikz.tex.
+% El epígrafe no va en la figura: está en panorama_trigger_shield.txt y en el doc que la incluye.
 %
 % Compilar:   pdflatex panorama_trigger_shield.tex
 %             pdftocairo -svg panorama_trigger_shield.pdf panorama_trigger_shield.svg
@@ -77,13 +78,7 @@
   node[right, sen, align=left] {cnt\_o, active\_o};
 
 % ================================================================= leyenda ===
-\leyenda{-1.0,-4.8}{amarillo!40/lógica del escudo}
-  {Hay un solo contador para todos los destinos. Con una fuente de nivel
-   (\texttt{ext\_lvl}) el escudo dispara cada ciclo que la línea está alta y
-   cada disparo recarga \texttt{dur}: el veto dura la línea más \texttt{dur}
-   ciclos. Los canales que no están en \texttt{dst} siguen al clear de software
-   (\texttt{sw\_clr}) sin cambio.\\ \texttt{NOMBRE=valor}: parámetros con que lo
-   instancia \texttt{mt\_event\_logic}.}
+\leyenda{-1.0,-4.8}{amarillo!40/lógica del escudo}{}
 
 \end{tikzpicture}
 \end{document}

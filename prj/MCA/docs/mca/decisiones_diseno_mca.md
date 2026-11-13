@@ -533,12 +533,26 @@ módulo.
 
 ![Panorama de mca_top](figuras/panorama_mca_top.svg)
 
-Por bandas: la entrada (canal, decimación y línea de retardo), la ventana
-(`mca_pulse_feature` con sus submódulos y las cuatro ranuras), del evento al
-índice (discriminador, mux de eje y zoom) y los dos `mca_hist`; a la derecha, la contabilidad y el banco de registros. Los
-círculos **Dn** son las decisiones de la vista general. Los nombres en
-monoespaciada son submódulos con archivo propio; los que van en romana son
-lógica escrita dentro del módulo que los contiene. La fuente es
+*En estilo datapath, para una hoja A4. Las entradas bajan por arriba; la muestra
+baja por la columna de la entrada, cruza `mca_pulse_feature` (la base, la
+ventana y la publicación) y cae en el bus de features, del que cuelgan los ejes,
+el discriminador y los histogramas. Los números sobre las flechas son anchos en
+bits. El color es la función del bloque (la leyenda). El banco de trapecios va
+como preprocesamiento: es un filtro sobre toda la señal, compartido por las
+ranuras, y lo que es de cada pulso es la suma en su ventana. Nombre en
+monoespaciada, con encabezado: submódulo con archivo propio; en romana y en un
+solo tono: lógica escrita en el módulo que lo contiene. Gris con triángulo:
+registro del RTL. **Dn**: decisión configurable por registro; cada una tiene su
+figura de opciones en `figuras/decisiones/`. `NOMBRE=valor`: parámetros con que
+el padre instancia el bloque (se omiten los que sólo pasan el del padre sin
+cambio).*
+
+De arriba abajo: la entrada (canal, decimación y línea de retardo),
+`mca_pulse_feature` (la base, la ventana con las tres ranuras y el banco de tres
+trapecios, y la publicación), el bus de features con lo que cuelga de él (mux de
+eje, zoom, discriminador y los dos `mca_hist`) y el banco de registros; arriba a
+la derecha, la contabilidad. Los círculos **Dn** son las decisiones de la vista
+general. La fuente es
 [`figuras/panorama_mca_top.tex`](figuras/panorama_mca_top.tex) (TikZ).
 
 ### `mca_hist.sv` — motor de histograma genérico
@@ -727,11 +741,12 @@ Otras dos cosas que impone el entorno:
 - **Estrobo de escritura de un ciclo.** `sys_bus_cdc` sostiene `wen` hasta el
   ack (~5 ciclos); sin estrobo, cada transacción ejecutaría el `case` 5 veces y
   `clear` quedaría activo 5 ciclos en vez de uno.
-- **`sys_rdata` tiene que ser un registro plano.** El XDC trae un
-  `set_false_path` sobre `inst_sys_bus_cdc/reg_rdata*`, pero `sys_bus_cdc.sv` no
-  tiene ese registro (hace un `assign`), así que la restricción **no engancha
-  nada** y el cruce de datos de lectura se timea de verdad, con 0.94 ns de
-  margen. Nada de lógica combinacional ancha ahí.
+- **`sys_rdata` tiene que estar listo en el ciclo del ack.** `sys_bus_cdc` lo
+  copia a `reg_rdata` en ese flanco, y es esa copia la que cruza a `clk_fpga_0`.
+  Hasta el 2026-11-08 no había copia: el dato cruzaba crudo, el `set_false_path`
+  del XDC sobre `reg_rdata*` no enganchaba nada, y un contador leído en marcha
+  podía salir con bits mezclados
+  ([`bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) §6.1).
 
 ---
 

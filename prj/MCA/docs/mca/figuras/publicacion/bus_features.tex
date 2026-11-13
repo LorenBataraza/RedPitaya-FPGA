@@ -1,5 +1,6 @@
 % El bus de features: de dónde sale cada ranura y quién lo consume.
 % Fuente: modulos/mca/rtl/mca_publish.sv (armado) y mca_top.sv (consumidores).
+% El epígrafe no va en la figura: está en bus_features.txt y en el doc que la incluye.
 % Compilar:   pdflatex bus_features.tex && pdftocairo -svg bus_features.pdf bus_features.svg
 \documentclass[border=0pt,tikz]{standalone}
 \usepackage[utf8]{inputenc}
@@ -25,41 +26,31 @@
 %------------------------------------------------------------------ ranuras ---
 \foreach \i in {3,2,1}
   \draw[fill=amarillo!60, line width=0.5pt, rounded corners=2pt]
-    (0.12*\i,0.12*\i) rectangle ++(3.2,-4.6);
+    (0.12*\i,{-1.3+0.12*\i}) rectangle ++(3.2,-2.0);
 \node[draw=black, fill=amarillo, line width=0.6pt, rounded corners=2pt, anchor=north west,
-      text width=3.0cm, minimum height=4.6cm, minimum width=3.2cm, align=left,
+      text width=3.0cm, minimum height=2.0cm, minimum width=3.2cm, align=center,
       font=\scriptsize, inner sep=4pt]
-  (ran) at (0,0)
-  {\textbf{ranuras cerradas}\\[-1pt]{\tiny\ttfamily mca\_slot, hasta N\_ACC}\\[4pt]
-   cada una guarda hasta \texttt{libera}:\\[3pt]
-   pico, $Q_\mathrm{tot}$, $Q_\mathrm{cola}$\\
-   amplitud elegida e integral\\
-   largo y $t_\mathrm{sub}$\\
-   \texttt{dt\_prev}, \texttt{dt\_next}\\
-   \texttt{otras}, \texttt{adentro}, \texttt{perdido}\\
-   meseta: suma y cuenta\\
-   \texttt{win\_id}};
+  (ran) at (0,-1.3)
+  {\textbf{ranuras cerradas}\\[1pt]{\tiny\ttfamily mca\_slot, hasta N\_ACC}};
 
 %----------------------------------------------------- la cola, cur y el mux ---
-\muxdec{mx}{(4.3,-2.3)}{4.2}
+\muxdec{mx}{(4.75,-2.3)}{4.2}
 \node[font=\scriptsize, align=center] at (mx) {N:1};
-\draw[flujo, ancho=$N\times$] (ran.east |- mx-in) -- (mx-in);
+\draw[flujo, ancho=$N\times$] ([xshift=3.6mm]ran.east |- mx-in) -- (mx-in);
 
-\node[registro=1.6cm, align=center] (cola) at (1.55,-5.75)
+\node[registro=1.6cm, align=center] (cola) at (1.55,-5.15)
   {cola de índices\\[-1pt]{\tiny orden de cierre}};
-\node[registro=0.9cm] (cur) at (4.3,-5.75) {\texttt{cur}};
+\node[registro=0.9cm] (cur) at (4.75,-5.15) {\texttt{cur}};
 \draw[ctrl] (cola) -- (cur);
 \draw[ctrl] (cur) -- (mx-sel);
 \draw[ctrl] (ran.south -| 1.55,0) -- node[right, font=\tiny, align=left] {\texttt{acepta}} (cola);
-\node[font=\tiny, black!65, align=left, anchor=north west] at (cola.south west)
-  {el publicador (FSM) atiende la más vieja; \texttt{cur} elige sus operandos};
 
 %--------------------------------------------------------------- divisores ---
 \node[datos, text width=2.7cm, minimum height=1.25cm] (div) at (6.75,0.55)
   {\blk{mca\_div\_restore $\times$ 2}{$Q_\mathrm{cola}/Q_\mathrm{tot}$ y pico$/Q_\mathrm{tot}$\\
    16 ciclos, en paralelo}};
-\node[etapa=naranja!55, text width=1.7cm, minimum height=0.75cm] (ft) at (7.3,-3.05)
-  {\texttt{feat\_trap}\\[-1pt]{\tiny suma$\gg$lw; 0 si incompleta}};
+\node[etapa=naranja!55, text width=1.95cm, minimum height=0.75cm] (ft) at (7.3,-3.05)
+  {\texttt{feat\_trap}\\[-1pt]{\tiny la forma por \texttt{dt\_*};\\ suma$\gg$lw, 0 si incompleta}};
 
 %------------------------------------------------------------ los 16 carriles ---
 \carril{0}{azul!25}{F\_PEAK}
@@ -72,7 +63,8 @@
 \carril{7}{azul!25}{F\_DTNEXT}
 \carril{8}{grisr}{F\_SOLAPE (bits)}
 \carril{9}{naranja!55}{F\_TRAP}
-\foreach \i in {10,...,15}
+\carril{10}{naranja!55}{F\_FORMA}
+\foreach \i in {11,...,15}
   \node[carril, fill=white, draw=black!40, dashed, text=black!45] (c\i) at (9.4,{0.3-0.3*\i}) {\i \ reservada: 0};
 % el registro entero
 \node[draw=black, line width=0.9pt, fit=(c0)(c15), inner sep=0pt,
@@ -86,8 +78,8 @@
 % de dónde sale cada grupo: llaves a la izquierda
 \draw[llave] (9.3,0.3) -- (9.3,-0.3) coordinate[midway] (g01);
 \draw[llave] (9.3,-0.3) -- (9.3,-0.9) coordinate[midway] (g23);
-\draw[llave] (9.3,-0.9) -- (9.3,-2.7) coordinate[midway] (g48);
-\draw[llave] (9.3,-2.7) -- (9.3,-3.0) coordinate[midway] (g9);
+\draw[llave] (9.3,-0.9) -- (9.3,-2.4) coordinate[midway] (g48);
+\draw[llave] (9.3,-2.4) -- (9.3,-3.0) coordinate[midway] (g9);
 
 % lo que va directo: el mux sube por una barra a las dos llaves azules
 \coordinate (barra) at (8.55,0);
@@ -104,9 +96,6 @@
 \fill (mx-out -| 6.0,0) circle (1.3pt);
 \draw[flujo] (ft.east) -- (ft.east -| 8.95,0) |- ([xshift=-3pt]g9);
 
-% las salidas sueltas del publicador
-\node[font=\tiny\ttfamily, align=left, anchor=north west, black!70] at (9.4,-4.7)
-  {además: ev\_valid (1 ciclo), ev\_amp,\\ev\_psd y ev\_psd\_ok (el 2D)};
 
 %-------------------------------------------------------------- consumidores ---
 \coordinate (b) at (12.55,0);
@@ -124,43 +113,36 @@
 }
 \foreach \n in {disc, m1d, m2dx, m2dy} \draw[flujo] (b |- \n.west) -- (\n.west);
 
-\node[registro=0.5cm, minimum height=3.3cm] (pipe) at (17.15,-2.6) {};
-\node[font=\tiny, align=center, anchor=south] at (pipe.north) {registro\\de pipeline};
+% inc: ev_valid y el discriminador; el del 2D además pide psd_ok. Las dos
+% compuertas van antes del registro de pipeline, que registra todo junto.
+\node[circle, draw=black, line width=0.5pt, inner sep=1pt, font=\tiny] (y1) at (16.85,-0.05) {\&};
+\node[circle, draw=black, line width=0.5pt, inner sep=1pt, font=\tiny] (y2) at (17.55,-0.05) {\&};
+\draw[ctrl] (disc.east) -- node[above, font=\tiny\ttfamily] {discr\_ok} (y1);
+\draw[ctrl] (16.85,0.5) node[above, font=\tiny\ttfamily, anchor=south east, xshift=4pt] {ev\_valid} -- (y1.north);
+\draw[ctrl] (17.55,0.5) node[above, font=\tiny\ttfamily, anchor=south west, xshift=-4pt] {ev\_psd\_ok} -- (y2.north);
+\coordinate (jy) at (17.15,-0.05);
+\draw[ctrl] (y1.east) -- (y2.west);
+\fill[black!65] (jy) circle (1.1pt);
+
+\node[registro=1.0cm, minimum height=3.6cm] (pipe) at (17.3,-2.45) {};
+\node[font=\tiny, align=center, anchor=north] at (pipe.south) {registro\\ de pipeline};
+\draw[ctrl] (jy) -- (jy |- pipe.north);
+\draw[ctrl] (y2.south) -- (y2.south |- pipe.north);
 \foreach \n in {1d, 2dx, 2dy} \draw[flujo] (z\n) -- (z\n -| pipe.west);
 
-\node[captura, text width=1.6cm, minimum height=0.85cm] (h1) at (19.0,-1.45)
+\node[captura, text width=1.6cm, minimum height=0.85cm] (h1) at (19.45,-1.2)
   {\blk{mca\_hist}{1D}};
-\node[captura, text width=1.6cm, minimum height=1.6cm] (h2) at (19.0,-3.2)
+\node[captura, text width=1.6cm, minimum height=1.75cm] (h2) at (19.45,-3.15)
   {\blk{mca\_hist}{2D}};
-\draw[flujo] (pipe.east |- h1) -- node[above, font=\tiny] {bin} (h1);
-\draw[flujo] (pipe.east |- 0,-2.85) -- (h2.west |- 0,-2.85);
-\draw[flujo] (pipe.east |- 0,-3.6) -- (h2.west |- 0,-3.6);
-
-% inc: ev_valid y el discriminador
-\node[circle, draw=black, line width=0.5pt, inner sep=1pt, font=\tiny] (y) at (17.15,-0.05) {\&};
-\draw[ctrl] (disc.east) -- node[above, font=\tiny\ttfamily] {discr\_ok} (y);
-\draw[ctrl] (y.north) ++(0,0.35) node[above, font=\tiny\ttfamily] {ev\_valid} -- (y.north);
-\draw[ctrl] (y.south) -- (pipe.north);
-\draw[ctrl] (pipe.east |- 0,-1.0) -| node[pos=0.25, above, font=\tiny\ttfamily] {inc} (h1.north);
-\draw[ctrl] (pipe.east |- 0,-1.0) -- ++(0.35,0) |- ([yshift=-3pt]h2.north west) --
-  ([yshift=-3pt]h2.north);
-\node[font=\tiny\ttfamily, anchor=west] at (19.9,-2.35) {\& ev\_psd\_ok};
+\draw[ctrl] (pipe.east |- 0,-0.95) -- node[above, font=\tiny\ttfamily] {inc} (h1.west |- 0,-0.95);
+\draw[flujo] (pipe.east |- 0,-1.45) -- node[below, font=\tiny] {bin} (h1.west |- 0,-1.45);
+\draw[flujo] (pipe.east |- 0,-2.6) -- node[above, font=\tiny] {bin x} (h2.west |- 0,-2.6);
+\draw[ctrl] (pipe.east |- 0,-3.175) -- node[above, font=\tiny\ttfamily] {inc} (h2.west |- 0,-3.175);
+\draw[flujo] (pipe.east |- 0,-3.75) -- node[above, font=\tiny] {bin y} (h2.west |- 0,-3.75);
 
 %------------------------------------------------------------------- notas ---
-\leyenda{0.4,-6.75}{azul!25/sale directo de la ranura, verde!40/de los divisores,
-  naranja!55/calculada al armar, grisr/campo de bits, white/reservada}
-  {\textbf{Sin handshake.} El bus es un registro que se sostiene hasta el evento
-   siguiente, y \texttt{ev\_valid} dura un ciclo. Los consumidores siempre aceptan:
-   el discriminador y los mux son combinacionales hasta el registro de pipeline,
-   y el histograma, si el evento choca con una lectura del bus o con el barrido de
-   borrado, lo descarta y lo cuenta (\texttt{dropped}). La única contrapresión del
-   camino está \emph{antes} del bus: el publicador, que no libera una ranura hasta
-   que su evento está armado.\\[2pt]
-   \textbf{Contrato:} cada ranura es un \texttt{uint16} con fondo de escala
-   \texttt{0xFFFF}; las acotadas (pico, PSD, trapecio) se alinean a la izquierda, y
-   los contadores (\texttt{F\_LEN}, \texttt{F\_TRISE}, \texttt{F\_DT*}) e
-   \texttt{F\_INVW} van sin normalizar. El índice es fijo: lo comparten el
-   selector de eje (D9) y el discriminador (D10).}
+\leyenda{0.4,-6.35}{azul!25/sale directo de la ranura, verde!40/de los divisores,
+  naranja!55/calculada al armar, grisr/campo de bits, white/reservada}{}
 
 \end{tikzpicture}
 \end{document}

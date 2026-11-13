@@ -1,7 +1,7 @@
 # Referencia del protocolo
 
 **Código:** [`API/mca_net.py`](../../software/API/mca_net.py) (framing) · [`app/mca_server.py`](../../software/app/mca_server.py) (despacho) · [`API/mca_remote.py`](../../software/API/mca_remote.py) (cliente)
-**Puerto por defecto:** 1001 · **Versión:** 1
+**Puerto por defecto:** 1001 · **Versión:** 2 (`PROTOCOL_VERSION`; la 2 agregó la op `call`)
 **Por qué es así:** [`flujo_de_datos.md`](flujo_de_datos.md)
 
 Todas las operaciones, sus argumentos y lo que devuelven. El *porqué* del diseño
@@ -14,6 +14,16 @@ está en [`flujo_de_datos.md`](flujo_de_datos.md); acá está el contrato.
 Un mensaje es **una línea JSON UTF-8 terminada en `\n`**, seguida opcionalmente
 de `nbytes` crudos. Nada más. No hay handshake, no hay longitud previa, no hay
 números mágicos.
+
+![los mensajes byte a byte: una cabecera JSON en una línea que termina en \n y, en la respuesta con un arreglo, el payload binario que la cabecera describe con nbytes, dtype y shape](figuras/trama.svg)
+
+*Un mensaje es una cabecera JSON en UTF-8, en una sola línea que termina en `\n`, y a
+veces un payload binario; el cliente nunca manda payload. (a) Una función que no
+devuelve un arreglo: el resultado viaja dentro del JSON, en `valor`. (b) Una que
+devuelve un arreglo: la cabecera declara su largo, su tipo y su forma (`nbytes`,
+`dtype`, `shape`), y los bytes del arreglo van detrás, crudos. El payload no está a
+escala: son 65536 B contra unos 80 de cabecera. (c) Un error trae el tipo de la
+excepción, para que el cliente levante el mismo.*
 
 **Petición** — el cliente nunca manda payload:
 
@@ -44,6 +54,15 @@ seguida de exactamente 65536 bytes.
 cliente distinguir un `MCANotPresent` (hay que cargar el bitstream) de un
 `TimeoutError` (el barrido de borrado no terminó). `hint` siempre está presente;
 vale `null` si no se pasó.
+
+![el flujo TCP placa a PC: arriba los recv(), que cortan en cualquier lado; abajo los cortes de Channel, por el \n y por nbytes, y lo que queda en su buffer](figuras/trama_flujo.svg)
+
+*El socket entrega un flujo de bytes sin límites entre mensajes. Cada `recv()` trae lo
+que haya llegado, y a veces mezcla dos partes: el final de una cabecera y el principio
+del payload, o el final del payload y la cabecera siguiente. `Channel` corta el flujo
+por el `\n` en las cabeceras y por `nbytes` en el payload. Lo que lee de más queda en
+su buffer de lectura y es el principio de lo que sigue: por eso el buffer tiene que
+durar lo que dura la conexión, y `Channel` es un objeto y no dos funciones.*
 
 > **El framing exige un lector con buffer.** Se mezclan líneas y bloques, así
 > que un `recv()` suelto se queda corto con 64 KB y se come el principio de la
@@ -94,6 +113,13 @@ La lista viva es el dict `_OPS` de
 | `mtrg.disarm` | — | el `get` de vuelta |
 | `mca.disparo` | `ch`, `armar`, `L`, `G`, `thr`, `hyst`, `fuente`, `mq` | el estado del disparo del MCA2: `pendiente`, `polo_cero`, `fuente`, `or_mask`, `armado`, `we_keep`, `shield` |
 | `call` | `fn`, `a`, `k` | `{"valor": ...}` con el resultado de la función, o un arreglo **binario** (ver abajo) |
+| `ring.iniciar` | `run_dir`, `pre`, `post`, `n_ch`, `slot_shift`, `generador` o `disparo`, `calib`, `formato`, `capacity`, `ram_mb`, `margen_mb`, `meta` | `run_dir`, `fs`, `n_slots`, `pool` |
+| `ring.estado` | — | `corriendo`, `motivo`, `stats`, `hw`, `error` |
+| `ring.parar` | — | `stats`, `hw_final`, `n_slots`, `motivo`, `error` |
+| `gen.get` | — | `config` releída, `estado`, `lazo`, `lineas`, y lo derivado con libmca: `tasa_hz`, `tau_us`, `mq`, `sigma_ruido`; `base` |
+| `gen.configurar` | `cfg` | la configuración **entera** (lo que falta queda en el reset del RTL); apaga el generador. El `get` de vuelta |
+| `gen.ctrl` | `que` | `arrancar` o `parar`, y el `get` de vuelta |
+| `gen.lazo` | `on` | `digital_loop[0]`: la entrada pasa a ser el generador. El `get` de vuelta |
 
 `read.spectrum`, `read.map2d` y `osc.capture` traen payload binario, y `call`
 cuando la función devuelve un arreglo (`mca_read_histogram`, `mca_read_map2d`).
@@ -232,6 +258,40 @@ un campo cuesta 0.77 ms (antes, `r32` + `w32`: ~1.2 ms y no atómico) y un
 espectro de 8192 canales, 3.5 ms. `app/tests/test_call.py` exige que cada
 función dé lo mismo por red que localmente.
 
+### `ring.*`: una adquisición del event_ring
+
+Las tres ops corren una adquisición del ring **en la placa**: la sesión entera
+(`AdquisicionRing`: `RingSource` y `AcquisitionSession`), que escribe sus chunks en
+`run_dir`. `run_dir` es un camino de la placa: la SD, `/dev/shm`, o un directorio de la
+PC montado por NFS, que es como los datos llegan a la PC. Por el socket va sólo el
+control ([`generador.md`](../event_ring/generador.md) §6, «La etapa C por la red»).
+
+- **`ring.iniciar`** arma y arranca.
+  - **El estímulo es uno de dos:** `generador` (el dict de
+    `API.generadores.disparos`), o `disparo` (`{thr, hyst, mask}`, el disparo real con
+    el multitrigger).
+  - **`calib`** es una calibración por canal; si no viene, se lee la EEPROM.
+  - **Las reglas:**
+    - `run_dir` tiene que ser absoluto, y su padre tiene que existir: el servidor crea
+      la corrida, no el punto de montaje.
+    - Hay una adquisición por vez.
+  - **Devuelve `fs`**, el tipo del sistema de archivos donde escribe.
+- **`ring.estado`** no la frena. Trae:
+  - `stats`, las de la sesión;
+  - `hw`, los contadores del ring, y con el generador `hw_gen_cnt` y
+    `hw_gen_terminado`;
+  - `motivo`: `null` mientras corre, `error`, `disk` o `source`.
+
+  Ya parada, devuelve lo final.
+- **`ring.parar`** para la sesión y el ring. Si el ring quedó lleno sin créditos, lo
+  destraba y lo dice en `error`. Devuelve los contadores con el ring parado
+  (`hw_final`). Repetida, devuelve lo mismo.
+
+Igual que la exposición del MCA, **la adquisición sigue si el cliente se va**:
+`identify` trae `ring_corriendo`, y `has_ring` y `has_gen` dicen si el bitstream trae
+el ring y su generador. `fpga.load_bitstream` se rechaza mientras corre una. Las tres
+ops tienen un lock propio, no el del MCA: parar una adquisición puede tardar segundos.
+
 ### `r32` / `w32`
 
 El acceso crudo a un registro, para depurar: `h.r32(off)`, `h.w32(off, v)`.
@@ -281,17 +341,33 @@ espectro, en una sola vuelta.
 ```json
 {"presente": true, "running": true, "baseline_now": 2129,
  "rate_inst_hz": 3048.2, "rate_avg_hz": 3051.7,
+ "tasa_entrada_inst_hz": 3112.9, "tasa_entrada_hz": 3108.4,
  "counters": {"total": 41502, "accepted": 41502, "rej_amp": 0, "rej_psd": 0,
               "pileup": 0, "dropped": 4, "realtime_s": 13.83,
               "livetime_s": 13.59, "deadtime_real_s": 0.245, "n_acc": 4,
               "t_ocup_s": [13.59, 0.23, 0.01, 0.0, 0.0], ...,
               "clear_busy": false, "busy": false, "puede_abrir": true},
- "exposure": {"target_s": 50.0, "left_s": 36.4, "done": false}}
+ "exposure": {"target_s": 50.0, "left_s": 36.4, "done": false},
+ "gen": {"gen_cnt": 41630, "generando": true, "terminado": false,
+         "desborde": false, "lazo": true, ...}}
 ```
 
 `rate_inst_hz` es Δ`accepted`/Δ`livetime` entre dos `status` consecutivos —el
 servidor guarda la muestra anterior—, y `rate_avg_hz` es `accepted`/`livetime`.
-Son los dos números de la aplicación de referencia.
+Son los dos números de la aplicación de referencia, y los que dibuja la curva
+"MCA (aceptados)" de la pestaña OSC.
+
+`tasa_entrada_hz` es la tasa de los pulsos que **llegan**, corregida por tiempo
+muerto: λ̂ = (`cross` − `lost_veto`) / (`realtime` − `vetotime` − `t_rearm`), y
+`tasa_entrada_inst_hz` lo mismo entre dos `status`. Los perdidos sin ranura o
+esperando al publicador cuentan, porque llegaron; el re-armado del disparo sale
+del denominador porque un pulso que llega en ese tiempo no genera flanco y no se
+puede contar. Es lo que muestra la pestaña del espectro.
+
+`gen` es el estado corto del generador de pulsos, o `null` si el bitstream no lo
+trae. Viaja en el `status` por el `lazo`: con el lazo prendido el MCA mide el
+generador y no la entrada, y la GUI lo avisa en la barra superior desde cualquier
+pestaña sin pedir nada más.
 
 `exposure.target_s` es **livetime absoluto acumulado**, no un delta: una segunda
 exposición sin borrar antes continúa donde iba.

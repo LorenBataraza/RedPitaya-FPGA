@@ -1,0 +1,113 @@
+% La red: el MCA desde la PC. MCARemote es un handle del MCA (hereda de MCA)
+% cuyas funciones corren del otro lado del socket: con _via = 'remoto', el
+% despacho de @_api manda cada función entera por la op call. Del otro lado,
+% ServidorMCA, el único proceso sobre /dev/mem, la corre sobre su handle, bajo
+% su lock, y vuelve a entrar en la pila local por el binding.
+%   izquierda  la PC: MCARemote y lo que se arma del lado del cliente;
+%   centro     el transporte, Channel (mca_net.py);
+%   derecha    la placa: ServidorMCA y lo que abre.
+% MCA y API_REGISTRADA están dibujados en clases_binding; acá van como
+% referencia. Los sustitutos de prueba no se dibujan (diseno_de_clases.md §5.1).
+% Fuentes: software/API/{mca_remote.py,mca_net.py,_despacho.py},
+% software/app/mca_server.py. El texto que acompaña está en
+% docs/API/diseno_de_clases.md §4; el epígrafe, en clases_red.txt. Estilo:
+% docs/figuras/estilo_tikz.tex y clases_estilo.tex.
+%
+% Compilar:   pdflatex clases_red.tex
+%             pdftocairo -svg clases_red.pdf clases_red.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+\input{clases_estilo.tex}
+
+\begin{document}
+\catcode`\_=12
+\begin{tikzpicture}[fondo]
+
+% ============================================================ las máquinas ===
+\fill[black!3] (-10.3,1.0) rectangle (-2.6,-8.6);
+\fill[black!7] (3.7,1.0) rectangle (11.3,-8.6);
+\node[anchor=north west, font=\small\bfseries, inner sep=0pt] at (-10.1,0.8) {en la PC};
+\node[anchor=north west, font=\small\bfseries, inner sep=0pt] at (3.9,0.8) {en la placa};
+
+% ================================================================= la PC ===
+\node[modulo=4.2cm, anchor=north] (mca) at (-6.4,0.2) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont MCA}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont API/mca.py · figura clases_binding}
+};
+\node[clase=6.4cm, anchor=north] (rem) at (-6.4,-1.6) {
+  \clase{MCARemote}{API/mca_remote.py · el proxy de la op call}
+  \nodepart{two}
+  _canal : Channel · _lock · info\\
+  _via = 'remoto' \es{sin _c: no carga libmca}
+  \nodepart{three}
+  connect(host, port) \es{classmethod}\\
+  call(nombre, *a, **k)\\
+  \gr{se arman en el cliente: esperan, no viajan}
+  acquire() · acquire_chunks() · autoscale_q_shift()\\
+  en_el_cliente(nombre)\\
+  \gr{las ops que no son una función de API.mca}
+  status() · config() · metadata()\\
+  pedir(op, **args) · capturar_osc(pre, post)\\
+  fpga_state() · load_bitstream(path)
+};
+\draw[hereda] (rem.north) -- (mca.south);
+
+% ====================================================== el transporte ===
+\node[clase=4.6cm, anchor=north] (ch) at (0.2,-1.6) {
+  \clase{Channel}{API/mca_net.py · una conexión}
+  \nodepart{two}
+  sock \es{TCP :1001 · TCP_NODELAY}
+  \nodepart{three}
+  connect(host, port) \es{classmethod}\\
+  send(obj, payload) · recv()\\
+  send_result(result, array)\\
+  send_error(exc, hint)
+};
+\node[modulo=4.6cm, anchor=north] (tr) at (0.2,-4.4) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont una trama}\\[1pt]
+  {\tiny figuras trama y trama\_flujo, en docs/APP}\\[3pt]
+  una línea JSON de control\\
+  + un bloque binario opcional\\[2pt]
+  error -> RemoteError + el tipo original
+};
+\draw[usa] (ch.south) -- (tr.north);
+\draw[compone] ([yshift=-1.0cm]rem.north east) -- ([yshift=-1.0cm]rem.north east -| ch.west)
+  node[rol, midway, above] {_canal};
+
+% ============================================================ la placa ===
+\node[clase=6.6cm, anchor=north] (srv) at (7.6,-1.6) {
+  \clase{ServidorMCA}{app/mca_server.py · el único proceso sobre /dev/mem}
+  \nodepart{two}
+  h : MCA · ig : Integration\\
+  osc : Osciloscope · mt : MultiTrigger · mtr : MtRegion\\
+  _lock \es{todo acceso a los handles} · fake · impl
+  \nodepart{three}
+  abrir() · servir(port)\\
+  op_call(fn, a, k):\\
+  \hspace*{1em}API_REGISTRADA[fn] con remoto=True\\
+  \hspace*{1em}y módulo API.mca -> fn(h, *a, **k)\\
+  \gr{las otras ops}
+  osc.* · mtrg.* · mca.disparo · integracion.*\\
+  fpga.* · status · config.* · ctrl.* · read.*
+};
+\draw[usa] (ch.east |- srv.north west) ++(0,-1.0) coordinate (cs) -- (cs -| srv.west)
+  node[rol, midway, above] {TCP · op call};
+
+\node[modulo=4.6cm, anchor=north] (reg) at (7.6,-6.6) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont API_REGISTRADA}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont API/_despacho.py · figura clases_binding}\\[3pt]
+  la lista blanca: el registro de @_api
+};
+\draw[usa] (srv.south) -- (reg.north);
+
+% ============================================================== leyenda ===
+\leyendac{-10.0,-9.3}{19.0cm}{azul!30/clase, white/{módulo, figura o trama}}
+  {Triángulo hueco: hereda. Rombo: compone. Flecha punteada: usa.}
+
+\end{tikzpicture}
+\end{document}

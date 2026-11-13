@@ -17,6 +17,14 @@ eventos. No tiene lógica propia de disparo: lo que aporta es la topología.
 
 ![Panorama de mt_event_logic](../../mt/figuras/panorama_mt_event_logic.svg)
 
+*`trigger_event_o`, `event_arm_o` y `daisy_trig_o` son la misma señal: el OR de
+los disparos de los canales. Las fuentes del escudo son los disparos por canal
+más la entrada externa cruda (flancos y nivel), así que se puede vetar desde
+afuera sin gastar la máscara de un canal. El snapshot guarda las fuentes crudas
+del ciclo del evento, retrasadas uno para alinearlas con el registro de
+`mt_trig_src`. `NOMBRE=valor`: parámetros con que lo instancia
+`rp_scope_mt_com`.*
+
 *Por dentro:* los `mt_trig_src`, el escudo, el OR que da `trigger_event`, el snapshot y la cadena. Fuente TikZ en [`panorama_mt_event_logic.tex`](../../mt/figuras/panorama_mt_event_logic.tex).
 
 Tres salidas que son la misma señal y una que no:

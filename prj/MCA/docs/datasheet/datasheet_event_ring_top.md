@@ -15,7 +15,7 @@
 |---|---|
 | Módulo RTL | `event_ring_top` |
 | Archivo | [`event_ring_top.sv`](../../modulos/event_ring/rtl/event_ring_top.sv) |
-| Parámetros | 8 |
+| Parámetros | 9 |
 | Puertos | 22 (12 in / 10 out) |
 | MAGIC | `32'h45564E54` — `"EVNT"` |
 | Parte | `xc7z010clg400-1` |
@@ -114,6 +114,7 @@ está en [§1.6](#16-transacciones).
 | `DATA_AW` | `integer` | `12` | stage: 4096 muestras (~2 RAMB36) |
 | `E` | `integer` | `4` | eventos en vuelo en el stage |
 | `FIFO_FW` | `integer` | `8` | profundidad del axi_wr_fifo (2^FW) |
+| `EN_GEN` | `integer` | `1` |  |
 
 
 #### Puertos
@@ -169,6 +170,16 @@ está en [§1.6](#16-transacciones).
 <!-- AUTO:regmap -->
 No hay un mapa de registros para este módulo en `docs/event_ring/`. Si es un esclavo del bus de sistema, falta escribirlo; si no lo es, esta sección no aplica.
 <!-- /AUTO:regmap -->
+
+<!-- AUTO:secuencia -->
+#### Secuencia de programación
+
+**EL RING, VISTO DESDE EL PS** ([fuente](../event_ring/figuras/secuencia/ring_secuencia.tex))
+
+![EL RING, VISTO DESDE EL PS](../event_ring/figuras/secuencia/ring_secuencia.svg)
+
+El contrato entre el PS y el ring, en el orden en que lo hacen `osciloscope_ring_configurar` y `osciloscope_ring_leer_lote` de libmca. La DDR va del lado del PS: lo que la PL escribe por HP aparece en su memoria sin que el PS haga nada, y leerla no cruza a la PL. A diferencia del osciloscopio, no hay un ida y vuelta por evento: la PL escribe slots mientras haya créditos (`WR_SLOT − RD_SLOT < N_SLOTS`), y el PS habla con el módulo cuatro veces por lote, cualquiera sea el número de eventos. Lo que pide cada paso: la geometría (`SLOT_BASE`, `RING_SZ`, `SLOT_SHIFT`, `PRE`, `POST`) sólo se toma en `STOPPED`; escribirla corriendo no tiene efecto y prende `err_cfg`, que borra `CTRL.clr`. Los footers de la corrida anterior hay que ponerlos en cero antes de arrancar: el slot k de esa corrida tiene el mismo `seq` que el de esta y un footer válido, y la primera vuelta lo entregaría. `WR_SLOT` sube cuando el FIFO acepta el footer, no cuando el footer llega a la DDR: por eso el lector mira el footer `{~seq, seq}` de cada slot y corta el lote en el primero que no llegó, sin perder nada. Los footers se leen antes que los datos, con una barrera, y `RD_SLOT` se escribe después de copiar, con otra: publicarlo antes le devuelve a la PL un slot que todavía se está leyendo. `DROP_BUSY` y `DROP_FULL` se leen por lote para saber cuántos eventos faltan entre dos slots. Sin créditos, la PL no pisa: el writer se frena y la captura descarta el evento entero y lo cuenta en `DROP_FULL`. Cómo se para, y qué pasa con lo que queda en la DDR, está en la FSM global del ring ([`fsm_event_ring_top.svg`](../event_ring/figuras/fsm_event_ring_top.svg)). La misma secuencia con los registros y la DDR como actores aparte es [`ring_lote.svg`](../event_ring/figuras/ring_lote.svg).
+<!-- /AUTO:secuencia -->
 
 ### 1.4 Clock domains
 
@@ -281,7 +292,7 @@ _Sin figuras de ondas._ Se generan con un script en `docs/event_ring/figuras/ond
 Todo corre en batch y se chequea el `RESULT: PASS` del testbench; las ondas quedan en `work/waves/<tb>.wlf`.
 
 ```bash
-make -C modulos/event_ring/work            # los 5 testbenches
+make -C modulos/event_ring/work            # los 6 testbenches
 make -C modulos/event_ring/work cov        # + cobertura
 make -C modulos/event_ring/work lint
 ```
@@ -293,9 +304,10 @@ make -C modulos/event_ring/work lint
 | [`tb_event_slot_writer`](../../modulos/event_ring/sim/tb_event_slot_writer.sv) | `event_slot_writer` | 12 | 39 | vectores a mano |  |
 | [`tb_event_ring_top`](../../modulos/event_ring/sim/tb_event_ring_top.sv) | `event_ring_top` | — | 39 | vectores a mano | **sí** |
 | [`tb_event_ring_ventana`](../../modulos/event_ring/sim/tb_event_ring_ventana.sv) | `event_ring_ventana` | 8 | 23 | vectores a mano |  |
+| [`tb_event_ring_gen`](../../modulos/event_ring/sim/tb_event_ring_gen.sv) | `event_ring_gen` | — | 10 | vectores a mano |  |
 
 
-**152 casos con nombre** en 5 testbenches (27 escenas). La lista completa, caso por caso, está en el plan de verificación.
+**162 casos con nombre** en 6 testbenches (27 escenas). La lista completa, caso por caso, está en el plan de verificación.
 
 **Assertions** — en `sim/sva/`, enganchadas por `bind` (no tocan el RTL sintetizable).
 

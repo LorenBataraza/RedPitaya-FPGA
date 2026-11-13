@@ -1,0 +1,15 @@
+Registro por registro, con el ancho de cada señal. La regla de cada fila dice
+en qué ciclo está el pulso entre dos registros, con g el ciclo en que sale por
+`trig_o`: en g − 1 el motor decide y la tabla se lee en `idx_c`; en g,
+`tab_b_q` trae la amplitud y `pulso` la deja pasar a `imp`; la caída llega a
+`y1` en g + 2, la subida a `y2` en g + 3, la escala a `s` en g + 4, y la
+muestra está en `dat` en g + 5. La caída es un producto y una sola suma: la
+entrada `C` lleva el impulso desde el bit 24 y, en los 16 de abajo, el signo de
+`y1` repetido, que hace que tomar `p[40:16]` redondee hacia cero. Si
+`p[41] ≠ p[40]`, `y1` se desbordó, y la O con su propia salida deja el aviso
+prendido hasta el próximo arranque. La escala redondea igual, con el signo de
+`y2` repetido 8 veces. Con `SUBIDA = 0`, `y2` copia a `y1`. El ruido corre
+aparte, un paso por ciclo: el xorshift32 `rr` (tres XOR con corrimiento), la
+suma de sus cuatro bytes, menos 510 y corrida `sh` bits; `nsum` y `nz` lo
+registran en las mismas etapas que `y2` y `s`. Con `en = 0`, `dat` queda en 0 y
+los polos y el ruido se congelan.

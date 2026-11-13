@@ -1,0 +1,4 @@
+Escriben con `wr_stb` `integration_cfg` y `mca_top`; `osc_cfg`, `mt_cfg` y
+`event_ring_top` usan `sys_wen` directo, y sus comandos duran la transacción (6
+ciclos). La flecha punteada es sólo de los esclavos con memoria: las aperturas
+BRAM de `osc_cfg` y los histogramas de `mca_top`.

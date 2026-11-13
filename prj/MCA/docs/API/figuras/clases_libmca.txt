@@ -1,0 +1,6 @@
+Un handle por bloque de la PL, con lo que lo distingue: el ciclo de vida, el acceso
+crudo y la tabla de registros son los de la figura anterior, y los dos lazos van en la
+siguiente. Arriba, los bloques que son sólo registros; abajo, el osciloscopio, el
+event_ring (con su segunda región, la DDR) y el generador de pulsos (con un segundo
+bus, el de HK, para el lazo digital). `gen_disparos` no tiene handle: son las cuentas
+del motor que comparten los dos generadores.

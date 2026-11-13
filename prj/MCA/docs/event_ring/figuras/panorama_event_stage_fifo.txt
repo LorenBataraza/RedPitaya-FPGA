@@ -1,0 +1,6 @@
+`eventos + abierto` cuenta también el evento que está entrando, así que un
+trigger nunca se acepta sobre un lugar de metadato ya prometido. `win_len_i` es
+`(pre + post)·N_CH`, en muestras. `flush_i` es un solo puerto y pone en cero los
+punteros de las dos colas; `lvl_o` y `ev_lvl_o` son diagnóstico. Con ventanas de
+1024 muestras entran dos eventos, no cuatro. `NOMBRE=valor`: parámetros con que
+lo instancia `event_ring_top`.

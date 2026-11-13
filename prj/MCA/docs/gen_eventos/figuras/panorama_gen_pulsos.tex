@@ -1,0 +1,166 @@
+% Panorama de GEN_PULSOS en estilo datapath, para una hoja A4 (~17 cm de ancho).
+% El generador de pulsos de preamplificador, en el lugar del ASG: cuándo sale un
+% pulso (gen_disparos), de qué amplitud (la tabla), con qué forma (dos polos
+% enteros) y cómo llega al DAC (escala, base, ruido, saturación, canales).
+% Fuente: modulos/gen_eventos/rtl/gen_pulsos.sv, instanciado como i_gen_pulsos
+% en rtl/mine/tops/mca_red_pitaya_top.sv.
+% Estilo: docs/figuras/estilo_tikz.tex, el mismo de mca_top, con los símbolos de
+% operación.
+%
+% Los símbolos (t_k, i_k, A_k, h, tau_d, tau_r, r) son los de la ecuación de generador_pulsos.md §3.\n%\n% CÓMO SE LEE. Arriba, de izquierda a derecha: el motor decide el disparo (disp) y
+% la amplitud elige la entrada de la tabla: el xorshift32 propio (sus tres XOR con
+% corrimiento) o la cuenta en orden. Abajo a la derecha, la forma y la salida, como
+% dos bloques: su detalle, operación por operación y ciclo por ciclo, es
+% datapath_gen_pulsos.tex; el del motor, panorama_gen_disparos.tex. Así ninguna
+% operación se dibuja dos veces.
+%
+% EL COLOR ES LA FUNCIÓN, como en panorama_mca_top.tex:
+%   amarillo  disparos: cuándo sale un pulso
+%   verde     amplitud: de qué tamaño
+%   azul      forma: el impulso y los dos polos
+%   naranja   salida: escala, base, ruido, saturación y canales
+%   gris      registros y banco de registros
+% Submódulo (archivo propio): encabezado con el nombre en monoespaciada y cuerpo
+% más claro. Lógica escrita en el módulo: un solo tono y el nombre en romana.
+% El epígrafe no va en la figura: está en panorama_gen_pulsos.txt y en el doc que
+% la incluye (docs/gen_eventos/generador_pulsos.md).
+%
+% Compilar:   pdflatex panorama_gen_pulsos.tex
+%             pdftocairo -svg panorama_gen_pulsos.pdf panorama_gen_pulsos.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+\tikzset{
+  dispsub/.style = {bloque=amarillo, param={amarillo}{amarillo!35}},
+  forlog/.style  = {etapa=azul!15},
+  sallog/.style  = {etapa=naranja!30},
+  zona/.style    = {draw=black!45, dashed, line width=0.5pt, rounded corners=3pt, fill=#1},
+  rotz/.style    = {font=\scriptsize\itshape, black!75, inner sep=2pt},
+  reg/.style     = {registro=#1, minimum height=0.7cm, font=\scriptsize\ttfamily},
+  reg/.default   = 0.8cm,
+  chico/.style   = {font=\scriptsize\ttfamily, inner sep=1pt},
+  cflecha/.style = {->, line width=0.6pt},
+}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\def\xout{16.3}  % donde terminan las salidas
+\def\yfor{-3.4}   % la fila de la forma y la salida
+
+% ================================================================ la zona ===
+\node[zona=verde!18, fit={(3.75,-1.75) (9.25,2.4)}] (zamp) {};
+\node[rotz, anchor=north east] at (zamp.north east) {amplitud};
+
+% ================================================================ el motor ===
+\node[dispsub, text width=2.6cm] (gd) at (1.9,0.2)
+  {\blk{gen\_disparos}{}\nodepart{two}periódico o Poisson,\\ hasta \texttt{N} pulsos};
+
+% ======================================== amplitud: xorshift32 o en orden ===
+% el xorshift32 propio: un paso por disparo
+\node[reg] (ra) at (4.7,1.15) {ra};
+\node[opxor] (a1) at (6.0,1.15) {};
+\node[opxor] (a2) at (6.8,1.15) {};
+\node[opxor] (a3) at (7.6,1.15) {};
+\node[desp] (b1) at (6.0,1.75) {\texttt{<<13}};
+\node[desp] (b2) at (6.8,1.75) {\texttt{>>17}};
+\node[desp] (b3) at (7.6,1.75) {\texttt{<<5}};
+\node[desp] (sl) at (6.8,0.45) {$[31{:}22]$};
+
+% la cuenta en orden: 0 ... AMP_N - 1, un paso por disparo
+\node[reg] (ix) at (4.7,-0.75) {idx};
+\node[oper] (inc) at (4.7,-1.4) {$+$};
+
+% el mux de la amplitud y la tabla
+\muxdec{ma}{(8.6,-0.12)}{1.25}
+\node[font=\tiny] at ($(ma-in)+(0.13,0.31)$) {1};
+\node[font=\tiny] at ($(ma-in)+(0.13,-0.31)$) {0};
+\node[memoria=verde!45, text width=1.6cm, minimum height=1.3cm] (tab) at (10.75,-0.12)
+  {\etq{tabla}{$i_k \mapsto A_k$\\ 1024 $\times$ 14 b,\\ doble puerto}};
+
+% ========================================================= forma y salida ===
+\node[forlog, text width=2.7cm, minimum height=1.35cm] (fo) at (11.0,\yfor)
+  {\etq{forma $h$}{$\sum_k A_k\,h(t-t_k)$\\ caída $\tau_d$: \texttt{DECAE}\\ subida $\tau_r$: \texttt{SUBIDA}}};
+\node[sallog, text width=2.5cm, minimum height=1.35cm] (sa) at (14.3,\yfor)
+  {\etq{salida}{escala, base $B$,\\ ruido $r$, saturación\\ y canales (\texttt{out1},\\ \texttt{out2})}};
+
+% ======================================================= registros y bus ===
+\node[comp, text width=14.85cm, minimum height=0.95cm] (reg) at (8.15,-5.6)
+  {\etq{banco de registros}{\texttt{CTRL} y los demás \texttt{cfg} \;$\cdot$\; \texttt{TABLA}
+   por el puerto A \;$\cdot$\; \texttt{GEN\_CNT}, \texttt{ESTADO}, \texttt{MAGIC}
+   \;$\cdot$\; ack a 3 ciclos}};
+\node[bus, text width=1.8cm] (sb) at (8.15,-7.2) {\texttt{\bfseries sys\_bus}};
+
+% ========================================================== el límite ===
+\node[contenedor, fit={(0.4,2.85) (15.85,-6.3)}] (lim) {};
+\node[titulo, anchor=south west, inner sep=2pt, align=left] at (lim.north west)
+  {\texttt{\bfseries gen\_pulsos}\;\; {\scriptsize\itshape todo en \texttt{adc\_clk}; en el slot 2, \texttt{0x4021\_0000}}\\
+   \prm{DW=14 & TAB\_AW=10}};
+
+% ============================================================== flechas ====
+% --- el motor: el disparo sale por trig_o y baja a la forma ---
+\draw[flujo] (gd.north) -- (1.9,2.65) -- (\xout,2.65) node[right, sen] {trig\_o};
+\draw[flujo] (2.7,0 |- gd.south) -- (2.7,-2.4) -- node[sen, above, pos=0.5] {pulso, $t_k$} (10.0,-2.4) -- (10.0,0 |- fo.north);
+
+% --- disp habilita el xorshift y la cuenta ---
+\draw[flujo] (gd.east |- 0,0.2) -- node[sen, above, pos=0.45] {disp} (4.45,0.2);
+\draw[flujo] (4.45,0.2) -- (4.45,0 |- ra.south);
+\draw[flujo] (4.45,0.2) -- (4.45,0 |- ix.north);
+\punto{4.45,0.2}
+
+% --- el xorshift: tres XOR con corrimiento, y vuelve ---
+\coordinate (ja) at (5.35,1.15);
+\draw[flujo] (ra.east) -- (a1.west);
+\punto{ja}
+\draw[flujo] (ja) |- (b1.west);
+\draw[flujo] (b1.south) -- (a1.north);
+\draw[flujo] (a1.east) -- (a2.west);
+\draw[flujo] (6.4,1.15) |- (b2.west);
+\draw[flujo] (b2.south) -- (a2.north);
+\draw[flujo] (a2.east) -- (a3.west);
+\draw[flujo] (7.2,1.15) |- (b3.west);
+\draw[flujo] (b3.south) -- (a3.north);
+\punto{6.4,1.15} \punto{7.2,1.15}
+\draw[flujo] (a3.east) -- (8.0,1.15) -- (8.0,2.2) -- (3.95,2.2) -- (3.95,1.15) -- (ra.west);
+\draw[flujo] (ja) |- (sl.west);
+\draw[flujo] (sl.east) -- (8.15,0 |- sl.east) |- (ma-in |- 0,0.19);
+
+% --- la cuenta: +1, módulo AMP_N ---
+\coordinate (ji) at (5.35,-0.75);
+\draw[flujo] (ix.east) -- (8.15,-0.75) |- (ma-in |- 0,-0.43);
+\punto{ji}
+\draw[flujo] (ji) |- (inc.east);
+\draw[cflecha] ($(inc.south)+(0,-0.36)$) node[below, cte] {1} -- (inc.south);
+\draw[flujo] (inc.west) -- (3.95,-1.4) -- (3.95,-0.75) -- (ix.west);
+\node[cte, anchor=north west] at (5.45,-1.45) {mód \texttt{AMP\_N}};
+
+% --- el mux y la tabla ---
+\draw[ctrl] (8.6,-1.15) node[below, sen, black!80] {amp\_aleat} -- (ma-sel);
+\draw[flujo, ancho=10, ancho en=0.4] (ma-out) -- (tab.west |- ma-out);
+\draw[flujo, anchov=14, ancho en=0.45] (tab.south) -- node[sen, left, pos=0.45] {$A_k$} (tab.south |- fo.north);
+
+% --- la forma, la salida y los canales ---
+\draw[flujo, ancho=25, ancho en=0.45] (fo.east) -- node[sen, below, pos=0.45] {$y_2$} (sa.west);
+\draw[flujo, ancho=14, ancho en=0.75] (sa.east |- 0,\yfor+0.3) -- (\xout,\yfor+0.3) node[right, sen] {dat\_a\_o};
+\draw[flujo, ancho=14, ancho en=0.75] (sa.east |- 0,\yfor-0.3) -- (\xout,\yfor-0.3) node[right, sen] {dat\_b\_o};
+
+% --- al banco: el estado del motor, el desborde y la tabla ---
+\draw[flujo] (1.0,0 |- gd.south) -- node[sen, right, pos=0.55, align=left] {GEN\_CNT\\ activo\\ hecho} (1.0,0 |- reg.north);
+\draw[flujo] (fo.south) -- node[sen, right, pos=0.5] {desborde de $y_1$} (fo.south |- reg.north);
+\draw[<->, line width=0.8pt, cruce] (9.25,0 |- reg.north) -- node[sen, left, pos=0.25] {puerto A} (9.25,-0.6) -- (tab.west |- 0,-0.6);
+
+% --- bus del sistema ---
+\draw[<->, line width=0.8pt] (reg.south) -- (sb.north);
+\draw[<->, line width=0.8pt] (sb.east) -- ++(1.2,0) node[right, sen, align=left]
+  {M\_AXI\_GP0\\[-1pt]\normalfont\scriptsize$\leftrightarrow$ ARM};
+
+% ================================================================= leyenda ===
+\leyenda{0.45,-8.15}{amarillo/disparos, verde!45/amplitud, azul!15/forma del pulso,
+  naranja!30/salida, grisr/registros, rojo!45/bus del sistema}{}
+
+\end{tikzpicture}
+\end{document}

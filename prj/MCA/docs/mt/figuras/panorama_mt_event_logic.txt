@@ -1,0 +1,7 @@
+`trigger_event_o`, `event_arm_o` y `daisy_trig_o` son la misma señal: el OR de
+los disparos de los canales. Las fuentes del escudo son los disparos por canal
+más la entrada externa cruda (flancos y nivel), así que se puede vetar desde
+afuera sin gastar la máscara de un canal. El snapshot guarda las fuentes crudas
+del ciclo del evento, retrasadas uno para alinearlas con el registro de
+`mt_trig_src`. `NOMBRE=valor`: parámetros con que lo instancia
+`rp_scope_mt_com`.

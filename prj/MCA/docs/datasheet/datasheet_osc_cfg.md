@@ -81,6 +81,9 @@
 > rp_acq_bram genera bram_ack_o = sys_en retrasado 4 ciclos
 > (adc_rval <= {adc_rval[2:0], bram_ack_i}), que es exactamente en_sr[3].
 > O sea que se arregla el cuelgue sin cambiar en nada las lecturas buenas.
+>
+> Los registros sí cambiaron: antes daban el ack al ciclo siguiente, y ahora tardan
+> lo mismo, así que un wen dura 6 ciclos en vez de 2. Ver mt_cfg.
 <!-- /AUTO:resumen -->
 
 <!-- AUTO:prosa -->
@@ -242,6 +245,16 @@ Pulsos ya decodificados por canal desde los offsets 0x004 y 0x094.
 Contrato del bus: [`bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) · Mapa de slots: [`register_map_top.md`](../TOP/register_map_top.md)
 <!-- /AUTO:regmap -->
 
+<!-- AUTO:secuencia -->
+#### Secuencia de programación
+
+**UNA CAPTURA, VISTA DESDE EL PS** ([fuente](../osc/figuras/secuencia/osc_secuencia.tex))
+
+![UNA CAPTURA, VISTA DESDE EL PS](../osc/figuras/secuencia/osc_secuencia.svg)
+
+El contrato entre el PS y el osciloscopio en modo single-shot (`CFG_WE_KEEP = 0`). La configuración se escribe una vez y queda; cada captura es armar, sondear `ADC_STATE` hasta «terminó», ubicar el trigger y leer la ventana. Lo que pide cada paso: la configuración va antes del arm, porque cambiarla con la captura en curso mezcla dos configuraciones en la misma traza, y `DLY` tiene que ser 1 o más, porque con 0 el buffer no se congela nunca. `CMD_ARM` borra «disparó», «terminó» y `WE_CNT`: un trigger anterior al arm no cuenta. Leer la ventana antes de «terminó» = 1 la devuelve partida entre dos vueltas del anillo. `WP_TRIG` es el primer trigger después del arm —los que llegan durante el post-trigger no lo pisan— y si `WE_CNT` es menor que `pre`, el principio de la ventana es de la captura anterior. La ventana se lee por la apertura BRAM, una muestra por transacción: 32 muestras, 45.6 µs por canal. «Armada», «disparó» y «terminó» son los bits 0, 2 y 4 del byte de cada canal en `ADC_STATE`, y `CMD_ARM`, `WP_TRIG` y `WE_CNT` también van por canal. El trigger entra desde afuera: qué fuentes lo generan y en qué orden se habilitan es asunto del multitrigger ([`orden_arm_trigger_captura.md`](../osc/orden_arm_trigger_captura.md)). En modo continuo (`CFG_WE_KEEP = 1`) el buffer no se congela nunca y no hay «terminó» que sondear: el software detecta los eventos mirando cómo cambia `WP_TRIG`, sin garantía de coherencia ([`sistema_adquisicion_original.md` §3.3](../osc/sistema_adquisicion_original.md#33-el-estado-dibujado)).
+<!-- /AUTO:secuencia -->
+
 ### 1.4 Clock domains
 
 <!-- AUTO:clocks -->
@@ -352,14 +365,6 @@ _Origen: `tb_osc_filter`, caso de coeficientes de reset._
 La misma entrada que la figura anterior --un impulso-- con el lazo recursivo activo. Ahora la salida no es un impulso sino un pico seguido de una COLA que decae: eso es la compensacion polo-cero, que cancela la cola del preamplificador para que el pulso vuelva a la linea de base antes del siguiente. Es la parte del filtro que se rediseno, y la figura muestra que la cola entera --mas de veinte muestras-- coincide con la del filtro original muestra por muestra. Se dibuja el impulso y no un escalon porque con aa=25000 la constante de tiempo es de cientos de ciclos: un escalon no se asienta dentro de una ventana que se pueda mirar.
 
 _Origen: `tb_osc_filter`, caso de compensacion polo-cero._
-
-**FLUJO DE UNA ADQUISICION  -  osc_cfg**
-
-![FLUJO DE UNA ADQUISICION  -  osc_cfg](../osc/figuras/ondas/osc_cfg_adquisicion.svg)
-
-Es un esquema de la SECUENCIA, no una medicion: no hay testbench de osc_cfg del que sacar las ondas (ver §1.7 de su datasheet, que lo marca como deuda de verificacion). La configuracion es una escalera: el bus del PS escribe un registro por vez, primero los modos globales y despues la cadena de cada canal en el orden del datapath; DLY tiene que quedar en 1 o mas, porque el 0 de reset es el caso degenerado de rp_bram_sm. Lo que la figura fija es el orden y las dependencias: la configuracion del filtro y del diezmado va ANTES del armado, porque cambiarla con el buffer llenandose mezcla muestras de dos configuraciones en la misma traza; y la lectura va despues de que el puntero deje de moverse, porque leer durante la captura devuelve una traza partida entre dos vueltas del buffer.
-
-_Origen: esquema (sin VCD: `osc_cfg` no tiene testbench)._
 
 ---
 

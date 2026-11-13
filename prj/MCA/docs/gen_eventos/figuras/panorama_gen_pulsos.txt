@@ -1,0 +1,12 @@
+En estilo datapath, para una hoja A4, con los símbolos de la ecuación. Arriba,
+de izquierda a derecha: `gen_disparos` decide el disparo y `disp` hace avanzar
+los dos índices de la amplitud: los 10 bits altos de un xorshift32 propio (con
+`amp_aleat`) o una cuenta de 0 a `AMP_N − 1`. El índice $i_k$ lee la tabla, que
+da la altura $A_k$; el pulso ($t_k$) y la altura entran a la forma, que hace
+$\sum_k A_k\,h(t-t_k)$ con $\tau_d$ y $\tau_r$; la salida suma la base $B$ y el ruido $r$, satura a 14 b y va
+a los canales. La forma y la salida, operación por operación y ciclo por ciclo,
+están en el datapath; el motor, en su propio panorama. El xorshift32 es tres XOR
+de la palabra consigo misma corrida (`<<13`, `>>17`, `<<5`) y renueva los 32 bits
+en cada paso. Los números sobre las flechas son anchos en bits. El color es la
+función (la leyenda). `NOMBRE=valor`: parámetros de la instancia en el top
+(`TAB_AW`, el de por defecto).

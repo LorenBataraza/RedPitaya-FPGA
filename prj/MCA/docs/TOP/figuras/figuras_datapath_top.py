@@ -7,8 +7,8 @@ Genera, a partir del RTL de `mca_red_pitaya_top.sv`:
   conformado_mca_interno.svg  dentro del MCA: un solo flujo de muestras y tres
                               procesamientos, con el lazo de linea de base
 
-`datapath_top.svg` (la cadena DSP unica y el crossbar de los tres
-`dsp_tap_mux`) ya NO sale de aca: paso a TikZ, en `datapath_top.tex`, con el
+`datapath_top.svg` (la cadena DSP unica y los tres `dsp_tap_mux`, uno por
+consumidor) ya NO sale de aca: paso a TikZ, en `datapath_top.tex`, con el
 estilo comun de los panoramas (`docs/figuras/estilo_tikz.tex`). Su epigrafe
 sigue en EPIGRAFES para que `epigrafes.txt` quede completo.
 
@@ -390,16 +390,18 @@ problema que este rediseño vino a sacar.
 -------------------------------------------------------------------------------
 datapath_top.svg
 -------------------------------------------------------------------------------
-Datapath del top en integración, dibujado como crossbar. Hay UNA sola cadena de
-acondicionado por canal --calibración, ecualizador opcional, diezmado, retardo--
-y cuatro nodos utilizables sobre ella; cada consumidor (osciloscopio,
-multitrigger y MCA) tiene su propio dsp_tap_mux 4:1 y elige en runtime de qué
-nodo toma sus muestras, escribiendo los registros ROUTE_* de la región de TOP
-(slot 6). Cómo se lee: donde hay un punto hay un camino posible y el número al
-lado es el valor de ROUTE_* que lo elige; el punto con ANILLO es el valor de
-reset, o sea el cableado que existía antes de que hubiera mux; donde no hay
-punto no hay camino. Las marcas numeradas son las filas de la tabla de
-register_map_top.md, sección Ruteo del datapath.
+Datapath del top en integración. Hay UNA sola cadena de acondicionado por
+canal --calibración, ecualizador, diezmado, retardo-- con cuatro nodos (A a D).
+Cada consumidor (osciloscopio, multitrigger y MCA) tiene su propio dsp_tap_mux
+4:1: no es una matriz de conmutación, son tres selectores independientes. Cada
+entrada de un mux lleva su código de tap (0 a 3) y la letra del nodo que entra;
+las entradas 1 a 3 son los mismos nodos para los tres, y la 0 es el nodo nativo
+de cada uno, el valor de reset. Cada consumidor elige en runtime escribiendo su
+ROUTE_* en la región de TOP (slot 6). A la izquierda, el lazo digital: con
+digital_loop[0] la cadena toma los pulsos de gen_pulsos en lugar del ADC. Abajo,
+lo que el multitrigger da a los otros consumidores, y el event_ring (sólo en su
+top), que toma las mismas muestras que el MCA. Las marcas numeradas son las
+filas de la tabla de register_map_top.md, sección Ruteo del datapath.
 
 Embebida en: docs/TOP/register_map_top.md
 

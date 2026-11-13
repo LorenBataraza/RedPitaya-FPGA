@@ -1,0 +1,3 @@
+El MCA es lineal porque el hardware acumula el histograma solo, entre `mca_start()` y
+`mca_stop()`. Leerlo no lo vacía: el programa lo lee las veces que quiera mientras
+mide, y al final lo guarda en csv o en N42.42.

@@ -1,0 +1,11 @@
+Etapas que descartan y etapas que bloquean. La fuente, un ADC, entrega una
+muestra por ciclo sin ready: no se la puede frenar. Entre las etapas internas
+hay handshake: el dato avanza por arriba (`valid`) sólo cuando la etapa
+siguiente lo acepta, y el `ready` vuelve por abajo: es la
+contrapresión. Cuando la etapa 3 se frena, por su cuenta o porque la frena lo
+que sigue, baja su ready; la FIFO absorbe mientras tiene lugar y después baja el
+suyo, y así la contrapresión sube etapa por etapa hasta la etapa 1, que no puede
+frenar al ADC. Ahí el bloqueo se convierte en descarte, y la etapa 1 lo cuenta
+en `D` (flecha roja). Las etapas que bloquean no pierden nada: toda la pérdida
+de la cadena aparece en el contador de la frontera, aunque la causa esté más
+abajo.

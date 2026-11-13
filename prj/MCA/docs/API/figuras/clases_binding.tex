@@ -1,0 +1,219 @@
+% El binding de Python sobre libmca: un handle de Python por bloque, cada uno
+% dueño de su handle de C, y el despacho de las funciones públicas.
+%   arriba     las funciones <bloque>_*(h, …) con @_api, que miran h._via y van a
+%              libmca, a la referencia en Python o a la red; a la derecha, la
+%              referencia; a la izquierda, _libmca.py, lo común del binding
+%              (cargar el .so, traducir los códigos a excepciones, Bus y Mem);
+%   al medio   los handles de los bloques con referencia (MCA, Osciloscope, las
+%              dos fachadas del multitrigger, Integration) y el shim
+%              MultiTriggerScope;
+%   abajo      los dos que existen sólo en C, sin @_api ni referencia:
+%              OsciloscopeRing y GenPulsos; y los envoltorios de los lazos, que
+%              están en clases_lotes.
+% Los métodos que son una función de C no se repiten: están en clases_libmca.
+% El proxy de red (MCARemote) está en clases_red; los sustitutos de prueba no
+% se dibujan (diseno_de_clases.md §5.1).
+% Fuentes: software/API/{_despacho.py,_libmca.py,mca.py,osciloscope.py,
+% multitrigger.py,integration.py,osciloscope_ring.py,generadores.py},
+% software/multitrigger_utils.py. El texto que acompaña está en
+% docs/API/libmca.md §5; el epígrafe, en clases_binding.txt. Estilo:
+% docs/figuras/estilo_tikz.tex y clases_estilo.tex.
+%
+% Compilar:   pdflatex clases_binding.tex
+%             pdftocairo -svg clases_binding.pdf clases_binding.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+\input{clases_estilo.tex}
+
+\begin{document}
+\catcode`\_=12
+\begin{tikzpicture}[fondo]
+
+% ====================================================== arriba: el despacho ===
+\node[modulo=6.0cm, anchor=north] (fun) at (0,0) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont <bloque>_*(h, …)}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont API/<bloque>.py · la superficie pública · @_api}\\[3pt]
+  mca_* · osciloscope_* · multitrigger_* · integration_*\\
+  una por función de libmca: mismo nombre y argumentos\\[2pt]
+  según h._via:\\
+  \hspace*{1em}'c'      -> el cuerpo: libmca, con h._c\\
+  \hspace*{1em}'py'     -> la homónima de API/ref_py/\\
+  \hspace*{1em}'remoto' -> h.call(nombre, …) \es{figura clases_red}\\[2pt]
+  API_REGISTRADA \es{_despacho.py: el registro de @_api}
+};
+
+\node[modulo=5.0cm, anchor=north] (ref) at (7.3,0) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont API/ref_py/}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont la referencia en Python · congelada}\\[3pt]
+  mca2.py · integration.py\\
+  multitrigger2.py · osciloscope2.py\\
+  mca.py \es{la única que abre el MCA1}\\[2pt]
+  la misma superficie, sobre un mmap
+};
+\draw[usa] (fun.east |- ref.west) -- (ref.west) node[rol, midway, above] {'py'};
+
+\node[modulo=5.0cm, anchor=north] (lib) at (-7.3,0) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont API/_libmca.py}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont lo común del binding}\\[3pt]
+  cargar() · disponible() · version()\\
+  check(rc, contexto) -> la excepción:\\
+  \hspace*{1em}ValueError · TimeoutError · KeyError\\
+  \hspace*{1em}OSError · MCANotPresent · …\\
+  version_rapida(lib, nombre) \es{sin argtypes}\\[2pt]
+  Bus \es{un mca_bus*}: devmem · archivo · de_handle\\
+  Mem \es{un mca_mem*}: devmem · archivo · sobre
+};
+
+% ======================================= al medio: los handles con referencia ===
+\def\yH{-5.0}
+\node[clase=5.0cm, anchor=north] (mca) at (-10.2,\yH) {
+  \clase{MCA}{API/mca.py · slot 7}
+  \nodepart{two}
+  _c : mca_h* · _via = 'c'\\
+  caps · h_aw · h2_aw · psd_aw\\
+  libmca_version
+  \nodepart{three}
+  open(phys, size, check_magic) \es{classmethod}\\
+  close() · __enter__() · __exit__()\\
+  \gr{uno por función de libmca}
+  configure() · counters() · spectrum() · …
+};
+
+\node[clase=5.6cm, anchor=north] (osc) at (-4.4,\yH) {
+  \clase{Osciloscope}{API/osciloscope.py · slot 1}
+  \nodepart{two}
+  _c : osciloscope_h* · _via\\
+  _geo · _mt · _cal
+  \nodepart{three}
+  open(phys, size, check_pl, impl) \es{classmethod}\\
+  reload_bitstream(path) \es{classmethod}\\
+  close() · r32(off) · w32(off, v)\\
+  geometria() · n_buf \es{prop}\\
+  \gr{compuesto en Python, sobre r32}
+  verify_bitstream() · debug_trigger() · debug_dump()\\
+  acq_capture_sw(thr, delay)\\
+  \gr{la captura, por C}
+  calibracion(ch) · read_cal(ch, start, n)\\
+  wait_triggered() · wait_fill()\\
+  read_buffers() · capture_window_np()\\
+  capture_n_events(n) \es{Lector, continuo}
+};
+
+\node[clase=4.6cm, anchor=north] (rgn) at (3.3,\yH) {
+  \clase{_Region}{API/multitrigger.py · slot 3}
+  \nodepart{two}
+  _c : multitrigger_h* · _via · _bus
+  \nodepart{three}
+  close() · r32(off) · w32(off, v)
+};
+\node[clase=4.4cm, anchor=north] (mtg) at (0.9,-8.3) {
+  \clase{MultiTrigger}{la que usan las fuentes}
+  \nodepart{two}
+  \es{nada propio}
+  \nodepart{three}
+  open(osc=None, phys, size, …)\\
+  set_or_mask(m0, m1) \es{relee}\\
+  configure_shield_autorearm(…)\\
+  read_snapshot_raw() · get_flags()
+};
+\node[clase=4.4cm, anchor=north] (mtr) at (5.7,-8.3) {
+  \clase{MtRegion}{la del disparo del MCA}
+  \nodepart{two}
+  \es{nada propio}
+  \nodepart{three}
+  open(phys, size, check_magic)\\
+  set_slope(ch, L, G, thr, hyst)\\
+  set_pz(ch, k, m, mq, sh, thr, hyst)\\
+  set_or_mask(ch, m) · set_shield(…)
+};
+\coordinate (jr) at ($(rgn.south)+(0,-0.45)$);
+\draw[rama] (mtg.north) |- (jr);
+\draw[rama] (mtr.north) |- (jr);
+\draw[hereda] (jr) -- (rgn.south);
+
+\node[clase=4.6cm, anchor=north] (itg) at (10.4,\yH) {
+  \clase{Integration}{API/integration.py · slot 6}
+  \nodepart{two}
+  _c : integration_h* · _via
+  \nodepart{three}
+  open(phys, size, check_magic) \es{classmethod}\\
+  close()\\
+  \gr{uno por función de libmca}
+  identify() · slots() · base(modulo) · …\\
+  \gr{compuesto en Python}
+  geometria_coincide(mca) · dump()
+};
+
+% el despacho llega a todos los de esta fila
+\draw[usa] (fun.south) -- ++(0,-0.55) coordinate (fd) -| (mca.north)
+  node[rol, pos=0.15, above] {h};
+\draw[usa] (fd) -| (osc.north);
+\draw[usa] (fd) -| (rgn.north);
+\draw[usa] (fd) -| (itg.north);
+
+% ================================================================= el shim ===
+\node[shim=5.6cm, anchor=north] (mts) at (-4.4,-12.6) {
+  \clase{MultiTriggerScope}{multitrigger_utils.py · shim de compatibilidad}
+  \nodepart{two}
+  _mt : MultiTrigger
+  \nodepart{three}
+  arm_for_adc_trigger(mask_ch0, mask_ch1, thr, …)\\
+  disarm() · set_or_mask(m0, m1)\\
+  configure_shield_autorearm() · disable_shield()
+};
+\draw[hereda] (mts.north) -- (osc.south);
+\draw[compone] (mts.east) -| (mtg.south) node[rol, pos=0.3, above] {_mt};
+
+% ================================================ abajo: los que son sólo C ===
+\node[clase=5.0cm, anchor=north] (rng) at (-10.2,-10.4) {
+  \clase{OsciloscopeRing}{API/osciloscope_ring.py · slot 2 · sólo C}
+  \nodepart{two}
+  _c : osciloscope_ring_h* · _bus · _mem
+  \nodepart{three}
+  open(phys, size, ddr, check_magic) \es{classmethod}\\
+  sobre(bus, mem) \es{classmethod} · close()\\
+  r32 · w32 · ddr \es{prop}\\
+  correr() · parar(timeout_s) · contadores()\\
+  gen_presente() · gen_configurar() · gen_apagar()\\
+  gen_estado()
+};
+
+\node[clase=5.0cm, anchor=north] (gen) at (10.4,-11.4) {
+  \clase{GenPulsos}{API/generadores.py · 0x4021_0000 · sólo C}
+  \nodepart{two}
+  _c : gen_pulsos_h* · _bus · _hk
+  \nodepart{three}
+  open() · sobre(bus, hk) \es{classmethod} · close()\\
+  configurar(tasa, tau, …) · leer_config()\\
+  cargar_tabla(amp) · leer_tabla(n)\\
+  arrancar() · parar() · estado() · esperar(timeout_s)\\
+  lazo \es{prop}\\
+  \gr{funciones del módulo: las cuentas}
+  disparos() · umbral_para() · predecir()\\
+  decae_para() · tau_de() · tabla_cdf()
+};
+
+\node[modulo=5.0cm, anchor=north] (lec) at (5.0,-12.9) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont Lector · LectorRing}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont los lazos por lote · figura clases_lotes}\\[3pt]
+  Lector(osc, mt, …) · LectorRing(ring, …)
+};
+
+% ============================================================= todo va a C ===
+\node[modulo=5.0cm, anchor=north, fill=rojo!30] (c) at (5.0,-14.6) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont libmca}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont figuras clases_libmca y clases_lotes}\\[3pt]
+  cada _c es el handle de C de su bloque
+};
+
+% ============================================================== leyenda ===
+\leyendac{-12.7,-16.9}{19.0cm}{azul!30/handle de Python, amarillo/{shim de compatibilidad}, rojo!30/C (libmca), white/{funciones o módulo}}
+  {Triángulo hueco: hereda. Rombo: compone. Flecha punteada: usa.}
+
+\end{tikzpicture}
+\end{document}

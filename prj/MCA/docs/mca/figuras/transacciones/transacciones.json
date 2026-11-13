@@ -6,21 +6,21 @@
     "nota": "La transaccion del MCA es UN EVENTO, y la figura la sigue entera: (a) la senal de entrada con el umbral y la ventana que `pulse_feature` abre y cierra, (b) el camino de datos, donde entre los dos bloques no va una flecha pelada sino el tren de amplitudes concretas que viaja --un registro de evento por pulso--, y (c) el espectro que se acumula del otro lado, una cuenta por numero. Los numeros de los tres paneles son los mismos: la amplitud que se mide en (a) es la que viaja en (b) y la que cae en un canal en (c), con el mismo `amp >> h_shift` que hace el RTL. Es la unica figura del proyecto que muestra la cuenta completa de punta a punta."
   },
   {
-    "archivo": "../07a_senal.png",
+    "archivo": "../07a_senal.svg",
     "titulo": "(a) LA SENAL: UN PULSO POR EVENTO",
-    "origen": "la misma simulacion, panel (a) suelto",
+    "origen": "la misma simulacion, panel (a) suelto, en TikZ (`figuras_cadena_tikz.py`)",
     "nota": "Las bandas parten el eje de TIEMPO en estados --ventana abierta, reposo-- y no la senal en eventos. La ventana abre al cruzar `thr` y cierra recien al bajar de `thr - hyst`, que es lo que hace que termine bastante despues del pico."
   },
   {
-    "archivo": "../07b_cadena.png",
+    "archivo": "../07b_cadena.svg",
     "titulo": "(b) EL CAMINO DE DATOS: UN NUMERO POR PULSO",
-    "origen": "la misma simulacion, panel (b) suelto",
+    "origen": "la misma simulacion, panel (b) suelto, en TikZ (`figuras_cadena_tikz.py`)",
     "nota": "`pulse_feature` emite un registro de evento por pulso y el histograma lo convierte en una cuenta. La tabla de abajo son los mismos pulsos como los ve el histograma, incluido el que no cruza el umbral y no produce nada."
   },
   {
-    "archivo": "../07c_histograma.png",
+    "archivo": "../07c_histograma.svg",
     "titulo": "(c) EL ESPECTRO: UNA CUENTA POR NUMERO",
-    "origen": "la misma simulacion, panel (c) suelto",
-    "nota": "El mismo espectro en tres momentos de la acumulacion (12, 64 y 227 cuentas): la forma aparece recien cuando hay estadistica."
+    "origen": "la misma simulacion, panel (c) suelto, en TikZ (`figuras_cadena_tikz.py`)",
+    "nota": "El espectro final en barras apiladas: cada capa es un tramo de la acumulacion (las primeras 12 cuentas, de la 13 a la 64 y de la 65 a la 227), asi que el borde de arriba de cada capa es el espectro en ese momento. La capa de abajo son cuentas sueltas; la forma de las dos lineas aparece recien cuando hay estadistica."
   }
 ]

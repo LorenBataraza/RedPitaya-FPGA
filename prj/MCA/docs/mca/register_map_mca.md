@@ -61,7 +61,7 @@ Valores del build por defecto: **`H_AW=13` (8192 canales)**, `H2_AW=7` × `PSD_A
 | | R | 1 | `busy` |   | Alguna ranura ocupada (midiendo o esperando publicar) |
 | | R | 2 | `baseline_stale` |   | El seguidor de línea de base lleva demasiado congelado |
 | | R | 3 | `vetoed` |   | Veto externo activo: el `trigger_shield` del multitrigger con `DST_MCA` |
-| | R | 4 | — |   | Reservado (era `rearm_pend`; ya no hay re-armado en el MCA) |
+| | R | 4 | `rearm_pend` |   | El disparo del multitrigger espera re-armar (`trig_arm_i = 0`): un pulso que llegue ahora no genera flanco |
 | | R | 5 | `puede_abrir` |   | Hay alguna ranura habilitada libre: el próximo disparo abre |
 | | R | 10:8 | `n_ocup` |   | Ranuras ocupadas ahora |
 | `0x0A8` | R | 0 | `full_1d` |   | Algún bin del espectro llegó al tope. **Pegajoso**: sólo lo limpia `clear` |
@@ -273,12 +273,12 @@ Todos se ponen a cero con `clear` (`0x00C` bit 1).
 | Offset | Campo |
 |---|---|
 | `0x068` / `0x06C` | `realtime` lo / hi |
-| `0x070` / `0x074` | `livetime` lo / hi — hay alguna ranura libre |
+| `0x070` / `0x074` | `livetime` lo / hi — hay alguna ranura libre **y el disparo está armado** |
 | `0x078` / `0x07C` | `deadtime` lo / hi — **ocupación**: alguna ranura ocupada (ver abajo) |
 | `0x0C0` / `0x0C4` | `vetotime` lo / hi |
 | `0x0C8` / `0x0CC` | `t_win` lo / hi — sin ranura libre, **todas midiendo** |
 | `0x0D0` / `0x0D4` | `t_div` lo / hi — sin ranura libre, **alguna esperando publicar** |
-| `0x0D8` / `0x0DC` | reservado (era `t_rearm`) |
+| `0x0D8` / `0x0DC` | `t_rearm` lo / hi — hay ranura libre pero **el disparo espera re-armar** |
 | `0x0FC` / `0x100` | `t_clear` lo / hi — barrido de borrado del histograma |
 | `0x140 + 8j` / `0x144 + 8j` | `t_ocup[j]` lo / hi — ciclos con **exactamente j** ranuras ocupadas, j = 0..`N_ACC` |
 
@@ -289,14 +289,33 @@ Cuentan ciclos de `adc_clk` mientras `run = 1`. Dividir por 125e6 para segundos.
 Con `run = 1`, **cada ciclo se atribuye a exactamente un casillero**:
 
 ```
-realtime = vetotime + t_win + t_div + livetime
+realtime = vetotime + t_win + t_div + t_rearm + livetime
 ```
 
 Es una identidad exacta en todo ciclo, y está verificada como assertion del RTL
 (`modulos/mca/sim/sva/mca_top_sva.sv::ap_suma_relojes`), no sólo medida. El
-tiempo muerto es **no hay ranura libre**, `t_win + t_div`, partido por la causa:
-todas midiendo, o el publicador que no da abasto. El veto va primero: la cola de
-una ventana que termina bajo veto cuenta como vetada, no como muerta.
+tiempo muerto del MCA es **no hay ranura libre**, `t_win + t_div`, partido por la
+causa: todas midiendo, o el publicador que no da abasto. El veto va primero: la
+cola de una ventana que termina bajo veto cuenta como vetada, no como muerta.
+
+**El re-armado del disparo**, `t_rearm`, va después de los dos del MCA: son los
+ciclos en que el MCA podía abrir pero el multitrigger no podía disparar
+(`trig_arm_i = 0`: ningún Schmitt habilitado en la máscara re-armó, o el canal
+está deshabilitado). Un pulso que llega ahí no genera flanco y **no llega a
+`cnt_cross`**: lo único que se puede medir de él es el tiempo. Ir después de
+`t_win` y `t_div` deja intactos el período muerto y la ocupación, y deja a
+`livetime` como lo que un pulso ve de verdad: ranura libre y disparo armado. Con
+arribos Poisson, la fracción que se pierde en el disparo es `t_rearm /
+(realtime − vetotime)`, y el tiempo muerto entero que corrige la tasa es
+`t_win + t_div + t_rearm` (`deadtime_real_s` en la API).
+
+El nivel `trig_arm` lo da `mt_event_logic` (bit 18 de `SHIELD_STAT` en el
+multitrigger): algún canal tiene en su máscara una fuente que puede disparar ya
+y no está deshabilitado. Las fuentes por pendiente y con polo-cero dan el estado
+de su Schmitt; el disparo **por nivel** (`rp_adc_trig`, de Red Pitaya) no lo
+expone y cuenta como siempre armado, igual que SW, externo, ASG y cadena. Baja un
+ciclo antes de que el flanco llegue al MCA. Un top sin multitrigger lo ata a 1, y
+entonces `t_rearm` queda en cero como antes.
 
 ### La ocupación
 
@@ -309,6 +328,10 @@ modelo M/D/N/N: con arribos Poisson la fracción de tiempo con j ranuras ocupada
 sigue la distribución de Erlang, y la de todas ocupadas es la pérdida B(N, ρ).
 Con N = 1 es la columna `K=1` de [`tiempo_muerto.md`](tiempo_muerto.md), con
 pérdida de primer orden en ρ; con N ranuras la pérdida es ~ρ^N/N!.
+
+La ocupación no mira el disparo: un ciclo con alguna ranura libre es `livetime` o
+`t_rearm`, así que `livetime + t_rearm = t_ocup[0] + … + t_ocup[n_acc − 1]` (con
+`cfg_n_acc` sin cambiar desde el último `clear`).
 
 `deadtime` (`0x078`) es la **ocupación de alguna ranura**, `realtime − vetotime −
 t_ocup[0]` (`ap_deadtime_es_ocupacion`). Con una ranura coincide con el tiempo
@@ -379,7 +402,7 @@ dos muestras válidas son un solo disparo.
 | `0x120` | RW | `cfg_n_acc` | `1` | Ranuras habilitadas, 1..`N_ACC` |
 | `0x124` | RW | `cfg_pre_dly` | `11` | Retardo de la muestra respecto de `trig_i`, en ciclos |
 | `0x10C` | R | `{last_win_id[31:16], occ_max[15:8], occ[7:0]}` |   | La cola de publicación: ranuras cerradas ahora, su máximo y el id de la última ventana publicada |
-| `0x11C` | R | `N_ACC` |   | Ranuras con que se sintetizó (4 en los tops) |
+| `0x11C` | R | `N_ACC` |   | Ranuras con que se sintetizó (3 en los tops desde el 2026-11-09; 4 antes) |
 
 Una **ranura** es un juego entero de acumuladores. Un disparo abre la ranura
 habilitada libre de menor índice; la ranura mide durante la compuerta larga y,
@@ -449,6 +472,10 @@ otro. En el multitrigger ([`register_map_mt.md`](../mt/register_map_mt.md)) eso 
    `OR_MASK` (`slope_p`, bits 17–20). Su Schmitt es el que re-arma de verdad:
    vuelve a disparar cuando la pendiente baja de `thr − hyst` y sube otra vez, o
    sea con un pulso montado sobre la cola de otro.
+
+El nivel `trig_arm`, que alimenta `t_rearm`, no se configura: sale del mismo
+Schmitt que dispara. Con el disparo con polo-cero (bits 25–28) es igual, con su
+propio umbral y su histéresis.
 
 `tb_mca_mt_latencia` arma exactamente esto. El umbral se elige sobre la
 **pendiente**: para un escalón de alto A, `s = L·A`; para una rampa de m cuentas
@@ -525,10 +552,25 @@ colección) t_c, con la ventana abriendo `j` muestras antes del pie (lo fija
 
 ### El banco de trapecios
 
-![Qué son k, m y la ventana, y cómo se elige la forma](figuras/trapecio/banco_formas.svg)
+![Una forma por dentro: k, m y la ventana](figuras/trapecio/banco_formas_anatomia.svg)
 
-El MCA corre `N_FORMAS` = 4 trapecios sobre la misma muestra, con el M de
-`0x12C` en común. Cada ranura suma la meseta de todos, y al publicar se elige
+*Qué son k, m, `off` y la ventana en una forma (la 16/12).*
+
+![Un par a 40 muestras, medido con cada forma](figuras/trapecio/banco_formas_par.svg)
+
+*La ranura de A suma las ventanas de todas las formas y publica la más larga que B no
+alcanza.*
+
+![La regla que elige la forma](figuras/trapecio/banco_formas_regla.svg)
+
+*La regla de abajo, en el plano `F_DTPREV` × `F_DTNEXT`. Las tres figuras son del banco
+de 4 formas; la explicación entera está en
+[`pruebas_banco_trapecios.md`](pruebas_banco_trapecios.md) §5.*
+
+El MCA corre `N_FORMAS` trapecios sobre la misma muestra, con el M de
+`0x12C` en común. Los tops usan 3 desde el 2026-11-09 (64/48, 32/24, 8/8; el default del módulo
+es 4), y `N_ACC` = 3 ranuras: ver `pruebas_banco_trapecios.md` §7. Las formas que
+no están leen 0 e ignoran las escrituras. Cada ranura suma la meseta de todos, y al publicar se elige
 cuál sale en `F_TRAP`: **la primera forma f < `n_formas` con
 `antes[f] ≤ F_DTPREV` y `despues[f] ≤ F_DTNEXT`**, o sea la más larga (la de
 menos ruido) cuya ventana no alcanza al vecino. Si ninguna cumple, el pulso queda
@@ -592,12 +634,12 @@ trapecio dentro del de las ranuras, con `clr` a mitad de ventana) y `tb_mca_top`
 
 ## Último evento (depuración)
 
-| Offset | Campo |
-|---|---|
-| `0x080` | `amp` (16 b) |
+| Offset  | Campo              |
+| ------- | ------------------ |
+| `0x080` | `amp` (16 b)       |
 | `0x084` | `psd` (`PSD_AW` b) |
-| `0x088` | `Q_total` |
-| `0x08C` | `Q_cola` |
+| `0x088` | `Q_total`          |
+| `0x08C` | `Q_cola`           |
 
 Sirve para ajustar umbrales: si `cnt_total` no sube, mirar `baseline_now` y
 `Q_total` dice enseguida si el problema es la base o el umbral.

@@ -108,14 +108,17 @@ registro, porque el sintetizador no aplana jerarquía. Ver la
 | `LEN_W` | `integer` | `16` | ancho de los contadores de longitud |
 | `BL_KW` | `integer` | `4` | bits del exponente k del seguidor IIR |
 | `EN_PSD` | `integer` | `1` | 0: no instancia los divisores |
-| `N_ACC` | `integer` | `4` | ranuras de medicion |
+| `N_ACC` | `integer` | `4` → **`3`** (del TOP) | ranuras de medicion |
 | `PUB_IDW` | `integer` | `16` | bits del id de ventana |
 | `NA_W` | `integer` | `3` | bits de cfg_n_acc |
-| `N_FORMAS` | `integer` | `4` | trapecios del banco; 0: sin trapecio (F_TRAP vale cero) |
+| `N_FORMAS` | `integer` | `4` → **`3`** (del TOP) | trapecios del banco; 0: sin trapecio (F_TRAP vale cero) |
 | `TDAW` | `integer` | `10` | log2 de la profundidad de sus lineas de retardo |
 | `TMW` | `integer` | `20` | bits de su constante polo-cero |
-| `OC_W` | `integer` | `$clog2(N_ACC + 1)` = `3` |  |
+| `OC_W` | `integer` | `$clog2(N_ACC + 1)` = `2` |  |
 | `NF` | `integer` | `(N_FORMAS < 1) ? 1 : N_FORMAS` |  |
+
+
+Los marcados **(del TOP)** son los valores con los que el diseño se construye de verdad (`GENERICS` del `work/Makefile`); los anchos de esta página están resueltos con ésos, no con los defaults del RTL.
 
 
 #### Puertos
@@ -208,7 +211,7 @@ registro, porque el sintetizador no aplana jerarquía. Ver la
 | `dt_win_o` | out | 1 | clk_i | sin ranura libre, todas midiendo |
 | `dt_div_o` | out | 1 | clk_i | sin ranura libre, alguna esperando publicar |
 | `puede_abrir_o` | out | 1 | clk_i |  |
-| `n_ocup_o` | out | 3 `[OC_W-1:0]` | clk_i | ranuras ocupadas ahora |
+| `n_ocup_o` | out | 2 `[OC_W-1:0]` | clk_i | ranuras ocupadas ahora |
 
 
 ##### Atribucion de arribos: cada disparo va a UN casillero
@@ -227,8 +230,8 @@ registro, porque el sintetizador no aplana jerarquía. Ver la
 
 | Puerto | Dir | Bits | Dominio | Descripción |
 |---|---|---|---|---|
-| `pub_occ_o` | out | 3 `[OC_W-1:0]` | clk_i | ranuras esperando publicar |
-| `pub_occ_max_o` | out | 3 `[OC_W-1:0]` | clk_i | maximo historico |
+| `pub_occ_o` | out | 2 `[OC_W-1:0]` | clk_i | ranuras esperando publicar |
+| `pub_occ_max_o` | out | 2 `[OC_W-1:0]` | clk_i | maximo historico |
 | `last_win_id_o` | out | 16 `[PUB_IDW-1:0]` | clk_i | id de la ultima ventana publicada |
 | `cnt_trig_o` | out | 32 | clk_i | flancos crudos de trig_i |
 <!-- /AUTO:interfaces -->
@@ -280,27 +283,27 @@ _Origen: simulacion con semilla fija (`animacion_cadena_mca.py`), los mismos cua
 
 **(a) LA SENAL: UN PULSO POR EVENTO**
 
-![(a) LA SENAL: UN PULSO POR EVENTO](../mca/figuras/07a_senal.png)
+![(a) LA SENAL: UN PULSO POR EVENTO](../mca/figuras/07a_senal.svg)
 
 Las bandas parten el eje de TIEMPO en estados --ventana abierta, reposo-- y no la senal en eventos. La ventana abre al cruzar `thr` y cierra recien al bajar de `thr - hyst`, que es lo que hace que termine bastante despues del pico.
 
-_Origen: la misma simulacion, panel (a) suelto._
+_Origen: la misma simulacion, panel (a) suelto, en TikZ (`figuras_cadena_tikz.py`)._
 
 **(b) EL CAMINO DE DATOS: UN NUMERO POR PULSO**
 
-![(b) EL CAMINO DE DATOS: UN NUMERO POR PULSO](../mca/figuras/07b_cadena.png)
+![(b) EL CAMINO DE DATOS: UN NUMERO POR PULSO](../mca/figuras/07b_cadena.svg)
 
 `pulse_feature` emite un registro de evento por pulso y el histograma lo convierte en una cuenta. La tabla de abajo son los mismos pulsos como los ve el histograma, incluido el que no cruza el umbral y no produce nada.
 
-_Origen: la misma simulacion, panel (b) suelto._
+_Origen: la misma simulacion, panel (b) suelto, en TikZ (`figuras_cadena_tikz.py`)._
 
 **(c) EL ESPECTRO: UNA CUENTA POR NUMERO**
 
-![(c) EL ESPECTRO: UNA CUENTA POR NUMERO](../mca/figuras/07c_histograma.png)
+![(c) EL ESPECTRO: UNA CUENTA POR NUMERO](../mca/figuras/07c_histograma.svg)
 
-El mismo espectro en tres momentos de la acumulacion (12, 64 y 227 cuentas): la forma aparece recien cuando hay estadistica.
+El espectro final en barras apiladas: cada capa es un tramo de la acumulacion (las primeras 12 cuentas, de la 13 a la 64 y de la 65 a la 227), asi que el borde de arriba de cada capa es el espectro en ese momento. La capa de abajo son cuentas sueltas; la forma de las dos lineas aparece recien cuando hay estadistica.
 
-_Origen: la misma simulacion, panel (c) suelto._
+_Origen: la misma simulacion, panel (c) suelto, en TikZ (`figuras_cadena_tikz.py`)._
 
 ---
 
@@ -342,14 +345,6 @@ Lo que la cabecera del RTL marca como lo mas importante del modulo. El barrido d
 
 _Origen: `tb_mca_top`, escena 5 (lectura durante el borrado)._
 
-**FLUJO DE UNA MEDICION  -  mca_top**
-
-![FLUJO DE UNA MEDICION  -  mca_top](../mca/figuras/ondas/mca_flujo.svg)
-
-Es un esquema de la SECUENCIA, no una medicion. La configuracion es una escalera: el bus del PS escribe un registro por vez, y la figura los pone en el orden en que los escribe Mca.configure(). Ese orden importa en un solo punto: cfg_hist_sel va DESPUES de cfg_amp_src, porque escribir cfg_amp_src tambien lo mueve. Un registro que no se escribe conserva lo que tenia (el valor de reset solo despues de cargar el bitstream; ver register_map_mca.md). Despues, las dos cosas que fija: el borrado hay que ESPERARLO --`clear_busy` avisa, y los eventos que llegan mientras barre se descartan y se cuentan en `dropped`--, y los contadores se pueden leer con la medicion corriendo, que es lo que permite supervisar sin frenar. La misma secuencia en software esta en docs/API/guia_de_uso.md; si las dos se contradicen, una de las dos esta mal.
-
-_Origen: esquema (sin VCD)._
-
 ---
 
 Las figuras y sus epígrafes los escribe [`ondas_mca.py`](../mca/figuras/ondas/ondas_mca.py): los tiempos y las latencias se **miden sobre el VCD**, no se escriben a mano, así que no pueden desincronizarse del RTL. Los epígrafes completos, con los números, están en [`epigrafes.txt`](../mca/figuras/ondas/epigrafes.txt).
@@ -385,16 +380,16 @@ make -C modulos/mca/work lint
 | [`tb_mca_trap`](../../modulos/mca/sim/tb_mca_trap.sv) | `mca_trap` | — | — | vectores a mano |  |
 | [`tb_mca_multi`](../../modulos/mca/sim/tb_mca_multi.sv) | `mca_multi` | — | — | vectores a mano |  |
 | [`tb_mca_pulse_feature_evt`](../../modulos/mca/sim/tb_mca_pulse_feature_evt.sv) | `mca_pulse_feature_evt` | — | — | RTL de referencia `mca_pulse_feature_ref.v` instanciado al lado del DUT |  |
-| [`tb_mca_top`](../../modulos/mca/sim/tb_mca_top.sv) | `mca_top` | 11 | 121 | vectores a mano |  |
+| [`tb_mca_top`](../../modulos/mca/sim/tb_mca_top.sv) | `mca_top` | 11 | 131 | vectores a mano |  |
 
 
-**206 casos con nombre** en 8 testbenches (37 escenas). La lista completa, caso por caso, está en el plan de verificación.
+**216 casos con nombre** en 8 testbenches (37 escenas). La lista completa, caso por caso, está en el plan de verificación.
 
 > **`mca_pulse_feature` no tiene testbench propio.** Ningún `TBS` del `work/Makefile` lo instancia como DUT: lo que se verifica de este módulo es lo que arrastre el TB de otro. Es deuda de verificación, no una omisión de esta página.
 
 **Assertions** — en `sim/sva/`, enganchadas por `bind` (no tocan el RTL sintetizable).
 
-- [`mca_top_sva.sv`](../../modulos/mca/sim/sva/mca_top_sva.sv) — 68 propiedades
+- [`mca_top_sva.sv`](../../modulos/mca/sim/sva/mca_top_sva.sv) — 74 propiedades
 
 Plan de verificación, casos cubiertos y deuda: [`mca/sim/VERIFICACION.md`](../../modulos/mca/sim/VERIFICACION.md).
 <!-- /AUTO:verificacion -->

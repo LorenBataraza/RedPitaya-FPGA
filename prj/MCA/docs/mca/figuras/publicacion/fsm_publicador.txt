@@ -1,0 +1,5 @@
+La FSM de `mca_publish.sv`: dos estados, la cola de índices y lo que hace cada
+transición. Los operandos salen de `cur`, un registro: el divisor los engancha el
+ciclo después de `div_start`. Decidir y cargar en el mismo flanco daba
+$-0.734$ ns de slack (trece niveles). Una ranura cerrada guarda su resultado
+hasta `libera`: las ranuras *son* la memoria de la cola.

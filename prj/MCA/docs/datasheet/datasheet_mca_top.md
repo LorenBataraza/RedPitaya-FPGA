@@ -16,7 +16,7 @@
 | Módulo RTL | `mca_top` |
 | Archivo | [`mca_top.sv`](../../modulos/mca/rtl/mca_top.sv) |
 | Parámetros | 13 |
-| Puertos | 13 (10 in / 3 out) |
+| Puertos | 14 (11 in / 3 out) |
 | MAGIC | `32'h4D434132` — `"MCA2"` |
 | Parte | `xc7z010clg400-1` |
 
@@ -115,8 +115,8 @@ en [`figuras/07_cadena.png`](../mca/figuras/07_cadena.png).
 | `LEN_W` | `integer` | `16` |  |
 | `DIV_W` | `integer` | `16` | bits de cociente de los divisores de forma |
 | `NFEAT` | `integer` | `16` | ranuras del bus de features |
-| `N_ACC` | `integer` | `4` |  |
-| `N_FORMAS` | `integer` | `4` |  |
+| `N_ACC` | `integer` | `4` → **`3`** (del TOP) |  |
+| `N_FORMAS` | `integer` | `4` → **`3`** (del TOP) |  |
 
 
 Los marcados **(del TOP)** son los valores con los que el diseño se construye de verdad (`GENERICS` del `work/Makefile`); los anchos de esta página están resueltos con ésos, no con los defaults del RTL.
@@ -158,6 +158,15 @@ Viene del trigger_event del multitrigger, ya en adc_clk, asi que no hace falta C
 | `trig_i` | in | 1 | adc_clk_i |
 
 
+##### Estado del disparo (nivel), del multitrigger
+
+1 = algun canal del multitrigger puede disparar ya. Con 0 el disparo esta esperando re-armar (el Schmitt no bajo de thr - hyst), y un pulso que llegue no genera flanco: el MCA no lo ve, asi que lo unico medible es el TIEMPO, que va a t_rearm en vez de a livetime. Atar a 1 si el top no lo tiene (es el comportamiento de antes).
+
+| Puerto | Dir | Bits | Dominio |
+|---|---|---|---|
+| `trig_arm_i` | in | 1 | adc_clk_i |
+
+
 ##### Bus de sistema
 
 | Puerto | Dir | Bits | Dominio |
@@ -180,6 +189,16 @@ Viene del trigger_event del multitrigger, ya en adc_clk, asi que no hace falta C
 
 Contrato del bus: [`bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) · Mapa de slots: [`register_map_top.md`](../TOP/register_map_top.md)
 <!-- /AUTO:regmap -->
+
+<!-- AUTO:secuencia -->
+#### Secuencia de programación
+
+**UNA MEDICIÓN, VISTA DESDE EL PS** ([fuente](../mca/figuras/secuencia/mca_secuencia.tex))
+
+![UNA MEDICIÓN, VISTA DESDE EL PS](../mca/figuras/secuencia/mca_secuencia.svg)
+
+El contrato entre el PS y el MCA, en el orden en que lo hace `mca_read_acquire` de libmca. La configuración se escribe una vez y queda; cada medición es borrar, esperar el barrido, correr, parar, esperar que las ranuras publiquen y leer. La diferencia con el osciloscopio está en la franja verde: cada evento abre una ranura, se mide y se suma a un bin en la PL, sin el PS. El PS habla con el módulo al principio y al final de la medición, no por evento, y el tiempo muerto queda contado en los relojes (`t_win`, `t_div`). La configuración, en el orden de `mca_configure`, es `CTRL` (el canal, con `run` = 0: configurar para la medición), `cfg_baseline`, `cfg_bl_ctrl`, `cfg_amp_min`, `cfg_amp_max`, `cfg_amp_src`, `cfg_dec`, `cfg_gate_len`, `cfg_n_acc`, `cfg_pre_dly`, `cfg_trap_*` y las formas del banco, `cfg_hist_sel`, `cfg_zoom_*`, `cfg_discr_*` y `cfg_hist_ctrl`. Lo que pide cada paso: en la configuración, `cfg_hist_sel` va después de `cfg_amp_src`, porque escribir `cfg_amp_src` también lo mueve, y escribir `cfg_trap_km` o `cfg_trap_mq` reinicia el estado del trapecio, así que no se cambian con la medición corriendo. Un registro que no se escribe conserva lo que tenía: el valor de reset vale sólo después de cargar el bitstream. `CTRL.clear` es autolimpiante y borra histogramas, contadores y relojes. El barrido recorre los 2^`H_AW` bins (66 µs con 8192): durante ese lapso el bus sigue respondiendo, pero un evento que llegue con `run` = 1 se descarta y se cuenta en `cnt_dropped`; por eso libmca para antes de borrar. Los contadores y los relojes se pueden leer con la medición corriendo, que es lo que permite supervisar sin frenar. Al parar, las ranuras abiertas cierran y publican igual: hay que esperar `busy` = 0 antes de leer, o el espectro y los contadores pueden quedar desparejos. El espectro y el mapa se leen por las aperturas `0x10000` y `0x20000`, un bin `uint32` saturante por transacción; las aperturas son de 64 KB y el histograma ocupa menos, así que los offsets de más devuelven el mismo contenido. Sin `clear`, un `run` nuevo acumula sobre el histograma anterior. El trigger entra desde afuera: cómo configurar el multitrigger para el MCA está en [`register_map_mca.md`](../mca/register_map_mca.md#cómo-configurar-el-multitrigger-para-el-mca).
+<!-- /AUTO:secuencia -->
 
 ### 1.4 Clock domains
 
@@ -339,27 +358,27 @@ _Origen: simulacion con semilla fija (`animacion_cadena_mca.py`), los mismos cua
 
 **(a) LA SENAL: UN PULSO POR EVENTO**
 
-![(a) LA SENAL: UN PULSO POR EVENTO](../mca/figuras/07a_senal.png)
+![(a) LA SENAL: UN PULSO POR EVENTO](../mca/figuras/07a_senal.svg)
 
 Las bandas parten el eje de TIEMPO en estados --ventana abierta, reposo-- y no la senal en eventos. La ventana abre al cruzar `thr` y cierra recien al bajar de `thr - hyst`, que es lo que hace que termine bastante despues del pico.
 
-_Origen: la misma simulacion, panel (a) suelto._
+_Origen: la misma simulacion, panel (a) suelto, en TikZ (`figuras_cadena_tikz.py`)._
 
 **(b) EL CAMINO DE DATOS: UN NUMERO POR PULSO**
 
-![(b) EL CAMINO DE DATOS: UN NUMERO POR PULSO](../mca/figuras/07b_cadena.png)
+![(b) EL CAMINO DE DATOS: UN NUMERO POR PULSO](../mca/figuras/07b_cadena.svg)
 
 `pulse_feature` emite un registro de evento por pulso y el histograma lo convierte en una cuenta. La tabla de abajo son los mismos pulsos como los ve el histograma, incluido el que no cruza el umbral y no produce nada.
 
-_Origen: la misma simulacion, panel (b) suelto._
+_Origen: la misma simulacion, panel (b) suelto, en TikZ (`figuras_cadena_tikz.py`)._
 
 **(c) EL ESPECTRO: UNA CUENTA POR NUMERO**
 
-![(c) EL ESPECTRO: UNA CUENTA POR NUMERO](../mca/figuras/07c_histograma.png)
+![(c) EL ESPECTRO: UNA CUENTA POR NUMERO](../mca/figuras/07c_histograma.svg)
 
-El mismo espectro en tres momentos de la acumulacion (12, 64 y 227 cuentas): la forma aparece recien cuando hay estadistica.
+El espectro final en barras apiladas: cada capa es un tramo de la acumulacion (las primeras 12 cuentas, de la 13 a la 64 y de la 65 a la 227), asi que el borde de arriba de cada capa es el espectro en ese momento. La capa de abajo son cuentas sueltas; la forma de las dos lineas aparece recien cuando hay estadistica.
 
-_Origen: la misma simulacion, panel (c) suelto._
+_Origen: la misma simulacion, panel (c) suelto, en TikZ (`figuras_cadena_tikz.py`)._
 
 ---
 
@@ -401,14 +420,6 @@ Lo que la cabecera del RTL marca como lo mas importante del modulo. El barrido d
 
 _Origen: `tb_mca_top`, escena 5 (lectura durante el borrado)._
 
-**FLUJO DE UNA MEDICION  -  mca_top**
-
-![FLUJO DE UNA MEDICION  -  mca_top](../mca/figuras/ondas/mca_flujo.svg)
-
-Es un esquema de la SECUENCIA, no una medicion. La configuracion es una escalera: el bus del PS escribe un registro por vez, y la figura los pone en el orden en que los escribe Mca.configure(). Ese orden importa en un solo punto: cfg_hist_sel va DESPUES de cfg_amp_src, porque escribir cfg_amp_src tambien lo mueve. Un registro que no se escribe conserva lo que tenia (el valor de reset solo despues de cargar el bitstream; ver register_map_mca.md). Despues, las dos cosas que fija: el borrado hay que ESPERARLO --`clear_busy` avisa, y los eventos que llegan mientras barre se descartan y se cuentan en `dropped`--, y los contadores se pueden leer con la medicion corriendo, que es lo que permite supervisar sin frenar. La misma secuencia en software esta en docs/API/guia_de_uso.md; si las dos se contradicen, una de las dos esta mal.
-
-_Origen: esquema (sin VCD)._
-
 ---
 
 Las figuras y sus epígrafes los escribe [`ondas_mca.py`](../mca/figuras/ondas/ondas_mca.py): los tiempos y las latencias se **miden sobre el VCD**, no se escriben a mano, así que no pueden desincronizarse del RTL. Los epígrafes completos, con los números, están en [`epigrafes.txt`](../mca/figuras/ondas/epigrafes.txt).
@@ -445,16 +456,16 @@ make -C modulos/mca/work lint
 | [`tb_mca_trap`](../../modulos/mca/sim/tb_mca_trap.sv) | `mca_trap` | — | — | vectores a mano |  |
 | [`tb_mca_multi`](../../modulos/mca/sim/tb_mca_multi.sv) | `mca_multi` | — | — | vectores a mano |  |
 | [`tb_mca_pulse_feature_evt`](../../modulos/mca/sim/tb_mca_pulse_feature_evt.sv) | `mca_pulse_feature_evt` | — | — | RTL de referencia `mca_pulse_feature_ref.v` instanciado al lado del DUT |  |
-| [`tb_mca_top`](../../modulos/mca/sim/tb_mca_top.sv) | `mca_top` | 11 | 121 | vectores a mano | **sí** |
+| [`tb_mca_top`](../../modulos/mca/sim/tb_mca_top.sv) | `mca_top` | 11 | 131 | vectores a mano | **sí** |
 
 
-**206 casos con nombre** en 8 testbenches (37 escenas). La lista completa, caso por caso, está en el plan de verificación.
+**216 casos con nombre** en 8 testbenches (37 escenas). La lista completa, caso por caso, está en el plan de verificación.
 
 Las escenas de [`tb_mca_top`](../../modulos/mca/sim/tb_mca_top.sv): 1) Identificación, 2) Escritura y relectura de todos los registros RW, 3) BARRIDO DE ACK — la regresión importante, 4) El mismo barrido en el DUT B, con el motor 2D AU, 5) Lectura DURANTE el barrido de borrado, 6) CAMINO DE DATOS COMPLETO, 7) El borrado deja el espectro y los contadores en , 8) EL TESELADO DEL TIEMPO MUERTO, visto por el BUS,, 9) VARIAS RANURAS, por el bus, 10) EL TRAPECIO, 10) toma los pares que la forma 0 no puede medir lim.
 
 **Assertions** — en `sim/sva/`, enganchadas por `bind` (no tocan el RTL sintetizable).
 
-- [`mca_top_sva.sv`](../../modulos/mca/sim/sva/mca_top_sva.sv) — 68 propiedades
+- [`mca_top_sva.sv`](../../modulos/mca/sim/sva/mca_top_sva.sv) — 74 propiedades
 
 Plan de verificación, casos cubiertos y deuda: [`mca/sim/VERIFICACION.md`](../../modulos/mca/sim/VERIFICACION.md).
 <!-- /AUTO:verificacion -->

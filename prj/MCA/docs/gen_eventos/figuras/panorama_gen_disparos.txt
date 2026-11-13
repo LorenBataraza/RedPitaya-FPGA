@@ -1,0 +1,18 @@
+Cada operación con su símbolo. Decide en cada ciclo si dispara, y lo decidido
+(`disp`) sale en el ciclo siguiente por `trig_gen`, sólo si `en_i` y `run_i`
+siguen altos. La decisión es un mux que elige `aleat_i`: en modo periódico
+dispara cuando `per_cnt` llega a 0 (cuenta de `PERIODO − 1` a 0 y recarga); en
+aleatorio, cuando `x < UMBRAL` y no queda espera (`hold` carga `DT_MIN − 1` con
+cada disparo y baja hasta 0). Los intervalos aleatorios son geométricos: un
+Poisson discreto con tiempo muerto no paralizable. La Y con `activo` corta al
+llegar a `N` pulsos. `x` es un xorshift32, tres XOR de la palabra consigo misma
+corrida; un LFSR de un bit por paso daría ráfagas al compararlo con un umbral.
+Los mínimos (`max` con 2, menos 1) están registrados: un cambio de `PERIODO` o
+de `DT_MIN` entra un ciclo tarde. Las habilitaciones no se dibujan: `x` avanza
+con `activo`, `per_cnt` con `activo` en modo periódico y `hold` con `activo` en
+aleatorio. El arranque (flanco de `en_i` o de `run_i`) carga `x` con `SEMILLA`
+(0 usa `0x2545F491`) y `per_cnt` con `per_m1`, y pone `hold`, `trig_gen` y
+`cnt` en 0: con la misma semilla, los disparos caen siempre en el mismo ciclo.
+Los nombres sin cable (`arranque`, `disp`, `activo`, `en_i`, `run_i`) son la
+señal del mismo nombre. `hold_o` y `trig_gen_o`, para las assertions, no se
+dibujan.

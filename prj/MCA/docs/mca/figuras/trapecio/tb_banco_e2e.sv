@@ -33,7 +33,7 @@ module tb_banco_e2e;
   reg  [31:0] m_addr = 0, m_wdata = 0;
   reg         m_wen = 0, m_ren = 0;
   wire [31:0] m_rdata;
-  wire        m_err, m_ack, ev, daisy, veto;
+  wire        m_err, m_ack, ev, daisy, veto, trig_arm;
   wire [3:0]  ext_asg, trig_ch_o;
 
   mt_top #(.N_CH(N_CH), .DW(DW)) i_mt (
@@ -45,7 +45,7 @@ module tb_banco_e2e;
     .trig_ext_i(1'b0), .trig_asg_i(1'b0),
     .trig_ext_asg_o(ext_asg), .trig_ext_asg_i(ext_asg),
     .trig_ch_i(4'h0), .trig_ch_o(trig_ch_o),
-    .trigger_event_o(ev), .daisy_trig_o(daisy), .mca_veto_o(veto),
+    .trigger_event_o(ev), .daisy_trig_o(daisy), .mca_veto_o(veto), .trig_arm_o(trig_arm),
     .event_snap_o(), .trig_dis_clr_o(), .trg_src_o(), .new_trg_src_o(), .trg_state_o(),
     .sys_addr(m_addr), .sys_wdata(m_wdata), .sys_wen(m_wen), .sys_ren(m_ren),
     .sys_rdata(m_rdata), .sys_err(m_err), .sys_ack(m_ack)
@@ -59,7 +59,7 @@ module tb_banco_e2e;
 
   mca_top #(.DW(DW), .H_AW(8), .H2_AW(4), .PSD_AW(6), .N_ACC(N_ACC), .N_FORMAS(4)) i_mca (
     .adc_clk_i(clk), .adc_rstn_i(rstn),
-    .mca_dat_i({x, x}), .mca_val_i(2'b11), .veto_i(1'b0), .trig_i(daisy),
+    .mca_dat_i({x, x}), .mca_val_i(2'b11), .veto_i(1'b0), .trig_i(daisy), .trig_arm_i(trig_arm),
     .sys_addr(a_addr), .sys_wdata(a_wdata), .sys_wen(a_wen), .sys_ren(a_ren),
     .sys_rdata(a_rdata), .sys_err(a_err), .sys_ack(a_ack)
   );

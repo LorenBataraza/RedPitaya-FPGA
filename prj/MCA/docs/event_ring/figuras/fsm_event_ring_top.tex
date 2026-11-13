@@ -1,0 +1,67 @@
+% La FSM global de event_ring_top (gst): STOPPED -> RUNNING -> DRAINING.
+% La maneja el PS con CTRL.run; el estado se lee en STATUS[2:0]. Le da a la
+% captura run_i = (gst != STOPPED) y accept_trig_i = (gst == RUNNING).
+% Fuente: modulos/event_ring/rtl/event_ring_top.sv (FSM global, flush, bus).
+% El epígrafe está en fsm_event_ring_top.txt y en el doc que la incluye
+% (logica_de_captura_y_axi.md §7), no en la figura.
+%
+% Compilar:   pdflatex fsm_event_ring_top.tex
+%             pdftocairo -svg fsm_event_ring_top.pdf fsm_event_ring_top.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{
+  estado/.style = {rectangle split, rectangle split parts=2, rounded corners=4pt,
+                   draw=black, line width=0.7pt, align=center, text width=4.7cm,
+                   inner sep=3pt, font=\scriptsize,
+                   rectangle split part fill={#1, white!65!#1}},
+  trans/.style  = {->, line width=0.8pt},
+  pierde/.style = {->, line width=0.8pt, rojo!75!black, rounded corners=3pt},
+  guarda/.style = {font=\scriptsize, align=center, inner sep=1.5pt},
+}
+\newcommand{\s}[1]{\texttt{#1}}
+\newcommand{\cab}[2]{{\small\textsc{#1}}\\[-1pt]{\scriptsize #2}}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\node[titulo] at (-2.7,1.75) {\textbf{La FSM global} (\s{event\_ring\_top}):
+  la maneja el PS con \s{CTRL.run}, y la lee en \s{STATUS[2:0]}};
+
+\node[estado=grisr] (st) at (0,0) {
+  \cab{stopped}{\s{STATUS} = 0}
+  \nodepart{two}\textbf{flush}: stage, writer y FIFO vacíos\\
+  \s{WR\_SLOT}, \s{RD\_SLOT}, \s{SEQ} y la\\ dirección en 0; timestamp en 0\\
+  la geometría \textbf{se puede escribir}};
+
+\node[estado=verde!55] (ru) at (11,0) {
+  \cab{running}{\s{STATUS} = 1}
+  \nodepart{two}acepta triggers\\
+  el writer escribe si hay créditos\\
+  la geometría no se toma:\\ escribirla prende \s{err\_cfg}};
+
+\node[estado=amarillo] (dr) at (5.5,-3.9) {
+  \cab{draining}{\s{STATUS} = 2}
+  \nodepart{two}no acepta triggers nuevos\\
+  termina la ventana en vuelo,\\ vacía la stage y el writer,\\
+  y el FIFO larga el último footer};
+
+\draw[trans, black!55] ([xshift=-1.0cm]st.west) node[left, guarda, black!70] {reset} -- (st.west);
+
+\draw[trans] ([yshift=4mm]st.east) -- ([yshift=4mm]st.east -| ru.west)
+  node[guarda, midway, above=1pt] {\s{CTRL.run} = 1}
+  node[guarda, midway, below=1pt] {sale del flush; el timestamp arranca};
+
+\draw[trans] (ru.south) |- node[guarda, pos=0.25, right=2pt, align=left] {\s{CTRL.run} = 0} (dr.east);
+
+\draw[trans] (dr.west) -| node[guarda, pos=0.75, left=2pt, align=right]
+  {captura y writer libres,\\ stage sin eventos\\ y FIFO vacío} (st.south);
+
+\end{tikzpicture}
+\end{document}

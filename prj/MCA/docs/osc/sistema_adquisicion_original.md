@@ -23,6 +23,10 @@ una sola vez los bloques compartidos.
 
 ![Panorama de rp_scope_com](figuras/panorama_rp_scope_com.svg)
 
+*Un solo dominio de reloj: `axi_clk = adc_clk`. `NOMBRE=valor`: parámetros con
+que el padre instancia el bloque (se omiten los que sólo pasan el del padre sin
+cambio).*
+
 - **Cadena de acondicionamiento** (una por canal): lleva la muestra cruda del ADC
   hasta el dato que se guarda y, en paralelo, fabrica el pulso de trigger.
   - `rp_scope_calib`: corrige offset y ganancia con las constantes de
@@ -432,6 +436,19 @@ misma FSM de arm/trigger/congelar: un solo evento por ciclo de software, con una
 ventana más larga. Sirve para capturar 2 MB de una vez, no para capturar mil
 eventos seguidos.
 
+![Deep memory: muchos lugares para las muestras, uno para la marca](figuras/deep_memory_una_marca.svg)
+
+([fuente](figuras/deep_memory_una_marca.tex))
+
+Tampoco es un volcado continuo: `axi_we` sube con el armado y baja al terminar el
+post-trigger ([`:114-117`](../../../../rtl/classic/rp_axi_sm.v#L114)). En la región
+de DDR entran muchas ventanas, pero dónde cayó el trigger se anota en un solo
+registro por canal, `WP_TRIG`, que el PS lee por el bus antes de re-armar. Las
+muestras dejan de cruzar el bus; la marca y el re-armado no. Por eso el tiempo
+muerto sigue: ya no lo ponen las muestras, lo pone la marca. La comparación con
+un buffer de un lugar y uno de `K` está en
+[`../buffering_y_tiempo_muerto.md`](../buffering_y_tiempo_muerto.md#11-y-el-deep-memory).
+
 ---
 
 ## 6. El ciclo completo, y de dónde sale τ = 252.7 µs
@@ -536,7 +553,7 @@ documento):
 
 ```bash
 cd docs/osc/figuras
-for f in panorama_rp_scope_com fsm_rp_bram_sm fsm_rp_axi_sm; do
+for f in panorama_rp_scope_com fsm_rp_bram_sm fsm_rp_axi_sm deep_memory_una_marca; do
   pdflatex $f.tex && pdftocairo -svg $f.pdf $f.svg
 done
 rm -f *.aux *.log

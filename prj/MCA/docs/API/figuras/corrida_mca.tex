@@ -1,0 +1,53 @@
+% Una corrida del MCA: lineal, porque el hardware acumula el histograma solo.
+% El programa lo abre, lo configura, lo limpia y lo arranca; lee el histograma
+% las veces que quiera mientras mide (no lo vacía), lo para, lo guarda y lo
+% cierra. Iba como la subfigura (c) de maquinas_estados; quedó aparte porque el
+% osciloscopio tiene su propia figura con sus dos caminos.
+% Fuentes: software/API/mca.py (mca_open, mca_configure, mca_clear, mca_start,
+% mca_read_histogram, mca_stop, mca_write_file_histogram, mca_save_file_n42,
+% mca_close). El texto que acompaña está en docs/API/adquisicion_de_eventos.md
+% §2; el epígrafe, en corrida_mca.txt. Estilo: docs/figuras/estilo_tikz.tex.
+%
+% Compilar:   pdflatex corrida_mca.tex
+%             pdftocairo -svg corrida_mca.pdf corrida_mca.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{
+  op/.style = {bloque=white, minimum height=0.62cm, font=\scriptsize\ttfamily,
+               inner xsep=4pt},
+}
+
+\begin{document}
+\begin{tikzpicture}[fondo, node distance=0.42cm]
+
+\node[op, text width=1.55cm]               (o)  {mca\_open()};
+\node[op, text width=2.15cm, right=of o]   (cf) {mca\_configure()};
+\node[op, text width=1.6cm,  right=of cf]  (cr) {mca\_clear()};
+\node[op, text width=1.6cm,  right=of cr]  (st) {mca\_start()};
+\node[op, text width=2.85cm, right=of st]  (rh) {mca\_read\_histogram()};
+\node[op, text width=1.45cm, right=of rh]  (sp) {mca\_stop()};
+\node[op, text width=3.6cm,  right=of sp]  (wf) {mca\_write\_file\_histogram()\\ o mca\_save\_file\_n42()};
+\node[op, text width=1.6cm,  right=of wf]  (cl) {mca\_close()};
+\foreach \a/\b in {o/cf, cf/cr, cr/st, st/rh, rh/sp, sp/wf, wf/cl}
+  \draw[flujo] (\a) -- (\b);
+
+% leer no vacía el histograma: se lee las veces que haga falta
+\draw[flujo] (rh.north east) ++(-0.35,0) arc[start angle=-10, end angle=190, radius=0.42cm]
+  node[sen, pos=0.5, above, font=\tiny] {mientras mide};
+
+% el hardware acumula entre el start y el stop
+\fill[verde] (st.center |- 0,-0.55) rectangle (sp.center |- 0,-0.72);
+\node[font=\scriptsize, anchor=north] at ($(st.center)!0.5!(sp.center) + (0,-0.78)$)
+  {el hardware acumula};
+
+% ============================================================== leyenda ===
+\leyenda{-0.2,-1.75}{white/lo llama el programa, verde/el MCA acumula en la PL}{}
+
+\end{tikzpicture}
+\end{document}

@@ -15,7 +15,7 @@
 |---|---|
 | Módulo RTL | `rp_scope_mt_com` |
 | Archivo | [`rp_scope_mt_com.sv`](../../modulos/osc/rtl/rp_scope_mt_com.sv) |
-| Parámetros | 5 |
+| Parámetros | 6 |
 | Puertos | 51 (26 in / 25 out) |
 | Parte | `xc7z010clg400-1` |
 
@@ -78,6 +78,14 @@ Vivado parte el multiplicador en dos DSP en cascada **dentro** del lazo
 default es `1` para que el top de fábrica no cambie en nada; los tops del MCA y
 del anillo usan `0`, que saca el lazo del diseño y con él el camino crítico.
 
+**`EN_AXI = 0` saca la captura a DDR por AXI** (un `rp_axi_sm` por canal): las
+salidas `axi_*` quedan en cero, y con ellas se podan los `axi_master` de HP0 y
+HP1. Los registros de esa captura siguen en `osc_cfg`, y `AXI_WP_CUR` y
+`AXI_WP_TRIG` leen cero. Lo usa sólo el top del anillo, donde el event_ring
+toma su lugar: en el bitstream libera 960 LUT y 2 RAMB36, contando los dos
+maestros, y es lo que hace entrar al ring. Sin ella no anda `rp_AcqAxi*` de
+librp. El default es `1`.
+
 El mapa de slots completo está en
 [`register_map_top.md`](../TOP/register_map_top.md), y cómo se recorre el
 sistema de punta a punta en
@@ -96,6 +104,7 @@ sistema de punta a punta en
 | `DW` | `14` | Data Width |
 | `RSZ` | `14` | RAM size 2^RSZ |
 | `EN_FILT` | `1` |  |
+| `EN_AXI` | `1` |  |
 
 
 #### Puertos
@@ -280,14 +289,6 @@ _Origen: `tb_osc_filter`, caso de coeficientes de reset._
 La misma entrada que la figura anterior --un impulso-- con el lazo recursivo activo. Ahora la salida no es un impulso sino un pico seguido de una COLA que decae: eso es la compensacion polo-cero, que cancela la cola del preamplificador para que el pulso vuelva a la linea de base antes del siguiente. Es la parte del filtro que se rediseno, y la figura muestra que la cola entera --mas de veinte muestras-- coincide con la del filtro original muestra por muestra. Se dibuja el impulso y no un escalon porque con aa=25000 la constante de tiempo es de cientos de ciclos: un escalon no se asienta dentro de una ventana que se pueda mirar.
 
 _Origen: `tb_osc_filter`, caso de compensacion polo-cero._
-
-**FLUJO DE UNA ADQUISICION  -  osc_cfg**
-
-![FLUJO DE UNA ADQUISICION  -  osc_cfg](../osc/figuras/ondas/osc_cfg_adquisicion.svg)
-
-Es un esquema de la SECUENCIA, no una medicion: no hay testbench de osc_cfg del que sacar las ondas (ver §1.7 de su datasheet, que lo marca como deuda de verificacion). La configuracion es una escalera: el bus del PS escribe un registro por vez, primero los modos globales y despues la cadena de cada canal en el orden del datapath; DLY tiene que quedar en 1 o mas, porque el 0 de reset es el caso degenerado de rp_bram_sm. Lo que la figura fija es el orden y las dependencias: la configuracion del filtro y del diezmado va ANTES del armado, porque cambiarla con el buffer llenandose mezcla muestras de dos configuraciones en la misma traza; y la lectura va despues de que el puntero deje de moverse, porque leer durante la captura devuelve una traza partida entre dos vueltas del buffer.
-
-_Origen: esquema (sin VCD: `osc_cfg` no tiene testbench)._
 
 ---
 

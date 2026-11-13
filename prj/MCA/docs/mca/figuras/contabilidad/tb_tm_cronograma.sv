@@ -62,14 +62,14 @@ module tb_tm_cronograma;
   mca_top #(.H_AW(13), .H2_AW(7), .PSD_AW(6)) u0 (
     .adc_clk_i(clk), .adc_rstn_i(rstn),
     .mca_dat_i({x_in, x_in}), .mca_val_i(2'b11),
-    .veto_i(1'b0), .trig_i(trig),
+    .veto_i(1'b0), .trig_i(trig), .trig_arm_i(1'b1),
     .sys_addr(addr), .sys_wdata(wdata), .sys_wen(wen[0]), .sys_ren(1'b0),
     .sys_rdata(rd0), .sys_err(err0), .sys_ack(ack0));
 
   mca_top #(.H_AW(13), .H2_AW(7), .PSD_AW(6)) u1 (
     .adc_clk_i(clk), .adc_rstn_i(rstn),
     .mca_dat_i({x_in, x_in}), .mca_val_i(2'b11),
-    .veto_i(1'b0), .trig_i(trig),
+    .veto_i(1'b0), .trig_i(trig), .trig_arm_i(1'b1),
     .sys_addr(addr), .sys_wdata(wdata), .sys_wen(wen[1]), .sys_ren(1'b0),
     .sys_rdata(rd1), .sys_err(err1), .sys_ack(ack1));
 

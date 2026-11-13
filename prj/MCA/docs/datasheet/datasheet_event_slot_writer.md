@@ -76,6 +76,20 @@ creciente —cabecera, muestras intercaladas de los dos canales, relleno y
 footer— para que el generador lineal del `axi_wr_fifo` las coloque sin saltos.
 Es la última etapa del [`event_ring_top`](datasheet_event_ring_top.md).
 
+![Panorama de event_slot_writer](../event_ring/figuras/panorama_event_slot_writer.svg)
+
+*El estado de la FSM elige qué palabra sale: cuatro de cabecera, las muestras
+empaquetadas, ceros de relleno hasta la anteúltima y el footer `{~seq, seq}`.
+Cada palabra se sostiene en la salida hasta que el `axi_wr_fifo` la acepta
+(`wr_rdy_i`), así que la contrapresión frena al writer sin perder muestras.
+`wr_slot` y `seq` suben recién cuando se acepta el footer. `clr_cnt_i` los pone
+en cero y `flush_i` no, aunque en `event_ring_top` los dos vienen del mismo
+`flush`. Si la ventana no entra en el slot, `err_slot_ovf_o` queda prendido y el
+evento se trunca. `NOMBRE=valor`: parámetros con que lo instancia
+`event_ring_top`.*
+
+*Por dentro:* la FSM del slot, la cabecera, el empaquetador, el mux de la palabra, la salida con su handshake, los contadores de slot y la cuenta de palabras. Fuente TikZ en [`panorama_event_slot_writer.tex`](../event_ring/figuras/panorama_event_slot_writer.tex).
+
 El formato completo, decodificado con el **mismo decodificador que usa el
 software en producción** (`ring_format.decode_slot`) sobre datos de una corrida
 real, está en
@@ -275,7 +289,7 @@ _Sin figuras de ondas._ Se generan con un script en `docs/event_ring/figuras/ond
 Todo corre en batch y se chequea el `RESULT: PASS` del testbench; las ondas quedan en `work/waves/<tb>.wlf`.
 
 ```bash
-make -C modulos/event_ring/work            # los 5 testbenches
+make -C modulos/event_ring/work            # los 6 testbenches
 make -C modulos/event_ring/work cov        # + cobertura
 make -C modulos/event_ring/work lint
 ```
@@ -287,9 +301,10 @@ make -C modulos/event_ring/work lint
 | [`tb_event_slot_writer`](../../modulos/event_ring/sim/tb_event_slot_writer.sv) | `event_slot_writer` | 12 | 39 | vectores a mano | **sí** |
 | [`tb_event_ring_top`](../../modulos/event_ring/sim/tb_event_ring_top.sv) | `event_ring_top` | — | 39 | vectores a mano |  |
 | [`tb_event_ring_ventana`](../../modulos/event_ring/sim/tb_event_ring_ventana.sv) | `event_ring_ventana` | 8 | 23 | vectores a mano |  |
+| [`tb_event_ring_gen`](../../modulos/event_ring/sim/tb_event_ring_gen.sv) | `event_ring_gen` | — | 10 | vectores a mano |  |
 
 
-**152 casos con nombre** en 5 testbenches (27 escenas). La lista completa, caso por caso, está en el plan de verificación.
+**162 casos con nombre** en 6 testbenches (27 escenas). La lista completa, caso por caso, está en el plan de verificación.
 
 Las escenas de [`tb_event_slot_writer`](../../modulos/event_ring/sim/tb_event_slot_writer.sv): 1) cantidad exacta de palabras por slot = 2^(slot_s, 2) cabecera, 3) empaquetado 4 muestras/palabra, primera muestra , 4) relleno de ceros entre datos y footer, 5) FOOTER = ultima palabra, y vale {~seq, seq}, 6) IDEMPOTENCIA ANTE CONTRAPRESION, 7) sin creditos el writer SE FRENA (no descarta) y , 8) seq y wr_slot avanzan de a uno por evento, 9) err_slot_ovf con ventana que no entra en el slot, 10) RITMO, 11) una ventana que entra JUSTA en el slot no es un , 12) una ventana no multiplo de 4 con contrapresion.
 

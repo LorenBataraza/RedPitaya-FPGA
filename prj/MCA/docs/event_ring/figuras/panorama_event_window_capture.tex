@@ -1,0 +1,104 @@
+% Panorama de EVENT_WINDOW_CAPTURE: la primera etapa del event_ring. Un solo
+% buffer circular guarda el pre-trigger y de él sale la ventana entera; la FSM
+% decide en el ciclo del trigger si la ventana entra (m_accept) y la emite como
+% un stream de 16 b con los canales intercalados. El borde grueso es el límite
+% del módulo; lo que lo cruza son sus puertos, sólo con el nombre.
+% Fuente: modulos/event_ring/rtl/event_window_capture.sv.
+% Estilo: docs/figuras/estilo_tikz.tex.
+% El epígrafe no va en la figura: está en panorama_event_window_capture.txt y en
+% los docs que la incluyen.
+%
+% Compilar:   pdflatex panorama_event_window_capture.tex
+%             pdftocairo -svg panorama_event_window_capture.pdf panorama_event_window_capture.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{logica/.style = {etapa=naranja!25, text width=2.6cm}}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\def\xin{-0.6}    % donde arrancan las entradas
+\def\xout{14.6}   % donde terminan las salidas
+\def\ytop{6.3}    % de donde bajan las de control
+
+% ================================================================ bloques ===
+% --- arriba: lo que viaja con la ventana ---
+\node[registro, text width=3.2cm, inner ysep=5pt] (met) at (10.6,4.0)
+  {\etq{metadatos}{\texttt{ts}, \texttt{snapshot},\\ \texttt{nsamp} = \texttt{pre} + \texttt{post}\\ se cargan al aceptar}};
+
+% --- en el medio: el trigger y la decisión ---
+\node[logica, text width=2.3cm] (flc) at (2.4,1.6)
+  {\etq{flanco}{\texttt{trig\_i} $\wedge$ $\neg$\texttt{trig\_d}:\\ un flanco, un trigger}};
+\node[logica, text width=3.9cm, minimum height=1.6cm] (fsm) at (7.75,1.6)
+  {\etq{FSM de ventana}{\textsc{idle} $\to$ \textsc{drain} $\to$ \textsc{tail}\\
+   acepta o descarta entero,\\ en el ciclo del trigger\\[1pt]
+   {\tiny cuenta \texttt{samp\_left} y \texttt{ch\_idx}}}};
+\node[logica, text width=3.0cm, minimum height=1.35cm] (ptr) at (6.0,-1.15)
+  {\etq{punteros}{\texttt{wr\_ptr}: $+1$ por \texttt{dv}\\
+   \texttt{rd\_ptr} $\leftarrow$ \texttt{wr\_ptr} $-$ \texttt{pre}\\
+   \texttt{rd\_avail}: \texttt{rd\_ptr} $\neq$ \texttt{wr\_ptr}}};
+
+% --- abajo: el camino de la muestra ---
+\node[logica, text width=2.3cm] (sx) at (2.4,-3.6)
+  {\etq{extensión de signo}{14 $\to$ 16 b,\\ canal por canal}};
+\node[memoria, text width=2.9cm, minimum height=1.5cm] (buf) at (6.0,-3.6)
+  {\etq{pre-buffer circular}{$2^{\mathtt{PRE\_AW}}\times 32$ b $=$ 2048\\ se escribe siempre;\\ de acá sale la ventana}};
+\node[logica, text width=2.7cm, minimum height=1.5cm] (ser) at (10.95,-3.6)
+  {\etq{serializador}{\texttt{word\_r}, un canal por ciclo:\\ ch0[$k$], ch1[$k$], ch0[$k$+1]\ldots\\ marca \texttt{sof} y \texttt{eof}}};
+
+% ============================================================== el límite ===
+\node[contenedor, fit={(0.35,5.15) (12.9,-4.85)}] (lim) {};
+\node[titulo, anchor=south west, inner sep=2pt, align=left] at (lim.north west)
+  {\texttt{\bfseries event\_window\_capture}\\
+   \prm{DW=14 & N\_CH=2 & SW=16\\ PRE\_AW=11 & S\_AW=11 & TS\_W=64}};
+
+% ============================================================== flechas ====
+% --- lo que viaja con la ventana: se copia al aceptar ---
+\draw[flujo, ancho=64, ancho en=0.25] (\xin,4.3) node[left, sen] {ts\_i} -- (met.west |- 0,4.3);
+\draw[flujo, ancho=17, ancho en=0.55] (\xin,3.7) node[left, sen] {snapshot\_i} -- (met.west |- 0,3.7);
+\draw[flujo] (9.45,0 |- fsm.north) -- node[sen, right, pos=0.45] {acepta} (9.45,0 |- met.south);
+\draw[flujo] (met.east) -- (\xout,0 |- met.east) node[right, sen, align=left]
+  {m\_ts\_o, m\_snap\_o\\ m\_nsamp\_o};
+
+% --- el trigger ---
+\draw[flujo] (\xin,0 |- flc.west) node[left, sen] {trig\_i} -- (flc.west);
+\draw[flujo] (flc.east) -- node[sen, above] {trig\_edge} (fsm.west);
+
+% --- control, por arriba (cruza lo que va a los metadatos) ---
+\draw[ctrl, cruce] (6.6,\ytop) node[above, sen, black!80, align=center] {run\_i\\ accept\_trig\_i}
+  -- (6.6,0 |- fsm.north);
+\draw[ctrl, cruce] (8.2,\ytop) node[above, sen, black!80, align=center] {pre\_i\\ post\_i}
+  -- (8.2,0 |- fsm.north);
+
+% --- la decisión: m_accept entra, las pérdidas salen ---
+\draw[flujo] (\xout,2.05) node[right, sen] {m\_accept\_i} -- (fsm.east |- 0,2.05);
+\draw[flujo] (fsm.east |- 0,1.25) -- (\xout,1.25) node[right, sen, align=left]
+  {drop\_busy\_o, drop\_full\_o\\ busy\_o};
+
+% --- la FSM mueve el puntero de lectura y el serializador ---
+\draw[flujo] (5.6,0 |- fsm.south) -- node[sen, left, align=right] {acepta,\\ do\_read} (5.6,0 |- ptr.north);
+\draw[flujo] (6.6,0 |- ptr.north) -- node[sen, right] {rd\_avail} (6.6,0 |- fsm.south);
+\draw[flujo] (9.45,0 |- fsm.south) -- node[sen, right, align=left, pos=0.4] {do\_read,\\ samp\_left} (9.45,0 |- ser.north);
+
+% --- el camino de la muestra ---
+\draw[flujo] (\xin,0 |- ptr.west) node[left, sen] {dv\_i} -- (ptr.west);
+\draw[flujo, ancho=28, ancho en=0.7] (\xin,0 |- sx.west) node[left, sen, align=right]
+  {dat\_i\\[-1pt]\normalfont\scriptsize 2 canales} -- (sx.west);
+\draw[flujo, ancho=32] (sx.east) -- (buf.west);
+\draw[flujo] (ptr.south) -- node[sen, right] {wr\_ptr, rd\_ptr} (buf.north);
+\draw[flujo, ancho=32] (buf.east) -- (ser.west);
+\draw[flujo, ancho=16, ancho en=0.6] (ser.east |- 0,-3.3) -- (\xout,-3.3) node[right, sen] {m\_dat\_o};
+\draw[flujo] (ser.east |- 0,-3.9) -- (\xout,-3.9) node[right, sen, align=left]
+  {m\_val\_o, m\_sof\_o\\ m\_eof\_o};
+
+% ================================================================= leyenda ===
+\leyenda{-1.6,-6.0}{naranja!25/lógica propia, naranja!50/memoria, grisr/registro}{}
+
+\end{tikzpicture}
+\end{document}

@@ -5,6 +5,7 @@
 % scope. El borde grueso es el límite del módulo; lo que lo cruza son sus
 % puertos, sólo con el nombre.
 % Fuente: modulos/mt/rtl/mt_event_logic.v. Estilo: docs/figuras/estilo_tikz.tex.
+% El epígrafe no va en la figura: está en panorama_mt_event_logic.txt y en el doc que la incluye.
 %
 % Compilar:   pdflatex panorama_mt_event_logic.tex
 %             pdftocairo -svg panorama_mt_event_logic.pdf panorama_mt_event_logic.svg
@@ -97,14 +98,7 @@
 \draw[flujo] (shd.east |- 0,-3.6) -- (\xout,-3.6) node[right, sen, align=left] {shield\_cnt\_o\\ shield\_active\_o};
 
 % ================================================================= leyenda ===
-\leyenda{-3.6,-6.9}{amarillo/submódulos del trigger, amarillo!40/lógica propia}
-  {\texttt{trigger\_event\_o}, \texttt{event\_arm\_o} y \texttt{daisy\_trig\_o} son
-   la misma señal: el OR de los disparos de los canales. Las fuentes del escudo
-   son los disparos por canal más la entrada externa cruda (flancos y nivel), así
-   que se puede vetar desde afuera sin gastar la máscara de un canal. El
-   snapshot guarda las fuentes \emph{crudas} del ciclo del evento, retrasadas uno
-   para alinearlas con el registro de \texttt{mt\_trig\_src}.\\
-   \texttt{NOMBRE=valor}: parámetros con que lo instancia \texttt{rp\_scope\_mt\_com}.}
+\leyenda{-3.6,-6.9}{amarillo/submódulos del trigger, amarillo!40/lógica propia}{}
 
 \end{tikzpicture}
 \end{document}

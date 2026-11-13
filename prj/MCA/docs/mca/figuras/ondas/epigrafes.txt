@@ -1,13 +1,11 @@
 EPÍGRAFES DE LAS FIGURAS DE ONDAS DEL MODULO MCA
 ================================================
 
-Las cuatro primeras las escribe `ondas_mca.py` leyendo los VCD de
+Las cuatro las escribe `ondas_mca.py` leyendo los VCD de
 `tb_mca_pulse_feature`, `tb_mca_hist` y `tb_mca_top`. Los números de abajo
 --cuántos ciclos dura la ventana del pulso, cuántos incrementos seguidos
 absorbe el histograma, cuántos ciclos tarda el ack-- los mide el script sobre
 el VCD, así que no pueden desincronizarse de los dibujos.
-
-La quinta es un esquema de secuencia y no tiene VCD detrás.
 
 Reloj de la simulación: tb_mca_hist a 100 MHz, tb_mca_pulse_feature a 100 MHz, tb_mca_top a 125 MHz
 
@@ -119,24 +117,6 @@ no, que es lo que la figura mide.
   · Latencia del ack en las lecturas de la ventana: [4, 4, 4, 4] ciclos (siempre el mismo), con el barrido en curso.
   · El presupuesto es 32 ciclos (el timeout de `axi4_slave.sv:193`).
   · 8 señales, 74 columnas, ventana 97072 a 97652 ns.
-
-FIGURA — mca_flujo.svg
-----------------------
-FLUJO DE UNA MEDICION  -  mca_top
-
-Es un esquema de la SECUENCIA, no una medicion. La configuracion es una
-escalera: el bus del PS escribe un registro por vez, y la figura los pone en
-el orden en que los escribe Mca.configure(). Ese orden importa en un solo
-punto: cfg_hist_sel va DESPUES de cfg_amp_src, porque escribir cfg_amp_src
-tambien lo mueve. Un registro que no se escribe conserva lo que tenia (el
-valor de reset solo despues de cargar el bitstream; ver register_map_mca.md).
-Despues, las dos cosas que fija: el borrado hay que ESPERARLO --`clear_busy`
-avisa, y los eventos que llegan mientras barre se descartan y se cuentan en
-`dropped`--, y los contadores se pueden leer con la medicion corriendo, que es
-lo que permite supervisar sin frenar. La misma secuencia en software esta en
-docs/API/guia_de_uso.md; si las dos se contradicen, una de las dos esta mal.
-
-  · ESQUEMA: una columna es un paso del software, no un ciclo de reloj.
 
 Las ventanas se ubican por condiciones sobre las señales --el cruce del
 umbral, el valor de cfg_maxlen que define la escena, la racha de incrementos, la

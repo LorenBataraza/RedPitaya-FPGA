@@ -23,7 +23,7 @@ Para el contrato del bus y sus modos de falla, ver
 |---|---|---|---|
 | 0 | `0x4000_0000` | housekeeping | `red_pitaya_hk` (Red Pitaya) |
 | 1 | `0x4010_0000` | **OSC** | [`osc/osc_cfg.sv`](../../modulos/osc/rtl/osc_cfg.sv) · [mapa](../osc/register_map_osc.md) |
-| 2 | `0x4020_0000` | *event_ring* | libre en el build del MCA |
+| 2 | `0x4020_0000` | *event_ring* y **gen_pulsos** | repartido por [`sys_bus_split`](../../modulos/comun/rtl/sys_bus_split.sv): el ring en `0x4020_0000` (un stub en el build del MCA) y el [generador de pulsos](../gen_eventos/generador_pulsos.md) en `0x4021_0000`, en los dos |
 | 3 | `0x4030_0000` | **MULTITRIGGER** | [`mt_cfg.sv`](../../modulos/mt/rtl/mt_cfg.sv) · [mapa](../mt/register_map_mt.md) |
 | 4 | `0x4040_0000` | XADC / PDM | `red_pitaya_ams` (Red Pitaya) |
 | 5 | `0x4050_0000` | daisy | `red_pitaya_daisy` (Red Pitaya) |
@@ -36,16 +36,25 @@ decodificador y su `ack`**.
 
 ![Panorama de mca_red_pitaya_top](figuras/panorama_mca_red_pitaya_top.svg)
 
+*Los pines físicos quedan en el borde. Control: GP0 → `sys_bus`. Datos:
+`i_scope` → HP → DDR, sin pasar por el ARM. `NOMBRE=valor`: parámetros con que
+el padre instancia el bloque (se omiten los que sólo pasan el del padre sin
+cambio). En `integration_cfg` se muestran 4 de sus 21.*
+
 El mismo mapa, dentro de `mca_red_pitaya_top`. Arriba, el PS con sus dos
 caminos: el de **control** (GP0 → `axi4_slave` → `sys_bus_interconnect` →
 slots) y el de **datos** (`i_scope` → `axi_master` → HP → DDR, sin pasar por el
 ARM). Los slots 1 y 3 son dos buses de la **misma** instancia, `i_scope`; el
-slot 2 es un `sys_bus_stub` porque en este build no hay ASG. Los pines de la
-placa quedan en el borde inferior. La fuente es
+slot 2 es un `sys_bus_stub` porque en este build no hay ASG. La fuente es
 [`figuras/panorama_mca_red_pitaya_top.tex`](figuras/panorama_mca_red_pitaya_top.tex)
 (TikZ).
 
 ![Panorama de event_ring_red_pitaya_top](figuras/panorama_event_ring_red_pitaya_top.svg)
+
+*Los pines físicos quedan en el borde. Control: GP0 → `sys_bus`. Datos:
+`i_scope` y `event_ring_top` → HP → DDR, sin pasar por el ARM. `NOMBRE=valor`:
+parámetros con que el padre instancia el bloque (se omiten los que sólo pasan el
+del padre sin cambio). En `integration_cfg` se muestran 4 de sus 21.*
 
 `event_ring_red_pitaya_top` es el mismo top salvo dos cosas: el slot 2 deja de
 ser un stub y pasa a ser el [`event_ring_top`](../event_ring/diseno_y_register_map.md),
@@ -56,8 +65,12 @@ un único dibujo,
 no puedan divergir; cada una es un envoltorio de tres líneas que elige la
 variante.
 
-El mapa de arriba es el de `mca_red_pitaya_top` y `event_ring_red_pitaya_top`:
-por eso el slot 2 queda reservado aunque en el build del MCA esté vacío.
+El mapa de arriba es el de `mca_red_pitaya_top` y `event_ring_red_pitaya_top`.
+El slot 2 era el del ASG de Red Pitaya, y lo comparten dos módulos que ocupan su
+lugar: `sys_bus_split` manda los 64 KB con `addr[19:16] = 1` (`0x4021_0000`) a
+`gen_pulsos`, que maneja la entrada del DAC (`asg_dat`) y la fuente ASG del
+multitrigger, y todo lo demás al `event_ring`, que en el build del MCA es un stub.
+Las figuras de abajo todavía no muestran a `gen_pulsos`.
 
 > **`red_pitaya_top` es la excepción.** Ese top conserva el ASG (slot 2) y el
 > PID (slot 3), así que el slot 3 canónico no está libre y el **multitrigger va
@@ -93,10 +106,15 @@ commit salió sin depender de que alguien lo anote.
 
 | Offset | R/W | Campo | Layout |
 |---|---|---|---|
-| `0x020` | R | `MODULES` | b0 `OSC` · b1 `MTRG` · b2 `MCA` · b3 `RING` · b4 `ASG` · b5 `PID` |
-| `0x024` | R | `SLOTS` | `{MCA[19:16], TOP[15:12], MTRG[11:8], RING[7:4], OSC[3:0]}` |
+| `0x020` | R | `MODULES` | b0 `OSC` · b1 `MTRG` · b2 `MCA` · b3 `RING` · b4 `ASG` · b5 `PID` · b6 `PULSOS` |
+| `0x024` | R | `SLOTS` | `{PULSOS[23:20], MCA[19:16], TOP[15:12], MTRG[11:8], RING[7:4], OSC[3:0]}` |
 | `0x028` | R | `CAPS_0` | `{EN_FILT[24], RSZ[21:16], DW[13:8], N_CH[3:0]}` |
 | `0x02C` | R | `CAPS_1` | `{PSD_AW[23:16], H2_AW[15:8], H_AW[7:0]}` |
+
+`PULSOS` es el generador de pulsos (`gen_pulsos`), que no es el ASG de Red Pitaya:
+por eso tiene su bit y `ASG` sigue en 0. Vive `0x1_0000` más arriba de la base de
+su slot. libmca lo lee desde 0.9.0: `integration_get_modules` y `get_slots` traen
+`pulsos`, y `integration_get_base` le suma el `0x1_0000`.
 
 Estos cuatro registros existen para que el software **descubra** el sistema en
 vez de hardcodear bases y anchos — que es lo que hacen hoy `mca_utils.py` y
@@ -123,9 +141,15 @@ estaba cableado a uno fijo; ahora lo elige el software.
 
 ![Datapath del top: dónde se conmuta](figuras/datapath_top.svg)
 
-La figura lleva sólo nombres de señal, los valores de `ROUTE_*` en cada cruce y
-**marcas numeradas**; lo que cada marca significa está acá abajo, una fila por
-marca. Es el mismo criterio del overlay de
+*Una sola cadena de acondicionado por canal, con cuatro nodos (A a D), y un
+`dsp_tap_mux` 4:1 por consumidor. No es una matriz de conmutación: son tres
+selectores independientes. Cada entrada de un mux lleva su código de tap (0 a 3)
+y la letra del nodo que entra; las entradas 1 a 3 son los mismos nodos para los
+tres, y la 0 es el nativo de cada uno.*
+
+La figura lleva sólo nombres de señal, los códigos de tap con la letra del nodo
+en cada entrada de mux y **marcas numeradas**; lo que cada marca significa está
+acá abajo, una fila por marca. Es el mismo criterio del overlay de
 [`movimiento_de_datos.md`](../movimiento_de_datos.md): el dibujo no repite la
 tabla, para que no puedan desincronizarse dos copias de lo mismo.
 
@@ -136,12 +160,14 @@ tabla, para que no puedan desincronizarse dos copias de lo mismo.
 | **3** | Nodo **B** · `adc_dec_in` · `tap_sel = 2` | Post-calibración y, si `EN_FILT = 1`, post-ecualizador. Todavía a ritmo pleno: continuo, `valid = 1` |
 | **4** | Nodo **C** · `adc_dly_in` · **sin código de tap** | Post-diezmado, **pre**-retardo. Sólo lo alcanza el multitrigger y sólo como NATIVO — por eso existe el código `0` aparte de los tres taps. Lleva estrobo: `valid = dec_val` |
 | **5** | Nodo **D** · `adc_bram_in` · `tap_sel = 3` | Después de toda la cadena. Lleva estrobo: `valid = adc_dv_bram` |
-| **6** | `osc_filter` **no está en este bitstream** | `EN_FILT = 0` en el build de integración, así que no se sintetiza y el nodo B es la muestra calibrada y nada más |
+| **6** | `osc_filter`, el ecualizador | `EN_FILT = 0` en los dos tops de integración: no se sintetiza y el nodo B es la muestra calibrada y nada más. Su lazo IIR no cierra timing a 125 MHz |
 | **7** | Bypass del ecualizador | `set_filt_byp`, registro `0x5C` de la región de OSC (slot 1) |
-| **8** | Un `dsp_tap_mux` 4:1 **por consumidor** | Cada uno elige en runtime, escribiendo su `ROUTE_*`. Combinacional a propósito (ver más abajo) |
-| **9** | El punto con **anillo** es el valor de **reset** | O sea el cableado NATIVO, el que existía antes de que hubiera mux. Donde no hay punto no hay camino posible |
-| **10** | La captura a **DDR no se rutea** | `rp_axi_sm` sigue siempre en su nodo nativo: `ROUTE_OSC` mueve la captura en BRAM, **no** las `rp_AcqAxi*` |
-| **11** | El **veto** es la única señal que cruza de un consumidor a otro | Nivel, vía `trigger_shield`: del multitrigger al MCA |
+| **8** | Un `dsp_tap_mux` 4:1 **por consumidor** | Tres selectores independientes, no una matriz de conmutación. Cada uno elige en runtime, escribiendo su `ROUTE_*`. Combinacional a propósito (ver más abajo) |
+| **9** | La entrada **0** es el **nativo** y el valor de **reset** | El cableado que existía antes de que hubiera mux: D para el OSC, C para el multitrigger, B para el MCA |
+| **10** | La captura a **DDR no se rutea** | `rp_axi_sm` sigue siempre en el nodo D: `ROUTE_OSC` mueve la captura en BRAM, **no** las `rp_AcqAxi*`. Sólo en el top del MCA: en el del ring es `EN_AXI = 0` y la reemplaza el `event_ring` |
+| **11** | Lo que el multitrigger da a los otros consumidores | `trig` (flanco): arma la captura del OSC, abre una ranura en el MCA y dispara una ventana del ring. `veto` y `trig_arm` (niveles): sólo al MCA, para su teselado de relojes (`vetotime` y `t_rearm`) |
+| **12** | El **lazo digital** | Con `digital_loop[0]` (HK `0x4000_000C`, bit 0) la cadena toma `asg_dat` de `gen_pulsos` en lugar del ADC: todo el datapath ve los pulsos del generador |
+| **13** | El `event_ring` toma lo mismo que el MCA | Sólo en `event_ring_red_pitaya_top`: `mca_dat` (lo que elija `ROUTE_MCA`) y el `trig`. `ROUTE_RING` (`0x03C`) existe en `integration_cfg` pero no está conectado |
 
 En texto, la misma cadena:
 
@@ -272,9 +298,9 @@ no. Un esclavo que no hace ack no produce sólo una lectura mala — deja el CDC
 del slot desincronizado para siempre
 ([§7.1](bus_sistema_redpitaya.md)).
 
-**`sys_rdata` es un registro plano.** El `set_false_path` del XDC sobre
-`inst_sys_bus_cdc/reg_rdata*` no engancha nada, así que ese cruce se timea de
-verdad y no conviene colgarle lógica combinacional ancha.
+**`sys_rdata` es un registro plano**, listo en el ciclo del ack: `sys_bus_cdc` lo
+congela ahí en `reg_rdata` y es esa copia la que cruza al PS
+([§6.1](bus_sistema_redpitaya.md)).
 
 ---
 

@@ -1,0 +1,58 @@
+% banco_formas_regla. GENERADO por figuras_banco.py: no editar a mano.
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../../figuras/estilo_tikz.tex}
+\definecolor{f0}{HTML}{104281}
+\definecolor{f1}{HTML}{256ABF}
+\definecolor{f2}{HTML}{5598E7}
+\definecolor{f3}{HTML}{86B6EF}
+\definecolor{fm}{HTML}{C9C9C5}
+\begin{document}
+\begin{tikzpicture}[fondo]
+\node[titulo, anchor=west] at (-0.750,4.020) {\textbf{La regla} \quad {\scriptsize gana la primera que cumple}};
+\fill[fm] (0.000,0.000) rectangle (3.600,3.600);
+\fill[f3] (0.450,0.390) rectangle (3.600,3.600);
+\draw[white, line width=1pt] (0.450,3.600) -- (0.450,0.390) -- (3.600,0.390);
+\fill[f2] (0.780,0.720) rectangle (3.600,3.600);
+\draw[white, line width=1pt] (0.780,3.600) -- (0.780,0.720) -- (3.600,0.720);
+\fill[f1] (1.470,1.440) rectangle (3.600,3.600);
+\draw[white, line width=1pt] (1.470,3.600) -- (1.470,1.440) -- (3.600,1.440);
+\fill[f0] (2.910,2.880) rectangle (3.600,3.600);
+\draw[white, line width=1pt] (2.910,3.600) -- (2.910,2.880) -- (3.600,2.880);
+\node[font=\scriptsize\bfseries, text=white] at (3.240,3.240) {0};
+\node[font=\scriptsize\bfseries, text=white] at (2.190,2.160) {1};
+\node[font=\scriptsize\bfseries, text=black] at (1.125,1.050) {2};
+\node[font=\scriptsize\bfseries, text=black] at (0.615,0.555) {3};
+\node[nodo] at (0.210,0.180) {m};
+\draw[black!45] (2.910,0.000) -- ++(0,-0.05) node[below, nodo, inner sep=1pt] {97};
+\draw[black!45] (0.000,2.880) -- ++(-0.05,0) node[left, nodo, inner sep=1pt] {96};
+\draw[black!45] (1.470,0.000) -- ++(0,-0.05) node[below, nodo, inner sep=1pt] {49};
+\draw[black!45] (0.000,1.440) -- ++(-0.05,0) node[left, nodo, inner sep=1pt] {48};
+\draw[black!45] (0.780,0.000) -- ++(0,-0.05) node[below, nodo, inner sep=1pt] {26};
+\draw[black!45] (0.000,0.720) -- ++(-0.05,0) node[left, nodo, inner sep=1pt] {24};
+\draw[black!45] (0.450,0.000) -- ++(0,-0.05) node[below, nodo, inner sep=1pt] {15};
+\draw[black!45] (0.000,0.390) -- ++(-0.05,0) node[left, nodo, inner sep=1pt] {13};
+\node[nodo, anchor=north] at (1.800,-0.300) {\texttt{F\_DTPREV}: al vecino de antes};
+\node[nodo, rotate=90, anchor=south] at (-0.420,1.800) {\texttt{F\_DTNEXT}: al de después};
+\fill[white] (3.510,1.200) circle (0.075);
+\fill[black] (3.510,1.200) circle (0.05);
+\fill[white] (1.200,3.510) circle (0.075);
+\fill[black] (1.200,3.510) circle (0.05);
+\node[nodo, text=white, anchor=east] at (3.450,1.200) {A};
+\node[nodo, text=white, anchor=north] at (1.200,3.450) {B};
+\node[nodo, anchor=north west, align=left] at (3.800,3.680) {\textbf{forma}\quad uso a 1\,Mcps};
+\fill[f0] (3.850,2.980) rectangle (4.050,3.180);
+\node[nodo, anchor=west] at (4.070,3.080) {0: 64/48, 27\,\%};
+\fill[f1] (3.850,2.640) rectangle (4.050,2.840);
+\node[nodo, anchor=west] at (4.070,2.740) {1: 32/24, 28\,\%};
+\fill[f2] (3.850,2.300) rectangle (4.050,2.500);
+\node[nodo, anchor=west] at (4.070,2.400) {2: 16/12, 20\,\%};
+\fill[f3] (3.850,1.960) rectangle (4.050,2.160);
+\node[nodo, anchor=west] at (4.070,2.060) {3: 8/8, 14\,\%};
+\fill[fm] (3.850,1.620) rectangle (4.050,1.820);
+\node[nodo, anchor=west] at (4.070,1.720) {m: marcado, 10\,\%};
+\end{tikzpicture}
+\end{document}

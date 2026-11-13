@@ -1,0 +1,246 @@
+% Datapath de GEN_PULSOS, registro por registro: de la lectura de la tabla a la
+% muestra que sale, con el ancho de cada señal y el ciclo en que el pulso está en
+% cada registro. g es el ciclo en que sale el pulso (trig_o); la primera muestra
+% aparece en dat en g+5 (con SUBIDA = 0, el pico es exactamente A).
+% Dos filas para que entre en una A4: arriba la tabla, el impulso y la caída;
+% abajo la subida, la salida y el ruido. y1 baja por el canal de la derecha.
+% Fuente: modulos/gen_eventos/rtl/gen_pulsos.sv. La vista por bloques está en
+% panorama_gen_pulsos.tex; el motor, en panorama_gen_disparos.tex.
+% Estilo: docs/figuras/estilo_tikz.tex, con los símbolos de operación: cada
+% operación con símbolo (suma, resta, producto, XOR, comparación, saturación, Y, O,
+% mux) va con el símbolo. El color del fondo es la función, el mismo del panorama.
+% El epígrafe no va en la figura: está en datapath_gen_pulsos.txt y en el doc que
+% la incluye.
+%
+% Compilar:   pdflatex datapath_gen_pulsos.tex
+%             pdftocairo -svg datapath_gen_pulsos.pdf datapath_gen_pulsos.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+\tikzset{
+  op/.style    = {oper, font=\small},
+  caja/.style  = {desp, inner sep=2pt, minimum height=0.62cm},
+  reg/.style   = {registro=#1, minimum height=0.7cm, font=\scriptsize\ttfamily},
+  reg/.default = 0.8cm,
+  fondo f/.style = {draw=black!45, dashed, line width=0.5pt, rounded corners=3pt,
+                    fill=#1},
+  rotf/.style  = {font=\scriptsize\itshape, black!75, inner sep=2pt},
+  chico/.style = {font=\tiny, inner sep=1pt, align=center},
+  etapa l/.style = {draw=black!30, line width=0.5pt, dash pattern=on 2pt off 2pt},
+  ciclo/.style = {font=\scriptsize, inner sep=1.5pt, fill=white},
+  cflecha/.style = {->, line width=0.6pt},
+}
+% la regla de ciclos: #1 = y, #2 = lista de x de los registros, #3 = y de abajo
+\newcommand{\etapas}[3]{%
+  \foreach \x in {#2} \draw[etapa l] (\x,#1) -- (\x,#3);}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\def\xin{-0.2}
+\def\xout{15.55}
+
+% ===================================================== fondos por función ===
+% primero, para que todo lo demás quede encima
+  \node[fondo f=amarillo!45, fit={(3.15,1.15) (4.45,2.35)}] (fdisp) {};
+  \node[fondo f=azul!10, fit={(4.45,-0.85) (6.75,0.85)}] (fimp) {};
+  \node[fondo f=azul!10, fit={(6.85,-1.75) (11.85,2.05)}] (fdsp) {};
+  \node[fondo f=azul!10, fit={(0.7,-5.35) (5.3,-4.15)}] (fsub) {};
+  \node[fondo f=naranja!18, fit={(5.5,-5.35) (15.0,-4.15)}] (fsal) {};
+  \node[fondo f=naranja!18, fit={(0.3,-9.6) (9.5,-6.6)}] (frui) {};
+\node[rotf, anchor=south west] at (fdisp.north west) {\texttt{gen\_disparos}};
+\node[rotf, anchor=north west] at (fimp.south west) {impulso};
+\node[rotf, anchor=north east] at (fdsp.south east) {caída};
+\node[rotf, anchor=north west] at (fsub.south west) {subida};
+\node[rotf, anchor=north east] at (fsal.south east) {salida};
+\node[rotf, anchor=north east] at (frui.south east) {ruido};
+
+% ============================================== fila 1: tabla, impulso, caída
+\def\ya{0.25}     % la fila de la amplitud
+\node[memoria=verde!45, text width=1.25cm, minimum height=1.2cm] (tab) at (1.8,\ya)
+  {\etq{tabla}{puerto B}};
+\node[reg=0.95cm] (tbq) at (3.8,\ya) {tab\_b\_q};
+\node[reg=0.95cm] (tg) at (3.8,1.75) {trig\_gen};
+
+\muxdec{mx}{(5.05,0)}{1.25}
+\node[font=\tiny] at ($(mx-in)+(0.13,0.25)$) {1};
+\node[font=\tiny] at ($(mx-in)+(0.13,-0.25)$) {0};
+\node[reg=0.75cm] (imp) at (6.2,0) {imp};
+
+% la caída: C = {imp, 0^8, signo de y1 x 16}; p = y1 * DECAE + C
+\node[caja, text width=1.95cm] (cat) at (8.05,0)
+  {$C = \{\mathit{imp},\, 0^{8},$\\ $y_1[24]^{16}\}$};
+\node[op] (mul) at (9.85,1.3) {$\times$};
+\node[op] (sum) at (9.85,0) {$+$};
+\node[caja] (sli) at (11.05,0) {$p[40{:}16]$};
+\node[puerta o] (od) at (11.45,-1.25) {};
+\node[op] (ovf) at ($(od.input 1)+(-0.85,0)$) {$\neq$};
+\node[reg=1.2cm] (y1) at (12.45,0) {y1};
+\node[reg=1.25cm] (des) at (12.6,-1.25) {desborde};
+
+% ======================================================= fila 2: subida, salida
+\def\yb{-4.75}
+\node[op] (res) at (1.25,\yb) {$-$};
+\node[caja] (shs) at (2.5,\yb) {\texttt{>>> SUBIDA}};
+\node[op] (acu) at (3.75,\yb) {$+$};
+\node[reg] (y2) at (4.75,\yb) {y2};
+
+\node[op] (r0) at (6.2,\yb) {$+$};
+\node[caja] (sh8) at (7.65,\yb) {\texttt{>>> 8}};
+\node[reg] (s) at (8.95,\yb) {s};
+
+\node[op] (sm) at (10.0,\yb) {$+$};
+\node[satur] (sat) at (11.25,\yb) {};
+\node[chico, anchor=north] at (sat.south) {14 b};
+\muxdec{me}{(12.3,\yb)}{1.0}
+\node[font=\tiny] at ($(me-in)+(0.13,0.2)$) {1};
+\node[font=\tiny] at ($(me-in)+(0.13,-0.2)$) {0};
+\node[reg] (dat) at (13.25,\yb) {dat};
+\node[puerta y] (o1) at (14.45,\yb+0.4) {};
+\node[puerta y] (o2) at (14.45,\yb-0.4) {};
+
+% --- el ruido, en la fila de abajo ---
+\def\yc{-7.2}
+\node[reg] (rr) at (1.5,\yc) {rr};
+\node[opxor] (q1) at (3.0,\yc-1.05) {};
+\node[opxor] (q2) at (4.1,\yc-1.05) {};
+\node[opxor] (q3) at (5.2,\yc-1.05) {};
+\node[caja, minimum height=0.48cm] (t1) at (3.0,\yc-1.7) {\texttt{<<13}};
+\node[caja, minimum height=0.48cm] (t2) at (4.1,\yc-1.7) {\texttt{>>17}};
+\node[caja, minimum height=0.48cm] (t3) at (5.2,\yc-1.7) {\texttt{<<5}};
+\node[op] (sb) at (3.4,\yc) {$\Sigma$};
+\node[reg=0.95cm] (ns) at (4.75,\yc) {nsum};
+\node[op] (m510) at (5.85,\yc) {$-$};
+\node[caja] (nzc) at (6.85,\yc) {\texttt{>>> sh}};
+\muxdec{mr}{(7.9,\yc)}{1.0}
+\node[font=\tiny] at ($(mr-in)+(0.13,0.2)$) {1};
+\node[font=\tiny] at ($(mr-in)+(0.13,-0.2)$) {0};
+\node[reg] (nz) at (8.95,\yc) {nz};
+
+% ========================================================== la regla de ciclos
+\def\yra{3.15}
+\etapas{\yra}{3.8, 6.2, 12.45}{-1.95}
+\node[ciclo] at (1.8,\yra) {$g-1$: decide y lee la tabla};
+\node[ciclo] at (5.0,\yra) {$g$: \texttt{pulso}};
+\node[ciclo] at (9.3,\yra) {$g+1$};
+\node[ciclo] at (13.75,\yra) {$g+2$ $\downarrow$};
+\def\yrb{-3.3}
+\etapas{\yrb}{4.75, 8.95, 13.25}{-7.75}
+\node[ciclo] at (2.5,\yrb) {$g+2$};
+\node[ciclo] at (6.85,\yrb) {$g+3$};
+\node[ciclo] at (11.1,\yrb) {$g+4$};
+\node[ciclo] at (14.4,\yrb) {$g+5$: sale};
+
+% ============================================================== flechas ====
+% --- la decisión: la entrada de la tabla y el disparo, un ciclo antes ---
+\draw[flujo, ancho=10, ancho en=0.45] (\xin,\ya) node[left, sen] {idx\_c} -- (tab.west |- 0,\ya);
+\draw[flujo] (\xin,1.75) node[left, sen] {disp} -- (tg.west);
+\draw[flujo, ancho=14, ancho en=0.5] (tab.east |- 0,\ya) -- (tbq.west);
+\draw[flujo] (tbq.east) -- (mx-in |- 0,\ya);
+\draw[flujo] (4.2,-0.25) node[left, chico] {0} -- (mx-in |- 0,-0.25);
+\coordinate (jt) at (5.05,1.75);
+\draw[flujo] (tg.east) -- (jt) -- node[sen, right, pos=0.35] {pulso} ($(mx)+(0,0.45)$);
+\punto{jt}
+\draw[flujo] (jt) -- (5.05,2.55) -- (5.6,2.55) node[right, sen] {trig\_o};
+
+% --- el impulso, registrado ---
+\draw[flujo] (mx-out) -- (imp.west);
+\draw[flujo] (imp.east) -- (cat.west);
+
+% --- la caída: producto, suma con C y los bits del medio ---
+\draw[flujo, ancho=48, ancho en=0.4] (cat.east) -- (sum.west);
+\draw[flujo, anchov=48, ancho en=0.5] (mul.south) -- (sum.north);
+\draw[flujo, ancho=17, ancho en=0.4] (11.0,1.3) node[right, sen] {\{0,DECAE\}} -- (mul.east);
+\draw[flujo] (sum.east) -- node[chico, above, pos=0.35] {$p$} (sli.west);
+\draw[flujo] (sli.east) -- (y1.west);
+\draw[flujo] (ovf.north |- 0,0) -- node[chico, left, pos=0.5] {$p[41]$\\ $p[40]$} (ovf.north);
+\punto{ovf.north |- 0,0}
+\draw[flujo] (ovf.east) -- (od.input 1);
+\draw[flujo] (od.output) -- (des.west);
+\coordinate (jdes) at (13.5,-1.25);
+\draw[flujo] (des.east) -- (jdes) -- ++(0.25,0) node[right, sen] {ESTADO[2]};
+\punto{jdes}
+\draw[flujo] (jdes) -- (13.5,-1.9) -- (10.95,-1.9) |- (od.input 2);
+
+% el lazo de y1: vuelve al multiplicador y su signo al redondeo
+\coordinate (jy) at (13.35,0);
+\draw[flujo] (y1.east) -- (jy);
+\punto{jy}
+\draw[flujo] (jy) -- (13.35,2.35) -- (9.85,2.35) -- (mul.north);
+\draw[ctrl] (9.85,2.35) -- (7.45,2.35) -- node[chico, right, pos=0.5] {$y_1[24]$} (7.45,0 |- cat.north);
+\punto{9.85,2.35}
+
+% y1 baja a la fila 2 por el canal de la derecha
+\draw[flujo, ancho=25, ancho en=0.6] (jy) -- (15.2,0) -- (15.2,-2.75) -- (0.35,-2.75) -- (0.35,\yb) -- (res.west);
+\node[sen, anchor=south] at (7.4,-2.75) {$y_1$, \;la caída};
+
+% --- la subida ---
+\draw[flujo, ancho=26, ancho en=0.4] (res.east) -- (shs.west);
+\draw[flujo] (shs.east) -- (acu.west);
+\draw[flujo] (acu.east) -- (y2.west);
+\coordinate (jy2) at (5.4,\yb);
+\draw[flujo] (y2.east) -- (r0.west);
+\draw[flujo] (5.4,-5.35) -| node[chico, below, pos=0.25] {$\{y_2[24]^{8}\}$} (r0.south);
+\punto{5.4,-5.35}
+\punto{jy2}
+\draw[flujo] (jy2) -- (5.4,-5.85) -- (3.75,-5.85) -- (acu.south);
+\draw[flujo] (3.75,-5.85) -- (1.25,-5.85) -- node[chico, right, pos=0.5] {$-$} (res.south);
+\punto{3.75,-5.85}
+\node[chico, anchor=north] at (2.5,-5.9) {$y_2$, 25 b};
+
+% --- la salida ---
+\draw[flujo] (r0.east) -- (sh8.west);
+\draw[flujo, ancho=17, ancho en=0.45] (sh8.east) -- (s.west);
+\draw[flujo] (s.east) -- (sm.west);
+\draw[flujo, anchov=14, ancho en=0.45] (10.0,-3.95) node[above, sen] {BASE} -- (sm.north);
+\draw[flujo, ancho=19, ancho en=0.35] (sm.east) -- (sat.west);
+\draw[flujo] (sat.east) -- (me-in |- 0,\yb+0.2);
+\draw[flujo] (11.75,\yb-0.2) node[left, chico] {0} -- (me-in |- 0,\yb-0.2);
+\draw[ctrl] (12.3,-3.95) node[above, sen, black!80] {en} -- ($(me)+(0,0.33)$);
+\draw[flujo] (me-out) -- (dat.west);
+\coordinate (jo) at (13.85,\yb);
+\draw[flujo] (dat.east) -- (jo);
+\punto{jo}
+\draw[flujo] (jo) |- (o1.input 2);
+\draw[flujo] (jo) |- (o2.input 1);
+\draw[ctrl] (14.0,-3.95) node[above, sen, black!80] {out1} |- (o1.input 1);
+\draw[ctrl] (14.0,-5.55) node[below, sen, black!80] {out2} |- (o2.input 2);
+\draw[flujo, ancho=14, ancho en=0.55] (o1.output) -- (\xout,0 |- o1.output) node[right, sen] {dat\_a\_o};
+\draw[flujo, ancho=14, ancho en=0.55] (o2.output) -- (\xout,0 |- o2.output) node[right, sen] {dat\_b\_o};
+
+% --- el ruido ---
+\draw[flujo, ancho=32, ancho en=0.3] (rr.east) -- (sb.west);
+\node[chico, anchor=south] at (sb.north) {los 4 bytes};
+\coordinate (jr) at (2.3,\yc);
+\punto{jr}
+\draw[flujo] (jr) -- (2.3,\yc-1.05) -- (q1.west);
+\draw[flujo] (2.55,\yc-1.05) -- (2.55,\yc-1.7) -- (t1.west);
+\draw[flujo] (t1.north) -- (q1.south);
+\draw[flujo] (q1.east) -- (q2.west);
+\draw[flujo] (3.6,\yc-1.05) -- (3.6,\yc-1.7) -- (t2.west);
+\draw[flujo] (t2.north) -- (q2.south);
+\draw[flujo] (q2.east) -- (q3.west);
+\draw[flujo] (4.7,\yc-1.05) -- (4.7,\yc-1.7) -- (t3.west);
+\draw[flujo] (t3.north) -- (q3.south);
+\punto{2.55,\yc-1.05} \punto{3.6,\yc-1.05} \punto{4.7,\yc-1.05}
+\draw[flujo] (q3.east) -- (5.75,\yc-1.05) -- (5.75,\yc-2.25) -- (0.6,\yc-2.25) -- (0.6,\yc) -- (rr.west);
+\draw[flujo, ancho=10, ancho en=0.5] (sb.east) -- (ns.west);
+\draw[flujo] (ns.east) -- (m510.west);
+\draw[cflecha] ($(m510.north)+(0,0.36)$) node[above, cte] {510} -- (m510.north);
+\draw[flujo] (m510.east) -- (nzc.west);
+\draw[flujo] (nzc.east) -- (mr-in |- 0,\yc+0.2);
+\draw[flujo] (7.35,\yc-0.2) node[left, chico] {0} -- (mr-in |- 0,\yc-0.2);
+\draw[ctrl] (7.9,\yc-0.95) node[below, sen, black!80] {RUIDO[8]} -- ($(mr)+(0,-0.33)$);
+\draw[flujo] (mr-out) -- (nz.west);
+\draw[flujo, ancho=11, ancho en=0.15] (nz.east) -| (sm.south);
+
+% ================================================================= leyenda ===
+\leyenda{-0.6,-10.6}{amarillo!45/disparos, verde!45/amplitud, azul!10/forma del pulso,
+  naranja!18/salida, grisr/registro}{}
+
+\end{tikzpicture}
+\end{document}

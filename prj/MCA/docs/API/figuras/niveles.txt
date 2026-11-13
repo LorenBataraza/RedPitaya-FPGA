@@ -1,0 +1,7 @@
+Los niveles son una jerarquía de dependencias: cada uno puede usar cualquiera de los
+de abajo y ninguno de los de arriba. Los registros no son software: son la base sobre
+la que se apoya la pila. Lo que cruza entre máquinas son las fronteras físicas: el bus
+AXI GP0, por donde el PS lee y escribe los registros; el AXI HP0, por donde el
+`event_ring` escribe sus slots en la DDR, que el PS lee por el mmap sin pasar por la
+PL; y la red. Los niveles 1 a 4 de todos los bloques son C (libmca), y Python los
+llama por `ctypes`.

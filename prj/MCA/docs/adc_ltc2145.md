@@ -52,8 +52,8 @@ alimentación única de 1.8 V, QFN de 64 pines.
 
 | Qué | Cómo está | Dónde |
 |---|---|---|
-| Datos | 16 líneas `LVCMOS18` por canal, `IOB TRUE` (el flip-flop de captura va en el bloque de IO) | [`sdc/red_pitaya.xdc`](../../../sdc/red_pitaya.xdc) líneas 18–55 |
-| Alineación | el RTL toma `adc_dat_i[ch][15 -: ADW]` con `ADW = 14`; **los dos bits bajos están reservados** para el modelo de 16 bit (122-16) | [`mca_red_pitaya_top.sv:474`](../rtl/mine/tops/mca_red_pitaya_top.sv#L474) |
+| Datos | 16 líneas `LVCMOS18` por canal, `IOB TRUE` (el flip-flop de captura va en el bloque de IO: en el top es `adc_dat_raw`, registrado solo, sin el mux de `digital_loop`) | [`sdc/red_pitaya.xdc`](../../../sdc/red_pitaya.xdc) líneas 18–55 |
+| Alineación | el RTL toma `adc_dat_i[ch][15 -: ADW]` con `ADW = 14`; **los dos bits bajos están reservados** para el modelo de 16 bit (122-16) | [`mca_red_pitaya_top.sv:564`](../rtl/mine/tops/mca_red_pitaya_top.sv#L564) |
 | Reloj | del oscilador **directo al ADC** y al FPGA por `adc_clk_i` (`DIFF_HSTL_I_18`, U18/U19) → `IBUFDS` → PLL → `adc_clk` | top, líneas ~290; [`platform.md`](platform.md) §2.4 |
 | `adc_clk_o` | salida de reloj de la placa hacia el ADC: **sin uso** en la 125-14 | top, líneas 464–465 |
 | `adc_cdcs_o` | *clock duty cycle stabilizer*, **atado a 1** permanentemente | [`mca_red_pitaya_top.sv:467`](../rtl/mine/tops/mca_red_pitaya_top.sv#L467) |
@@ -257,11 +257,11 @@ STEMlab TI usan SLVDS serializado, y por eso necesitan
 desarmarla porque en una sola expresión hay **dos conversiones encadenadas**:
 
 ```systemverilog
-// mca_red_pitaya_top.sv:554  — tomar los 14 bits altos de las 16 líneas
-assign adc_dat_raw[0] = adc_dat_i[0][16-1 -: ADW];
+// mca_red_pitaya_top.sv:564  — tomar los 14 bits altos de las 16 líneas (el flop del IOB)
+adc_dat_raw[0] <= adc_dat_i[0][16-1 -: ADW];
 
-// mca_red_pitaya_top.sv:559  — "transform into 2's complement (negative slope)"
-adc_dat[0] <= {adc_dat_raw[0][ADW-1], ~adc_dat_raw[0][ADW-2:0]};
+// mca_red_pitaya_top.sv:570  — "transform into 2's complement (negative slope)"
+adc_dat[0] <= digital_loop[0] ? dac_a : {adc_dat_raw[0][ADW-1], ~adc_dat_raw[0][ADW-2:0]};
 ```
 
 #### Las dos cosas que arregla

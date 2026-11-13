@@ -1,0 +1,83 @@
+% Una captura del osciloscopio, vista desde el PS: el contrato PS <-> osc.
+% Fuente: modulos/osc/rtl/osc_cfg.sv (mapa canónico, docs/osc/register_map_osc.md)
+% y rtl/classic/rp_bram_sm.v (armado, post-trigger, congelado, ADC_STATE).
+% El costo de leer la ventana es el medido en placa de
+% docs/API/arquitectura_adquisicion_software.md.
+%
+% Modo single-shot (CFG_WE_KEEP = 0). Las reglas de cada paso (qué pasa si no
+% se respeta) van en el epígrafe, secuencia.json, no en la figura. El trigger es una entrada del módulo: de
+% dónde sale es asunto del multitrigger, no de este contrato.
+%
+% Compilar:   pdflatex osc_secuencia.tex
+%             pdftocairo -svg osc_secuencia.pdf osc_secuencia.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../../figuras/estilo_tikz.tex}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+\def\xm{0} \def\xps{9.0}
+\def\yfin{-8.85}
+
+\node[actor=azul!35] at (\xm,0)  {\textbf{osc}\\ registros y buffer};
+\node[actor=grisr]   at (\xps,0) {\textbf{PS}\\ software};
+\foreach \x in {\xm,\xps} \draw[vida] (\x,-0.43) -- (\x,\yfin);
+
+% ---- 1: configurar, una vez
+\draw[gp] (\xps,-1.2) -- node[rot] {configurar\\ \texttt{DEC}, \texttt{FILT\_*},
+  \texttt{CALIB\_*}, \texttt{THRESH}, \texttt{HYST}, \texttt{DLY}} (\xm+0.16,-1.2);
+
+% ---- el marco de una captura
+\fill[marcolazo] (-4.7,-1.95) rectangle (12.9,-8.65);
+\draw[marcolazo, fill=none] (-4.7,-1.95) rectangle (12.9,-8.65);
+\node[rotlazo, anchor=north west] at (-4.7,-1.95) {una captura};
+\foreach \x in {\xm,\xps} \draw[vida] (\x,-1.95) -- (\x,-8.65);
+
+% estados del módulo, los que el PS ve en ADC_STATE
+\franja{\xm}{-2.6}{-4.2}{verde!55}{armada:\\ escribe el anillo}
+\franja{\xm}{-4.2}{-5.3}{amarillo}{post-trigger:\\ \texttt{DLY} muestras más}
+\franja{\xm}{-5.3}{-8.65}{grisr}{buffer congelado}
+
+% ---- 2: armar
+\draw[gp] (\xps,-2.6) -- node[rot] {escribir \texttt{CMD\_ARM}} (\xm+0.16,-2.6);
+
+% ---- 3: sondear hasta que termine (el trigger llega en el medio)
+\draw[gp] (\xps,-3.3) -- node[rot] {leer \texttt{ADC\_STATE}: «terminó» = 0} (\xm+0.16,-3.3);
+\node[font=\scriptsize, black!60] at (\xps/2,-4.05) {\dots};
+\draw[entrada] (-4.3,-4.2) -- node[rot, fill=azul!8, above=1pt, pos=0.45] {trigger}
+  (\xm-0.16,-4.2);
+\node[font=\scriptsize, black!60] at (\xps/2,-5.05) {\dots};
+\draw[gp] (\xps,-5.9) -- node[rot] {leer \texttt{ADC\_STATE}: «terminó» = 1} (\xm+0.16,-5.9);
+\repite{\xps}{-3.3}{-5.9}{se repite\\ hasta «terminó» = 1}
+
+% ---- 4: dónde cayó
+\draw[gp] (\xps,-6.6) -- node[rot] {leer \texttt{WP\_TRIG} y \texttt{WE\_CNT}} (\xm+0.16,-6.6);
+
+% ---- 5: la ventana entera, una muestra por transacción
+\draw[gp] (\xm+0.16,-7.45) -- node[rot] {leer toda la ventana: \texttt{pre} + \texttt{post}\\
+  muestras alrededor de \texttt{WP\_TRIG}} (\xps,-7.45);
+\draw[gp] (\xm+0.16,-8.15) -- (\xps,-8.15);
+\repite{\xps}{-7.45}{-8.15}{una muestra por transacción:\\ se repite \texttt{pre} + \texttt{post}\\ veces por canal}
+
+% ---- y de vuelta
+\draw[->, line width=0.6pt, black!70] (\xps,-9.15) -- (\xps+0.9,-9.15)
+  node[right, font=\scriptsize, black!70] {vuelve a armar: la configuración queda};
+
+% leyenda
+\draw[gp] (-4.7,-9.85) -- ++(0.7,0);
+\node[font=\scriptsize, anchor=west] at (-3.95,-9.85)
+  {registro o apertura BRAM, por GP0};
+\draw[entrada] (-4.7,-10.3) -- ++(0.7,0);
+\node[font=\scriptsize, anchor=west] at (-3.95,-10.3)
+  {entrada del módulo: no la maneja el PS};
+\draw[->, black!80, line width=0.7pt, rounded corners=2pt] (-4.0,-10.62) -- (-3.85,-10.62) -- (-3.85,-10.88) -- (-4.0,-10.88);
+\node[font=\scriptsize, anchor=west] at (-3.75,-10.75)
+  {lo que el PS repite};
+\node[font=\scriptsize, black!70, anchor=west] at (-4.75,-11.2)
+  {El tiempo corre hacia abajo y no está a escala: lo que fija la figura es el orden.};
+\end{tikzpicture}
+\end{document}

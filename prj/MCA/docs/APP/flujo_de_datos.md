@@ -305,7 +305,7 @@ y espera, lo que recibe es directamente el error.
 | | estado |
 |---|---|
 | **la PL** | el estado real: registros y las dos BRAM |
-| **el servidor** | el handle, el objetivo de exposición, y la muestra anterior de `(livetime, accepted)` para calcular la tasa instantánea |
+| **el servidor** | el handle, el objetivo de exposición, y la muestra anterior de `(livetime, accepted)` y de los arribos y el tiempo de la tasa de entrada, para las tasas instantáneas |
 | **el cliente** | una copia del último espectro y su metadata, la lista de picos derivada de ella, y **estado de presentación**: rebin, escala log, período de refresco |
 
 El cliente **no guarda configuración**: la reelee del hardware después de cada
@@ -416,7 +416,10 @@ indistinguible de uno escrito en la placa**: se usan las mismas funciones de
       con el que la geometría del histograma sale de `WIDTHS`: **al hardware se
       le pregunta, no se le supone**. La excepción es la base del propio
       slot 6, que hay que conocer para poder preguntar.
-- [ ] El event_ring (slot 2) sigue sin exponerse. Tiene API y no tiene pestaña.
+- [x] El event_ring (slot 2) se expone por las ops `ring.*`: una adquisición con su
+      sesión, que escribe en un camino de la placa (la SD, `/dev/shm` o un montaje de
+      la PC). Ver [`protocolo.md`](protocolo.md).
+- [ ] El event_ring no tiene pestaña en la GUI.
 - [ ] `fpga.load_bitstream` cierra **todos** los handles antes de reprogramar y
       los reabre después con las bases del bitstream nuevo, pero eso no tiene
       prueba automática: en `--fake` la operación se rechaza, así que el camino

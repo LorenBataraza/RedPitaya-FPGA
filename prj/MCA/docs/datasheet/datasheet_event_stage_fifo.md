@@ -51,6 +51,17 @@
 escritor AXI: absorbe la diferencia de ritmo entre un productor que no se puede
 frenar y un consumidor que sí.
 
+![Panorama de event_stage_fifo](../event_ring/figuras/panorama_event_stage_fifo.svg)
+
+*`eventos + abierto` cuenta también el evento que está entrando, así que un
+trigger nunca se acepta sobre un lugar de metadato ya prometido. `win_len_i` es
+`(pre + post)·N_CH`, en muestras. `flush_i` es un solo puerto y pone en cero los
+punteros de las dos colas; `lvl_o` y `ev_lvl_o` son diagnóstico. Con ventanas de
+1024 muestras entran dos eventos, no cuatro. `NOMBRE=valor`: parámetros con que
+lo instancia `event_ring_top`.*
+
+*Por dentro:* la cola de muestras, la cola de metadatos y la aceptación. Fuente TikZ en [`panorama_event_stage_fifo.tex`](../event_ring/figuras/panorama_event_stage_fifo.tex).
+
 Esa asimetría es toda la razón de existir del bloque.
 [`event_window_capture`](datasheet_event_window_capture.md) produce al ritmo
 del ADC y las muestras del post-trigger **llegan cuando llegan**;
@@ -227,7 +238,7 @@ _Sin figuras de ondas._ Se generan con un script en `docs/event_ring/figuras/ond
 Todo corre en batch y se chequea el `RESULT: PASS` del testbench; las ondas quedan en `work/waves/<tb>.wlf`.
 
 ```bash
-make -C modulos/event_ring/work            # los 5 testbenches
+make -C modulos/event_ring/work            # los 6 testbenches
 make -C modulos/event_ring/work cov        # + cobertura
 make -C modulos/event_ring/work lint
 ```
@@ -239,9 +250,10 @@ make -C modulos/event_ring/work lint
 | [`tb_event_slot_writer`](../../modulos/event_ring/sim/tb_event_slot_writer.sv) | `event_slot_writer` | 12 | 39 | vectores a mano |  |
 | [`tb_event_ring_top`](../../modulos/event_ring/sim/tb_event_ring_top.sv) | `event_ring_top` | — | 39 | vectores a mano |  |
 | [`tb_event_ring_ventana`](../../modulos/event_ring/sim/tb_event_ring_ventana.sv) | `event_ring_ventana` | 8 | 23 | vectores a mano |  |
+| [`tb_event_ring_gen`](../../modulos/event_ring/sim/tb_event_ring_gen.sv) | `event_ring_gen` | — | 10 | vectores a mano |  |
 
 
-**152 casos con nombre** en 5 testbenches (27 escenas). La lista completa, caso por caso, está en el plan de verificación.
+**162 casos con nombre** en 6 testbenches (27 escenas). La lista completa, caso por caso, está en el plan de verificación.
 
 **Assertions** — en `sim/sva/`, enganchadas por `bind` (no tocan el RTL sintetizable).
 

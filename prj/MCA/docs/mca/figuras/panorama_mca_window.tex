@@ -1,0 +1,169 @@
+% Panorama de MCA_WINDOW en estilo datapath: el núcleo de mca_pulse_feature, un
+% nivel adentro del panorama de mca_top. De la muestra retrasada y el trigger a
+% las ranuras cerradas que lee mca_publish.
+% Fuente: modulos/mca/rtl/mca_window.sv, instanciado por mca_pulse_feature como
+% en rtl/mine/tops/mca_red_pitaya_top.sv (3 ranuras, 3 formas).
+% Estilo: docs/figuras/estilo_tikz.tex; los colores por función, los mismos de
+% panorama_mca_top.tex (azul preprocesamiento, amarillo segmentación, verde
+% estadísticos, gris contabilidad). El borde grueso es el límite del módulo; lo
+% que lo cruza son sus puertos, sólo con el nombre.
+% El epígrafe no va en la figura: está en panorama_mca_window.txt y en el doc
+% que la incluye.
+%
+% Compilar:   pdflatex panorama_mca_window.tex
+%             pdftocairo -svg panorama_mca_window.pdf panorama_mca_window.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+\tikzset{
+  pre/.style     = {bloque=azul!35, param={azul!35}{azul!12}},
+  prelog/.style  = {etapa=azul!15},
+  seglog/.style  = {etapa=amarillo!75},
+  est/.style     = {bloque=verde!55, param={verde!55}{verde!20}},
+  estlog/.style  = {etapa=verde!20},
+  conlog/.style  = {etapa=grisr!60},
+  varios/.style  = {double copy shadow={shadow xshift=2pt, shadow yshift=-2pt}},
+  chico/.style   = {font=\tiny, inner sep=1pt, align=center, fill=white},
+}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\def\xin{-0.2}    % donde arrancan las entradas
+\def\xout{13.1}  % donde terminan las salidas
+\def\ytop{7.45}    % de donde bajan las de configuración
+
+% ================================================================ bloques ===
+% --- arriba: el disparo, el asignador y lo que decide, registrado ---
+\node[seglog, text width=1.85cm, minimum height=1.25cm] (dsp) at (1.55,4.9)
+  {\etq{disparo}{flanco de \texttt{trig\_i};\\ si cae entre dos\\ válidas, espera}};
+\node[seglog, text width=2.5cm, minimum height=2.8cm] (asg) at (4.35,4.4)
+  {\etq{asignador}{habilitadas: las\\ \texttt{cfg\_n\_acc} primeras\\[2pt]
+   \texttt{abre} la libre de\\ menor índice, si hay\\ y no hay veto\\[2pt]
+   marcas: \texttt{otras}\\ (cuántas abiertas),\\ \texttt{dt\_prev}, \texttt{win\_id}}};
+\node[registro, minimum width=1.5cm, minimum height=2.6cm] (dec) at (6.8,4.4)
+  {\texttt{abre\_q}\\ \texttt{disparo\_q}\\ \texttt{perdido\_q}\\ \texttt{otras\_q}\\
+   \texttt{dt\_prev\_q}\\ \texttt{win\_id\_q}\\ \texttt{reserva\_q}};
+\node[estlog, text width=1.65cm, minimum height=1.6cm] (umb) at (8.85,4.4)
+  {\etq{umbrales}{\texttt{min}\,$\ll$\,\texttt{s}\\ (\texttt{max}+1)\,$\ll$\,\texttt{s}\,$-$\,1\\[2pt]
+   uno para las 3,\\ registrado}};
+
+% --- la muestra: relativa a la base, registrada antes de repartirse ---
+\node[prelog, text width=1.85cm, minimum height=1.1cm] (res) at (1.55,1.15)
+  {\etq{resta la base}{$x$ = dat $-$ base\\ $x_c$ = máx($x$, 0)}};
+\node[registro, minimum width=0.8cm, minimum height=1.3cm] (xq) at (3.2,0.9)
+  {\texttt{xc\_q}\\ \texttt{x\_q}\\ \texttt{val\_q}};
+
+% --- el banco de trapecios y la ventana de cada meseta ---
+\node[pre, text width=1.75cm, varios] (trp) at (3.45,-2.0)
+  {\blk{mca\_trap {\normalfont$\times$} 3}{}\nodepart{two}$k$, $l$, \texttt{sh} propios;\\
+   $M$ común;\\ 8 muestras tarde};
+\node[prelog, text width=1.9cm] (mes) at (3.45,-4.1)
+  {\etq{ventana de la meseta}{\texttt{ini} = \texttt{off}\,+\,8\\ \texttt{fin} = \texttt{ini}\,+\,$2^{\mathtt{lw}}$\\ una por forma}};
+
+% --- las ranuras: un submódulo alto, con el encabezado arriba ---
+\node[bloque=verde!20, varios, text width=2.6cm, minimum height=6.3cm,
+      path picture={\fill[verde!55] (path picture bounding box.north west) rectangle
+        ([yshift=-0.5cm]path picture bounding box.north east);
+        \draw[line width=0.6pt] ([yshift=-0.5cm]path picture bounding box.north west) --
+        ([yshift=-0.5cm]path picture bounding box.north east);}]
+  (slt) at (6.92,-1.55) {};
+\node[anchor=north, font=\scriptsize, inner sep=0pt] at ([yshift=-0.14cm]slt.north)
+  {\texttt{\bfseries mca\_slot} $\times$ 3};
+\node[font=\scriptsize, align=center, text width=2.6cm] at ([yshift=-0.25cm]slt.center)
+  {una por pulso: su juego\\ de acumuladores\\[6pt]
+   abre con \texttt{abre\_q}[$k$]\\[6pt]
+   cierra sola, cuando\\ su \texttt{len} llega a\\ la \texttt{gate\_long}\\ que retuvo al abrir\\[6pt]
+   guarda el resultado\\ hasta \texttt{libera\_i}[$k$]};
+
+% --- la contabilidad ---
+\node[conlog, text width=2.05cm, minimum height=2.8cm] (con) at (11.4,4.4)
+  {\etq{contabilidad}{sin libre: \texttt{dt\_win}\\ si todas miden,\\ \texttt{dt\_div} si hay\\ alguna cerrada\\[2pt]
+   cada disparo, a\\ un casillero\\[2pt] cada cierre: total,\\ fuera de amplitud,\\ con solape}};
+\node[conlog, text width=2.05cm] (bas) at (11.4,1.2)
+  {\etq{hacia la base}{sigue sólo si nadie\\ mide, reserva ni abre}};
+
+% ============================================================== el límite ===
+\node[contenedor, fit={(0.35,6.7) (12.65,-5.0)}] (lim) {};
+\node[titulo, anchor=south west, inner sep=2pt, align=left] at (lim.north west)
+  {\texttt{\bfseries mca\_window}\\
+   \prm{N\_ACC=3 & N\_FORMAS=3 & DW=14 & QW=32\\ LEN\_W=16 & AMP\_W=16 & PUB\_IDW=16 & NW=4\\
+        TW=18 & TNW=8 & TDAW=10 & TMW=20}};
+
+% ============================================================== flechas ====
+% --- control: por la izquierda los del disparo, por arriba el resto ---
+\draw[ctrl] (\xin,5.3) node[left, sen, black!80] {cfg\_run\_i} -- (dsp.west |- 0,5.3);
+\draw[ctrl] (\xin,6.05) node[left, sen, black!80, align=right] {cfg\_n\_acc\_i\\ veto\_i}
+  -- (2.85,6.05) -- (2.85,5.55) -- (asg.west |- 0,5.55);
+\draw[ctrl] (11.4,\ytop) node[above, sen, black!80] {cnt\_clr\_i} -- (con.north);
+
+% --- el asignador le pasa a la contabilidad lo que decidió ---
+\draw[flujo] (5.4,0 |- asg.north) -- (5.4,6.4) -- (10.15,6.4) -- (10.15,1.45) -- (bas.west |- 0,1.45);
+\draw[flujo] (10.15,5.3) -- (con.west |- 0,5.3);
+\punto{10.15,5.3}
+\node[chico, anchor=north west, align=left, fill=none] at (5.48,6.37) {disparo, veto, puede,\\ esperan, ocupadas,\\ reserva, abre};
+
+% la configuración de las ranuras, y la que usan los umbrales (cruzan la de arriba)
+\draw[ctrl, cruce] (7.78,\ytop) node[above, sen, black!80, align=center]
+  {cfg\_gate\_short\_i\\ cfg\_gate\_long\_i\\ cfg\_amp\_src\_i\\ cfg\_amp\_min/max\_i\\ cfg\_q\_shift\_i}
+  -- (7.78,0 |- slt.north);
+\draw[ctrl, cruce] (7.78,7.0) -- (8.85,7.0) -- (umb.north);
+\punto{7.78,7.0}
+\draw[flujo] (8.15,0 |- umb.south) -- node[chico, right, pos=0.45, align=left] {\texttt{min\_q},\\ \texttt{max\_q}} (8.15,0 |- slt.north);
+
+% --- el trigger y la decisión ---
+\draw[flujo] (\xin,4.9) node[left, sen] {trig\_i} -- (dsp.west |- 0,4.9);
+\draw[flujo] (dsp.east |- 0,4.9) -- (asg.west |- 0,4.9);
+\draw[flujo] (asg.east |- 0,5.3) -- (dec.west |- 0,5.3);
+\draw[flujo] (asg.east |- 0,4.4) -- (dec.west |- 0,4.4);
+\draw[ctrl] (dec.west |- 0,3.5) -- (asg.east |- 0,3.5);
+\draw[flujo] (6.8,0 |- dec.south) -- node[chico, right, pos=0.5, align=left] {\texttt{abre\_q},\\ marcas} (6.8,0 |- slt.north);
+% el estado de las ranuras vuelve al asignador
+\draw[ctrl] (5.85,0 |- slt.north) -- (5.85,2.4) -- node[chico, above, pos=0.5] {estado} (4.7,2.4) -- (4.7,0 |- asg.south);
+
+% --- la muestra ---
+\draw[flujo, ancho=15, ancho en=0.25] (\xin,1.45) node[left, sen] {dat\_i, val\_i} -- (res.west |- 0,1.45);
+\draw[flujo, ancho=14, ancho en=0.25] (\xin,0.85) node[left, sen] {baseline\_i} -- (res.west |- 0,0.85);
+\draw[ctrl] (0.5,1.45) -- (0.5,4.45) -- (dsp.west |- 0,4.45);
+\punto{0.5,1.45}
+\node[chico, anchor=west, fill=none] at (0.52,3.0) {val};
+\draw[flujo] (res.east |- 0,1.15) -- (xq.west |- 0,1.15);
+\draw[flujo, ancho=14, ancho en=0.4] (xq.east |- 0,0.9) -- node[sen, below, pos=0.4] {xc} (slt.west |- 0,0.9);
+\draw[flujo, anchov=15, ancho en=0.4] (xq.south) -- node[sen, left, pos=0.4] {x} (xq.south |- trp.north);
+
+% --- los trapecios y sus ventanas ---
+\draw[flujo] (\xin,-2.0) node[left, sen, align=right] {cfg\_trap\_k/l\_i\\ cfg\_trap\_sh\_i\\ cfg\_trap\_mq\_i\\ trap\_clr\_i} -- (trp.west |- 0,-2.0);
+\draw[flujo] (\xin,-4.1) node[left, sen, align=right] {cfg\_trap\_off\_i\\ cfg\_trap\_lw\_i} -- (mes.west |- 0,-4.1);
+\draw[flujo] (trp.east |- 0,-2.0) -- node[chico, above] {3$\times$18} (slt.west |- 0,-2.0);
+\draw[flujo] (mes.east |- 0,-4.1) -- node[chico, above] {\texttt{ini}, \texttt{fin}} (slt.west |- 0,-4.1);
+
+% --- el estado de las ranuras, a la contabilidad y a la base ---
+\draw[flujo] (slt.east |- 0,0.55) -- (9.95,0.55) -- (9.95,3.4) -- (con.west |- 0,3.4);
+\draw[line width=0.8pt, cruce, ->] (9.95,3.4) -- (con.west |- 0,3.4);
+\draw[flujo] (9.95,0.95) -- (bas.west |- 0,0.95);
+\punto{9.95,0.95}
+\node[chico, anchor=south west, align=left, fill=none] at (8.42,0.58) {cierra,\\ acepta,\\ solapada,\\ estado, $Q$};
+
+% --- salidas ---
+\draw[flujo] (con.east |- 0,5.15) -- (\xout,5.15) node[right, sen, align=left]
+  {dt\_win\_o\\ dt\_div\_o\\ puede\_abrir\_o\\ busy\_o\\ n\_ocup\_o\\ arribo\_o};
+\draw[flujo] (con.east |- 0,3.55) -- (\xout,3.55) node[right, sen, align=left]
+  {cnt\_*\_o (10)\\ last\_qtot\_o\\ last\_qtail\_o};
+\draw[flujo] (bas.east) -- (\xout,0 |- bas.east) node[right, sen, align=left]
+  {bl\_track\_o\\ cierra\_o\\ bl\_stale\_set\_o};
+\draw[flujo] (slt.east |- 0,-0.15) -- (\xout,-0.15) node[right, sen] {acepta\_o};
+\draw[flujo, ancho=3$\times$295, ancho en=0.5] (slt.east |- 0,-2.0) -- (\xout,-2.0) node[right, sen, align=left]
+  {amp\_sel/int\_o\\ peak\_o, len\_o\\ t\_peak\_o\\ q\_tot/tail\_o\\ win\_id\_o\\ dt\_prev/next\_o\\
+   otras\_o\\ adentro\_o\\ perdido\_o\\ trap\_sum/n\_o};
+\draw[ctrl] (\xout,-4.1) node[right, sen] {libera\_i} -- (slt.east |- 0,-4.1);
+
+% ================================================================= leyenda ===
+\leyenda{0.2,-5.75}{azul!15/preprocesamiento, amarillo!75/segmentación,
+  verde!20/estadísticos, grisr!60/contabilidad, grisr/registro}{}
+
+\end{tikzpicture}
+\end{document}

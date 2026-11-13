@@ -28,6 +28,13 @@ esclavo del bus ([`mt_cfg`](../datasheet_mt_cfg.md)).
 
 ![Panorama de mt_top](../../mt/figuras/panorama_mt.svg)
 
+*El borde grueso es el límite de `mt_top`; lo que lo cruza son sus puertos. Las
+franjas numeradas son las tres partes del texto de `register_map_mt.md`. El
+recuadro punteado es la jerarquía del RTL: `mt_event_logic` instancia
+`mt_trig_src` (uno por canal) y `trigger_shield`. `NOMBRE=valor`: parámetros con
+que el padre instancia el bloque (se omiten los que sólo pasan el del padre sin
+cambio).*
+
 *Por dentro:* las tres partes del texto de
 [`register_map_mt.md`](../../mt/register_map_mt.md#panorama), con la tabla de
 puertos y de dónde viene cada uno. Fuente TikZ en

@@ -17,6 +17,12 @@ que un canal del scope se re-dispare con su propia cola, y darle al MCA un
 
 ![Panorama de trigger_shield](../../mt/figuras/panorama_trigger_shield.svg)
 
+*Hay un solo contador para todos los destinos. Con una fuente de nivel
+(`ext_lvl`) el escudo dispara cada ciclo que la línea está alta y cada disparo
+recarga `dur`: el veto dura la línea más `dur` ciclos. Los canales que no están
+en `dst` siguen al clear de software (`sw_clr`) sin cambio. `NOMBRE=valor`:
+parámetros con que lo instancia `mt_event_logic`.*
+
 *Por dentro:* el contador de holdoff, el pulso de re-arm, el veto al MCA y el mux por canal. Fuente TikZ en [`panorama_trigger_shield.tex`](../../mt/figuras/panorama_trigger_shield.tex).
 
 Lo que lo hace más que un holdoff por canal es que **fuentes y destinos son

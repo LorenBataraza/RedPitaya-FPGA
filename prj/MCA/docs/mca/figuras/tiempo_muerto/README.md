@@ -47,6 +47,7 @@ python3 figuras_tiempo_muerto.py     # además imprime las tablas que cita el do
 | [`02d_tren_rho15.png`](02d_tren_rho15.png) | Lo mismo a ρ = 1,5, donde aparecen períodos de 5,3 τ. Va en su propia imagen para que la comparación sea entre las dos **reglas** y no entre los dos ρ | teórico |
 | [`02e_largo_ventana_muerta.png`](02e_largo_ventana_muerta.png) | **El largo del período muerto es una variable aleatoria**: delta en τ si no paraliza, y átomo en τ + cola si paraliza | teórico |
 | [`02f_largo_vs_tasa.png`](02f_largo_vs_tasa.png) | Cómo crece ese largo con la tasa, con el eje en kcps del MCA, y **por qué los cuantiles arrancan planos y la media no** | teórico |
+| [`03a_tren_cola_K.png`](03a_tren_cola_K.png) | **La última fila de [`02a`](02a_tren_poisson.png) con cola**: el mismo tren a ρ = 1 con `K` = 1, 2 y 3. El que llega ocupado espera en vez de perderse, los servicios quedan pegados y se pierde sólo el que encuentra los `K` lugares llenos | teórico |
 | [`03_cola_K.png`](03_cola_K.png) | Poisson con `K` lugares en el sistema (`K=1` = sin cola): la fracción perdida cae un orden en ρ por cada lugar de cola, y la fracción de tiempo ocupado **sube** con `K`. Cadena embebida de M/D/1/K, no simulación | teórico |
 | [`04a_trenes_periodicos.png`](04a_trenes_periodicos.png) | **Los cuatro trenes periódicos en el tiempo**, con `T_prod/T_cons` = 2, 1.25, 0.8, 0.4 y cuáles arribos se pierden. Es la figura que se compara con [`02a`](02a_tren_poisson.png): mismos ejes, arribos sin agrupar | teórico |
 | [`04b_periodico.png`](04b_periodico.png) | La escalera `m·τ = ρ/⌈ρ⌉` con τ fijo y con dispersión σ/τ = 3 % y 10 %, junto a Poisson, y la fracción perdida de las mismas curvas | teórico |
@@ -297,6 +298,19 @@ e^{−ρ} = 0,9, o sea ρ = ln(10/9) = 0,11; la mediana cuando e^{−ρ} = 0,5, 
 ρ = ln 2 = 0,69. La media **no** tiene tramo plano: vale (e^ρ − 1)/ρ ≈ 1 + ρ/2
 desde el origen, y lo que parece constante cerca de cero es nada más una
 pendiente de 1/2 en un eje que llega a 4.
+
+**Figura 3a.** El tren de la última fila de la figura 2a —ρ = 1, misma
+semilla— servido con K = 1, 2 y 3 lugares en el sistema, contando al que se
+atiende. Gris: cada servicio, de largo τ, separado del siguiente por un filete
+blanco porque con cola van pegados. Azul: arribos registrados; rojo: perdidos;
+barra celeste: lo que esperó en la cola desde que llegó hasta que empezó su
+servicio, más abajo cuanto más atrás estaba en la cola. La fila K = 1 es la de
+la figura 2a: todo el que llega ocupado se pierde. Con K = 2 y K = 3 el mismo
+arribo espera, y se pierde sólo el que encuentra los K lugares llenos, que
+pide una ráfaga. Las pérdidas esperadas a ρ = 1 son 50, 26,9 y 17,6 % (la
+tabla de la sección); como en la 2a, la realización tiene pocos arribos y no
+es una medición. Lo que la cola cobra está en el gris: el servidor trabaja más
+tiempo, y lo que con K = 1 era pérdida pasa a ser demora.
 
 **Figura 3.** Arribos Poisson, servicio fijo τ y K lugares en el sistema
 contando al que se atiende; K = 1 es sin cola. Resuelto con la cadena de Markov

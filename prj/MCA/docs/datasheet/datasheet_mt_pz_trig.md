@@ -16,7 +16,7 @@
 | Módulo RTL | `mt_pz_trig` |
 | Archivo | [`mt_pz_trig.sv`](../../modulos/mt/rtl/mt_pz_trig.sv) |
 | Parámetros | 5 |
-| Puertos | 12 (11 in / 1 out) |
+| Puertos | 13 (11 in / 2 out) |
 | Parte | `xc7z010clg400-1` |
 
 
@@ -140,6 +140,7 @@ pulso chico en la cola de uno grande, que es donde la pendiente queda ciega
 | `cfg_thr_i` | in | 18 `[TW-1: 0]` | adc_clk_i | umbral (magnitud) |
 | `cfg_hyst_i` | in | 18 `[TW-1: 0]` | adc_clk_i | histeresis del re-armado |
 | `pz_p_o` | out | 1 | adc_clk_i | pulso de 1 ciclo |
+| `armado_o` | out | 1 | adc_clk_i | 1 = re-armado: el próximo cruce de thr dispara. Es el estado del Schmitt, sin registro extra; lo usa mt_event_logic para el tiempo de re-armado del MCA. Vale 0 mientras no hay trapecio (cfg_en = 0 o llenando). |
 <!-- /AUTO:interfaces -->
 
 ### 1.3 Mapa de registros
@@ -279,16 +280,16 @@ make -C modulos/mt/work lint
 
 | Testbench | DUT | Escenas | Casos | Contra qué compara | Es el de este módulo |
 |---|---|---|---|---|---|
-| [`tb_mt_cfg`](../../modulos/mt/sim/tb_mt_cfg.sv) | `mt_cfg` | 14 | 59 | vectores a mano |  |
-| [`tb_mt_slope_trig`](../../modulos/mt/sim/tb_mt_slope_trig.sv) | `mt_slope_trig` | 8 | 15 | vectores a mano |  |
-| [`tb_mt_pz_trig`](../../modulos/mt/sim/tb_mt_pz_trig.sv) | `mt_pz_trig` | 8 | 1 | vectores a mano | **sí** |
-| [`tb_mt_trig_src`](../../modulos/mt/sim/tb_mt_trig_src.sv) | `mt_trig_src` | 7 | 14 | vectores a mano |  |
-| [`tb_mt_event_logic`](../../modulos/mt/sim/tb_mt_event_logic.sv) | `mt_event_logic` | 8 | 11 | vectores a mano |  |
+| [`tb_mt_cfg`](../../modulos/mt/sim/tb_mt_cfg.sv) | `mt_cfg` | 14 | 60 | vectores a mano |  |
+| [`tb_mt_slope_trig`](../../modulos/mt/sim/tb_mt_slope_trig.sv) | `mt_slope_trig` | 8 | 17 | vectores a mano |  |
+| [`tb_mt_pz_trig`](../../modulos/mt/sim/tb_mt_pz_trig.sv) | `mt_pz_trig` | 8 | 2 | vectores a mano | **sí** |
+| [`tb_mt_trig_src`](../../modulos/mt/sim/tb_mt_trig_src.sv) | `mt_trig_src` | 8 | 21 | vectores a mano |  |
+| [`tb_mt_event_logic`](../../modulos/mt/sim/tb_mt_event_logic.sv) | `mt_event_logic` | 9 | 19 | vectores a mano |  |
 | [`tb_trigger_shield`](../../modulos/mt/sim/tb_trigger_shield.sv) | `trigger_shield` | 8 | 19 | vectores a mano |  |
-| [`tb_mt_top`](../../modulos/mt/sim/tb_mt_top.sv) | `mt_top` | 20 | 51 | vectores a mano |  |
+| [`tb_mt_top`](../../modulos/mt/sim/tb_mt_top.sv) | `mt_top` | 20 | 55 | vectores a mano |  |
 
 
-**170 casos con nombre** en 7 testbenches (73 escenas). La lista completa, caso por caso, está en el plan de verificación.
+**193 casos con nombre** en 7 testbenches (75 escenas). La lista completa, caso por caso, está en el plan de verificación.
 
 Las escenas de [`tb_mt_pz_trig`](../../modulos/mt/sim/tb_mt_pz_trig.sv): 1) EL TRAPECIO BIT A BIT. Un modelo entero de Jorda, 2) EL SCHMITT. Un Schmitt de referencia sobre la sa, 3) EL ARRANQUE. Desde el re-arranque tienen que pas, 4) LA DETECCION, con la medida de verdad, 5) PARES, con la subida de la cadena (10-90 % en 1., 3) Arranque con continua, 4) Deteccion sobre un tren de Poisson como el de la, 5) Pares.
 

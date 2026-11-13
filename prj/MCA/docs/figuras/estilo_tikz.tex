@@ -93,6 +93,18 @@
                        ([yshift=1.6mm]path picture bounding box.south) --
                        ([xshift=1.1mm]path picture bounding box.south);}},
   registro/.default = 0.8cm,
+  % memoria (una BRAM, o un arreglo de registros direccionado): una columna de
+  % celdas en el borde izquierdo; inner xsep le deja lugar al texto
+  memoria/.style = {bloque=#1, line width=0.6pt, inner xsep=0.42cm,
+                    path picture={
+                      \draw[line width=0.4pt, black!55]
+                        ([xshift=0.3cm]path picture bounding box.north west) --
+                        ([xshift=0.3cm]path picture bounding box.south west);
+                      \foreach \k in {1,...,6}
+                        \draw[line width=0.4pt, black!55]
+                          ($(path picture bounding box.north west)!\k/7!(path picture bounding box.south west)$)
+                          -- ++(0.3,0);}},
+  memoria/.default = naranja!50,
   % condición de una cadena if / else-if: "sí" sale a la derecha, "no" abajo
   pregunta/.style = {draw=black, line width=0.5pt, rounded corners=7pt,
                      fill=white, font=\scriptsize\ttfamily, align=center,
@@ -149,6 +161,8 @@
   \coordinate (#1-sel) at ($(#1)+({-#3/2+0.175},0)$);}
 
 % Leyenda de colores + nota. #1 = posición, #2 = color/texto, #3 = nota.
+% Con la nota vacía ({}) sólo dibuja los colores: los panoramas no llevan
+% epígrafe adentro, va en su .txt y en el doc que los incluye.
 \newcommand{\leyenda}[3]{%
   \begin{scope}[shift={(#1)}, every node/.style={font=\scriptsize}]
     \coordinate (t0) at (-0.5,0);
@@ -158,10 +172,110 @@
             right=5mm of t\j.east, anchor=west] (l\i) {};
       \node[right=1.5mm of l\i] (t\i) {\t};
     }
-    \node[anchor=north west, black!70, text width=19cm, align=left]
-      at (-0.05,-0.3) {#3};
+    \if\relax\detokenize{#3}\relax\else
+      \node[anchor=north west, black!70, text width=19cm, align=left]
+        at (-0.05,-0.3) {#3};
+    \fi
   \end{scope}}
 
 % Lo que dicen los parámetros, para la nota de la leyenda
 \newcommand{\notaparam}{\texttt{NOMBRE=valor}: parámetros con que el padre
   instancia el bloque (se omiten los que sólo pasan el del padre sin cambio).}
+
+% ------------------------------------------------------------- secuencias ---
+% DIAGRAMAS DE SECUENCIA: el contrato entre el PS y UN módulo
+% (docs/<módulo>/figuras/secuencia/; el patrón salió de
+% event_ring/figuras/ring_lote.tex). Una línea de vida por actor y el tiempo
+% hacia abajo, sin escala: lo que fija la figura es el orden.
+%
+%   - Sólo el PS y el módulo. Lo que llega de otro módulo (el trigger, por
+%     ejemplo) entra como una flecha \entrada desde el borde: es una entrada
+%     del módulo, no un actor.
+%   - El módulo va con el color de su región (azul osc, amarillo mt, verde
+%     mca, naranja event_ring); el PS, en gris.
+%   - El color de la flecha dice por dónde viaja: rojo = registro o apertura
+%     por GP0, naranja = DDR por HP.
+%   - Los estados del módulo que el PS puede observar van como franjas sobre
+%     su línea de vida (\franja), con el rótulo a la izquierda.
+%   - La figura muestra el orden y nada más: qué pasa si un paso no se respeta
+%     va en el epígrafe (secuencia.json), no en una columna de texto al lado.
+\tikzset{
+  actor/.style   = {bloque=#1, text width=2.9cm, minimum height=0.85cm},
+  vida/.style    = {black!45, line width=0.6pt, densely dashed},
+  gp/.style      = {->, rojo!65!black, line width=0.9pt},
+  hp/.style      = {->, naranja!60!black, line width=1.1pt},
+  entrada/.style = {->, amarillo!35!black, line width=1.1pt},
+  rot/.style     = {font=\scriptsize, fill=white, text=black, inner sep=1.5pt,
+                    align=center},
+  % el marco de lo que se repite (un lote, una captura): punteado, porque no
+  % es un bloque sino un tramo de la secuencia
+  marcolazo/.style = {fill=azul!8, draw=azul!60!black, line width=0.6pt,
+                      rounded corners=3pt, dash pattern=on 3pt off 2pt},
+  rotlazo/.style = {font=\scriptsize\bfseries, azul!40!black, inner sep=3pt},
+  rotfranja/.style = {font=\scriptsize, black!75, anchor=east, align=right,
+                      inner sep=1.5pt},
+}
+
+% \franja{x}{y0}{y1}{color}{rótulo}: estado del módulo sobre su línea de vida,
+% de y0 a y1 (y0 arriba). El rótulo va a la izquierda, a media altura.
+\newcommand{\franja}[5]{%
+  \filldraw[fill=#4, draw=black!60, line width=0.5pt]
+    ({#1-0.16},#2) rectangle ({#1+0.16},#3);
+  \node[rotfranja] at ({#1-0.3},{(#2+#3)/2}) {#5};}
+
+% \repite{x}{y0}{y1}{rótulo}: lo que el PS repite. Una flecha de vuelta a la
+% derecha de su línea de vida, de y1 (la última vez) a y0 (la primera), con el
+% rótulo al lado: hasta cuándo, o cuántas veces.
+\newcommand{\repite}[4]{%
+  \draw[->, black!80, line width=0.7pt, rounded corners=3pt]
+    ({#1+0.1},#3) -- ({#1+0.5},#3) -- ({#1+0.5},#2) -- ({#1+0.1},#2);
+  \node[font=\scriptsize, black!80, anchor=west, align=left, inner sep=1.5pt]
+    at ({#1+0.6},{(#2+#3)/2}) {#4};}
+
+% \propio[color]{x}{y}{rótulo}: lo que el PS hace solo, sin cruzar a la PL
+% (leer su DDR, esperar). Una flecha que sale de su línea de vida y vuelve; el
+% color por defecto es el de la DDR.
+\newcommand{\propio}[4][naranja!60!black]{%
+  \draw[->, #1, line width=1.1pt, rounded corners=3pt]
+    ({#2+0.1},{#3+0.15}) -- ({#2+0.5},{#3+0.15}) -- ({#2+0.5},{#3-0.15}) -- ({#2+0.1},{#3-0.15});
+  \node[font=\scriptsize, black, anchor=west, align=left, inner sep=1.5pt]
+    at ({#2+0.6},#3) {#4};}
+
+
+% ------------------------------------------------- símbolos de operación ---
+% DATAPATHS A NIVEL DE OPERACIÓN (docs/gen_eventos/figuras/): una operación que
+% tiene símbolo se dibuja con el símbolo, no con un bloque de texto. Tampoco se
+% nombra el tipo de celda con que se sintetiza (DSP, RAMB): eso es de Vivado.
+%   oper       círculo con el operador: $+$, $-$, $\times$, $<$, $=0$, $\geq$, max
+%   opxor      XOR de palabras: el círculo con la cruz
+%   desp       corrimiento o selección de bits: \texttt{<<13}, \texttt{>>> sh}, $p[40{:}16]$
+%   satur      saturación: el ícono de la transferencia recortada
+%   puerta y   compuerta AND; puerta y=nni invierte la tercera entrada
+%   puerta o   compuerta OR
+%   cte        una constante o un nombre de red que entra a un símbolo
+% El registro (registro) y el mux (\muxdec, \muxdecv) están más arriba.
+\usetikzlibrary{shapes.gates.logic.US}
+\tikzset{
+  oper/.style  = {circle, draw=black, line width=0.6pt, fill=white,
+                  minimum size=5.2mm, inner sep=0pt, font=\scriptsize},
+  opxor/.style = {circle, draw=black, line width=0.6pt, fill=white,
+                  minimum size=4.6mm, inner sep=0pt,
+                  path picture={\draw[line width=0.6pt]
+                    (path picture bounding box.north) -- (path picture bounding box.south)
+                    (path picture bounding box.west) -- (path picture bounding box.east);}},
+  desp/.style  = {draw=black, line width=0.6pt, fill=white, font=\scriptsize,
+                  inner sep=1.5pt, minimum height=0.48cm, align=center},
+  satur/.style = {draw=black, line width=0.6pt, fill=white, minimum width=0.72cm,
+                  minimum height=0.6cm, inner sep=0pt,
+                  path picture={\draw[line width=0.6pt]
+                    ($(path picture bounding box.center)+(-0.27,-0.15)$) -- ++(0.15,0)
+                    -- ++(0.24,0.3) -- ++(0.15,0);}},
+  puerta y/.style   = {and gate US, draw=black, line width=0.6pt, fill=white,
+                       logic gate inputs=#1, minimum height=0.55cm, minimum width=0.5cm,
+                       logic gate inverted radius=1.4pt},
+  puerta y/.default = nn,
+  puerta o/.style   = {or gate US, draw=black, line width=0.6pt, fill=white,
+                       logic gate inputs=#1, minimum height=0.55cm, minimum width=0.5cm},
+  puerta o/.default = nn,
+  cte/.style   = {font=\scriptsize, inner sep=1pt},
+}

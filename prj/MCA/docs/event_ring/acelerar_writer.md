@@ -5,7 +5,8 @@ aplicó, la opción A, y lo que costaría ir más lejos, la opción B, que sigue
 prototipo.
 
 - **A está aplicada** en `event_slot_writer.sv`: duplica el techo y no cuesta recursos.
-  Está verificada en simulación; **no se probó en la placa** y no hay bitstream con ella.
+  Está verificada en simulación y en el bitstream del ring del 2026-11-08; **no se
+  probó en la placa**.
 - **B no está aplicada.** Subiría el techo otro 65 % con 1024 muestras y bajaría a la
   mitad el tiempo muerto de la captura, pero toca tres módulos y sus testbenches.
 - **Ninguna sube lo sostenido por red** con 1024 muestras: ahí limita el Ethernet.

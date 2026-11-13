@@ -1,0 +1,9 @@
+El estado de la FSM elige qué palabra sale: cuatro de cabecera, las muestras
+empaquetadas, ceros de relleno hasta la anteúltima y el footer `{~seq, seq}`.
+Cada palabra se sostiene en la salida hasta que el `axi_wr_fifo` la acepta
+(`wr_rdy_i`), así que la contrapresión frena al writer sin perder muestras.
+`wr_slot` y `seq` suben recién cuando se acepta el footer. `clr_cnt_i` los pone
+en cero y `flush_i` no, aunque en `event_ring_top` los dos vienen del mismo
+`flush`. Si la ventana no entra en el slot, `err_slot_ovf_o` queda prendido y el
+evento se trunca. `NOMBRE=valor`: parámetros con que lo instancia
+`event_ring_top`.

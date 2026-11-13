@@ -5,6 +5,7 @@
 % configuración: osc_cfg (slot 1) y mt_cfg (slot 3, dentro de mt_top).
 % Fuente: modulos/osc/rtl/rp_scope_mt_com.sv y modulos/mt/rtl/mt_top.sv.
 % Estilo: docs/figuras/estilo_tikz.tex.
+% El epígrafe no va en la figura: está en panorama_rp_scope_mt_com.txt y en el doc que la incluye.
 %
 % Compilar:   pdflatex panorama_rp_scope_mt_com.tex
 %             pdftocairo -svg panorama_rp_scope_mt_com.pdf panorama_rp_scope_mt_com.svg
@@ -177,14 +178,7 @@
 % ================================================================= leyenda ===
 \leyenda{-2.4,-15.6}{azul!35/acondicionamiento, amarillo/trigger,
   verde!55/captura en BRAM, naranja!70/camino a DDR,
-  grisr/ruteo y configuración, rojo!45/bus del sistema}
-  {Todo en \texttt{adc\_clk}. El bloque con sombra es \texttt{mt\_top} plegado: su
-   interior está en el panorama de \texttt{mt\_top}. \texttt{trigger\_event}
-   dispara a la vez la captura de todos los canales. Cada \texttt{dsp\_tap\_mux} es
-   combinacional y elige, con su \texttt{route\_*\_tap}, de cuál de los cuatro nodos
-   toma su consumidor; su \texttt{route\_*\_en} corta el valid, no el dato. Los
-   \texttt{route\_*} son puertos: vienen de \texttt{integration\_cfg} (región de TOP,
-   slot 6). \notaparam}
+  grisr/ruteo y configuración, rojo!45/bus del sistema}{}
 
 \end{tikzpicture}
 \end{document}

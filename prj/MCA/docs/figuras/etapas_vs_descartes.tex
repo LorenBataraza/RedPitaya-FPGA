@@ -1,0 +1,62 @@
+% Etapas que descartan y etapas que bloquean, en general (sin un diseño
+% concreto; el caso del event_ring está en
+% docs/event_ring/figuras/ring_freno_descarte.tex, con las mismas convenciones).
+% La fuente (un ADC) entrega sin ready; entre las etapas internas hay
+% handshake: el dato (valid) va por arriba y el ready, la contrapresión, vuelve
+% por abajo: que haya flecha de vuelta es lo que dice que la etapa bloquea. La contrapresión sube hasta la primera etapa que no puede
+% frenar su entrada: ésa descarta (flecha roja, a su contador) y el resto
+% bloquea. Sin texto: la explicación va en etapas_vs_descartes.txt.
+%
+% Compilar:   pdflatex etapas_vs_descartes.tex
+%             pdftocairo -svg etapas_vs_descartes.pdf etapas_vs_descartes.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{estilo_tikz.tex}
+
+\tikzset{
+  et/.style       = {comp, text width=1.45cm, minimum height=0.8cm},
+  descarte/.style = {->, rojo!75!black, line width=0.9pt},
+  perdida/.style  = {font=\scriptsize, rojo!75!black, inner sep=1pt},
+  contra/.style   = {->, black!70, line width=0.8pt},
+  rol/.style      = {draw, rounded corners=2pt, fill=white, font=\footnotesize\itshape,
+                     inner sep=2pt, line width=0.6pt, anchor=south east},
+  descarta/.style = {rol, draw=rojo!75!black, text=rojo!75!black},
+  bloquea/.style  = {rol, draw=black!55, text=black!75},
+}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\node[datos, text width=1.0cm, minimum height=0.8cm] (adc) at (-0.4,0) {ADC};
+\node[et] (e1) at (2.6,0) {etapa 1};
+\node[et] (e2) at (5.4,0) {etapa 2};
+\node[memoria=grisr, text width=1.0cm, minimum height=0.8cm] (ff) at (8.2,0) {FIFO};
+\node[et] (e3) at (11.0,0) {etapa 3};
+
+\node[descarta] at ([yshift=1.5pt]e1.north east) {descarta};
+\node[bloquea]  at ([yshift=1.5pt]e2.north east) {bloquea};
+\node[bloquea]  at ([yshift=1.5pt]ff.north east) {bloquea};
+\node[bloquea]  at ([yshift=1.5pt]e3.north east) {bloquea};
+
+% la fuente no espera: sólo el dato, sin ready
+\draw[flujo] (adc) -- node[below, font=\scriptsize\itshape, inner sep=2pt] {sin ready} (e1);
+
+% handshake entre etapas: el dato arriba, el ready (contrapresión) abajo
+\draw[flujo]  ([yshift=2mm]e1.east) -- node[sen, above] {valid} ([yshift=2mm]e2.west);
+\draw[contra] ([yshift=-2mm]e2.west) -- node[sen, below] {ready} ([yshift=-2mm]e1.east);
+\foreach \a/\b in {e2/ff, ff/e3} {
+  \draw[flujo]  ([yshift=2mm]\a.east) -- ([yshift=2mm]\b.west);
+  \draw[contra] ([yshift=-2mm]\b.west) -- ([yshift=-2mm]\a.east);
+}
+\draw[flujo]  ([yshift=2mm]e3.east) -- ++(1.0,0);
+\draw[contra] ($([yshift=-2mm]e3.east)+(1.0,0)$) -- ([yshift=-2mm]e3.east);
+
+% donde la contrapresión no puede seguir subiendo, se descarta y se cuenta
+\draw[descarte] (e1.south) -- ++(0,-0.45) node[perdida, below] {$D$};
+
+\end{tikzpicture}
+\end{document}

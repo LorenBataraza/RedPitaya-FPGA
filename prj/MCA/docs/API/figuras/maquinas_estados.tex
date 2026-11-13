@@ -1,13 +1,21 @@
-% Las dos secuencias que ve el usuario, como dos subfiguras separadas para
-% citarlas como (a) y (b). (a), el lazo de EventSource: arm() una sola vez, y
-% después una vuelta por evento que termina siempre en rearm(), también cuando
-% el lector descarta. Entre que wait_event() devuelve y rearm() termina, el
-% scope no dispara: ese es el tiempo muerto. (b), el flujo del MCA, que es
-% lineal porque el hardware acumula solo.
-% Fuentes: software/API/osciloscope_store/reader.py (ReaderThread._loop),
-% sources.py (la interfaz), session.py (start/stop), software/API/mca.py. El
-% texto que acompaña está en docs/API/arquitectura_software.md §4. Estilo:
-% docs/figuras/estilo_tikz.tex.
+% Una corrida del osciloscopio, en tres subfiguras horizontales.
+% (a) El lazo del hilo lector (osc-reader), el mismo con las dos fuentes: arm()
+%     una vez, read_batch() una vez por lote, close() una vez. Es lo que la API
+%     abstrae: el lector no sabe por qué camino llegan los datos.
+% (b) Lo que hace read_batch con el ring (osciloscope_ring_leer_lote): un bloque
+%     de slots por vuelta, con los créditos y los descartes que cuenta la PL.
+%     Nadie re-arma desde el PS. Sin lote no consume: los eventos esperan en la
+%     DDR.
+% (c) Lo que hace read_batch con la BRAM (osciloscope_leer_lote): un evento por
+%     vuelta: esperar, anotar, leer, re-armar, anotar el tiempo muerto. Sin lote,
+%     el evento se cuenta como descartado y se re-arma sin leer.
+% El MCA va aparte, en corrida_mca.tex.
+% Notación de máquina de estados: el punto lleno es la entrada a read_batch, el
+% punto con anillo es la vuelta a Python.
+% Fuentes: software/API/osciloscope_store/{reader.py (_loop_lotes), sources.py,
+% session.py}, software/libmca/src/{osciloscope_lote.c,osciloscope_ring.c}. El
+% texto que acompaña está en docs/API/adquisicion_de_eventos.md §2; el epígrafe,
+% en maquinas_estados.txt. Estilo: docs/figuras/estilo_tikz.tex.
 %
 % Compilar:   pdflatex maquinas_estados.tex
 %             pdftocairo -svg maquinas_estados.pdf maquinas_estados.svg
@@ -21,64 +29,116 @@
 \usetikzlibrary{decorations.pathreplacing}
 
 \tikzset{
-  op/.style     = {bloque=white, text width=3.4cm, minimum height=0.65cm,
+  op/.style     = {bloque=white, text width=3.3cm, minimum height=0.62cm,
                    font=\scriptsize\ttfamily},
   sesion/.style = {op, fill=azul!30},
+  est/.style    = {bloque=rojo!30, text width=3.9cm, minimum height=0.62cm,
+                   font=\scriptsize},
   parte/.style  = {anchor=south west, font=\small\bfseries, inner sep=0pt},
+  sub/.style    = {anchor=north west, font=\scriptsize, inner sep=0pt},
   llave/.style  = {decorate, decoration={brace, amplitude=5pt}, line width=0.6pt},
+  cmarco/.style = {fill=rojo!7, draw=rojo!60!black, line width=0.6pt,
+                   rounded corners=3pt, dash pattern=on 3pt off 2pt},
+  rotc/.style   = {font=\scriptsize\ttfamily\bfseries, rojo!45!black, inner sep=3pt},
+  desc/.style   = {flujo, rojo!75!black, dashed},
+  ini/.style    = {circle, fill=black, inner sep=0pt, minimum size=5pt},
+  fin/.style    = {circle, draw=black, line width=0.6pt, inner sep=0pt,
+                   minimum size=8pt, path picture={\fill (path picture bounding box.center)
+                   circle (2.2pt);}},
 }
 
 \begin{document}
 \begin{tikzpicture}[fondo]
 
-% ============================================================ EventSource ===
-\node[parte] at (-2.8,0.75) {(a)\enspace EventSource\quad\normalfont un evento por vuelta};
+\def\yT{0.75}     % la línea de los títulos
+\def\yS{0.3}      % la de los subtítulos
 
-\node[sesion] (arm) at (0,0)    {arm()};
-\node[op]     (wt)  at (0,-1.4) {wait\_event(deadline\_ns)};
-\node[op]     (sn)  at (0,-2.5) {snapshot()};
-\node[op]     (ri)  at (0,-3.6) {read\_into(batch, i, wp)};
-\node[op]     (re)  at (0,-4.7) {rearm()};
-\node[sesion] (cl)  at (0,-6.45) {close()};
+% ================================================== (a) el hilo lector ===
+\node[parte] at (-1.85,\yT) {(a)\enspace El lector};
+\node[sub]   at (-1.85,\yS) {igual con las dos fuentes};
 
-\draw[flujo] (arm) -- (wt);
-\draw[flujo] (wt) -- node[sen, right] {wp} (sn);
-\draw[flujo] (sn) -- (ri);
-\draw[flujo] (ri) -- (re);
-% la vuelta: de rearm() a esperar el próximo, no a arm()
-\draw[flujo] (re.east) -- (2.25,0 |- re.east) |- (wt.east);
-% el descarte también re-arma
-\draw[flujo, rojo!80!black] (wt.west) -- (-2.3,0 |- wt.west) |- (re.west);
-\node[sen, rojo!80!black, rotate=90, fill=white] at (-2.3,-3.05) {sin batch libre};
+\node[sesion] (arm) at (0,-0.55) {arm()};
+\node[op]     (get) at (0,-1.75) {free\_q.get\_nowait()};
+\node[op]     (rb)  at (0,-2.95) {read\_batch(batch, plazo)};
+\node[op]     (an)  at (0,-4.15) {sample\_range() de cada\\ annotator};
+\node[op]     (fq)  at (0,-5.35) {lleno: full\_q.put(batch)};
+\node[sesion] (cl)  at (0,-7.35) {close()};
+\draw[flujo] (arm) -- (get);
+\draw[flujo] (get) -- (rb);
+\draw[flujo] (rb) -- node[sen, right, font=\tiny, black!75] {(b) o (c)} (an);
+\draw[flujo] (an) -- (fq);
+\draw[flujo] (fq.west) -- ++(-0.3,0) |- (get.west);
+\node[sen, rotate=90, fill=white, font=\tiny] at (-1.95,-3.55) {otro lote};
+\node[grupo, fit={(-2.2,-1.25) (1.8,-5.85)}] (lz) {};
+\node[rotulo, anchor=north west] at (lz.south west) {\texttt{osc-reader}};
+\draw[ctrl, dashed] (cl.north) ++(0,0.6) -- node[sen, right, black!80] {stop} (cl.north);
 
-\node[grupo, fit={(-2.65,-0.95) (2.5,-5.2)}] (lz) {};
-\node[rotulo, anchor=south east] at (lz.north east) {\texttt{osc-reader}};
-\draw[ctrl, dashed] (lz.south -| cl.north) -- node[sen, right, black!80] {al cortar} (cl.north);
+% ===================================================== (b) por el ring ===
+\def\xB{5.7}
+\node[parte] at (2.65,\yT) {(b)\enspace Por el ring};
+\node[sub]   at (2.65,\yS) {la PL escribe un slot por disparo y re-arma sola};
+\draw[cmarco] (2.65,-0.05) rectangle (8.95,-7.75);
+\node[rotc, anchor=north east] at (8.95,-0.05) {osciloscope\_ring\_leer\_lote};
 
-% el tiempo muerto: el scope está ciego desde el disparo hasta el re-arme
-\draw[llave] (2.85,-1.75) -- (2.85,-5.05)
-  node[midway, right=6pt, font=\scriptsize, align=left] {tiempo muerto:\\ el scope\\ no dispara};
+\node[est] (w)  at (\xB,-0.95) {cuántos: \texttt{WR\_SLOT} $-$ \texttt{next}};
+\node[est] (f)  at (\xB,-1.95) {el footer de cada slot, con el \texttt{seq} esperado};
+\node[est] (ba) at (\xB,-2.95) {barrera};
+\node[est] (dr) at (\xB,-3.95) {descartes: \texttt{DROP\_BUSY} + \texttt{DROP\_FULL}};
+\node[est] (lr) at (\xB,-4.95) {leer cabecera y muestras, calibradas};
+\node[est] (cr) at (\xB,-5.95) {crédito: \texttt{RD\_SLOT} = \texttt{next}};
+\node[ini] (iB) at (3.05,-0.95) {};
+\node[fin] (fB) at (\xB,-7.15) {};
+\draw[flujo] (iB) -- (w);
+\draw[flujo] (w) -- node[sen, right, font=\tiny] {hay slots} (f);
+\draw[flujo] (f) -- (ba);
+\draw[flujo] (ba) -- (dr);
+\draw[flujo] (dr) -- (lr);
+\draw[flujo] (lr) -- (cr);
+\draw[flujo] (cr.east) -- (8.25,0 |- cr.east) |- (w.east);
+\node[sen, rotate=90, fill=rojo!7, font=\tiny] at (8.25,-3.45) {otro bloque};
+\draw[flujo] (cr) -- node[sen, right, font=\tiny] {lote lleno, o el plazo} (fB);
+% sin lote: no consume, los eventos esperan en la DDR
+\draw[desc] (iB) -- (iB |- fB) -- (fB);
+\node[sen, rotate=90, fill=rojo!7, text=rojo!75!black, font=\tiny] at (3.05,-4.0)
+  {sin lote: no consume};
 
-% ==================================================================== MCA ===
-% corrido 2.5 cm a la derecha de lo que pedía el dibujo, para que (a) y (b) se
-% lean como dos subfiguras y no como un solo diagrama
-\node[parte] at (8.6,0.75) {(b)\enspace MCA\quad\normalfont un espectro por corrida};
+% ===================================================== (c) por la BRAM ===
+\def\xC{12.35}
+\node[parte] at (9.3,\yT) {(c)\enspace Por la BRAM};
+\node[sub]   at (9.3,\yS) {un evento por vuelta, en single-shot};
+\draw[cmarco] (9.3,-0.05) rectangle (17.6,-7.75);
+\node[rotc, anchor=north east] at (17.6,-0.05) {osciloscope\_leer\_lote};
 
-\foreach \n/\t/\y in {o/mca\_open()/0, cf/mca\_configure() · mca\_set\_*()/-1.1,
-                      cr/mca\_clear()/-2.2, st/mca\_start()/-3.3,
-                      rh/mca\_read\_histogram()/-4.4, sp/mca\_stop()/-5.5,
-                      wf/mca\_write\_file\_histogram()/-6.6}
-  \node[op, text width=3.8cm] (\n) at (10.7,\y) {\t};
-\foreach \a/\b in {o/cf, cf/cr, cr/st, st/rh, rh/sp, sp/wf}
-  \draw[flujo] (\a) -- (\b);
+\node[est] (e) at (\xC,-1.2)  {esperar: \texttt{adc\_we == 0}, el buffer congelado};
+\node[est] (a) at (\xC,-2.4)  {anotar: \texttt{t\_ns} · \texttt{wp} · \texttt{gap} · \texttt{snap}};
+\node[est] (l) at (\xC,-3.6)  {leer la ventana de cada canal, calibrada};
+\node[est] (r) at (\xC,-4.8)  {re-armar: \texttt{0x000}, y después las máscaras};
+\node[est] (d) at (\xC,-6.0)  {con lote: anotar \texttt{dead\_ns}};
+\node[ini] (iC) at (9.7,-1.2) {};
+\node[fin] (fC) at (\xC,-7.15) {};
+\draw[flujo] (iC) -- (e);
+\draw[flujo] (e) -- node[sen, right, font=\tiny] {disparo} (a);
+\draw[flujo] (a) -- (l);
+\draw[flujo] (l) -- (r);
+\draw[flujo] (r) -- (d);
+\draw[flujo] (d.east) -- (15.35,0 |- d.east) |- (e.east);
+\node[sen, rotate=90, fill=rojo!7, font=\tiny] at (15.35,-3.0) {otro evento};
+\draw[flujo] (d) -- node[sen, right, font=\tiny] {lote lleno, o el plazo} (fC);
+% sin lote: se cuenta y se re-arma, sin leer
+\draw[desc] ([yshift=-0.12cm]e.east) -- ++(0.45,0) coordinate (dsc) |- (r.east);
+\node[sen, rotate=90, fill=rojo!7, text=rojo!75!black, font=\tiny] at (dsc |- 0,-3.0)
+  {sin lote: descartado};
 
-% mientras corre, el hardware acumula: no hay un evento que leer
-\fill[verde] (13.0,-3.3) rectangle (13.25,-5.5);
-\node[font=\scriptsize, anchor=west, align=left] at (13.4,-4.4) {el hardware\\ acumula};
+% el tiempo muerto
+\draw[llave] (15.8,-1.55) -- (15.8,-5.15)
+  node[midway, right=6pt, font=\scriptsize, align=left] {tiempo\\ muerto};
 
 % ============================================================== leyenda ===
-\leyenda{-2.8,-7.45}{azul!30/lo llama AcquisitionSession, verde/el MCA acumula en la PL}
-  {Recuadro punteado: lo que corre en el hilo lector. La vuelta vuelve a \texttt{wait\_event()}, no a \texttt{arm()}.}
+\leyenda{-1.35,-8.45}{azul!30/lo llama AcquisitionSession, white/lo hace el lector, rojo!30/C (libmca)}{}
+\node[ini] at (9.6,-8.45) {};
+\node[font=\scriptsize, anchor=west] at (9.75,-8.45) {entra a \texttt{read\_batch}};
+\node[fin] at (12.5,-8.45) {};
+\node[font=\scriptsize, anchor=west] at (12.7,-8.45) {vuelve a Python};
 
 \end{tikzpicture}
 \end{document}

@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """La maquina de estados del publicador (mca_publish) y un cronograma de dos eventos.
 
-Arriba, la FSM tal como esta en el RTL: dos estados, la cola de indices y lo
-que hace cada transicion. Abajo, el cronograma ciclo a ciclo que vuelca
-tb_fsm_publicador.sv: dos ranuras que cierran separadas por 8 ciclos, la
-primera con la cola vacia (arranque directo) y la segunda con el publicador
-ocupado, que espera en la cola. Escribe fsm_publicador.tex en el estilo comun
-de las figuras TikZ y lo compila a .pdf y .svg.
+Son dos figuras:
+  - fsm_publicador: la FSM tal como esta en el RTL, dos estados, la cola de
+    indices y lo que hace cada transicion.
+  - cronograma_publicador: el cronograma ciclo a ciclo que vuelca
+    tb_fsm_publicador.sv. Dos ranuras que cierran separadas por 8 ciclos, la
+    primera con la cola vacia (arranque directo) y la segunda con el publicador
+    ocupado, que espera en la cola.
+Escribe cada una en .tex, en el estilo comun de las figuras TikZ, y la compila a
+.pdf y .svg. Los epigrafes no van adentro: estan en fsm_publicador.txt y en
+cronograma_publicador.txt, y en el doc que las incluye.
 
     python3 fsm_publicador.py          # con el CSV versionado
     python3 fsm_publicador.py --sim    # re-simula antes (vlog/vsim en el PATH)
@@ -22,7 +26,6 @@ AQUI = Path(__file__).resolve().parent
 MCA = AQUI.parents[3]                      # prj/MCA
 MODULO = MCA / "modulos" / "mca"
 CSV = AQUI / "fsm_publicador.csv"
-TEX = AQUI / "fsm_publicador.tex"
 TB = AQUI / "tb_fsm_publicador.sv"
 
 N0, N1 = 4, 70        # ciclos que se dibujan
@@ -202,39 +205,33 @@ FSM = r"""
    en orden de cierre. Cada ciclo, a la vez que la FSM: sale la cabeza si se
    publicó, y entran las que cierran (\texttt{acepta}), por índice. Nunca
    desborda: cada ranura está a lo sumo una vez.};
-\node[anchor=north west, text width=4.8cm, align=left, font=\scriptsize\itshape, black!70]
-  at ([yshift=-4pt]cola.south west)
-  {Los operandos salen de \texttt{cur}, un registro: el divisor los engancha el ciclo
-   después de \texttt{div\_start}. Decidir y cargar en el mismo flanco daba
-   $-0.734$\,ns (trece niveles).\\[3pt]
-   Una ranura cerrada guarda su resultado hasta \texttt{libera}: las ranuras
-   \emph{son} la memoria de la cola.};
 """
 
 
-def figura(filas):
+def figura_fsm():
     L = ["\\node[titulo] at (-3.0,2.75) {\\textbf{El publicador} \\quad "
-         "{\\scriptsize\\ttfamily mca\\_publish: la FSM y dos eventos ciclo a ciclo}};"]
+         "{\\scriptsize\\ttfamily mca\\_publish: la FSM y la cola}};"]
     L.append("\\begin{scope}[shift={(0.9,0.0)}]")
     L.append(FSM)
     L.append("\\end{scope}")
-    cr, y = cronograma(filas, -3.2)
+    return L
+
+
+def figura_cronograma(filas):
+    L = ["\\node[titulo] at (-3.0,0.35) {\\textbf{El publicador, ciclo a ciclo} \\quad "
+         "{\\scriptsize\\ttfamily tb\\_fsm\\_publicador: dos eventos}};"]
+    cr, y = cronograma(filas, 0.0)
     L += cr
     items = ", ".join(f"{c}/{n}" for n, c in
                       (("ranura midiendo", "verde!55"),
                        ("cerrada: guarda el resultado", "amarillo"),
                        ("publicador en DIV", "azul!30")))
-    L.append(f"\\leyenda{{-2.4,{y:.2f}}}{{{items}}}")
-    L.append("  {Simulación de \\texttt{mca\\_top} (\\texttt{tb\\_fsm\\_publicador}): dos ranuras, "
-             "compuerta de 20 muestras y dos disparos separados por 8. La ranura 0 cierra con la "
-             "cola vacía y arranca en el mismo flanco; la 1 cierra con el publicador ocupado y "
-             "espera. \\texttt{n\\_cola} incluye a la que se está publicando. Mientras ninguna "
-             "está libre, el ciclo va a \\texttt{t\\_div}.}")
+    L.append(f"\\leyenda{{-2.4,{y:.2f}}}{{{items}}}{{}}")
     return L
 
 
-PLANTILLA = r"""%% El publicador. GENERADO por fsm_publicador.py desde fsm_publicador.csv:
-%% no editar a mano.
+PLANTILLA = r"""%% %s. GENERADO por fsm_publicador.py (el cronograma, desde fsm_publicador.csv):
+%% no editar a mano. El epígrafe está en el .txt del mismo nombre.
 \documentclass[border=0pt,tikz]{standalone}
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
@@ -254,15 +251,17 @@ PLANTILLA = r"""%% El publicador. GENERADO por fsm_publicador.py desde fsm_publi
 """
 
 
-def compilar():
+def escribir(nombre, lineas):
+    tex = AQUI / f"{nombre}.tex"
+    tex.write_text(PLANTILLA % (nombre, "\n".join(lineas)))
     with tempfile.TemporaryDirectory() as tmp:
         subprocess.run(["pdflatex", "-interaction=nonstopmode", "-halt-on-error",
-                        f"-output-directory={tmp}", TEX.name],
+                        f"-output-directory={tmp}", tex.name],
                        cwd=AQUI, check=True, capture_output=True)
-        pdf = AQUI / "fsm_publicador.pdf"
-        shutil.copy(Path(tmp) / "fsm_publicador.pdf", pdf)
+        pdf = AQUI / f"{nombre}.pdf"
+        shutil.copy(Path(tmp) / f"{nombre}.pdf", pdf)
     subprocess.run(["pdftocairo", "-svg", str(pdf), str(pdf.with_suffix(".svg"))], check=True)
-    print("escrito fsm_publicador.pdf y .svg")
+    print(f"escrito {nombre}.tex, .pdf y .svg")
 
 
 def main():
@@ -271,9 +270,8 @@ def main():
     a = ap.parse_args()
     if a.sim:
         simular()
-    TEX.write_text(PLANTILLA % "\n".join(figura(leer())))
-    print(f"escrito {TEX.name}")
-    compilar()
+    escribir("fsm_publicador", figura_fsm())
+    escribir("cronograma_publicador", figura_cronograma(leer()))
 
 
 if __name__ == "__main__":

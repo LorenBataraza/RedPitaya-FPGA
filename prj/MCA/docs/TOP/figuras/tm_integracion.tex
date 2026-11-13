@@ -1,0 +1,112 @@
+% El tiempo muerto en la integración: de qué bloque sale cada casillero del
+% teselado de relojes del MCA. Dos casilleros nacen en el multitrigger y cruzan
+% el top como NIVELES (mca_veto -> vetotime, trig_arm -> t_rearm) y dos en las
+% ranuras del MCA (dt_win -> t_win, dt_div -> t_div). El flanco trig es el que
+% abre ranura: no entra al teselado. El detalle de mca_window y de la
+% ocupación está en docs/mca/figuras/contabilidad/tm_teselado.tex.
+% Colores: amarillo = multitrigger, verde = MCA (los de datapath_top y los
+% panoramas del top).
+% Sin ecuaciones ni texto explicativo adentro: el epígrafe está en
+% tm_integracion.txt y la identidad de los relojes, en el documento.
+% Fuentes: rtl/mine/tops/mca_red_pitaya_top.sv (mca_veto, trig_arm, scope_trigo),
+% modulos/mt/rtl/{mt_event_logic.v, mt_trig_src.sv, trigger_shield.sv,
+% mt_slope_trig.sv, mt_pz_trig.sv}, modulos/mca/rtl/{mca_window.sv, mca_top.sv}.
+%
+% Compilar:   pdflatex tm_integracion.tex
+%             pdftocairo -svg tm_integracion.pdf tm_integracion.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{
+  cuenta/.style = {bloque=grisr, text width=2.1cm, minimum height=0.62cm},
+  nivel/.style  = {->, line width=1.1pt},   % un nivel, no un flanco
+}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+% ============================================================ multitrigger ===
+% filas: flanco/adc_trig/trig en y = 0.5, armado/puede/trig_arm abajo
+\node[trig, text width=2.25cm, minimum height=1.2cm] (sch) at (0.3,0.2)
+  {\etq{Schmitt}{pendiente y\\ polo-cero}};
+\node[trig, text width=2.25cm, minimum height=1.2cm] (src) at (4.2,0.2)
+  {\blk{mt\_trig\_src}{máscara OR\\ de fuentes}};
+\node[trig, text width=2.25cm, minimum height=0.95cm] (shd) at (5.55,2.55)
+  {\blk{trigger\_shield}{holdoff de \texttt{dur}\\ tras un disparo}};
+
+\draw[flujo] ([yshift=3mm]sch.east) -- node[sen, above] {flanco} ([yshift=3mm]src.west);
+\draw[flujo] ([yshift=-3mm]sch.east) -- node[sen, above] {armado} ([yshift=-3mm]src.west);
+
+% el OR de los canales: el flanco conjunto y "algún canal puede disparar"
+\node[puerta o, anchor=input 1] (o1) at (6.95,0.5) {};
+\node[puerta o] (o2) at (7.15,-0.74) {};
+\node[registro] (ff) at (8.15,-0.6) {};
+\draw[flujo] ([yshift=3mm]src.east) -- node[sen, above, pos=0.55] {adc\_trig} (o1.input 1);
+\draw[flujo] ([yshift=-3mm]src.east) -- node[sen, above, pos=0.45] {puede} ++(1.25,0) |- (o2.input 1);
+\draw[ctrl] ($(o1.input 2)+(-0.4,0)$) -- (o1.input 2);
+\draw[ctrl] ($(o2.input 2)+(-0.4,0)$) -- (o2.input 2);
+\node[nodo, anchor=north] at ([yshift=-0.5mm]o2.south) {otros canales};
+\draw[flujo] (o2.output) -- (o2.output -| ff.west);
+
+% el escudo mira los disparos de las fuentes elegidas
+\coordinate (pt) at (5.55,0.5);
+\punto{pt}
+\draw[ctrl] (pt) -- node[sen, left] {shield\_src} (shd.south);
+
+\node[grupo, fit={(-1.05,3.5) (8.75,-2.15)}] (gmt) {};
+\node[rotulo] at (gmt.north west) {\texttt{mt\_top} · multitrigger, slot 3 (dentro de \texttt{i\_scope})};
+
+% ============================================================== los cables ===
+\node[font=\scriptsize\itshape, black!70, align=center, inner sep=1pt]
+  at (9.52,-1.45) {cables\\ del top};
+\tikzset{cable/.style = {sen, above, fill=white, inner sep=1pt}}
+
+% ==================================================================== MCA ===
+\node[captura, text width=1.9cm, minimum height=1.25cm] (win) at (11.5,1.05)
+  {\blk{mca\_window}{y las ranuras}};
+
+% el teselado: el primero que vale se lleva el ciclo
+\node[pregunta=1.55cm] (r0) at (14.65,2.55)  {veto\_i};
+\node[pregunta=1.55cm] (r1) at (14.65,1.55)  {dt\_win};
+\node[pregunta=1.55cm] (r2) at (14.65,0.55)  {dt\_div};
+\node[pregunta=1.55cm] (r3) at (14.65,-0.6)  {!trig\_arm\_i};
+\coordinate (r4) at (14.65,-1.6);
+\foreach \a/\b in {r0/r1, r1/r2, r2/r3}
+  \draw[flujo] (\a.south) -- node[no] {no} (\b.north);
+\draw[line width=0.8pt] (r3.south) -- node[no] {no} (r4);
+
+% los tres cables del top
+\draw[nivel] (shd.east) -- node[cable, pos=0.45] {mca\_veto} (shd.east -| r0.west);
+\draw[flujo] (o1.output) -- (9.9,0 |- o1.output) node[cable, pos=0.5] {trig}
+  |- ([yshift=-3mm]win.west);
+\draw[nivel] (ff.east) -- node[cable, pos=0.22] {trig\_arm} (ff.east -| r3.west);
+% lo que sale de las ranuras
+\draw[flujo] ([yshift=5mm]win.east) -- node[sen, above] {dt\_win} ([yshift=5mm]win.east -| r1.west);
+\draw[flujo] ([yshift=-5mm]win.east) -- node[sen, above] {dt\_div} ([yshift=-5mm]win.east -| r2.west);
+
+\node[cuenta] (c0) at (17.4,2.55) {\etq{vetotime}{\texttt{0x0C0}}};
+\node[cuenta] (c1) at (17.4,1.55) {\etq{t\_win}{\texttt{0x0C8}}};
+\node[cuenta] (c2) at (17.4,0.55) {\etq{t\_div}{\texttt{0x0D0}}};
+\node[cuenta] (c3) at (17.4,-0.6) {\etq{t\_rearm}{\texttt{0x0D8}}};
+\node[cuenta, fill=white] (c4) at (17.4,-1.6) {\etq{livetime}{\texttt{0x070}}};
+\foreach \k in {0,1,2,3}
+  \draw[flujo] (r\k.east) -- node[si] {sí} node[sen, above, pos=0.62] {+1} (c\k.west);
+\draw[flujo] (r4) -- node[sen, above, pos=0.62] {+1} (c4.west);
+
+% de dónde viene cada uno
+\tikzset{origen/.style = {anchor=west, font=\scriptsize\itshape, black!70, inner sep=1pt}}
+\node[origen] at (18.65,2.55) {multitrigger};
+\node[origen] at (18.65,1.05) {MCA};
+\node[origen] at (18.65,-0.6) {multitrigger};
+\draw[black!55, line width=0.6pt] (18.6,1.75) -- (18.6,0.35);
+
+\node[grupo, fit={(10.3,3.5) (20.2,-2.15)}] (gmc) {};
+\node[rotulo] at (gmc.north west) {\texttt{mca\_top} · slot 7, contadores de 64 b, con \texttt{run} = 1};
+
+\end{tikzpicture}
+\end{document}

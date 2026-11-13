@@ -1,0 +1,5 @@
+La línea punteada vertical es el cruce de reloj: cada `sys_bus_cdc` tiene una
+mitad en cada dominio. El slot 2 es un `sys_bus_stub` en `mca_red_pitaya_top` y
+el `event_ring_top` en `event_ring_red_pitaya_top`. `NOMBRE=valor`: parámetros
+con que el padre instancia el bloque (se omiten los que sólo pasan el del padre
+sin cambio).

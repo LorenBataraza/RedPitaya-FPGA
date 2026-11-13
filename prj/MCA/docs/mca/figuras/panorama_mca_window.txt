@@ -1,0 +1,15 @@
+La muestra llega ya retrasada por `mca_delay`, que está en `mca_top`. Acá se le
+resta la base y se registra (`xc_q`, `x_q`) antes de repartirse: saturada a ≥ 0
+a las tres ranuras, y con signo al banco de trapecios. El disparo es un flanco
+de `trig_i`; si cae entre dos muestras válidas, espera la siguiente. El
+asignador abre la ranura libre de menor índice, y lo que decide (cuál, y las
+marcas `otras`, `dt_prev` y `win_id`) se registra en el mismo flanco que la
+muestra: los dos llegan a la ranura en el mismo ciclo. `reserva_q` marca ocupada
+la ranura recién elegida en el ciclo en que todavía figura libre. Nadie cierra
+una ranura desde afuera: cada una cierra sola cuando su `len` llega a la
+`gate_long` que retuvo al abrir, y vuelve a libre cuando el publicador la
+suelta (`libera_i`). La ventana de cada meseta (`ini`, `fin`) ya viene corrida
+las 8 muestras de latencia del trapecio, y los umbrales de amplitud se desplazan
+una sola vez para las tres ranuras. A la derecha, la contabilidad: los
+casilleros de tiempo muerto, el casillero de cada disparo y los contadores de
+cierres. `NOMBRE=valor`: parámetros con que lo instancia `mca_pulse_feature`.

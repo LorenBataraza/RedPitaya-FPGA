@@ -1130,7 +1130,8 @@ esperan, pero `asg_dat` y `pid_dat` son cero ⇒ **OUT1/OUT2 quedan en 0 V**. El
 top los cablea a `axi0_sys` / `axi1_sys` → `axi_master` → `S_AXI_HP0/HP1`
 (64 bit, a `adc_clk`). La ruta está verificada pero **apagada por registro**
 (`set_axi_en`, offsets `0x5C`/`0x7C` del scope, nunca escritos): el MCA no
-necesita formas de onda en DDR porque acumula en BRAM. La discusión de cuándo
+necesita formas de onda en DDR porque acumula en BRAM. El top del event_ring la
+saca (`EN_AXI = 0`): ahí la DDR la escribe el ring, por HP2. La discusión de cuándo
 convendría encenderla está en
 [`API/arquitectura_adquisicion_software.md`](API/arquitectura_adquisicion_software.md)
 Parte 5. El otro top del proyecto, `event_ring_red_pitaya_top.sv`, sí usa HP0

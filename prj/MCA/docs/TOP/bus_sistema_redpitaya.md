@@ -39,7 +39,8 @@ Características, y sus consecuencias:
 ```
 0x4000_0000  ┌──────────────────────┐  slot 0   red_pitaya_hk      (LEDs, GPIO, DNA)
 0x4010_0000  ├──────────────────────┤  slot 1   OSC                (osc_cfg)
-0x4020_0000  ├──────────────────────┤  slot 2   event_ring         (libre en el build MCA)
+0x4020_0000  ├──────────────────────┤  slot 2   event_ring         (un stub en el build MCA)
+             │  0x4021_0000         │           gen_pulsos         (los dos; sys_bus_split)
 0x4030_0000  ├──────────────────────┤  slot 3   MULTITRIGGER       (mt_cfg)
 0x4040_0000  ├──────────────────────┤  slot 4   red_pitaya_ams     (XADC/PDM)
 0x4050_0000  ├──────────────────────┤  slot 5   red_pitaya_daisy
@@ -58,7 +59,9 @@ OSC, que mantiene vivos los offsets que usa `librp`— está en
 [`register_map_top.md`](register_map_top.md).
 
 En el build del MCA los slots 2 (ASG) y 3 (PID) quedaron libres al eliminar
-esos módulos; el 3 lo ocupa ahora el multitrigger.
+esos módulos; el 3 lo ocupa ahora el multitrigger. El 2 lo reparte `sys_bus_split`
+entre el event_ring y el generador de pulsos, que toma el lugar del ASG (ver
+[`register_map_top.md`](register_map_top.md)).
 
 **Parámetros** (`red_pitaya_top.sv:361`):
 
@@ -96,6 +99,12 @@ cambiar `SN` y no basta con elegir una dirección más alta.
 ## 3. La cadena completa
 
 ![Panorama del bus de sistema](figuras/panorama_sys_bus.svg)
+
+*La línea punteada vertical es el cruce de reloj: cada `sys_bus_cdc` tiene una
+mitad en cada dominio. El slot 2 es un `sys_bus_stub` en `mca_red_pitaya_top` y
+el `event_ring_top` en `event_ring_red_pitaya_top`. `NOMBRE=valor`: parámetros
+con que el padre instancia el bloque (se omiten los que sólo pasan el del padre
+sin cambio).*
 
 De izquierda a derecha:
 - El ARM habla AXI4 por `M_AXI_GP0`, con los cinco canales AW, W, B, AR y R.
@@ -246,9 +255,10 @@ Lo que hay que retener:
    BRAM.
 3. **La transacción avanza SÓLO cuando el esclavo hace `ack`**: `reg_done` se
    actualiza únicamente con `reg_ack_sync`. De ahí sale el modo de falla de §7.
-4. `bus_s.rdata = pll_locked_i ? bus_m.rdata : 32'hDEADBEEF`
+4. `bus_s.rdata = pll_locked_i ? reg_rdata : 32'hDEADBEEF`
    (`sys_bus_cdc.sv:74`): **leer `0xDEADBEEF` significa que el PLL del ADC no
-   está enganchado**, no que el registro valga eso.
+   está enganchado**, no que el registro valga eso. `reg_rdata` es el dato que
+   el esclavo tenía en el ciclo del `ack`, congelado ahí (§6.1, la lectura).
 5. **El `err` del esclavo no vuelve.** `sys_bus_cdc.sv:73` es
    `assign bus_s.err = pll_locked_i ? 1'b0 : 1'b1;` — el CDC **nunca mira
    `bus_m.err`**. El único `err` que el software puede ver es el de "PLL sin
@@ -302,19 +312,31 @@ La ida es **idéntica** a la de la escritura —mismo toggle, mismos tres flops,
 mismo estrobo, sólo cambia `ctrl_re` por `ctrl_we`—, así que lo propio de la
 lectura está en la vuelta.
 
-El dato aparece en `sys_rdata` en el dominio `adc_clk`, registrado y congelado,
-unos 53 ns —casi siete ciclos— **antes** de que el `ack` termine de cruzar a
-`clk_fpga_0`.
-Y en el camino **no hay ningún sincronizador**: `rdata` atraviesa el CDC como un
-`assign` crudo (`bus_s.rdata = pll_locked_i ? bus_m.rdata : 32'hDEADBEEF`,
-`sys_bus_cdc.sv:74`). No hace falta sincronizarlo: el **`ack` es** la garantía de
-que el dato ya se asentó, así que cuando el master lo muestrea —en el ciclo de
-`clk_fpga_0` en que ve el ack— está leyendo un valor que no se movió en varios
-ciclos de `adc_clk`.
+El esclavo pone el dato en `sys_rdata`, en `adc_clk`, y el CDC lo **congela en
+`reg_rdata` en el flanco del `ack`**. Es esa copia la que cruza a `clk_fpga_0`, sin
+sincronizador, y no hace falta: `reg_done` se actualiza en el mismo flanco y le
+llega al master por dos flops (`ctrl_done_csff`), así que cuando `axi4_slave`
+registra `RDATA` el dato lleva por lo menos dos ciclos de `clk_fpga_0` quieto. El
+cruce de esos 32 bits lo acota el XDC con `set_max_delay -datapath_only 8`, como
+los controles.
 
-Lo que sí se timea de verdad es ese cruce de 32 bits, con ~0.94 ns de margen.
-De ahí sale la regla 4 del §8: `sys_rdata` tiene que ser un **registro plano**,
-nada de lógica combinacional ancha.
+**Hasta el 2026-11-08 el CDC no tenía `reg_rdata`**: hacía
+`bus_s.rdata = pll_locked_i ? bus_m.rdata : 32'hDEADBEEF`, y el dato cruzaba
+crudo. Para un registro fijo como `AMP_MAX` daba lo mismo. Pero los esclavos
+recalculan `sys_rdata` todos los ciclos a partir de `sys_addr`, y un registro que
+cambia mientras se lo lee —un contador, un puntero, `WR_SLOT` del event_ring—
+llegaba a `axi4_slave` con bits de antes y de después del cambio: en la placa,
+~1 de cada 1000 lecturas de `wp_cur` del osciloscopio, en todos los bitstreams. El
+`false_path` del XDC sobre `reg_rdata*` era de otra versión del CDC
+(`rtl_250/sys_bus_cdc.sv`) y no enganchaba nada, así que Vivado timeaba el cruce
+como si los dos relojes fueran síncronos y no avisaba. `tb_sys_bus_proto` lo
+verifica en su sección 7: con un contador libre en el slot 5, el dato tiene que
+llevar un ciclo quieto cuando `axi4_slave` lo registra. En la placa lo mide
+`make verificar-placa-bus`: 2 millones de lecturas seguidas de `wp_cur` dieron 876
+rotas con el CDC viejo (bitstream del MCA) y 0 con el arreglo (bitstream del ring,
+2026-11-09). Con el MCA ya arreglado (6156e5a3, también 2026-11-09) dio 1 en 14 millones,
+y no una mezcla: un bit que vale 1 en las tres lecturas de la terna llegó en 0
+(`0x08fa 0x08dc 0x08fd`). Las tres repeticiones siguientes dieron 0.
 
 #### Dirección no mapeada — la figura del modo de falla de §7.1
 
@@ -419,7 +441,8 @@ Si `sys_ack` nunca se levanta para una dirección:
    `ack_cnt` es de 6 bits: a los **32 ciclos** de `clk_fpga_0` el AXI slave
    **fabrica un ack por su cuenta**, completa la transacción y devuelve lo que
    haya en `axi.RDATA` (que sigue a `bus.rdata` ciclo a ciclo,
-   `axi4_slave.sv:174`).
+   `axi4_slave.sv:174`): el `reg_rdata` de la última lectura que sí terminó en
+   ese slot.
 
 **Resultado neto:** el ARM no se cuelga —el timeout lo rescata— pero
 - el acceso tarda 32 ciclos en vez de ~12,
@@ -631,6 +654,11 @@ con el banco en línea.
 
 ![Panorama del módulo de configuración](figuras/panorama_modulo_cfg.svg)
 
+*Escriben con `wr_stb` `integration_cfg` y `mca_top`; `osc_cfg`, `mt_cfg` y
+`event_ring_top` usan `sys_wen` directo, y sus comandos duran la transacción (6
+ciclos). La flecha punteada es sólo de los esclavos con memoria: las aperturas
+BRAM de `osc_cfg` y los histogramas de `mca_top`.*
+
 Lo mínimo para no romper nada:
 
 ```systemverilog
@@ -669,11 +697,11 @@ Reglas:
 2. **Latencia fija en vez de ack por camino.** Si el ack sale de una señal que
    puede quedar constante en cero, es una bomba de tiempo.
 3. **Presupuesto: ~20 ciclos.** Son 32 de timeout menos ~8-12 del CDC.
-4. **`sys_rdata` tiene que ser un registro plano.** El XDC trae un
-   `set_false_path` sobre `inst_sys_bus_cdc/reg_rdata*`, pero `sys_bus_cdc.sv`
-   **no tiene ese registro** (hace `assign bus_s.rdata = ...`), así que la
-   restricción no engancha nada y el cruce de datos de lectura se timea de
-   verdad, con ~0.94 ns de margen. Nada de lógica combinacional ancha ahí.
+4. **`sys_rdata` tiene que estar listo en el ciclo del `ack`.** El CDC lo copia a
+   `reg_rdata` en ese flanco y no lo vuelve a mirar, así que puede recalcularse
+   todos los ciclos: un contador vivo sale entero. El camino
+   `sys_rdata → reg_rdata` es de `adc_clk` a `adc_clk` y se timea como cualquier
+   otro; conviene igual un registro plano, sin lógica combinacional ancha.
 5. **`sys_err` en `1'b0`, y no contar con él para nada.** `sys_bus_stub`
    devuelve `err=1` (`rtl/sys_bus_stub.sv:11-13`) con la intención de que el
    software distinga "slot vacío" de "slot ocupado", **pero eso no funciona**:

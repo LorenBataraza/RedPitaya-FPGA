@@ -1,0 +1,144 @@
+% Figura 7c: el espectro, una cuenta por número. GENERADO por figuras_cadena_tikz.py: no editar a mano.
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{booktabs}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+% rampa secuencial del naranja de la paleta, para las capas de 07c: oscura la
+% primera (validada: pares vecinos distinguibles también con daltonismo)
+\definecolor{acum1}{RGB}{143,67,16}
+\definecolor{acum2}{RGB}{217,112,42}
+\definecolor{acum3}{RGB}{244,174,110}
+\tikzset{
+  eje/.style     = {black!60, line width=0.5pt},
+  guia/.style    = {black!12, line width=0.4pt},
+  tick/.style    = {font=\scriptsize, inner sep=1.5pt, black!75},
+  titeje/.style  = {font=\scriptsize, inner sep=1pt},
+  traza/.style   = {azul!75!black, line width=0.7pt, line join=round},
+  thr/.style     = {rojo!70!black, line width=0.8pt, dashed},
+  thrlo/.style   = {rojo!70!black, line width=0.8pt, densely dotted},
+  pico/.style    = {circle, draw=black, line width=0.4pt, fill=verde,
+                    inner sep=0pt, minimum size=1.9mm},
+  perdido/.style = {circle, draw=black!50, line width=0.6pt, fill=white,
+                    inner sep=0pt, minimum size=1.7mm},
+  est/.style     = {bloque=verde!55, param={verde!55}{verde!20}},
+  publog/.style  = {etapa=naranja!30},
+  ficha/.style   = {draw=black, line width=0.5pt, fill=white, rounded corners=1.5pt,
+                    font=\scriptsize\ttfamily, inner sep=2pt, minimum width=0.85cm,
+                    minimum height=0.42cm},
+}
+% una entrada de leyenda suelta: #1 posición, #2 la marca, #3 el texto
+% amp >> h_shift: el {} corta la ligadura >> -> comilla de la T1
+\newcommand{\shr}[1]{\texttt{amp~>{}>~#1}}
+\newcommand{\entrada}[3]{\node[anchor=west, font=\scriptsize] at (#1) {#2\hspace{1.5mm}#3};}
+\begin{document}
+\begin{tikzpicture}[fondo]
+\draw[guia] (0,0.000) -- (14.000,0.000);
+\draw[eje] (0,0.000) -- ++(-0.08,0) node[tick, left] {0};
+\draw[guia] (0,1.389) -- (14.000,1.389);
+\draw[eje] (0,1.389) -- ++(-0.08,0) node[tick, left] {10};
+\draw[guia] (0,2.778) -- (14.000,2.778);
+\draw[eje] (0,2.778) -- ++(-0.08,0) node[tick, left] {20};
+\draw[guia] (0,4.167) -- (14.000,4.167);
+\draw[eje] (0,4.167) -- ++(-0.08,0) node[tick, left] {30};
+\fill[acum3] (1.334,0.000) rectangle (1.509,0.139);
+\fill[acum3] (1.991,0.000) rectangle (2.166,0.139);
+\fill[acum3] (2.428,0.000) rectangle (2.603,0.278);
+\fill[acum2] (2.866,0.000) rectangle (3.041,0.139);
+\fill[acum3] (3.084,0.000) rectangle (3.259,0.139);
+\fill[acum2] (3.303,0.000) rectangle (3.478,0.139);
+\fill[acum3] (3.303,0.139) rectangle (3.478,0.417);
+\draw[white, line width=0.7pt] (3.303,0.139) -- (3.478,0.139);
+\fill[acum2] (3.522,0.000) rectangle (3.697,0.278);
+\fill[acum3] (3.522,0.278) rectangle (3.697,0.972);
+\draw[white, line width=0.7pt] (3.522,0.278) -- (3.697,0.278);
+\fill[acum2] (3.741,0.000) rectangle (3.916,0.556);
+\fill[acum3] (3.741,0.556) rectangle (3.916,1.528);
+\draw[white, line width=0.7pt] (3.741,0.556) -- (3.916,0.556);
+\fill[acum1] (3.959,0.000) rectangle (4.134,0.139);
+\fill[acum2] (3.959,0.139) rectangle (4.134,0.972);
+\draw[white, line width=0.7pt] (3.959,0.139) -- (4.134,0.139);
+\fill[acum3] (3.959,0.972) rectangle (4.134,2.778);
+\draw[white, line width=0.7pt] (3.959,0.972) -- (4.134,0.972);
+\fill[acum1] (4.178,0.000) rectangle (4.353,0.278);
+\fill[acum2] (4.178,0.278) rectangle (4.353,0.833);
+\draw[white, line width=0.7pt] (4.178,0.278) -- (4.353,0.278);
+\fill[acum3] (4.178,0.833) rectangle (4.353,4.583);
+\draw[white, line width=0.7pt] (4.178,0.833) -- (4.353,0.833);
+\fill[acum1] (4.397,0.000) rectangle (4.572,0.139);
+\fill[acum2] (4.397,0.139) rectangle (4.572,1.111);
+\draw[white, line width=0.7pt] (4.397,0.139) -- (4.572,0.139);
+\fill[acum3] (4.397,1.111) rectangle (4.572,3.472);
+\draw[white, line width=0.7pt] (4.397,1.111) -- (4.572,1.111);
+\fill[acum1] (4.616,0.000) rectangle (4.791,0.139);
+\fill[acum2] (4.616,0.139) rectangle (4.791,0.417);
+\draw[white, line width=0.7pt] (4.616,0.139) -- (4.791,0.139);
+\fill[acum3] (4.616,0.417) rectangle (4.791,1.667);
+\draw[white, line width=0.7pt] (4.616,0.417) -- (4.791,0.417);
+\fill[acum2] (4.834,0.000) rectangle (5.009,0.139);
+\fill[acum3] (4.834,0.139) rectangle (5.009,0.556);
+\draw[white, line width=0.7pt] (4.834,0.139) -- (5.009,0.139);
+\fill[acum1] (5.053,0.000) rectangle (5.228,0.139);
+\fill[acum3] (5.053,0.139) rectangle (5.228,0.278);
+\draw[white, line width=0.7pt] (5.053,0.139) -- (5.228,0.139);
+\fill[acum1] (5.928,0.000) rectangle (6.103,0.139);
+\fill[acum3] (5.928,0.139) rectangle (6.103,0.278);
+\draw[white, line width=0.7pt] (5.928,0.139) -- (6.103,0.139);
+\fill[acum3] (6.147,0.000) rectangle (6.322,0.278);
+\fill[acum2] (6.366,0.000) rectangle (6.541,0.139);
+\fill[acum1] (7.022,0.000) rectangle (7.197,0.139);
+\fill[acum2] (7.241,0.000) rectangle (7.416,0.278);
+\fill[acum3] (7.241,0.278) rectangle (7.416,0.556);
+\draw[white, line width=0.7pt] (7.241,0.278) -- (7.416,0.278);
+\fill[acum3] (7.459,0.000) rectangle (7.634,0.278);
+\fill[acum2] (7.678,0.000) rectangle (7.853,0.417);
+\fill[acum3] (7.897,0.000) rectangle (8.072,0.278);
+\fill[acum2] (8.116,0.000) rectangle (8.291,0.278);
+\fill[acum3] (8.116,0.278) rectangle (8.291,1.389);
+\draw[white, line width=0.7pt] (8.116,0.278) -- (8.291,0.278);
+\fill[acum3] (8.334,0.000) rectangle (8.509,0.556);
+\fill[acum2] (8.553,0.000) rectangle (8.728,0.694);
+\fill[acum3] (8.553,0.694) rectangle (8.728,1.944);
+\draw[white, line width=0.7pt] (8.553,0.694) -- (8.728,0.694);
+\fill[acum1] (8.772,0.000) rectangle (8.947,0.417);
+\fill[acum2] (8.772,0.417) rectangle (8.947,0.833);
+\draw[white, line width=0.7pt] (8.772,0.417) -- (8.947,0.417);
+\fill[acum3] (8.772,0.833) rectangle (8.947,1.944);
+\draw[white, line width=0.7pt] (8.772,0.833) -- (8.947,0.833);
+\fill[acum2] (8.991,0.000) rectangle (9.166,0.278);
+\fill[acum3] (8.991,0.278) rectangle (9.166,2.639);
+\draw[white, line width=0.7pt] (8.991,0.278) -- (9.166,0.278);
+\fill[acum2] (9.209,0.000) rectangle (9.384,0.278);
+\fill[acum3] (9.209,0.278) rectangle (9.384,0.694);
+\draw[white, line width=0.7pt] (9.209,0.278) -- (9.384,0.278);
+\fill[acum2] (9.428,0.000) rectangle (9.603,0.278);
+\fill[acum3] (9.428,0.278) rectangle (9.603,1.250);
+\draw[white, line width=0.7pt] (9.428,0.278) -- (9.603,0.278);
+\fill[acum1] (9.647,0.000) rectangle (9.822,0.139);
+\fill[acum2] (9.647,0.139) rectangle (9.822,0.417);
+\draw[white, line width=0.7pt] (9.647,0.139) -- (9.822,0.139);
+\fill[acum3] (9.647,0.417) rectangle (9.822,1.111);
+\draw[white, line width=0.7pt] (9.647,0.417) -- (9.822,0.417);
+\fill[acum3] (9.866,0.000) rectangle (10.041,0.278);
+\fill[acum3] (10.084,0.000) rectangle (10.259,0.139);
+\fill[acum3] (10.522,0.000) rectangle (10.697,0.139);
+\draw[thr] (1.025,0) -- (1.025,5.000);
+\node[titeje, anchor=north west] at (1.075,5.000) {\texttt{thr} = 300};
+\draw[eje] (0,0) -- (0,5.000);
+\draw[eje] (0,0) -- (14.000,0);
+\draw[eje] (0.109,0) -- ++(0,-0.08) node[tick, below] {0};
+\draw[eje] (2.297,0) -- ++(0,-0.08) node[tick, below] {10};
+\draw[eje] (4.484,0) -- ++(0,-0.08) node[tick, below] {20};
+\draw[eje] (6.672,0) -- ++(0,-0.08) node[tick, below] {30};
+\draw[eje] (8.859,0) -- ++(0,-0.08) node[tick, below] {40};
+\draw[eje] (11.047,0) -- ++(0,-0.08) node[tick, below] {50};
+\draw[eje] (13.234,0) -- ++(0,-0.08) node[tick, below] {60};
+\node[titeje, anchor=north] at (7.000,-0.48) {canal (\shr{6})};
+\node[titeje, rotate=90, anchor=south] at (-0.55,2.500) {cuentas};
+\entrada{0.000,-1.15}{\tikz\fill[acum1] (0,0) rectangle (4mm,3mm);}{las primeras 12 cuentas}
+\entrada{4.580,-1.15}{\tikz\fill[acum2] (0,0) rectangle (4mm,3mm);}{de la 13 a la 64}
+\entrada{8.040,-1.15}{\tikz\fill[acum3] (0,0) rectangle (4mm,3mm);}{de la 65 a la 227}
+\end{tikzpicture}
+\end{document}

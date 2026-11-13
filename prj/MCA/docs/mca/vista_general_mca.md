@@ -20,9 +20,22 @@ histograma, la contabilidad) van descriptos sin mux.
 
 ![Panorama de mca_top](figuras/panorama_mca_top.svg)
 
+*En estilo datapath, para una hoja A4. Las entradas bajan por arriba; la muestra
+baja por la columna de la entrada, cruza `mca_pulse_feature` (la base, la
+ventana y la publicación) y cae en el bus de features, del que cuelgan los ejes,
+el discriminador y los histogramas. Los números sobre las flechas son anchos en
+bits. El color es la función del bloque (la leyenda). El banco de trapecios va
+como preprocesamiento: es un filtro sobre toda la señal, compartido por las
+ranuras, y lo que es de cada pulso es la suma en su ventana. Nombre en
+monoespaciada, con encabezado: submódulo con archivo propio; en romana y en un
+solo tono: lógica escrita en el módulo que lo contiene. Gris con triángulo:
+registro del RTL. **Dn**: decisión configurable por registro; cada una tiene su
+figura de opciones en `figuras/decisiones/`. `NOMBRE=valor`: parámetros con que
+el padre instancia el bloque (se omiten los que sólo pasan el del padre sin
+cambio).*
+
 *El MCA por etapas. Los círculos **Dn** son las decisiones de abajo. Fuente
-TikZ en [`figuras/panorama_mca_top.tex`](figuras/panorama_mca_top.tex); las
-figuras de opciones, en [`figuras/decisiones/`](figuras/decisiones/).*
+TikZ en [`figuras/panorama_mca_top.tex`](figuras/panorama_mca_top.tex).*
 
 ## Las decisiones, de un vistazo
 
@@ -103,6 +116,26 @@ ranuras (`xc_q`), y lo que el asignador decide para cada muestra viaja registrad
 con ella. Ese ciclo lo absorbe la línea de retardo. Sin el Schmitt interno, el
 camino que era el crítico (muestra → umbrales → abrir/cerrar → acumuladores) ya
 no existe: la apertura es un flanco de `trig_i`.
+
+![mca_window](figuras/panorama_mca_window.svg)
+
+*La
+muestra llega ya retrasada por `mca_delay`, que está en `mca_top`. Acá se le resta
+la base y se registra (`xc_q`, `x_q`) antes de repartirse: saturada a ≥ 0 a las
+tres ranuras, y con signo al banco de trapecios. El disparo es un flanco de
+`trig_i`; si cae entre dos muestras válidas, espera la siguiente. El asignador
+abre la ranura libre de menor índice, y lo que decide (cuál, y las marcas `otras`,
+`dt_prev` y `win_id`) se registra en el mismo flanco que la muestra: los dos
+llegan a la ranura en el mismo ciclo. `reserva_q` marca ocupada la ranura recién
+elegida en el ciclo en que todavía figura libre. Nadie cierra una ranura desde
+afuera: cada una cierra sola cuando su `len` llega a la `gate_long` que retuvo al
+abrir, y vuelve a libre cuando el publicador la suelta (`libera_i`). La ventana de
+cada meseta (`ini`, `fin`) ya viene corrida las 8 muestras de latencia del
+trapecio, y los umbrales de amplitud se desplazan una sola vez para las tres
+ranuras. A la derecha, la contabilidad: los casilleros de tiempo muerto, el
+casillero de cada disparo y los contadores de cierres. `NOMBRE=valor`: parámetros
+con que lo instancia `mca_pulse_feature`. Fuente:
+[`panorama_mca_window.tex`](figuras/panorama_mca_window.tex).*
 
 ### 2.1 Línea de base — D3
 
@@ -234,6 +267,24 @@ todo es un máximo y unas sumas que corren. Cada ranura tiene los suyos.
 undershoot resta de $Q_\mathrm{tot}$ mientras $Q_\mathrm{cola}$ sigue sumando, y se
 llega a $Q_\mathrm{cola} > Q_\mathrm{tot}$, que rompe la premisa del divisor.
 
+![mca_slot](figuras/panorama_mca_slot.svg)
+
+*Arriba, el control. Al abrir, la ranura retiene las dos
+compuertas, y `len` cuenta las muestras desde el disparo. Cierra en la primera
+muestra válida con `len ≥ g_long`, que ya no se acumula: la ventana tiene
+`gate_long` muestras, contando la del disparo. Si la amplitud está en [min, max]
+(`amp_ok`), pasa a CERRADA y espera a `libera_i`; si no, vuelve a LIBRE. Abajo va
+una fila por acumulador: la lógica calcula el valor siguiente, y el control (la
+barra gris) elige entre ese, el de apertura y el que ya tenía. La ventana de
+amplitud se evalúa un ciclo antes del cierre, con dos sombras de Q_tot contra los
+umbrales ya desplazados, para sacarla del camino crítico. `amp_ok` toma la
+integral (`ge_min_r` y `le_max_r`, o `sat_ok`) o el pico (`peak_ok_r`), según
+`cfg_amp_src`. Las marcas de solape no corrigen nada: dejan escrito en el
+resultado que se midió sobre otro pulso. `estancada_o`: abierta y vencida, pero
+sin muestras válidas que la cierren. `NOMBRE=valor`: parámetros con que la
+instancia `mca_window`. Fuente:
+[`panorama_mca_slot.tex`](figuras/panorama_mca_slot.tex).*
+
 ### 2.5 El conformado trapezoidal — D13
 
 ![D13: el trapecio](figuras/decisiones/d13_trapecio.svg)
@@ -303,7 +354,7 @@ m = 48, un pulso que llega a 1 µs de otro, sobre el 61 % de su cola, mide
 **2409.05 ± 0.98** contra **2409.08 ± 1.02** aislado; su pico da el doble. Hace
 falta **ajustar M en el hardware**: la cola que llega al ADC es 2.7 % más corta
 que la programada, y con el M nominal el error era de −1.26 %
-([`VERIFICACION.md`](../../modulos/mca/sim/VERIFICACION.md) §La validación en placa).
+([`VERIFICACION.md`](../../modulos/mca/sim/VERIFICACION.md#4-generación-externa-controlada) §4).
 
 Dos detalles de la implementación cambian lo que se puede hacer con él:
 
@@ -350,21 +401,34 @@ divisores arrancan en el mismo flanco del cierre, así que una ranura espera
 exactamente **18 ciclos** por evento (arranque, carga, 16 iteraciones y `valid`).
 Ese tiempo, con todas las ranuras ocupadas y alguna esperando, es `t_div`.
 
-![El publicador: la FSM y dos eventos](figuras/publicacion/fsm_publicador.svg)
+![El publicador: la FSM](figuras/publicacion/fsm_publicador.svg)
 
-*Arriba, la FSM de [`mca_publish.sv`](../../modulos/mca/rtl/mca_publish.sv);
-abajo, el cronograma que vuelca
-[`tb_fsm_publicador.sv`](figuras/publicacion/tb_fsm_publicador.sv). Para
-regenerarlo: `python3 figuras/publicacion/fsm_publicador.py --sim`.*
+*La FSM de [`mca_publish.sv`](../../modulos/mca/rtl/mca_publish.sv): dos
+estados, la cola de índices y lo que hace cada transición. Los operandos salen de
+`cur`, un registro: el divisor los engancha el ciclo después de `div_start`.
+Decidir y cargar en el mismo flanco daba $-0.734$ ns de slack (trece niveles).
+Una ranura cerrada guarda su resultado hasta `libera`: las ranuras **son** la
+memoria de la cola.*
 
 La FSM tiene dos estados. En **IDLE**, si hay algo en la cola o alguna ranura
 cierra, dispara los divisores y registra en `cur` qué ranura publica: la que
 cierra si la cola está vacía, la cabeza si no. En **DIV** espera `div_valid` y
 entonces arma las 16 ranuras del bus desde `cur` y los cocientes, pulsa
 `ev_valid` y libera la ranura. Entre dos eventos encolados pasa un ciclo en
-IDLE, así que el publicador saca uno cada 19 ciclos. En el ejemplo, la ranura 1
-cierra con el publicador ocupado y queda cerrada 29 ciclos: 11 en la cola y 18
-publicando.
+IDLE, así que el publicador saca uno cada 19 ciclos.
+
+![El publicador, ciclo a ciclo](figuras/publicacion/cronograma_publicador.svg)
+
+*Simulación de `mca_top`
+([`tb_fsm_publicador.sv`](figuras/publicacion/tb_fsm_publicador.sv)): dos
+ranuras, compuerta de 20 muestras y dos disparos separados por 8. La ranura 0
+cierra con la cola vacía y arranca en el mismo flanco; la 1 cierra con el
+publicador ocupado y espera. `n_cola` incluye a la que se está publicando.
+Mientras ninguna está libre, el ciclo va a `t_div`. Para regenerarlo:
+`python3 figuras/publicacion/fsm_publicador.py --sim`.*
+
+En el ejemplo, la ranura 1 cierra con el publicador ocupado y queda cerrada 29
+ciclos: 11 en la cola y 18 publicando.
 
 **`mca_div_restore`** (bloque fijo, dos instancias en paralelo) es un divisor
 restaurador: calcula $\lfloor \text{num} \cdot 2^{16} / \text{den} \rfloor$ con
@@ -419,7 +483,20 @@ aperturas de histograma.
 
 ![El bus de features](figuras/publicacion/bus_features.svg)
 
-*Fuente: [`bus_features.tex`](figuras/publicacion/bus_features.tex).*
+*Cada ranura cerrada guarda su resultado hasta `libera`: pico, $Q_\mathrm{tot}$ y
+$Q_\mathrm{cola}$, amplitud elegida e integral, largo y $t_\mathrm{sub}$,
+`dt_prev` y `dt_next`, las marcas de solape, la suma y la cuenta de la meseta y
+`win_id`. El publicador atiende la más vieja de la cola de índices y `cur` elige
+sus operandos. Las llaves agrupan las ranuras del bus por origen; el color dice
+cuál (la leyenda). Contrato: cada ranura del bus es un `uint16` con fondo de
+escala `0xFFFF`. Las acotadas (pico, PSD, trapecio) van alineadas a la
+izquierda; los contadores (`F_LEN`, `F_TRISE`, `F_DT*`) y `F_INVW`, sin
+normalizar. El índice es fijo: lo comparten el selector de eje (D9) y el
+discriminador (D10). Además del bus, el publicador saca `ev_valid` (un ciclo),
+`ev_amp`, `ev_psd` y `ev_psd_ok`. El `inc` del 1D es `ev_valid` y el
+discriminador; el del 2D exige además `ev_psd_ok`. Los dos pasan por el registro
+de pipeline junto con los índices. Fuente:
+[`bus_features.tex`](figuras/publicacion/bus_features.tex).*
 
 El bus es **un registro** que se carga entero en `div_valid` y se sostiene hasta
 el evento siguiente; `ev_valid` dura un ciclo. No tiene handshake porque no le
@@ -551,8 +628,10 @@ rastro. Son cuatro mediciones, todas con assertions en
 [`mca_top_sva.sv`](../../modulos/mca/sim/sva/mca_top_sva.sv):
 
 - **Relojes** (64 b). Cada ciclo con `run` cae en **exactamente un** casillero:
-  `realtime = vetotime + t_win + t_div + livetime`. El tiempo muerto es
-  `t_win + t_div`: no hay ranura libre.
+  `realtime = vetotime + t_win + t_div + t_rearm + livetime`. El tiempo muerto
+  del MCA es `t_win + t_div`: no hay ranura libre. `t_rearm` es el que agrega el
+  disparo: había ranura libre, pero el Schmitt del multitrigger todavía no
+  re-armaba, y un pulso ahí no genera flanco.
 - **Ocupación** (64 b, 0x140–0x17F). `t_ocup[j]` cuenta los ciclos con
   exactamente j ranuras ocupadas, y su suma es `realtime − vetotime`. Es la
   distribución de Erlang del modelo M/D/N/N, medida directo.
@@ -582,7 +661,10 @@ así que no hay un estado en que el módulo no pueda abrir y nadie lo cuente.
 
 **En `mca_top`** cada ciclo con `run = 1` suma uno a `realtime` y uno a
 exactamente un reloj de 64 b, con el **veto primero**: la cola de una ventana que
-termina bajo veto cuenta como vetada, no como muerta. Aparte, y sin veto, suma
+termina bajo veto cuenta como vetada, no como muerta. Después van `t_win` y
+`t_div`, y recién con alguna ranura libre se mira el disparo: si el multitrigger
+no puede disparar (`trig_arm_i = 0`) el ciclo va a `t_rearm`, y si puede, a
+`livetime`. Aparte, y sin veto, suma
 uno a `t_ocup[n]`, con n las ranuras ocupadas. Dos contadores más van fuera del
 teselado. `deadtime` (0x078) es la ocupación de **alguna** ranura: con una sola
 coincide con `t_win + t_div`, y con varias no es tiempo muerto. `t_clear` es

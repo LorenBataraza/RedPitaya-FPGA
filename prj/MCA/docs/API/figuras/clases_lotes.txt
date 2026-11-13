@@ -1,0 +1,6 @@
+Una columna por lazo. Arriba, el envoltorio de Python que lo llama y es dueño de los
+structs; al medio, la función de C y los handles que recibe; abajo, lo que recibe en
+cada llamada: la configuración, el estado que sigue de una llamada a la otra y las
+columnas del lote, que son punteros a los arreglos del `EventBatch` desde `batch.n`.
+Al centro, lo que los dos comparten. Lo que hace cada lazo por evento o por bloque está
+en [`maquinas_estados`](figuras/maquinas_estados.svg).

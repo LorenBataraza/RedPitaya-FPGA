@@ -1,0 +1,17 @@
+Dónde se pierde un evento en el MCA, del disparo al histograma. 
+Descartan las tres etapas cuya entrada no tiene ready (flechas rojas, cada una a su contador).
+El disparo no puede frenar las muestras: mientras su Schmitt espera re-armar, un pulso no genera
+flanco y no llega al MCA, así que no hay cuenta posible; lo que se mide es ese tiempo, con alguna
+ranura libre, en `t_rearm` (flecha punteada).
+El asignador no puede frenar el disparo: si llega bajo veto (el holdoff del `trigger_shield`) 
+lo cuenta en `cnt_lost_veto`, y si no hay ranura libre, en `cnt_lost_active` (todas midiendo) 
+o en `cnt_lost_busy` (alguna esperando publicar). Los histogramas tampoco pueden frenar el bus 
+de features: un incremento que choca con una lectura del bus o con el barrido de borrado va a 
+`dropped`, y uno que llega con el histograma lleno en modo congelar, a `cnt_full_supp`. 
+Las ranuras y el publicador sólo bloquean, y las flechas de vuelta son la contrapresión. 
+Mientras el publicador trabaja (18 ciclos por evento) no libera la ranura (`libera = 0`) y 
+las cerradas esperan. Cuando no queda ninguna libre, el asignador no tiene dónde abrir (`puede_abrir = 0`). 
+Las flechas grises no son tiempo muerto sino cortes por criterio: amplitud fuera de `[amp_min, amp_max]` 
+al cerrar (`cnt_rej_amp`), forma inválida, que sigue en el 1D pero no entra al 2D (`cnt_rej_psd`), 
+y el discriminador (`cnt_rej_discr`). En el mapa de registros, `cnt_lost_busy` y `dropped` 
+se leen sumados en `cnt_dropped` (0x064).

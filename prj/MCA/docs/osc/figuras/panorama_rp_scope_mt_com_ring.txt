@@ -1,0 +1,13 @@
+**Propuesta:** `event_ring_top` entra al scope en lugar de `rp_axi_sm`, el
+camino a DDR (*deep memory*), que tenía el mismo esquema de un `wp_trig` por
+armado que la BRAM. La BRAM se queda: es la vista de la señal entre eventos y la
+que leen `librp` y la secuencia de `osc_cfg`. Hoy el ring se instancia en
+`event_ring_red_pitaya_top`, al lado del scope, con estas mismas conexiones.
+Todo en `adc_clk`. Los bloques con sombra están plegados: su interior está en
+los panoramas de `mt_top` y de `event_ring_top`. `trigger_event` dispara a la
+vez la captura de todos los canales y la ventana del ring. Cada `dsp_tap_mux` es
+combinacional y elige, con su `route_*_tap`, de cuál de los cuatro nodos toma su
+consumidor; su `route_*_en` corta el valid, no el dato. Los `route_*` son
+puertos: vienen de `integration_cfg` (región de TOP, slot 6). `NOMBRE=valor`:
+parámetros con que el padre instancia el bloque (se omiten los que sólo pasan el
+del padre sin cambio).

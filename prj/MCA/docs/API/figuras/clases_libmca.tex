@@ -1,18 +1,18 @@
-% La capa de C del MCA: libmca, los niveles 1 a 4 en una biblioteca con la
-% forma de rp-api. Tres columnas:
-%   izquierda  quién la llama: el binding de Python (por ctypes, figura
-%              clases_mca) y los programas en C;
-%   centro     mca_h, el handle opaco, con todas las operaciones como funciones
-%              que devuelven un código y entregan el resultado por puntero; y
-%              debajo el bus, mca_bus, con el backend devmem, que hereda a la
-%              manera de C (la base como primer miembro);
-%   derecha    los tipos de valor que cruzan la interfaz y, abajo, la PL.
-% El backend por callbacks (bus_callback.c) no se dibuja: sirve a los
-% sustitutos de prueba (diseno_de_clases.md §9.1).
-% Fuentes: software/libmca/include/{mca.h,mca_regs.h,mca_bus.h},
-% software/libmca/src/{mca.c,bus.h,bus.c,devmem.h,bus_devmem.c,bus_mmap.c}.
-% El texto que acompaña está en docs/API/diseno_de_clases.md §3. Estilo:
-% docs/figuras/estilo_tikz.tex y clases_estilo.tex.
+% Los bloques de libmca: un handle por bloque de la PL, con sus operaciones
+% agrupadas. Lo que todos comparten (el ciclo de vida, el acceso crudo, la tabla
+% de registros, mca_bloque, el bus) está una sola vez, en clases_bloque; los dos
+% lazos por lote y sus structs, en clases_lotes. Acá va lo que distingue a cada
+% bloque.
+%   arriba   multitrigger_h (slot 3), mca_h (slot 7) e integration_h (slot 6):
+%            los bloques sólo de registros;
+%   abajo    osciloscope_h (slot 1), osciloscope_ring_h (slot 2, el único con una
+%            región de DDR) y gen_pulsos_h (slot 2, 0x4021_0000, con un segundo
+%            bus para el lazo digital de HK); debajo, gen_disparos, el motor de
+%            disparos que comparten los dos generadores, sin hardware.
+% Fuentes: software/libmca/include/{mca.h,mca_regs.h,integration.h,multitrigger.h,
+% osciloscope.h,osciloscope_lote.h,osciloscope_ring.h,gen_pulsos.h,gen_disparos.h}.
+% El texto que acompaña está en docs/API/libmca.md §3; el epígrafe, en
+% clases_libmca.txt. Estilo: docs/figuras/estilo_tikz.tex y clases_estilo.tex.
 %
 % Compilar:   pdflatex clases_libmca.tex
 %             pdftocairo -svg clases_libmca.pdf clases_libmca.svg
@@ -29,105 +29,158 @@
 \catcode`\_=12
 \begin{tikzpicture}[fondo]
 
-% ================================================================ mca_h ===
-\node[ctipo=7.4cm, anchor=north] (h) at (0,0) {
-  \clase{mca_h}{libmca · include/mca.h · src/mca.c · struct opaco}
+\def\xA{-7.3} \def\xB{0} \def\xC{7.3}
+\def\yI{0} \def\yII{-7.3}
+
+% ============================================================ fila de arriba ===
+\node[ctipo=6.6cm, anchor=north] (mt) at (\xA,\yI) {
+  \clase{multitrigger_h}{include/multitrigger.h · slot 3 · 0x4030_0000 · "MTRG"}
   \nodepart{two}
-  bus : mca_bus* · propio\\
-  caps · h_aw · h2_aw · psd_aw\\
-  error[LARGO_ERROR]
+  b : mca_bloque
   \nodepart{three}
-  \gr{ciclo de vida}
-  mca_open(\&h, phys, size, check_magic) · mca_close(h)\\
-  mca_open_bus(\&h, bus, propio, check_magic)\\
-  mca_identify(h, \&info) · mca_last_error(h)\\
-  \gr{un campo: get y set, generados de MCA_FIELDS}
+  \gr{máscaras OR}
+  multitrigger_set_or_mask(h, ch, v) · _get_or_mask\\
+  multitrigger_set_or_masks(h, ch0, ch1) \es{con relectura}\\
+  \gr{trigger_shield, snapshot y flags}
+  multitrigger_set_shield(h, src, dst, dur) · _get_shield\\
+  multitrigger_shield_autorearm · _disable_shield\\
+  multitrigger_get_snapshot · _get_flags\\
+  \gr{disparo por pendiente y con polo-cero}
+  multitrigger_set_slope(h, ch, L, G, thr, hyst, en)\\
+  multitrigger_set_pz(h, ch, k, m, mq, sh, thr, hyst, en)\\
+  _has_slope · _get_slope · _disable_slope · y las de _pz\\
+  \gr{en bloque}
+  multitrigger_get_config · _configure · _get_status
+};
+
+\node[ctipo=6.6cm, anchor=north] (mca) at (\xB,\yI) {
+  \clase{mca_h}{include/mca.h · slot 7 · 0x4070_0000 · "MCA2"}
+  \nodepart{two}
+  b : mca_bloque\\
+  caps · h_aw · h2_aw · psd_aw \es{la geometría, al abrir}
+  \nodepart{three}
+  \gr{un campo, de la X-macro MCA_FIELDS}
   mca_get_<campo>(h, \&v) · mca_set_<campo>(h, v)\\
-  mca_get_n_ocup(h, \&v) · mca_get_puede_abrir(h, \&v) · …\\
+  mca_set_n_acc · _pre_dly · _trap_k · … \es{validan}\\
   \gr{configuración y control}
-  mca_configure(h, \&cfg) · mca_get_config(h, vals, n)\\
+  mca_config_default(\&cfg) · mca_configure(h, \&cfg)\\
+  mca_get_config(h, vals, n) · mca_identify(h, \&info)\\
   mca_start(h) · mca_stop(h) · mca_clear(h, timeout_s)\\
   \gr{lectura}
   mca_read_counters(h, \&cnt) · mca_read_last_event(h, \&ev)\\
   mca_read_histogram(h, dst, n) · mca_read_map2d(h, dst, n)\\
   mca_read_acquire(h, s, clear_first, hist, …, \&cnt)\\
   mca_read_acquire_chunks(h, s, chunk_s, fn, ctx, …)\\
-  \gr{ajuste de escala}
+  \gr{el banco y la escala}
+  mca_get_n_formas_max · _get_umbr_ok · _get_formas_ok\\
   mca_autoscale_q_shift(h, canal, s, \&shift)
 };
 
-% ======================================================== quién la llama ===
-\node[modulo=4.4cm, anchor=north] (py) at (-7.0,0) {
-  {\bfseries\fontsize{7.8}{9.2}\selectfont API/mca.py}\\[0.8pt]
-  {\fontsize{5.6}{6.6}\selectfont el binding de Python · figura clases_mca}\\[3pt]
-  _libmca.py: argtypes y restype\\
-  una función de Python por cada\\
-  \hspace*{1em}función de C, mismo nombre
-};
-\node[modulo=4.4cm, anchor=north] (cc) at (-7.0,-2.6) {
-  {\bfseries\fontsize{7.8}{9.2}\selectfont un programa en C}\\[0.8pt]
-  {\fontsize{5.6}{6.6}\selectfont tests/bench_libmca.c · libmca.so}\\[3pt]
-  \#include "mca.h"\\
-  sin Python de por medio
-};
-\draw[usa] (py.east) -- (py.east -| h.west) node[rol, midway, above] {ctypes};
-\draw[usa] (cc.east) -- (cc.east -| h.west);
-
-% ======================================================= tipos de valor ===
-\node[modulo=4.8cm, anchor=north] (tv) at (6.6,0) {
-  {\bfseries\fontsize{7.8}{9.2}\selectfont lo que cruza la interfaz}\\[0.8pt]
-  {\fontsize{5.6}{6.6}\selectfont include/mca.h · include/mca_regs.h}\\[3pt]
-  int: MCA_OK = 0 · MCA_E* < 0\\[2pt]
-  mca_config_t\\
-  \hspace*{1em}<- mca_config_default(\&cfg)\\
-  mca_counters_t\\
-  \hspace*{1em}t_ocup[MCA_N_ACC_TOPE + 1]\\
-  mca_info_t · mca_last_event_t\\[2pt]
-  MCA_FIELDS \es{X-macro}\\
-  \hspace*{1em}nombre · registro · bits\\
-  MCA_REGS · MCA_F_* (10 features)
-};
-\draw[usa] (h.east |- tv.north west) ++(0,-1.0) -- ++(0.85,0);
-
-% ================================================================= bus ===
-\node[ctipo=4.6cm, anchor=north] (bus) at (0,-7.3) {
-  \clase{mca_bus}{include/mca_bus.h · src/bus.h · bus.c}
+\node[ctipo=6.6cm, anchor=north] (ig) at (\xC,\yI) {
+  \clase{integration_h}{include/integration.h · slot 6 · 0x4060_0000 · "INTG"}
   \nodepart{two}
-  vt : const mca_bus_vt* · size
+  b : mca_bloque \es{nada más: sin geometría}
   \nodepart{three}
-  mca_bus_r32(b, off, \&v)\\
-  mca_bus_w32(b, off, v)\\
-  mca_bus_read_words(b, off, n, dst)
+  \gr{qué trae el bitstream}
+  integration_identify(h, \&info)\\
+  integration_get_modules · _get_slots · _get_caps\\
+  integration_get_base(h, slot, \&base)\\
+  \gr{ruteo del datapath}
+  integration_get_route(h, c, \&r) · _get_routes\\
+  integration_set_route(h, c, tap, enable, verify)\\
+  integration_reset_routes(h)\\
+  \gr{control y estado}
+  integration_set_run · _get_run · _get_status\\
+  integration_clear(h) · integration_soft_reset(h)
 };
-\draw[usa] (h.south) -- (bus.north) node[rol, midway, right] {bus};
 
-% el backend: `base` es el primer miembro, así que un puntero al backend
-% también es un puntero a mca_bus
-\node[ctipo=4.6cm, anchor=north] (dm) at (0,-10.6) {
-  \clase{devmem_bus}{src/devmem.h · el único que toca la PL}
+% ============================================================= fila de abajo ===
+\node[ctipo=6.6cm, anchor=north] (osc) at (\xA,\yII) {
+  \clase{osciloscope_h}{include/osciloscope.h · slot 1 · 0x4010_0000}
   \nodepart{two}
-  base : mca_bus\\
-  fd · map · map_len · regs
+  b : mca_bloque\\
+  geo : osciloscope_geometria_t \es{RSZ, DW, N_CH: la sonda}
   \nodepart{three}
-  dm_r32 · dm_w32 · dm_read_words\\
-  \hspace*{1em}\es{bus_devmem.c: ldr / str de 32 b}\\
-  mca_bus_open_devmem() \es{bus_mmap.c}
+  \gr{por canal: 0, 1 u OSCILOSCOPE_AMBOS}
+  osciloscope_set_thr(h, volts, ch) · _get_thr(h, ch, \&v)\\
+  _decim · _delay · _hysteresis · _calibration\\
+  \gr{global, estado y comandos}
+  _avg · _deb_len · _filter_bypass\\
+  _get_wp_cur · _get_wp_trig · _get_we_cnt · _get_status\\
+  _reset · _sw_trigger · _acq_base(h, thr, delay, decim)\\
+  osciloscope_get_config · _configure · _get_geometria\\
+  \gr{la BRAM, de a una palabra}
+  osciloscope_read_bram(h, ch, start, n, dst) \es{crudo}\\
+  \gr{osciloscope_lote.h: la calibración de librp}
+  osciloscope_read_cal(h, ch, start, n, cal, dst)\\
+  osciloscope_calibrar(cal, dw, crudo, dst, n)\\
+  \gr{el lazo por evento: figura clases_lotes}
+  osciloscope_lote_iniciar · osciloscope_leer_lote
 };
-\draw[hereda] (dm.north) -- (bus.south);
 
-\node[modulo=4.2cm, anchor=north] (pl) at (6.6,-10.85) {
-  {\bfseries\fontsize{7.8}{9.2}\selectfont la PL}\\[0.8pt]
-  {\fontsize{5.6}{6.6}\selectfont /dev/mem · mmap}\\[3pt]
-  0x4070_0000 · slot 7 · 192 KiB\\
-  de a una palabra, sin ráfagas
+\node[ctipo=6.6cm, anchor=north] (rg) at (\xB,\yII) {
+  \clase{osciloscope_ring_h}{include/osciloscope_ring.h · slot 2 · 0x4020_0000}
+  \nodepart{two}
+  b : mca_bloque\\
+  ddr : mca_mem* \es{la segunda región} · slot
+  \nodepart{three}
+  \gr{geometría y control}
+  osciloscope_ring_geometria(cfg, ddr_size, \&g)\\
+  osciloscope_ring_configurar(h, cfg, \&st) \es{parado}\\
+  _correr(h) · _parar(h, plazo_ns) · _contadores(h, \&c)\\
+  _ddr(h, \&phys, \&size)\\
+  \gr{el lector por bloque: figura clases_lotes}
+  osciloscope_ring_leer_lote\\
+  \gr{medir la tasa, sin entregar nada}
+  osciloscope_ring_medir(h, cfg, modo, …, \&m)\\
+  \gr{el generador de eventos (0x4020_0100)}
+  osciloscope_ring_gen_presente · _gen_configurar\\
+  osciloscope_ring_gen_apagar · _gen_estado
 };
-\draw[usa] (dm.east |- pl.west) -- (pl.west) node[rol, midway, above] {map};
+
+\node[ctipo=6.6cm, anchor=north] (gp) at (\xC,\yII) {
+  \clase{gen_pulsos_h}{include/gen_pulsos.h · slot 2 · 0x4021_0000 · en el ASG}
+  \nodepart{two}
+  b : mca_bloque\\
+  hk : mca_bus* \es{HK 0x4000_000C: el lazo digital}
+  \nodepart{three}
+  \gr{configuración}
+  gen_pulsos_config_default(\&c) · gen_pulsos_validar(\&c)\\
+  gen_pulsos_configurar(h, \&c) · _leer_config(h, \&c)\\
+  gen_pulsos_cargar_tabla(h, amp, n) · _leer_tabla\\
+  \gr{correr}
+  gen_pulsos_arrancar(h) · _parar(h) · _estado(h, \&e)\\
+  gen_pulsos_esperar(h, plazo_ns, \&e)\\
+  gen_pulsos_set_lazo(h, on) · _get_lazo(h, \&on)\\
+  \gr{las cuentas, sin hardware}
+  gen_pulsos_decae_para · _tau · _mq · _sigma_ruido\\
+  gen_pulsos_tabla_cdf(valores, pesos, n, …)
+};
+
+% ============================================== el motor de los generadores ===
+\node[modulo=6.6cm, anchor=north] (gd) at (\xC,-13.9) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont gen_disparos}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont include/gen_disparos.h · sin handle y sin hardware}\\[3pt]
+  gen_disparos_cfg_t: aleatorio · periodo · umbral\\
+  \hspace*{1em}dt_min · n · semilla \es{los seis registros}\\
+  gen_disparos_default(\&c) · gen_disparos_validar(\&c)\\
+  gen_disparos_umbral_para(tasa_hz, dt_min, \&u)\\
+  gen_disparos_periodo_para · _tasa\\
+  gen_disparos_predecir(\&c, n_ciclos, …) \es{ciclo por ciclo}
+};
+\draw[usa] (gp.south) -- (gd.north) node[rol, midway, right] {disparos};
+\draw[usa] ([xshift=1.8cm]rg.south) |- (gd.west) node[rol, pos=0.75, above] {gen_configurar};
+
+\node[modulo=4.2cm, anchor=north] (mem) at (\xB-1.2,-14.2) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont mca_mem}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont la DDR · figura clases_bloque}
+};
+\draw[usa] ([xshift=-1.2cm]rg.south) -- ([xshift=-1.2cm]rg.south |- mem.north)
+  node[rol, midway, left] {ddr};
 
 % ============================================================== leyenda ===
-\leyendac{-8.7,-14.4}{17.0cm}{rojo!30/tipo de C (libmca), white/{módulo o programa que la usa}}
-  {Triángulo hueco: hereda (el struct base va como primer miembro). Flecha
-   punteada: usa. Las funciones devuelven un código; el resultado, por
-   puntero. El backend por callbacks, para las pruebas, no se dibuja.}
+\leyendac{-10.5,-16.2}{19.0cm}{rojo!30/tipo de C (libmca), white/{módulo, o una figura}}
+  {Flecha punteada: usa. \texttt{_x} abrevia \texttt{<bloque>_x}.}
 
 \end{tikzpicture}
 \end{document}

@@ -16,7 +16,7 @@
 | Módulo RTL | `mt_slope_trig` |
 | Archivo | [`mt_slope_trig.sv`](../../modulos/mt/rtl/mt_slope_trig.sv) |
 | Parámetros | 7 |
-| Puertos | 11 (9 in / 2 out) |
+| Puertos | 13 (9 in / 4 out) |
 | Parte | `xc7z010clg400-1` |
 
 
@@ -103,6 +103,13 @@ bits 17–24 de la máscara OR.
 
 ![Panorama de mt_slope_trig](../mt/figuras/panorama_mt_slope_trig.svg)
 
+*`s[n] = s[n-1] + (x[n] - x[n-L]) - (x[n-L-G] - x[n-2L-G])`. Cada línea tiene
+una sola toma dinámica, que es el patrón que Vivado lleva a SRLC32E. Las líneas,
+`fill` y el pipeline avanzan sólo con `adc_dv_i`: el filtro anda igual sobre el
+tap decimado que a 125 MS/s. Latencia: 5 ciclos de pipeline más lo que tarde `s`
+en cruzar `thr`. `NOMBRE=valor`: parámetros con que lo instancia
+`rp_scope_mt_com`.*
+
 *Por dentro:* las tres líneas de retardo, el pipeline del trapezoidal y el Schmitt simétrico. Fuente TikZ en [`panorama_mt_slope_trig.tex`](../mt/figuras/panorama_mt_slope_trig.tex).
 
 Tres cosas que hay que saber para usarlo:
@@ -154,6 +161,8 @@ medido y bibliografía en
 | `cfg_hyst_i` | in | 18 `[TW-1: 0]` | adc_clk_i | histéresis del re-armado |
 | `slope_p_o` | out | 1 | adc_clk_i | pendiente positiva, 1 ciclo |
 | `slope_n_o` | out | 1 | adc_clk_i | pendiente negativa, 1 ciclo |
+| `armado_p_o` | out | 1 | adc_clk_i | 1 = re-armado: el próximo cruce de thr (o de -thr) dispara. Es el estado del Schmitt, sin registro extra; lo usa mt_event_logic para el tiempo de re-armado del MCA. Vale 0 mientras la ventana no está llena. |
+| `armado_n_o` | out | 1 | adc_clk_i |  |
 <!-- /AUTO:interfaces -->
 
 ### 1.3 Mapa de registros
@@ -293,16 +302,16 @@ make -C modulos/mt/work lint
 
 | Testbench | DUT | Escenas | Casos | Contra qué compara | Es el de este módulo |
 |---|---|---|---|---|---|
-| [`tb_mt_cfg`](../../modulos/mt/sim/tb_mt_cfg.sv) | `mt_cfg` | 14 | 59 | vectores a mano |  |
-| [`tb_mt_slope_trig`](../../modulos/mt/sim/tb_mt_slope_trig.sv) | `mt_slope_trig` | 8 | 15 | vectores a mano | **sí** |
-| [`tb_mt_pz_trig`](../../modulos/mt/sim/tb_mt_pz_trig.sv) | `mt_pz_trig` | 8 | 1 | vectores a mano |  |
-| [`tb_mt_trig_src`](../../modulos/mt/sim/tb_mt_trig_src.sv) | `mt_trig_src` | 7 | 14 | vectores a mano |  |
-| [`tb_mt_event_logic`](../../modulos/mt/sim/tb_mt_event_logic.sv) | `mt_event_logic` | 8 | 11 | vectores a mano |  |
+| [`tb_mt_cfg`](../../modulos/mt/sim/tb_mt_cfg.sv) | `mt_cfg` | 14 | 60 | vectores a mano |  |
+| [`tb_mt_slope_trig`](../../modulos/mt/sim/tb_mt_slope_trig.sv) | `mt_slope_trig` | 8 | 17 | vectores a mano | **sí** |
+| [`tb_mt_pz_trig`](../../modulos/mt/sim/tb_mt_pz_trig.sv) | `mt_pz_trig` | 8 | 2 | vectores a mano |  |
+| [`tb_mt_trig_src`](../../modulos/mt/sim/tb_mt_trig_src.sv) | `mt_trig_src` | 8 | 21 | vectores a mano |  |
+| [`tb_mt_event_logic`](../../modulos/mt/sim/tb_mt_event_logic.sv) | `mt_event_logic` | 9 | 19 | vectores a mano |  |
 | [`tb_trigger_shield`](../../modulos/mt/sim/tb_trigger_shield.sv) | `trigger_shield` | 8 | 19 | vectores a mano |  |
-| [`tb_mt_top`](../../modulos/mt/sim/tb_mt_top.sv) | `mt_top` | 20 | 51 | vectores a mano |  |
+| [`tb_mt_top`](../../modulos/mt/sim/tb_mt_top.sv) | `mt_top` | 20 | 55 | vectores a mano |  |
 
 
-**170 casos con nombre** en 7 testbenches (73 escenas). La lista completa, caso por caso, está en el plan de verificación.
+**193 casos con nombre** en 7 testbenches (75 escenas). La lista completa, caso por caso, está en el plan de verificación.
 
 Las escenas de [`tb_mt_slope_trig`](../../modulos/mt/sim/tb_mt_slope_trig.sv): 1) Exactitud, 2) Exactitud con huecos de dv y L, G intermedios, 3) L=1 G=0 es x[n]-x[n-1]; L=0 se satura a 1; L>LMA, 4) Escalón sobre una base, 5) Continua grande y rampa lenta, 6) Escalones ruidosos, 7) Cambio de L en caliente, 8) cfg_en = 0.
 

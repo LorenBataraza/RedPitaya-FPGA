@@ -27,6 +27,13 @@ bits 17–24 de la máscara OR.
 
 ![Panorama de mt_slope_trig](../../mt/figuras/panorama_mt_slope_trig.svg)
 
+*`s[n] = s[n-1] + (x[n] - x[n-L]) - (x[n-L-G] - x[n-2L-G])`. Cada línea tiene
+una sola toma dinámica, que es el patrón que Vivado lleva a SRLC32E. Las líneas,
+`fill` y el pipeline avanzan sólo con `adc_dv_i`: el filtro anda igual sobre el
+tap decimado que a 125 MS/s. Latencia: 5 ciclos de pipeline más lo que tarde `s`
+en cruzar `thr`. `NOMBRE=valor`: parámetros con que lo instancia
+`rp_scope_mt_com`.*
+
 *Por dentro:* las tres líneas de retardo, el pipeline del trapezoidal y el Schmitt simétrico. Fuente TikZ en [`panorama_mt_slope_trig.tex`](../../mt/figuras/panorama_mt_slope_trig.tex).
 
 Tres cosas que hay que saber para usarlo:

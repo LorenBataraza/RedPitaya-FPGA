@@ -1,0 +1,5 @@
+`MCARemote` es un handle del MCA (hereda de `MCA`) cuyas funciones corren del otro
+lado del socket: con `_via = 'remoto'`, el despacho de `@_api` manda cada función
+entera por la op `call`. Del otro lado, `ServidorMCA`, el único proceso sobre
+`/dev/mem`, la corre sobre su handle, bajo su lock. `MCA` y `API_REGISTRADA` están
+dibujados en la figura del binding.

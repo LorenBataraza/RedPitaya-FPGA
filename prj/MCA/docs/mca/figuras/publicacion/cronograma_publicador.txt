@@ -1,0 +1,6 @@
+Simulación de `mca_top` (`tb_fsm_publicador.sv`): dos ranuras, compuerta de 20
+muestras y dos disparos separados por 8. La ranura 0 cierra con la cola vacía y
+arranca en el mismo flanco; la 1 cierra con el publicador ocupado y espera.
+`n_cola` incluye a la que se está publicando. Mientras ninguna está libre, el
+ciclo va a `t_div`. Lo dibuja `fsm_publicador.py` desde el CSV versionado; con
+`--sim` re-simula antes.

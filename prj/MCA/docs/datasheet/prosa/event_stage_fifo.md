@@ -13,6 +13,17 @@
 escritor AXI: absorbe la diferencia de ritmo entre un productor que no se puede
 frenar y un consumidor que sí.
 
+![Panorama de event_stage_fifo](../../event_ring/figuras/panorama_event_stage_fifo.svg)
+
+*`eventos + abierto` cuenta también el evento que está entrando, así que un
+trigger nunca se acepta sobre un lugar de metadato ya prometido. `win_len_i` es
+`(pre + post)·N_CH`, en muestras. `flush_i` es un solo puerto y pone en cero los
+punteros de las dos colas; `lvl_o` y `ev_lvl_o` son diagnóstico. Con ventanas de
+1024 muestras entran dos eventos, no cuatro. `NOMBRE=valor`: parámetros con que
+lo instancia `event_ring_top`.*
+
+*Por dentro:* la cola de muestras, la cola de metadatos y la aceptación. Fuente TikZ en [`panorama_event_stage_fifo.tex`](../../event_ring/figuras/panorama_event_stage_fifo.tex).
+
 Esa asimetría es toda la razón de existir del bloque.
 [`event_window_capture`](../datasheet_event_window_capture.md) produce al ritmo
 del ADC y las muestras del post-trigger **llegan cuando llegan**;

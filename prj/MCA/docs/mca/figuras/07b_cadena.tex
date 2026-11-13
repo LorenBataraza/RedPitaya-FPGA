@@ -1,0 +1,56 @@
+% Figura 7b: el camino de datos, un número por pulso. GENERADO por figuras_cadena_tikz.py: no editar a mano.
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{booktabs}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+% rampa secuencial del naranja de la paleta, para las capas de 07c: oscura la
+% primera (validada: pares vecinos distinguibles también con daltonismo)
+\definecolor{acum1}{RGB}{143,67,16}
+\definecolor{acum2}{RGB}{217,112,42}
+\definecolor{acum3}{RGB}{244,174,110}
+\tikzset{
+  eje/.style     = {black!60, line width=0.5pt},
+  guia/.style    = {black!12, line width=0.4pt},
+  tick/.style    = {font=\scriptsize, inner sep=1.5pt, black!75},
+  titeje/.style  = {font=\scriptsize, inner sep=1pt},
+  traza/.style   = {azul!75!black, line width=0.7pt, line join=round},
+  thr/.style     = {rojo!70!black, line width=0.8pt, dashed},
+  thrlo/.style   = {rojo!70!black, line width=0.8pt, densely dotted},
+  pico/.style    = {circle, draw=black, line width=0.4pt, fill=verde,
+                    inner sep=0pt, minimum size=1.9mm},
+  perdido/.style = {circle, draw=black!50, line width=0.6pt, fill=white,
+                    inner sep=0pt, minimum size=1.7mm},
+  est/.style     = {bloque=verde!55, param={verde!55}{verde!20}},
+  publog/.style  = {etapa=naranja!30},
+  ficha/.style   = {draw=black, line width=0.5pt, fill=white, rounded corners=1.5pt,
+                    font=\scriptsize\ttfamily, inner sep=2pt, minimum width=0.85cm,
+                    minimum height=0.42cm},
+}
+% una entrada de leyenda suelta: #1 posición, #2 la marca, #3 el texto
+% amp >> h_shift: el {} corta la ligadura >> -> comilla de la T1
+\newcommand{\shr}[1]{\texttt{amp~>{}>~#1}}
+\newcommand{\entrada}[3]{\node[anchor=west, font=\scriptsize] at (#1) {#2\hspace{1.5mm}#3};}
+\begin{document}
+\begin{tikzpicture}[fondo]
+\node[est, text width=3.0cm] (pf) at (0,0) {\blk{mca\_pulse\_feature}{}\nodepart{two}abre una ventana al\\ cruzar \texttt{thr} y mide\\ la amplitud};
+\node[publog, text width=2.7cm] (hi) at (12.0,0) {\etq{histograma}{suma 1 en el canal\\ \shr{6}}};
+\draw[flujo] ($(pf.west)+(-1.4,0)$) -- node[sen, above, font=\scriptsize] {señal} (pf.west);
+\draw[flujo] (hi.east) -- node[sen, above, font=\scriptsize] {espectro} ++(1.4,0);
+\draw[flujo] (pf.east) -- (hi.west);
+\node[ficha] at (9.200,0) {1312};
+\node[font=\scriptsize, black!70, anchor=north, inner sep=1pt] at (9.200,-0.27) {\#1};
+\node[ficha] at (7.700,0) {700};
+\node[font=\scriptsize, black!70, anchor=north, inner sep=1pt] at (7.700,-0.27) {\#2};
+\node[ficha] at (6.200,0) {2540};
+\node[font=\scriptsize, black!70, anchor=north, inner sep=1pt] at (6.200,-0.27) {\#3};
+\node[ficha] at (4.700,0) {1375};
+\node[font=\scriptsize, black!70, anchor=north, inner sep=1pt] at (4.700,-0.27) {\#4};
+\node[ficha] at (3.200,0) {1453};
+\node[font=\scriptsize, black!70, anchor=north, inner sep=1pt] at (3.200,-0.27) {\#5};
+\node[font=\scriptsize, anchor=south] at (6.200,0.32) {un registro de evento por pulso, en orden de cierre};
+\node[anchor=north, font=\scriptsize, inner sep=0pt] at (6.0,-1.15) {\begin{tabular}{@{}l@{\hspace{1.0cm}}r@{\hspace{1.0cm}}r@{\hspace{1.0cm}}r@{}}\toprule \textbf{pulso} & \textbf{$t$ [$\mu$s]} & \textbf{amp [cuentas]} & \textbf{canal = \shr{6}}\\\midrule \#1 & 558.4 & \textbf{1312} & \textbf{20}\\ \#2 & 562.3 & \textbf{700} & \textbf{10}\\ \#3 & 566.5 & \textbf{2540} & \textbf{39}\\ \#4 & 571.6 & \textbf{1375} & \textbf{21}\\ \#5 & 576.2 & \textbf{1453} & \textbf{22}\\ \color{black!50}\#6 & \color{black!50}580.4 & \color{black!50}171 & \color{black!50}\textit{rechazado: amp < thr}\\\bottomrule\end{tabular}};
+\end{tikzpicture}
+\end{document}

@@ -23,8 +23,9 @@ pasar el script por las coordenadas a mano — no hay extracción automática.
 
 | Figura | Qué muestra | Dónde está embebida |
 |---|---|---|
-| [`datapath_top.svg`](datapath_top.svg) ([`.tex`](datapath_top.tex)) | La cadena DSP única, sus cuatro nodos utilizables y el **crossbar** de los tres `dsp_tap_mux`: dónde puede pinchar cada consumidor y cuál es su valor de reset | [`register_map_top.md`](../register_map_top.md) §Ruteo del datapath |
+| [`datapath_top.svg`](datapath_top.svg) ([`.tex`](datapath_top.tex)) | La cadena DSP única con sus cuatro nodos (A a D) y **un `dsp_tap_mux` 4:1 por consumidor**, con la letra del nodo en cada entrada: de dónde puede tomar cada consumidor y cuál es su valor de reset (la entrada 0, el nativo). También el lazo digital de `gen_pulsos`, lo que el multitrigger da a los otros consumidores y el `event_ring` | [`register_map_top.md`](../register_map_top.md) §Ruteo del datapath |
 | [`conformado_mca_interno.svg`](conformado_mca_interno.svg) | Dentro del MCA: **un solo flujo** de muestras y tres procesamientos (detección, caracterización, restauración de base) | [`datasheet_mca_top.md`](../../datasheet/datasheet_mca_top.md) §1.1 |
+| [`tm_integracion.svg`](tm_integracion.svg) ([`.tex`](tm_integracion.tex), epígrafe en [`.txt`](tm_integracion.txt)) | El **tiempo muerto en la integración**: de qué bloque (multitrigger o MCA) sale cada casillero del teselado de relojes, y los tres cables del top que los llevan (`mca_veto`, `trig`, `trig_arm`) | la sección *Tiempo muerto en la integración* del documento del top (vault) |
 
 Los epígrafes están en [`epigrafes.txt`](epigrafes.txt), que escribe el mismo
 script para que no puedan desincronizarse.

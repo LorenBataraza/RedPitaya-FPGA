@@ -151,8 +151,8 @@ FIGURA 7 — la cadena, en tres videos sincronizados   (datos sintéticos)
 Cómo un pulso se convierte en una cuenta del espectro. Son tres videos
 separados que salen de la misma simulación, cuadro a cuadro: el cuadro f de uno
 corresponde al cuadro f de los otros dos, así que se pueden reproducir en
-paralelo. Cada uno tiene además una versión ESTÁTICA en .png para el informe
-impreso; están al final de esta entrada.
+paralelo. Cada uno tiene además una versión ESTÁTICA para el informe impreso;
+están en la entrada que sigue.
 
   (7a) 07a_senal.mp4 — la señal de entrada, con pulsos de distinta altura y el
        umbral dibujado. Cuando un pulso cierra se marca su pico con la amplitud
@@ -175,37 +175,48 @@ es una ilustración del camino de datos, no una medición.
 
 FIGURA 7 ESTÁTICA — la cadena en papel   (datos sintéticos)
 -----------------------------------------------------------
-Las mismas tres etapas, para el informe impreso. Las genera
-figuras_cadena_estatica.py a partir de la MISMA simulación que los videos
-(misma semilla y mismo número de cuadros), así que los pulsos, las amplitudes y
-el espectro final son idénticos; lo único que cambia es cómo se muestra el paso
-del tiempo. El video lo muestra avanzando y el estático lo muestra desplegado:
-07a elige una ventana donde se ven todos los casos a la vez, y 07c elige tres
-cuadros en vez de uno.
+Las mismas tres etapas, para el informe impreso. Las tres sueltas están en TikZ
+(.tex, .pdf y .svg) y las genera figuras_cadena_tikz.py; la combinada,
+07_cadena.png, figuras_cadena_estatica.py. Todas salen de la MISMA simulación
+que los videos (misma semilla y mismo número de cuadros), así que los pulsos,
+las amplitudes y el espectro final son idénticos; lo único que cambia es cómo
+se muestra el paso del tiempo. El video lo muestra avanzando y el estático lo
+muestra desplegado: 07a elige una ventana donde se ven todos los casos a la
+vez, y 07c apila tres tramos de la acumulación en un solo gráfico.
 
-  (7a) 07a_senal.png — unas decenas de microsegundos de señal con media docena
+El color es el de la función del bloque, como en el panorama del MCA: azul la
+señal (preprocesamiento), amarillo la ventana abierta (segmentación), verde la
+amplitud medida (estadísticos del pulso) y naranja lo que llega al histograma
+(publicación).
+
+  (7a) 07a_senal.svg — unas decenas de microsegundos de señal con media docena
        de pulsos, numerados al pie en el mismo orden que la tabla de 07b. Las
        dos bandas son los dos estados de pulse_feature y entre las dos cubren
-       TODO el eje. La banda azul es la ventana ABIERTA: dispara al cruzar thr
-       hacia arriba y cierra recién al bajar de thr - hyst, no de thr, y por
-       eso termina bastante después del pico, sobre la cola. La banda gris es
-       el reposo PREVIO al disparo, que no es tiempo perdido: ahí el módulo se
-       re-arma —pide bajar de thr - hyst— y el seguidor de línea de base corre,
-       que es contra qué se mide después la amplitud. Los dos bordes del
+       TODO el eje. La banda amarilla es la ventana ABIERTA: dispara al cruzar
+       thr hacia arriba y cierra recién al bajar de thr - hyst, no de thr, y
+       por eso termina bastante después del pico, sobre la cola. La banda gris
+       es el reposo PREVIO al disparo, que no es tiempo perdido: ahí el módulo
+       se re-arma —pide bajar de thr - hyst— y el seguidor de línea de base
+       corre, que es contra qué se mide después la amplitud. Los dos bordes del
        gráfico caen entre pulsos y por debajo de thr - hyst, así que no hay
        ningún pulso a medio dibujar ni sin etiquetar. Los que no cruzan el
        umbral están numerados igual y marcados "no cuenta": se ven en la traza
        y nunca aparecen en el espectro.
-  (7b) 07b_cadena.png — el camino de datos, con el tren de registros de evento
-       sobre el cable, y abajo la tabla de los mismos pulsos de 07a tal como
-       los ve el histograma: tiempo, amplitud y canal. Los rechazados figuran
-       en la tabla con el motivo —amp < thr— en lugar del canal, y no emiten
-       nada.
-  (7c) 07c_histograma.png — el espectro en tres momentos de la misma
-       acumulación: 12, 64 y 227 cuentas. Con 12 son cuentas sueltas y no se
-       puede afirmar nada; recién con 227 las dos líneas se ven como líneas. La
-       raya roja marca el canal del umbral (300 >> 6 = 4): a su izquierda el
-       espectro está vacío por construcción, no por falta de estadística.
+  (7b) 07b_cadena.svg — el camino de datos, con el tren de registros de evento
+       sobre el cable —el primero que cerró va adelante, cerca del histograma,
+       y cada uno lleva debajo el número de su pulso— y abajo la tabla de los
+       mismos pulsos de 07a tal como los ve el histograma: tiempo, amplitud y
+       canal. Los rechazados figuran en la tabla con el motivo —amp < thr— en
+       lugar del canal, y no emiten nada.
+  (7c) 07c_histograma.svg — el espectro final en barras apiladas, una capa por
+       tramo de la acumulación: las primeras 12 cuentas abajo, en el naranja
+       más oscuro, de la 13 a la 64 en el medio y de la 65 a la 227 arriba. El
+       borde de arriba de cada capa es el espectro en ese momento, así que la
+       evolución se lee en un solo gráfico. La capa de abajo son cuentas
+       sueltas y no permite afirmar nada; recién con las tres las dos líneas se
+       ven como líneas. La raya roja marca thr = 300 sobre el eje continuo de
+       amplitud (300/64 = 4.7 canales): a su izquierda el espectro está vacío
+       por construcción, no por falta de estadística.
 
 Un cuidado con la palabra: las bandas de 07a NO son una segmentación de la
 señal en eventos. Lo que se parte es el EJE DE TIEMPO en los dos estados del
@@ -220,9 +231,9 @@ ventana/.
 
 Cuál es el tramo de señal que se dibuja lo elige el script, y cambia si se
 cambian la semilla o los cuadros, así que acá no se citan sus números: los
-bordes, las amplitudes y los canales de la ventana que se generó los imprime el
-propio figuras_cadena_estatica.py al correr, y están en el gráfico y en la
-tabla de 07b.
+bordes, las amplitudes y los canales de la ventana que se generó los imprimen
+figuras_cadena_estatica.py y figuras_cadena_tikz.py al correr, y están en el
+gráfico y en la tabla de 07b.
 
 Además, 07_cadena.png junta las tres etapas en una sola figura: es la que
 conviene poner si entra una sola. El detalle evento por evento queda en 07b.

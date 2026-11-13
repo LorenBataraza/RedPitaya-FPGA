@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Diagramas de tiempo del modulo MCA, con WaveDrom, desde simulacion.
 
-Cuatro figuras salen de VCD de los testbenches del modulo y una es un esquema
-de secuencia:
+Las cuatro figuras salen de VCD de los testbenches del modulo:
 
   mca_pulso_vida       la vida de un pulso en mca_pulse_feature: cruce de
                        umbral, ventana abierta, carga acumulada, cierre y el
@@ -14,7 +13,10 @@ de secuencia:
   mca_ack_borrado      mca_top: leer DURANTE el barrido de borrado y el ack
                        llega igual. Es lo que la cabecera del RTL marca como
                        lo mas importante del modulo
-  mca_flujo            el flujo de utilizacion (esquema, una columna = un paso)
+
+La secuencia de uso de mca_top (el contrato PS <-> modulo) ya no es una figura
+de ondas: es un diagrama de secuencia en docs/mca/figuras/secuencia/, y va en
+la §1.3 del datasheet.
 
 La ventana de cada figura se ubica por CONDICIONES SOBRE LAS SENALES --el
 cruce del umbral, el valor de cfg_maxlen que define la escena, la racha de
@@ -349,52 +351,6 @@ def fig_borrado(vcd, step, hscale):
 
 
 # ----------------------------------------------------------------------
-# Figura 5: el flujo de utilizacion (esquema)
-# ----------------------------------------------------------------------
-
-def fig_flujo(hscale):
-    # La configuracion es una escalera: cada registro en su paso, en el orden
-    # en que los escribe Mca.configure() (sin los dos deprecados). Son 23, asi
-    # que entran cuatro por columna y las cajas van sin texto: el nombre esta
-    # en la fila. El grupo va pegado a la fila de escritura para que las
-    # flechas de abajo no lo crucen, y los nodos van en mayuscula para que
-    # WaveDrom no dibuje la letra.
-    n_col = 23
-    cfg, _ = O.escalera([(r, None) for r in (
-        "cfg_thr", "cfg_hyst", "cfg_baseline", "cfg_bl_ctrl", "cfg_maxlen",
-        "cfg_tail_dly", "cfg_amp_min", "cfg_amp_max", "cfg_amp_src",
-        "cfg_dec", "cfg_gate_mode", "cfg_gate_len", "cfg_hist_sel",
-        "cfg_zoom_1d", "cfg_zoom_2dx", "cfg_zoom_2dy", "cfg_discr_min",
-        "cfg_discr_max", "cfg_discr_ctrl", "win_pol (0x104)", "rearm_dly",
-        "cfg_hist_ctrl", "CTRL (chan_sel)")], 1, n_col, por_col=4)
-    filas = [
-        ["configuracion"] + cfg,
-        {"name": "escritura del PS", "wave": "x3.....x4.x........6x..",
-         "data": ["configuracion", "clear + run", "stop"],
-         "node": "..........C............"},
-        {},
-        {"name": "clear_busy", "wave": "0.........1.0..........",
-         "node": "..........H.I.........."},
-        {"name": "pulsos en la entrada", "wave": "0............1......0..",
-         "node": ".............J........."},
-        {"name": "cnt_total / cnt_accepted", "wave": "x............=.=.=.=...",
-         "data": ["0", "N1", "N2", "N3"]},
-        {},
-        {"name": "lectura del PS", "wave": "x..............7.7.x.8.",
-         "data": ["contadores", "contadores", "histograma"]},
-        {},       # wavedrom-cli no cuenta el grupo en el alto: sin esto el pie
-                  # queda recortado
-    ]
-    edge = ["C~>H barrido", "I~>J ya cuenta"]
-    pie = ("ESQUEMA: una columna es un paso, no un ciclo; cada registro se "
-           "escribe en su propio paso. El clear hay que esperarlo (clear_busy); "
-           "los contadores se pueden leer corriendo.")
-    return O.esquema(filas,
-                     head={"text": "FLUJO DE UNA MEDICION  -  mca_top"},
-                     foot=pie, hscale=hscale) | {"edge": edge}
-
-
-# ----------------------------------------------------------------------
 
 TITULOS = {
     "mca_pulso_vida":
@@ -409,7 +365,6 @@ TITULOS = {
     "mca_ack_borrado":
         "ACK DE LATENCIA FIJA  -  el barrido de borrado dura miles de ciclos "
         "y el bus no se entera",
-    "mca_flujo": "FLUJO DE UNA MEDICION  -  mca_top",
 }
 
 NOTAS = {
@@ -449,32 +404,16 @@ NOTAS = {
         "slot no acepta mas transacciones. El ack sale de un shift register "
         "incondicional, asi que llega con la misma latencia este barriendo o "
         "no, que es lo que la figura mide.",
-    "mca_flujo":
-        "Es un esquema de la SECUENCIA, no una medicion. La configuracion es "
-        "una escalera: el bus del PS escribe un registro por vez, y la figura "
-        "los pone en el orden en que los escribe Mca.configure(). Ese orden "
-        "importa en un solo punto: cfg_hist_sel va DESPUES de cfg_amp_src, "
-        "porque escribir cfg_amp_src tambien lo mueve. Un registro que no se "
-        "escribe conserva lo que tenia (el valor de reset solo despues de "
-        "cargar el bitstream; ver register_map_mca.md). Despues, las dos cosas "
-        "que fija: el borrado hay que ESPERARLO --`clear_busy` avisa, y los "
-        "eventos que llegan mientras barre se descartan y se cuentan en "
-        "`dropped`--, y los contadores se pueden leer con la medicion "
-        "corriendo, que es lo que permite supervisar sin frenar. La misma "
-        "secuencia en software esta en docs/API/guia_de_uso.md; si las dos se "
-        "contradicen, una de las dos esta mal.",
 }
 
 CABECERA = """EPÍGRAFES DE LAS FIGURAS DE ONDAS DEL MODULO MCA
 ================================================
 
-Las cuatro primeras las escribe `ondas_mca.py` leyendo los VCD de
+Las cuatro las escribe `ondas_mca.py` leyendo los VCD de
 `tb_mca_pulse_feature`, `tb_mca_hist` y `tb_mca_top`. Los números de abajo
 --cuántos ciclos dura la ventana del pulso, cuántos incrementos seguidos
 absorbe el histograma, cuántos ciclos tarda el ack-- los mide el script sobre
 el VCD, así que no pueden desincronizarse de los dibujos.
-
-La quinta es un esquema de secuencia y no tiene VCD detrás.
 
 Reloj de la simulación: {relojes}
 
@@ -599,16 +538,6 @@ def main():
                 f"`axi4_slave.sv:193`).\n"
                 f"  · {info['senales']} señales, {info['columnas']} columnas, "
                 f"ventana {info['t0']:.0f} a {info['t1']:.0f} ns."))
-
-    # --- 5: el flujo ---
-    wj = fig_flujo(max(args.hscale, 2))
-    avisado = O.emitir(out_dir, "mca_flujo", wj, args.render, avisado,
-                       info="esquema, sin VCD")
-    items.append(dict(titulo=TITULOS["mca_flujo"], nota=NOTAS["mca_flujo"],
-                      json=wj, archivo="mca_flujo.svg",
-                      origen="esquema (sin VCD)",
-                      detalle="  · ESQUEMA: una columna es un paso del "
-                              "software, no un ciclo de reloj."))
 
     html = out_dir / "ondas_mca.html"
     O.write_html(html, "Ondas del m&oacute;dulo MCA",

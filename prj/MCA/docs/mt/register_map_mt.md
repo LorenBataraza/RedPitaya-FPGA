@@ -55,6 +55,13 @@ de dónde vienen y adónde van está en la tabla de abajo. Adentro hay tres part
 
 ![Panorama del multitrigger](figuras/panorama_mt.svg)
 
+*El borde grueso es el límite de `mt_top`; lo que lo cruza son sus puertos. Las
+franjas numeradas son las tres partes del texto de `register_map_mt.md`. El
+recuadro punteado es la jerarquía del RTL: `mt_event_logic` instancia
+`mt_trig_src` (uno por canal) y `trigger_shield`. `NOMBRE=valor`: parámetros con
+que el padre instancia el bloque (se omiten los que sólo pasan el del padre sin
+cambio).*
+
 `rp_adc_trig` y `rp_ext_trig` están dentro de `mt_top` porque son parte del
 cálculo de disparos, pero sus archivos no están en `modulos/mt/rtl`: son de
 Red Pitaya, y `modulos/mt/extra.f` los trae del repo raíz. El `sync` del nivel
@@ -81,6 +88,7 @@ Red Pitaya conectan los que salen de él):
 | `daisy_trig_o` | sale | 1 | la misma señal; → DIO0 y `trig_i` del `mca_top` |
 | `event_snap_o` | sale | 17 | los 17 bits bajos del snapshot (→ `event_ring`); los 29 completos se leen en `SNAPSHOT` |
 | `mca_veto_o` | sale | 1 | `veto_i` del `mca_top` |
+| `trig_arm_o` | sale | 1 | `trig_arm_i` del `mca_top`: algún canal puede disparar ya (ver *El disparo armado*) |
 | `trig_dis_clr_o` | sale | 4 | `rp_bram_sm`: el re-arm también limpia su estado de captura |
 | `trg_src_o`, `new_trg_src_o` | sale | 32 y 1 por canal | `rp_delay`: la categoría de la fuente elige el retardo |
 | `trg_state_o` | sale | 8 por canal | `osc_cfg` (readback del slot 1); en `mt_cfg` es `0x028` |
@@ -91,6 +99,14 @@ el puente legacy y su slot 3; lo que sale es `trigger_event`, el veto y el
 snapshot.
 
 ![Panorama de rp_scope_mt_com](figuras/panorama_rp_scope_mt_com.svg)
+
+*Todo en `adc_clk`. El bloque con sombra es `mt_top` plegado: su interior está
+en el panorama de `mt_top`. `trigger_event` dispara a la vez la captura de todos
+los canales. Cada `dsp_tap_mux` es combinacional y elige, con su `route_*_tap`,
+de cuál de los cuatro nodos toma su consumidor; su `route_*_en` corta el valid,
+no el dato. Los `route_*` son puertos: vienen de `integration_cfg` (región de
+TOP, slot 6). `NOMBRE=valor`: parámetros con que el padre instancia el bloque
+(se omiten los que sólo pasan el del padre sin cambio).*
 
 Las fuentes son [`figuras/panorama_mt.tex`](figuras/panorama_mt.tex) y
 [`figuras/panorama_rp_scope_mt_com.tex`](figuras/panorama_rp_scope_mt_com.tex)
@@ -117,7 +133,7 @@ misma paleta; está en la §1.1 de su datasheet:
 | `0x000` | R | `MAGIC` = `0x4D545247` (`"MTRG"`) | constante | — |
 | `0x004` | R | `CAPS` `{HAS_PZ[17], HAS_SLOPE[16], SHIELD_N[15:12], SRC_W[11:4], N_CH[3:0]}` | constante | — |
 | `0x010` | RW | `SHIELD_CFG` | `0` — escudo apagado | `0x4010_0210` |
-| `0x014` | R | `SHIELD_STAT` `{mca_veto[17], active[16], cnt[15:0]}` | `0` | `0x4010_0214` |
+| `0x014` | R | `SHIELD_STAT` `{trig_arm[18], mca_veto[17], active[16], cnt[15:0]}` | `0` | `0x4010_0214` |
 | `0x018` | R | `SNAPSHOT` (29 b, sticky) | `0` | `0x4010_0218` |
 | `0x01C` | R | `DIS_FLAGS` `{we_keep[7:4], dis_act[3:0]}` | `0` | `0x4010_021C` |
 | `0x020` | W | `TRIG_SW` — **bit por canal** | lee `0` | `0x4010_0004` bits `[3:0]` |
@@ -182,6 +198,27 @@ va a `vetotime`, `0x0C0` del MCA). Tres usos, del mismo contador:
 Con `ext_lvl` la fuente "dispara" cada ciclo que la línea está alta; como cada
 disparo recarga el contador, `dur` se comporta como cola. Sin `DST_MCA` el
 escudo corre igual (se ve en `active`) pero no veta.
+
+#### El disparo armado (`trig_arm`, bit 18)
+
+Después de disparar, cada Schmitt (pendiente y polo-cero) no vuelve a disparar
+hasta bajar de `thr − hyst`. En ese lapso un pulso no genera flanco, y el MCA no
+lo ve: para él no existió. `trig_arm` dice si el disparo puede salir **ahora**:
+
+```
+trig_arm = OR por canal de ( !disable[ch]  &  |(OR_MASK[ch] & armado) )
+```
+
+con `armado` un bit por fuente, en el orden de la máscara: el estado del Schmitt
+para pendiente (17–24) y polo-cero (25–28), y 1 para las fuentes sin re-armado
+propio (SW, externa, ASG, cadena). El disparo **por nivel** (1–8) es
+`rp_adc_trig`, de Red Pitaya, que no expone su estado: cuenta como armado, así
+que con esa fuente `trig_arm` sólo ve el disable. Una máscara vacía no puede
+disparar y da 0. Va registrado (lo arma `mt_event_logic`) y baja un ciclo antes
+de que el flanco llegue al MCA.
+
+No veta nada: el MCA lo usa sólo para contar. Con 0 y alguna ranura libre, el
+ciclo va a `t_rearm` (`0x0D8` del MCA) en vez de a `livetime`.
 
 > **Hay un solo shield.** Con `dst = DST_MCA` deja de servir como holdoff
 > ch0→ch1 del scope. Si hicieran falta los dos a la vez, es una segunda

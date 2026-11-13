@@ -1,0 +1,10 @@
+De qué bloque sale cada casillero del teselado de relojes del MCA. Cada ciclo
+con `run` va a un solo casillero, el primero de la cadena que vale. Dos nacen en
+el multitrigger y cruzan el top como niveles: el holdoff del `trigger_shield`
+(`mca_veto` → `vetotime`) y el disparo sin re-armar (`trig_arm` → `t_rearm`).
+Dos nacen en las ranuras del MCA: todas midiendo (`dt_win` → `t_win`) y
+ninguna libre con alguna esperando publicar (`dt_div` → `t_div`). El flanco
+`trig` abre una ranura y no entra al teselado. `trig_arm` es el OR, entre los
+canales, de "alguna fuente de la máscara armada y el canal sin disable",
+registrado; la pendiente y el polo-cero dan su Schmitt, y el resto de las
+fuentes cuentan como siempre armadas.

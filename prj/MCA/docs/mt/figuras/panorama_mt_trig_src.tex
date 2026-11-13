@@ -5,6 +5,7 @@
 % borde grueso es el límite del módulo; lo que lo cruza son sus puertos, sólo
 % con el nombre.
 % Fuente: modulos/mt/rtl/mt_trig_src.sv. Estilo: docs/figuras/estilo_tikz.tex.
+% El epígrafe no va en la figura: está en panorama_mt_trig_src.txt y en el doc que la incluye.
 %
 % Compilar:   pdflatex panorama_mt_trig_src.tex
 %             pdftocairo -svg panorama_mt_trig_src.pdf panorama_mt_trig_src.svg
@@ -77,13 +78,7 @@
 \draw[flujo, cruce] (pro.east |- 0,-3.15) -- (\xout,-3.15) node[right, sen] {adc\_trg\_dis\_o};
 
 % ================================================================= leyenda ===
-\leyenda{-2.6,-4.8}{amarillo!40/lógica del canal, grisr/registro}
-  {Los números sobre el bus son los bits de la máscara (\texttt{OR\_MASK}); los
-   25--31 están reservados. El software también pasa por la máscara: es el
-   bit 0, así que con \texttt{OR\_MASK = 0} ni \texttt{TRIG\_SW} dispara. En
-   modo continuo (\texttt{we\_keep = 1}) la máscara no se limpia sola; el
-   \emph{protect} se engancha igual.\\ \texttt{NOMBRE=valor}: parámetros con que
-   lo instancia \texttt{mt\_event\_logic}.}
+\leyenda{-2.6,-4.8}{amarillo!40/lógica del canal, grisr/registro}{}
 
 \end{tikzpicture}
 \end{document}

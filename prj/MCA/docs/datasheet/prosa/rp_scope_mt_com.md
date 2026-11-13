@@ -57,6 +57,14 @@ Vivado parte el multiplicador en dos DSP en cascada **dentro** del lazo
 default es `1` para que el top de fábrica no cambie en nada; los tops del MCA y
 del anillo usan `0`, que saca el lazo del diseño y con él el camino crítico.
 
+**`EN_AXI = 0` saca la captura a DDR por AXI** (un `rp_axi_sm` por canal): las
+salidas `axi_*` quedan en cero, y con ellas se podan los `axi_master` de HP0 y
+HP1. Los registros de esa captura siguen en `osc_cfg`, y `AXI_WP_CUR` y
+`AXI_WP_TRIG` leen cero. Lo usa sólo el top del anillo, donde el event_ring
+toma su lugar: en el bitstream libera 960 LUT y 2 RAMB36, contando los dos
+maestros, y es lo que hace entrar al ring. Sin ella no anda `rp_AcqAxi*` de
+librp. El default es `1`.
+
 El mapa de slots completo está en
 [`register_map_top.md`](../../TOP/register_map_top.md), y cómo se recorre el
 sistema de punta a punta en

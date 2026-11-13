@@ -8,6 +8,7 @@
 % modulos/mca/rtl/mca_top.sv y modulos/event_ring/rtl/event_ring_top.sv.
 % El contrato está en docs/TOP/bus_sistema_redpitaya.md §8.
 % Estilo: docs/figuras/estilo_tikz.tex.
+% El epígrafe no va en la figura: está en panorama_modulo_cfg.txt y en el doc que la incluye.
 %
 % Compilar:   pdflatex panorama_modulo_cfg.tex
 %             pdftocairo -svg panorama_modulo_cfg.pdf panorama_modulo_cfg.svg
@@ -133,12 +134,7 @@
 
 % ================================================================= leyenda ===
 \leyenda{-2.3,-10.4}{rojo!45/bus del sistema, rojo!18/lógica del lado del bus,
-  grisr/registros y constantes, white/lo que el módulo configura}
-  {Escriben con \texttt{wr\_stb} \texttt{integration\_cfg} y \texttt{mca\_top};
-   \texttt{osc\_cfg}, \texttt{mt\_cfg} y \texttt{event\_ring\_top} usan
-   \texttt{sys\_wen} directo, y sus comandos duran la transacción (6
-   ciclos). La flecha punteada es sólo de los esclavos con memoria: las
-   aperturas BRAM de \texttt{osc\_cfg} y los histogramas de \texttt{mca\_top}.}
+  grisr/registros y constantes, white/lo que el módulo configura}{}
 
 \end{tikzpicture}
 \end{document}

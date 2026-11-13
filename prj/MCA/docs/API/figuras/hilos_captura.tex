@@ -1,0 +1,143 @@
+% Los hilos de la captura del osciloscopio en el tiempo: una corrida de
+% AcquisitionSession con BramSource, de start() a stop(). Una línea de vida por
+% hilo (principal, osc-reader, osc-writer), más la PL y el disco. Sobre cada
+% hilo, el color dice qué corre y si tiene el GIL: Python (con el GIL), C de
+% libmca (sin el GIL: ctypes lo suelta) o el write() del escritor (sin el GIL).
+% Lo que muestra: el lector pasa casi todo el tiempo en C y vuelve a Python una
+% vez por lote, así que el escritor, que también pasa su tiempo largo sin el GIL,
+% no lo frena; y los dos se pasan los batches por las colas mientras el otro
+% sigue trabajando.
+% No está a escala. Con RingSource el tramo de C es osciloscope_ring_leer_lote
+% y los mensajes a la PL son los del ring (docs/event_ring/figuras/secuencia/);
+% el resto no cambia. Lo que hace C por evento está en maquinas_estados; los
+% batches, en pool_batches.
+% Fuentes: software/API/osciloscope_store/{session.py,reader.py,storage.py},
+% software/API/osciloscope_store/sources.py (BramSource), software/API/osciloscope.py
+% (Lector). El texto que acompaña está en docs/API/adquisicion_de_eventos.md §3;
+% el epígrafe, en hilos_captura.txt. Estilo: docs/figuras/estilo_tikz.tex.
+%
+% Compilar:   pdflatex hilos_captura.tex
+%             pdftocairo -svg hilos_captura.pdf hilos_captura.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{
+  llama/.style  = {->, black!80, line width=0.7pt},
+  colaf/.style  = {->, amarillo!30!black, line width=1.0pt, densely dashed},
+  archivo/.style= {->, black!80, line width=0.9pt},
+  nota/.style   = {font=\scriptsize, align=left, inner sep=1.5pt, anchor=west},
+}
+
+% \banda{x}{y0}{y1}{color}: lo que corre en un hilo, de y0 a y1 (y0 arriba)
+\newcommand{\banda}[4]{%
+  \filldraw[fill=#4, draw=black!60, line width=0.5pt]
+    ({#1-0.17},#2) rectangle ({#1+0.17},#3);}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+\def\xP{0} \def\xL{4.2} \def\xR{8.8} \def\xW{13.6} \def\xD{17.6}
+\def\yfin{-18.2}
+
+\node[actor=naranja!45] at (\xP,0) {\textbf{principal}\\ \texttt{AcquisitionSession}};
+\node[actor=verde!45]   at (\xL,0) {\textbf{la PL}\\ osciloscopio y multitrigger};
+\node[actor=naranja!45] at (\xR,0) {\textbf{osc-reader}\\ \texttt{ReaderThread}};
+\node[actor=naranja!45] at (\xW,0) {\textbf{osc-writer}\\ \texttt{ChunkWriter}};
+\node[actor=grisr]      at (\xD,0) {\textbf{run\_dir/}\\ la microSD};
+\foreach \x in {\xP,\xL,\xR,\xW,\xD} \draw[vida] (\x,-0.43) -- (\x,\yfin);
+
+% ================================================================ start() ===
+\banda{\xP}{-0.8}{-3.7}{azul!30}
+\node[nota, anchor=east] at (\xP-0.3,-0.95) {\texttt{start()}};
+\propio[black!80]{\xP}{-1.2}{\texttt{annotators.start()}}
+\draw[gp] (\xP+0.17,-1.95) -- node[rot, above=1pt] {\texttt{source.arm()}} (\xL-0.17,-1.95);
+\node[font=\tiny, align=center] at ($(\xP,-2.35)!0.5!(\xL,-2.35)$)
+  {calibración, umbral, máscara;\\ \texttt{Lector.iniciar()}};
+\draw[llama] (\xP+0.17,-2.95) -- node[rot, pos=0.8] {\texttt{writer.start()}} (\xW-0.17,-2.95);
+\draw[llama] (\xP+0.17,-3.5) -- node[rot, pos=0.75] {\texttt{reader.start()}} (\xR-0.17,-3.5);
+\node[nota] at (\xW+0.3,-3.45) {espera en \texttt{full\_q.get()}:\\ bloqueado, sin el GIL};
+
+% wait(): el principal sólo mira
+\banda{\xP}{-3.7}{-13.6}{azul!12}
+\node[nota, anchor=east, align=right] at (\xP-0.3,-8.6)
+  {\texttt{wait()}: cada 0.2 s\\ mira \texttt{stats},\\ los errores\\ y el disco};
+
+% ================================================================ un lote ===
+\fill[marcolazo] (2.3,-3.95) rectangle (19.3,-13.25);
+\draw[marcolazo, fill=none] (2.3,-3.95) rectangle (19.3,-13.25);
+\node[rotlazo, anchor=north west] at (2.3,-3.95) {un lote};
+\foreach \x in {\xL,\xR,\xW,\xD} \draw[vida] (\x,-3.95) -- (\x,-13.25);
+
+% el lector toma un batch libre
+\banda{\xR}{-4.2}{-4.75}{azul!30}
+\node[nota] at (\xR+0.3,-4.47) {\texttt{free\_q.get\_nowait()}: el batch $B_k$};
+
+% y entra a C: el lazo por evento, sin el GIL
+\banda{\xR}{-4.75}{-8.65}{rojo!30}
+\node[nota] at (\xR+0.3,-5.15) {\texttt{read\_batch(}$B_k$\texttt{, ahora + 50 ms)}};
+\node[nota, text=rojo!60!black] at (\xR+0.3,-5.55) {C, sin el GIL: hasta llenar $B_k$ o 50 ms};
+
+\draw[marcolazo, fill=azul!4] (2.6,-6.0) rectangle (\xR+0.45,-8.35);
+\node[rotlazo, anchor=north west, font=\scriptsize] at (2.6,-6.0) {un evento};
+\foreach \x in {\xL} \draw[vida] (\x,-6.0) -- (\x,-8.35);
+\banda{\xR}{-6.0}{-8.35}{rojo!30}
+\draw[entrada] (2.75,-6.75) -- node[rot, below=1pt, pos=0.45] {disparo} (\xL-0.06,-6.75);
+\draw[gp] (\xR-0.17,-6.6) -- node[rot] {espera el buffer congelado} (\xL+0.06,-6.6);
+\draw[gp] (\xR-0.17,-7.3) -- node[rot] {\texttt{wp\_trig}, snapshot y la ventana} (\xL+0.06,-7.3);
+\draw[gp] (\xR-0.17,-7.95) -- node[rot] {re-arma: \texttt{0x000}, y las máscaras} (\xL+0.06,-7.95);
+\node[nota, font=\tiny] at (\xR+0.55,-7.15) {figura\\ \texttt{maquinas\_estados}};
+
+% vuelve a Python una vez por lote
+\banda{\xR}{-8.65}{-9.65}{azul!30}
+\node[nota] at (\xR+0.3,-8.85) {vuelve: \texttt{(n, descartados, asignados)}};
+\node[nota] at (\xR+0.3,-9.2) {\texttt{a.sample\_range(}$B_k$\texttt{, i0, i1)} · \texttt{stats}};
+\draw[colaf] (\xR+0.17,-9.55) -- node[rot, pos=0.5] {lleno: \texttt{full\_q.put(}$B_k$\texttt{)}} (\xW-0.17,-9.55);
+
+% el lector sigue en C con el batch siguiente...
+\banda{\xR}{-9.65}{-13.25}{rojo!30}
+\node[nota, text=rojo!60!black] at (\xR+0.3,-10.15) {\texttt{read\_batch(}$B_{k+1}$\texttt{, …)}};
+
+% ...mientras el escritor guarda B_k
+\banda{\xW}{-9.55}{-10.25}{azul!30}
+\node[nota] at (\xW+0.3,-9.9) {\texttt{payload()} y la meta};
+\banda{\xW}{-10.25}{-11.55}{grisr}
+\draw[archivo] (\xW+0.17,-10.75) -- node[rot, pos=0.45] {\texttt{write()}: \texttt{chunk\_k.npz.tmp}} (\xD-0.17,-10.75);
+\node[nota, anchor=east] at (\xW-0.3,-10.9) {sin el GIL};
+\banda{\xW}{-11.55}{-12.75}{azul!30}
+\draw[archivo] (\xW+0.17,-11.85) -- node[rot, pos=0.45] {\texttt{os.replace()}: \texttt{chunk\_k.npz}} (\xD-0.17,-11.85);
+\draw[colaf] (\xW-0.17,-12.55) -- node[rot, pos=0.45] {\texttt{reset()} y \texttt{free\_q.put(}$B_k$\texttt{)}} (\xR+0.17,-12.55);
+
+% ================================================================ stop() ===
+\banda{\xP}{-13.6}{-17.8}{azul!30}
+\node[nota, anchor=east] at (\xP-0.3,-13.75) {\texttt{stop()}};
+\draw[llama] (\xP+0.17,-13.95) -- node[rot, pos=0.75] {\texttt{reader.stop()}} (\xR-0.17,-13.95);
+\banda{\xR}{-13.25}{-14.3}{rojo!30}
+\node[nota] at (\xR+0.3,-13.95) {termina el \texttt{read\_batch} en curso: $\le$ 50 ms};
+\banda{\xR}{-14.3}{-15.0}{azul!30}
+\draw[colaf] (\xR+0.17,-14.55) -- node[rot, pos=0.5] {el parcial, y \texttt{None}: el centinela} (\xW-0.17,-14.55);
+\banda{\xW}{-14.55}{-15.5}{azul!30}
+\node[nota] at (\xW+0.3,-15.0) {guarda el parcial y sale};
+\propio[black!80]{\xP}{-15.75}{\texttt{reader.join()} · \texttt{writer.join()}}
+\propio[black!80]{\xP}{-16.35}{\texttt{annotators.stop()}}
+\draw[gp] (\xP+0.17,-16.95) -- node[rot] {\texttt{source.close()}: desarma} (\xL-0.17,-16.95);
+\draw[archivo] (\xP+0.17,-17.5) -- node[rot, pos=0.85] {\texttt{run\_summary.json}} (\xD-0.17,-17.5);
+
+% ================================================================ leyenda ===
+\leyenda{-2.4,-18.8}{azul!30/{Python, con el GIL}, rojo!30/{C de libmca, sin el GIL}, grisr/{\texttt{write()}, sin el GIL}, azul!12/{el principal espera}}{}
+\draw[gp] (-2.9,-19.45) -- ++(0.7,0);
+\node[font=\scriptsize, anchor=west] at (-2.1,-19.45) {registro, por GP0};
+\draw[colaf] (1.4,-19.45) -- ++(0.7,0);
+\node[font=\scriptsize, anchor=west] at (2.2,-19.45) {un batch por una cola};
+\draw[llama] (5.6,-19.45) -- ++(0.7,0);
+\node[font=\scriptsize, anchor=west] at (6.4,-19.45) {llamada entre hilos};
+\draw[archivo] (9.5,-19.45) -- ++(0.7,0);
+\node[font=\scriptsize, anchor=west] at (10.3,-19.45) {al disco};
+\draw[entrada] (12.3,-19.45) -- ++(0.7,0);
+\node[font=\scriptsize, anchor=west] at (13.1,-19.45) {entrada de la PL};
+
+\end{tikzpicture}
+\end{document}

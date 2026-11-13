@@ -1,0 +1,159 @@
+% Panorama de MCA_SLOT en estilo datapath: una ranura de medición, un nivel
+% adentro de panorama_mca_window. Arriba el control (las compuertas y el
+% estado); abajo, una fila por acumulador: la lógica que calcula el valor
+% siguiente, el registro y la salida. La barra gris vertical lleva el control
+% (abre, acumula, in_tail, len, val) a los registros: elige su valor siguiente.
+% Fuente: modulos/mca/rtl/mca_slot.sv, instanciado por mca_window como en
+% rtl/mine/tops/mca_red_pitaya_top.sv (3 formas del banco).
+% Estilo: docs/figuras/estilo_tikz.tex; los colores por función, los mismos de
+% panorama_mca_top.tex (amarillo segmentación, verde estadísticos, gris
+% contabilidad). El borde grueso es el límite del módulo; lo que lo cruza son
+% sus puertos, sólo con el nombre.
+% El epígrafe no va en la figura: está en panorama_mca_slot.txt y en el doc que
+% la incluye.
+%
+% Compilar:   pdflatex panorama_mca_slot.tex
+%             pdftocairo -svg panorama_mca_slot.pdf panorama_mca_slot.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+\tikzset{
+  seglog/.style  = {etapa=amarillo!75},
+  estlog/.style  = {etapa=verde!20, text width=2.9cm},
+  conlog/.style  = {etapa=grisr!60, text width=2.9cm},
+  varios/.style  = {double copy shadow={shadow xshift=2pt, shadow yshift=-2pt}},
+  chico/.style   = {font=\tiny, inner sep=1pt, align=center, fill=white},
+  reg/.style     = {registro=1.25cm},
+}
+\def\xbar{4.45}   % la barra de control
+% el control entra al registro por arriba, desde la barra: #1 registro
+\newcommand{\control}[1]{%
+  \draw[ctrl] (\xbar,0 |- #1.north) ++(0,0.25) -| (#1.north);
+  \fill[black!65] ($(\xbar,0 |- #1.north)+(0,0.25)$) circle (1.1pt);}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\def\xin{-0.2}    % donde arrancan las entradas
+\def\xout{11.1}   % donde terminan las salidas
+\def\ytop{7.9}    % de donde bajan las de configuración
+
+% ================================================================ bloques ===
+% --- arriba: el control ---
+\node[seglog, text width=3.3cm] (cmp) at (2.85,5.3)
+  {\etq{compuertas}{al abrir retiene\\ \texttt{g\_short} y \texttt{g\_long}\\[2pt]
+   \texttt{len}: 1 al abrir, +1 por\\ muestra acumulada\\[2pt]
+   \texttt{cierre}: abierta, válida\\ y \texttt{len} $\geq$ \texttt{g\_long}\\[2pt]
+   \texttt{acumula}: abierta,\\ válida y sin cierre\\[2pt]
+   \texttt{in\_tail}: \texttt{len} $\geq$ \texttt{g\_short}}};
+\node[seglog, text width=3.0cm, minimum height=2.2cm] (fsm) at (8.1,5.3)
+  {\etq{estado}{\textsc{libre} $\to$ \textsc{abierta}\\ con \texttt{abre}\\[3pt]
+   al cierre, con \texttt{amp\_ok}:\\ \textsc{cerrada}; sin él, \textsc{libre}\\[3pt]
+   \textsc{cerrada} $\to$ \textsc{libre}\\ con \texttt{libera\_i}}};
+
+% --- una fila por acumulador: lógica, registro ---
+\node[estlog] (lp) at (2.6,2.75)
+  {\etq{pico}{$x_c >$ \texttt{peak}, estricto:\\ gana la primera;\\ \texttt{t\_peak} $\leftarrow$ \texttt{len}}};
+\node[reg] (rp) at (5.5,2.75) {\texttt{peak}\\ \texttt{t\_peak}};
+
+\node[estlog] (lv) at (2.6,0.75)
+  {\etq{ventana de amplitud}{sombras $Q-$\texttt{min\_q}\\ y \texttt{max\_q}$\,-\,Q$: su signo;\\ el pico, en [min, max];\\ un ciclo antes del cierre}};
+\node[reg, minimum height=1.4cm] (rv) at (5.5,0.75)
+  {\texttt{d\_min}, \texttt{d\_max}\\ \texttt{ge\_min\_r}\\ \texttt{le\_max\_r}\\ \texttt{peak\_ok\_r}};
+
+\node[estlog] (lq) at (2.6,-1.25)
+  {\etq{cargas}{$Q_\mathrm{tot}$ $+\,x_c$, y $Q_\mathrm{cola}$ $+\,x_c$\\ si \texttt{in\_tail}\\ al abrir: $x_c$ y 0}};
+\node[reg] (rq) at (5.5,-1.25) {\texttt{q\_tot}\\ \texttt{q\_tail}};
+
+\node[estlog, varios] (lm) at (2.6,-3.15)
+  {\etq{meseta, una por forma}{si acumula y\\ \texttt{ini} $\leq$ \texttt{len} $<$ \texttt{fin}:\\ suma el trapecio y cuenta}};
+\node[reg, varios] (rm) at (5.5,-3.15) {\texttt{suma}\\ \texttt{cuenta}};
+
+\node[conlog] (lk) at (2.6,-5.15)
+  {\etq{marcas de solape}{otro disparo adentro:\\ \texttt{adentro}, y el primero\\ fija \texttt{dt\_next} = \texttt{len};\\ sin ranura: \texttt{perdido}}};
+\node[reg, minimum height=1.0cm] (rk) at (5.5,-5.15) {\texttt{adentro}\\ \texttt{perdido}\\ \texttt{dt\_next}};
+
+\node[reg, minimum height=1.0cm] (ra) at (5.5,-7.0) {\texttt{win\_id}\\ \texttt{dt\_prev}\\ \texttt{otras}};
+\node[font=\scriptsize\itshape, black!70, anchor=east] at (4.25,-7.25) {se cargan al abrir};
+
+% --- después de los registros ---
+\node[estlog, text width=2.0cm] (amp) at (9.15,0.75)
+  {\etq{amplitud}{\texttt{amp\_int}: $Q_\mathrm{tot}\gg$\texttt{s},\\ saturada\\ \texttt{amp\_sel}: pico\\ o integral}};
+\node[conlog, text width=1.4cm] (sol) at (8.3,-6.1)
+  {\etq{solapada}{\texttt{otras} $\neq$ 0\\ o \texttt{adentro}}};
+
+% ============================================================== el límite ===
+\node[contenedor, fit={(0.35,7.1) (10.6,-7.85)}] (lim) {};
+\node[titulo, anchor=south west, inner sep=2pt, align=left] at (lim.north west)
+  {\texttt{\bfseries mca\_slot}\\
+   \prm{DW=14 & QW=32 & AMP\_W=16 & LEN\_W=16\\ PUB\_IDW=16 & NW=4 & TW=18 & TNW=8\\ NF=3}};
+
+% ============================================================== flechas ====
+% --- el control: entradas, compuertas y estado ---
+\draw[ctrl] (\xin,6.0) node[left, sen, black!80, align=right] {cfg\_gate\_short\_i\\ cfg\_gate\_long\_i} -- (cmp.west |- 0,6.0);
+\draw[flujo] (\xin,5.05) node[left, sen] {abre\_i} -- (cmp.west |- 0,5.05);
+\draw[flujo] (\xin,4.55) node[left, sen] {val\_i} -- (cmp.west |- 0,4.55);
+\draw[flujo] (cmp.east |- 0,5.8) -- node[chico, above] {abre, cierre} (fsm.west |- 0,5.8);
+\draw[ctrl] (fsm.west |- 0,4.8) -- node[chico, below] {abierta} (cmp.east |- 0,4.8);
+\draw[flujo] (fsm.east |- 0,5.3) -- (\xout,5.3) node[right, sen, align=left]
+  {libre\_o\\ abierta\_o\\ cerrada\_o\\ cierra\_o\\ acepta\_o\\ estancada\_o};
+% len sale por arriba
+\draw[flujo] (4.1,0 |- cmp.north) -- (4.1,6.85) -- (\xout,6.85) node[right, sen] {len\_o};
+\draw[ctrl, cruce] (7.6,\ytop) node[above, sen, black!80] {libera\_i} -- (7.6,0 |- fsm.north);
+
+% --- la barra de control, de las compuertas a los registros ---
+\draw[ctrl, -] (\xbar,0 |- cmp.south) -- (\xbar,-6.25);
+\node[chico, anchor=south west, fill=none, align=left, text=black!70] at (4.55,3.5)
+  {\texttt{abre}, \texttt{acumula}, \texttt{val},\\ \texttt{in\_tail}, \texttt{len}};
+
+% --- la muestra ---
+\draw[flujo, ancho=14, ancho en=0.3] (\xin,2.75) node[left, sen] {xc\_i} -- (lp.west |- 0,2.75);
+\draw[flujo] (0.7,2.75) -- (0.7,-1.25) -- (lq.west |- 0,-1.25);
+\draw[flujo] (0.7,1.15) -- (lv.west |- 0,1.15);
+\punto{0.7,2.75} \punto{0.7,1.15}
+\draw[flujo, cruce] (\xin,0.35) node[left, sen, align=right]
+  {min\_q\_i, max\_q\_i\\ min\_fuera\_i\\ sat\_ok\_i\\ cfg\_amp\_min/max\_i} -- (lv.west |- 0,0.35);
+
+% --- de la lógica al registro (cruzan la barra de control) ---
+\foreach \l/\r in {lp/rp, lv/rv, lq/rq, lm/rm, lk/rk}
+  \draw[flujo, cruce] (\l.east |- \r.west) -- (\r.west);
+\foreach \r in {rp, rv, rq, rm, rk, ra} {\control{\r}}
+
+% el pico vuelve a la ventana de amplitud
+\draw[ctrl, cruce] (5.15,0 |- rp.south) -- (5.15,1.95) -- (3.6,1.95) -- (3.6,0 |- lv.north);
+
+% --- los trapecios y los disparos ---
+\draw[flujo] (\xin,-3.15) node[left, sen, align=right] {trap\_i\\ trap\_ini\_i\\ trap\_fin\_i} -- (lm.west |- 0,-3.15);
+\draw[flujo] (\xin,-5.15) node[left, sen, align=right] {disparo\_i\\ perdido\_i} -- (lk.west |- 0,-5.15);
+\draw[flujo] (\xin,-7.0) node[left, sen, align=right] {win\_id\_i\\ dt\_prev\_i\\ otras\_i} -- (ra.west);
+
+% --- salidas ---
+\draw[flujo] (rp.east) -- (\xout,0 |- rp.east) node[right, sen, align=left] {peak\_o\\ t\_peak\_o};
+\draw[flujo] (rq.east) -- (\xout,0 |- rq.east) node[right, sen, align=left] {q\_tot\_o\\ q\_tail\_o};
+\draw[flujo] (8.4,0 |- rp.east) -- (8.4,0 |- amp.north);
+\draw[flujo] (9.15,0 |- rq.east) -- (9.15,0 |- amp.south);
+\punto{8.4,2.75} \punto{9.15,-1.25}
+\draw[flujo] (amp.east) -- (\xout,0 |- amp.east) node[right, sen, align=left] {amp\_sel\_o\\ amp\_int\_o};
+\draw[ctrl, cruce] (9.95,\ytop) node[above, sen, black!80, align=center] {cfg\_amp\_src\_i\\ cfg\_q\_shift\_i}
+  -- (9.95,0 |- amp.north);
+% la ventana decide si la ranura queda cerrada
+\draw[flujo, cruce] (rv.east) -- (6.85,0 |- rv.east) -- node[chico, right, pos=0.25] {amp\_ok} (6.85,0 |- fsm.south);
+
+\draw[flujo, ancho=3$\times$(25+8), ancho en=0.55] (rm.east) -- (\xout,0 |- rm.east) node[right, sen, align=left] {trap\_sum\_o\\ trap\_n\_o};
+\draw[flujo] (rk.east) -- (\xout,0 |- rk.east) node[right, sen, align=left] {adentro\_o\\ perdido\_o\\ dt\_next\_o};
+\draw[flujo] (ra.east) -- (\xout,0 |- ra.east) node[right, sen, align=left] {win\_id\_o\\ dt\_prev\_o\\ otras\_o};
+\draw[flujo] (7.1,0 |- rk.east) |- (sol.west |- 0,-5.9);
+\draw[flujo] (6.8,0 |- ra.east) |- (sol.west |- 0,-6.3);
+\punto{7.1,-5.15} \punto{6.8,-7.0}
+\draw[flujo] (sol.east) -- (\xout,0 |- sol.east) node[right, sen] {solapada\_o};
+
+% ================================================================= leyenda ===
+\leyenda{0.2,-8.6}{amarillo!75/segmentación, verde!20/estadísticos,
+  grisr!60/contabilidad, grisr/registro}{}
+
+\end{tikzpicture}
+\end{document}

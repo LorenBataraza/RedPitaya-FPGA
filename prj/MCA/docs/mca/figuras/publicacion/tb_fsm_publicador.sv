@@ -48,7 +48,7 @@ module tb_fsm_publicador;
   mca_top #(.H_AW(13), .H2_AW(7), .PSD_AW(6)) u (
     .adc_clk_i(clk), .adc_rstn_i(rstn),
     .mca_dat_i({x_in, x_in}), .mca_val_i(2'b11),
-    .veto_i(1'b0), .trig_i(trig),
+    .veto_i(1'b0), .trig_i(trig), .trig_arm_i(1'b1),
     .sys_addr(addr), .sys_wdata(wdata), .sys_wen(wen), .sys_ren(1'b0),
     .sys_rdata(rd), .sys_err(err), .sys_ack(ack));
 

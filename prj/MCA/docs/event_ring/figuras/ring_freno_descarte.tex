@@ -1,0 +1,85 @@
+% Dónde se frena y dónde se descarta cuando algo no alcanza: de la captura a la
+% DDR. Con las convenciones de docs/figuras/etapas_vs_descartes.tex y
+% perdida_transacciones_vs_cuentas_back_pressure.tex: la etiqueta dice si la
+% etapa descarta o bloquea, la flecha roja es el descarte (va a su contador) y
+% las de vuelta, la contrapresión. Sólo la captura descarta, porque su entrada
+% no tiene ready.
+% Los números son las filas de la tabla de logica_de_captura_y_axi.md §5.6. Los
+% créditos en sí (wr_slot, rd_slot sobre el ring) están en ring_creditos.tex.
+% El epígrafe no va en la figura: está en ring_freno_descarte.txt y en el doc
+% que la incluye.
+% Fuente: modulos/event_ring/rtl/event_ring_top.sv (credit_ok, wr_rdy),
+% event_slot_writer.sv y event_window_capture.sv.
+%
+% Compilar:   pdflatex ring_freno_descarte.tex
+%             pdftocairo -svg ring_freno_descarte.pdf ring_freno_descarte.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{
+  eslabon/.style  = {ddr, text width=2.45cm, minimum height=1.05cm},
+  descarte/.style = {->, rojo!75!black, line width=0.9pt},
+  contra/.style   = {->, black!70, line width=0.8pt},
+  rol/.style      = {draw, rounded corners=1.5pt, fill=white, font=\tiny\itshape,
+                     inner sep=1.5pt, line width=0.5pt, anchor=south east},
+  descarta/.style = {rol, draw=rojo!75!black, text=rojo!75!black},
+  bloquea/.style  = {rol, draw=black!55, text=black!75},
+  contador/.style = {font=\scriptsize\ttfamily, rojo!75!black, inner sep=1pt},
+  causa/.style    = {font=\tiny\itshape, rojo!60!black, align=center, inner sep=1pt},
+}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\node[trig, text width=1.35cm, minimum height=1.05cm] (tr) at (-1.95,0) {\etq{trigger}{y muestras}};
+\node[captura, text width=2.8cm, minimum height=1.05cm] (cap) at (1.65,0) {\blk{event\_window\_capture}{ventana entera o nada}};
+\node[eslabon] (stg) at (5.45,0) {\blk{event\_stage\_fifo}{4 eventos, 4096 muestras}};
+\node[eslabon] (wrt) at (9.25,0) {\blk{event\_slot\_writer}{arma el slot}};
+\node[eslabon, text width=1.75cm] (fif) at (12.65,0) {\blk{axi\_wr\_fifo}{256 palabras}};
+\node[comp, text width=1.6cm, minimum height=1.05cm] (ddr) at (16,0) {\etq{ring en DDR}{$N$ slots}};
+
+% qué hace cada etapa cuando no puede tomar el dato
+\node[descarta] at ([yshift=1.5pt]cap.north east) {descarta};
+\node[bloquea]  at ([yshift=1.5pt]stg.north east) {bloquea};
+\node[bloquea]  at ([yshift=1.5pt]wrt.north east) {bloquea};
+\node[bloquea]  at ([yshift=1.5pt]fif.north east) {bloquea};
+
+\draw[flujo] (tr) -- node[below, font=\scriptsize\itshape, inner sep=2pt] {sin ready} (cap);
+\draw[flujo] (cap) -- (stg);
+\draw[flujo] (stg) -- (wrt);
+\draw[flujo] (wrt) -- (fif);
+\draw[flujo] (fif) -- (ddr);
+
+% contrapresión: hacia atrás, sin perder nada
+\draw[contra] (ddr.south) -- ++(0,-0.9) -| (wrt.south);
+\node[marca] at (12.65,-1.43) {1};
+\node[sen, anchor=north, inner sep=2pt] at (12.65,-1.59) {credit\_ok = 0};
+\draw[contra] ([xshift=-3mm]fif.north) -- ++(0,0.42) -| (wrt.north);
+\node[marca] at (10.95,0.95) {2};
+\node[sen, anchor=south, inner sep=2pt] at (10.95,1.12) {wr\_rdy = 0};
+\draw[contra] ([xshift=-5mm]wrt.south) -- ++(0,-0.55) -| ([xshift=5mm]stg.south);
+\node[sen, anchor=north, inner sep=2pt] at (7.35,-1.1) {rd};
+\draw[contra] ([xshift=-5mm]stg.south) -- ++(0,-0.55) -| ([xshift=4mm]cap.south);
+\node[sen, anchor=north, inner sep=2pt] at (3.5,-1.1) {s\_accept = 0};
+
+% descarte: la captura pierde el evento entero y lo cuenta, por dos causas que
+% salen de lugares distintos. Arriba, la propia: el trigger cae con la captura
+% ocupada en la ventana anterior (DROP_BUSY), aunque aguas abajo sobre lugar.
+% Abajo, donde termina la contrapresión: la captura está libre, pero la ventana
+% entera no entra en el stage (DROP_FULL).
+\draw[descarte] ([xshift=-3mm]cap.north) -- ++(0,0.5) coordinate (db);
+\node[contador] (cb) at ($(db)+(0,0.24)$) {DROP\_BUSY};
+\node[marca, fill=rojo!75!black, anchor=east] at ([xshift=-3pt]cb.west) {4};
+\node[causa, anchor=south] at ([yshift=1pt]cb.north) {la captura todavía\\ drena la ventana anterior};
+\draw[descarte] ([xshift=-5mm]cap.south) -- ++(0,-0.75) coordinate (df);
+\node[contador] (cf) at ($(df)+(0,-0.24)$) {DROP\_FULL};
+\node[marca, fill=rojo!75!black, anchor=east] at ([xshift=-3pt]cf.west) {3};
+\node[causa, anchor=north] at ([yshift=-1pt]cf.south) {la captura está libre, pero\\ aguas abajo no entra la ventana};
+
+\end{tikzpicture}
+\end{document}

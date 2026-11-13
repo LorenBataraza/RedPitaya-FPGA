@@ -1,0 +1,9 @@
+(a) El lazo del hilo lector, el mismo con las dos fuentes: `arm()` una vez,
+`read_batch()` una vez por lote y `close()` una vez, al cortar. Lo que pasa adentro de
+`read_batch` depende de la fuente. (b) Con el ring, un bloque de slots por vuelta: la
+PL escribe un slot por disparo mientras tenga créditos y cuenta lo que descarta, y
+nadie re-arma desde el PS. Sin lote no se consume nada, y los eventos esperan en la
+DDR. (c) Con la BRAM en single-shot, un evento por vuelta, y el re-armado es uno de
+esos pasos, no una llamada de la API. Entre el disparo y el re-armado el scope no
+puede disparar: ese tramo es el tiempo muerto, y C lo anota en `dead_ns`. Sin lote, el
+evento se cuenta como descartado y se re-arma sin leer.

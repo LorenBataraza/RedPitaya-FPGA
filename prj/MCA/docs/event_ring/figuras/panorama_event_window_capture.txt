@@ -1,0 +1,7 @@
+Una sola memoria para el pre y el post: al aceptar, `rd_ptr` arranca `pre`
+palabras atrás de `wr_ptr`, y desde ahí el lector consume una palabra cada
+`N_CH` ciclos mientras el pre-buffer se sigue escribiendo a una por ciclo. Cada
+palabra trae los dos canales y el serializador los saca de a uno. `m_accept_i`
+se mira una sola vez, en el ciclo del trigger. Con `run_i = 0` la FSM vuelve a
+`IDLE`, y `wr_ptr` y el detector de flanco a cero, pero el contenido del buffer
+no se borra. `NOMBRE=valor`: parámetros con que lo instancia `event_ring_top`.

@@ -1,0 +1,105 @@
+% El pool de batches de la sesión del osciloscopio, en un instante cualquiera.
+% No es un batch: son n_batches EventBatch (entre 2 y 8; 8 con los valores por
+% defecto) que se crean una vez, al armar la sesión, y circulan siempre los
+% mismos: free_q -> el lector, que lo llena -> full_q -> el escritor, que lo
+% guarda -> free_q. Cada uno lleva su nombre (B0 a B7) para que se vea que son
+% objetos y no copias. El lazo de C escribe adentro del que tiene el lector,
+% desde batch.n; sin uno libre, el lector llama a read_batch(None, …) y la fuente
+% decide qué pasa con los eventos.
+% Fuentes: software/API/osciloscope_store/{events.py (EventBatch, make_pool,
+% batches_for_budget), session.py, reader.py (_loop_lotes), storage.py
+% (ChunkWriter._loop)}. El texto que acompaña está en
+% docs/API/adquisicion_de_eventos.md §4; el epígrafe, en pool_batches.txt.
+% Estilo: docs/figuras/estilo_tikz.tex.
+%
+% Compilar:   pdflatex pool_batches.tex
+%             pdftocairo -svg pool_batches.pdf pool_batches.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{
+  hilo/.style    = {bloque=naranja!45, text width=3.3cm, minimum height=2.5cm},
+  ccaja/.style   = {bloque=rojo!30, text width=3.0cm, minimum height=1.3cm},
+  cola/.style    = {draw=black, line width=0.6pt, fill=amarillo!60, rounded corners=2pt,
+                    minimum width=5.6cm, minimum height=0.95cm},
+  rotcola/.style = {font=\scriptsize\ttfamily\bfseries, inner sep=1pt},
+  descarte/.style= {bloque=rojo!20, text width=7.4cm, align=left, minimum height=1.0cm},
+}
+
+% \batch{nodo}{posición}{nombre}{fracción llena}: un EventBatch. Blanco = libre;
+% la parte azul son las filas ya escritas.
+\newcommand{\batch}[4]{%
+  \node[draw=black, line width=0.6pt, fill=white, minimum width=0.95cm,
+        minimum height=0.6cm, inner sep=0pt] (#1) at (#2) {};
+  \ifdim #4pt>0pt
+    \fill[azul!40] (#1.south west) rectangle ($(#1.south west)!#4!(#1.south east)+(0,0.6)$);
+  \fi
+  \draw[line width=0.6pt] (#1.south west) rectangle (#1.north east);
+  \node[font=\scriptsize\ttfamily\bfseries] at (#1) {#3};}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+% ============================================================== los hilos ===
+\node[hilo] (rd) at (0,0) {};
+\node[anchor=north, font=\scriptsize, align=center] at (rd.north)
+  {\texttt{\bfseries osc-reader}\\ llena uno};
+\batch{b3}{0,-0.25}{B3}{0.42}
+\node[font=\tiny, anchor=north] at (b3.south) {\texttt{n} de \texttt{capacity}};
+
+\node[hilo] (wr) at (11.6,0) {};
+\node[anchor=north, font=\scriptsize, align=center] at (wr.north)
+  {\texttt{\bfseries osc-writer}\\ guarda uno};
+\batch{b6}{11.6,-0.25}{B6}{1.0}
+\node[font=\tiny, anchor=north] at (b6.south) {\texttt{payload()} y archivo};
+
+% ================================================================ las colas ===
+\node[cola] (fq) at (5.8,2.1) {};
+\node[rotcola, anchor=south west] at (fq.north west) {full\_q};
+\batch{b4}{4.6,2.1}{B4}{1.0}
+\batch{b5}{5.8,2.1}{B5}{1.0}
+\node[font=\scriptsize, black!55] at (7.1,2.1) {lugar libre};
+
+\node[cola] (frq) at (5.8,-2.1) {};
+\node[rotcola, anchor=north west] at (frq.south west) {free\_q};
+\batch{b7}{3.8,-2.1}{B7}{0}
+\batch{b0}{5.1,-2.1}{B0}{0}
+\batch{b1}{6.4,-2.1}{B1}{0}
+\batch{b2}{7.7,-2.1}{B2}{0}
+
+% el ciclo
+\draw[flujo] (rd.north) |- node[sen, pos=0.3, left, align=right] {lleno:\\ \texttt{full\_q.put(batch)}} (fq.west);
+\draw[flujo] (fq.east) -| node[sen, pos=0.7, right] {\texttt{full\_q.get()}} (wr.north);
+\draw[flujo] (wr.south) |- node[sen, pos=0.3, right, align=left] {\texttt{reset()} y\\ \texttt{free\_q.put(batch)}} (frq.east);
+\draw[flujo] (frq.west) -| node[sen, pos=0.7, right] {\texttt{free\_q.get\_nowait()}} (rd.south);
+
+% =============================================================== afuera ===
+\node[ccaja] (c) at (-4.4,0) {\etq{el lazo de C}{\texttt{read\_batch(batch, …)}\\ sin el GIL}};
+\draw[flujo] (c.east) -- node[sen, above, pos=0.22] {filas} node[sen, below, pos=0.22] {desde \texttt{n}} (b3.west);
+
+\node[bloque=grisr, text width=2.6cm, minimum height=1.3cm] (disco) at (15.8,0)
+  {\texttt{\bfseries run\_dir/}\\ \texttt{chunk\_*.npz}\\ o \texttt{evt\_*.lh5}};
+\draw[flujo] (b6.east) -- (disco.west);
+
+% ======================================================== sin batch libre ===
+\node[descarte, anchor=north] (dsc) at (-0.9,-3.75) {%
+  \textbf{\texttt{free\_q} vacía:} \texttt{read\_batch(None, ahora + 2 ms)}\\[1pt]
+  \texttt{BramSource}: C cuenta el evento y re-arma sin leerlo\\
+  \texttt{RingSource}: no consume, los eventos esperan en la DDR};
+\draw[ctrl, rojo!70!black, dashed] (rd.south west) ++(0.3,0) -- ([xshift=0.3cm]rd.south west |- dsc.north);
+
+% el pool: lo que suman los cuatro lugares
+\node[font=\scriptsize, anchor=north west, align=left] at (6.2,-3.75)
+  {\textbf{el pool} = \texttt{n\_batches} \texttt{EventBatch}, creados al armar la sesión:\\
+   1 en el lector + 2 en \texttt{full\_q} + 1 en el escritor + 4 en \texttt{free\_q} = 8};
+
+% ============================================================== leyenda ===
+\leyenda{-6.0,-5.75}{white/batch libre, azul!40/filas escritas, naranja!45/hilo, amarillo!60/cola, rojo!30/C (libmca)}{}
+
+\end{tikzpicture}
+\end{document}

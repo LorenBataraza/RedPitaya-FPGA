@@ -6,6 +6,7 @@
 % borde grueso es el límite del módulo; lo que lo cruza son sus puertos, sólo
 % con el nombre.
 % Fuente: modulos/mt/rtl/mt_cfg.sv. Estilo: docs/figuras/estilo_tikz.tex.
+% El epígrafe no va en la figura: está en panorama_mt_cfg.txt y en el doc que la incluye.
 %
 % Compilar:   pdflatex panorama_mt_cfg.tex
 %             pdftocairo -svg panorama_mt_cfg.pdf panorama_mt_cfg.svg
@@ -110,16 +111,7 @@
 
 % ================================================================= leyenda ===
 \leyenda{-2.3,-8.6}{rojo!45/bus del sistema, rojo!18/lógica del lado del bus,
-  grisr/registros y comandos, amarillo!40/hacia la lógica del trigger}
-  {Los registros retienen el último valor escrito; los pulsos valen 1 sólo mientras
-   dura la escritura. \texttt{OR\_MASK} no se guarda acá para el datapath: la
-   escritura emite \texttt{new\_trg\_src} y el dato pasa directo a
-   \texttt{mt\_trig\_src}, que tiene su propia máscara (la que se limpia sola en
-   single-shot); la copia es sólo para leer el último valor escrito.
-   \texttt{TRIG\_SW} y \texttt{TRIG\_DIS\_CLR} también llegan por el puente legacy
-   del slot 1 (\texttt{0x004}, \texttt{0x094}) y se OR-ean. Los registros de
-   pendiente no pasan por el fan-out: son de cada canal.\\
-   \texttt{NOMBRE=valor}: parámetros con que lo instancia \texttt{rp\_scope\_mt\_com}.}
+  grisr/registros y comandos, amarillo!40/hacia la lógica del trigger}{}
 
 \end{tikzpicture}
 \end{document}

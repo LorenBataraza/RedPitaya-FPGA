@@ -149,6 +149,22 @@ escritor, no en el lector.** La API del `rp` sólo entrega volts en float, pero
 el ADC es de 14 bits: guardar float32 sería el doble de disco por nada, y el
 escritor tiene tiempo de sobra.
 
+### `.npz` contra LH5: `bench_escritura.py` y `bench_formatos.py`
+
+Quedan los dos formatos, y estos dos benchmarks los comparan sin tocar la PL. Los
+números están en "El formato del archivo", en
+[`arquitectura_adquisicion_software.md`](API/arquitectura_adquisicion_software.md):
+
+- `bench_escritura.py` (`make bench-escritura`, `bench-escritura-remoto`): un lote
+  con un lector compitiendo por el GIL, que es lo que decide los descartes.
+- `bench_formatos.py` (`make bench-formatos`, `bench-formatos-remoto`): escribir
+  una corrida, sin y con compresión, y leerla entera, sólo las columnas, unos pocos
+  eventos y con el lector oficial de LEGEND. Con ventanas de 32, 256 y 2048
+  muestras, la más larga del ring.
+
+`test_lh5.py` verifica el formato contra el lector oficial (`legend-lh5io`); sin
+`h5py` o sin ese paquete, se saltea.
+
 ---
 
 ## 4. Los tests de lectura del buffer

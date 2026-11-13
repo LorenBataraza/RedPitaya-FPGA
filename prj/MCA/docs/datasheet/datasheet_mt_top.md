@@ -16,7 +16,7 @@
 | Módulo RTL | `mt_top` |
 | Archivo | [`mt_top.sv`](../../modulos/mt/rtl/mt_top.sv) |
 | Parámetros | 2 |
-| Puertos | 35 (22 in / 13 out) |
+| Puertos | 36 (22 in / 14 out) |
 | Parte | `xc7z010clg400-1` |
 
 
@@ -81,6 +81,13 @@ esclavo del bus ([`mt_cfg`](datasheet_mt_cfg.md)).
 [`rp_scope_mt_com`](datasheet_rp_scope_mt_com.md) lo instancia una vez.
 
 ![Panorama de mt_top](../mt/figuras/panorama_mt.svg)
+
+*El borde grueso es el límite de `mt_top`; lo que lo cruza son sus puertos. Las
+franjas numeradas son las tres partes del texto de `register_map_mt.md`. El
+recuadro punteado es la jerarquía del RTL: `mt_event_logic` instancia
+`mt_trig_src` (uno por canal) y `trigger_shield`. `NOMBRE=valor`: parámetros con
+que el padre instancia el bloque (se omiten los que sólo pasan el del padre sin
+cambio).*
 
 *Por dentro:* las tres partes del texto de
 [`register_map_mt.md`](../mt/register_map_mt.md#panorama), con la tabla de
@@ -186,6 +193,7 @@ cadena, modo continuo y el lazo con la captura.
 | `trigger_event_o` | out | 1 | adc_clk_i | dispara la captura de todos los canales |
 | `daisy_trig_o` | out | 1 | adc_clk_i |  |
 | `mca_veto_o` | out | 1 | adc_clk_i |  |
+| `trig_arm_o` | out | 1 | adc_clk_i | nivel: algún canal puede disparar ya (ningún Schmitt habilitado esperando re-armar, sin disable). El MCA lo usa para su tiempo de re-armado. |
 | `event_snap_o` | out | 17 | adc_clk_i | snapshot hacia el event_ring |
 
 
@@ -377,16 +385,16 @@ make -C modulos/mt/work lint
 
 | Testbench | DUT | Escenas | Casos | Contra qué compara | Es el de este módulo |
 |---|---|---|---|---|---|
-| [`tb_mt_cfg`](../../modulos/mt/sim/tb_mt_cfg.sv) | `mt_cfg` | 14 | 59 | vectores a mano |  |
-| [`tb_mt_slope_trig`](../../modulos/mt/sim/tb_mt_slope_trig.sv) | `mt_slope_trig` | 8 | 15 | vectores a mano |  |
-| [`tb_mt_pz_trig`](../../modulos/mt/sim/tb_mt_pz_trig.sv) | `mt_pz_trig` | 8 | 1 | vectores a mano |  |
-| [`tb_mt_trig_src`](../../modulos/mt/sim/tb_mt_trig_src.sv) | `mt_trig_src` | 7 | 14 | vectores a mano |  |
-| [`tb_mt_event_logic`](../../modulos/mt/sim/tb_mt_event_logic.sv) | `mt_event_logic` | 8 | 11 | vectores a mano |  |
+| [`tb_mt_cfg`](../../modulos/mt/sim/tb_mt_cfg.sv) | `mt_cfg` | 14 | 60 | vectores a mano |  |
+| [`tb_mt_slope_trig`](../../modulos/mt/sim/tb_mt_slope_trig.sv) | `mt_slope_trig` | 8 | 17 | vectores a mano |  |
+| [`tb_mt_pz_trig`](../../modulos/mt/sim/tb_mt_pz_trig.sv) | `mt_pz_trig` | 8 | 2 | vectores a mano |  |
+| [`tb_mt_trig_src`](../../modulos/mt/sim/tb_mt_trig_src.sv) | `mt_trig_src` | 8 | 21 | vectores a mano |  |
+| [`tb_mt_event_logic`](../../modulos/mt/sim/tb_mt_event_logic.sv) | `mt_event_logic` | 9 | 19 | vectores a mano |  |
 | [`tb_trigger_shield`](../../modulos/mt/sim/tb_trigger_shield.sv) | `trigger_shield` | 8 | 19 | vectores a mano |  |
-| [`tb_mt_top`](../../modulos/mt/sim/tb_mt_top.sv) | `mt_top` | 20 | 51 | vectores a mano | **sí** |
+| [`tb_mt_top`](../../modulos/mt/sim/tb_mt_top.sv) | `mt_top` | 20 | 55 | vectores a mano | **sí** |
 
 
-**170 casos con nombre** en 7 testbenches (73 escenas). La lista completa, caso por caso, está en el plan de verificación.
+**193 casos con nombre** en 7 testbenches (75 escenas). La lista completa, caso por caso, está en el plan de verificación.
 
 Las escenas de [`tb_mt_top`](../../modulos/mt/sim/tb_mt_top.sv): 1) IDENTIFICACIÓN por el slot 3 (MAGIC, CAPS con N_, 2) NIVEL, 3) PENDIENTE configurada por registros, 4) EXTERNA, 5) VETO por nivel externo, 6) SW por el puente legacy (lo que usa librp) y por, 7) CADENA, 8) MODO CONTINUO, 9) EL LAZO CON LA CAPTURA, 10) RELLENO, 1) IDENTIFICACIÓN, 2) NIVEL, single-shot, 3) PENDIENTE, configurada por registros, 4) EXTERNA, por el lazo trig_ext_asg, 5) VETO por nivel externo, 6) SW, 7) CADENA, 8) MODO CONTINUO, 9) EL LAZO CON LA CAPTURA, 10) RELLENO Y CONTRATO.
 

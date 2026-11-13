@@ -1,0 +1,7 @@
+Todo en `adc_clk`. El bloque con sombra es `mt_top` plegado: su interior está en
+el panorama de `mt_top`. `trigger_event` dispara a la vez la captura de todos
+los canales. Cada `dsp_tap_mux` es combinacional y elige, con su `route_*_tap`,
+de cuál de los cuatro nodos toma su consumidor; su `route_*_en` corta el valid,
+no el dato. Los `route_*` son puertos: vienen de `integration_cfg` (región de
+TOP, slot 6). `NOMBRE=valor`: parámetros con que el padre instancia el bloque
+(se omiten los que sólo pasan el del padre sin cambio).

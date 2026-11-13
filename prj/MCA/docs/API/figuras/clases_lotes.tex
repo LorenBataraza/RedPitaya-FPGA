@@ -1,0 +1,219 @@
+% Los dos lazos por lote de libmca: donde la biblioteca se encuentra con la
+% adquisición de eventos. Una columna por lazo, con lo mismo en cada fila:
+%   arriba     el envoltorio de Python que lo llama (Lector, LectorRing), dueño
+%              de los structs;
+%   al medio   la función de C, con los handles que recibe a un costado;
+%   abajo      lo que recibe: la configuración, el estado que sigue de una
+%              llamada a la otra, y las columnas del lote, que son punteros a los
+%              arreglos del EventBatch desde batch.n.
+% Al centro, lo que los dos lazos comparten: el resultado (n, descartados,
+% asignados), la calibración de librp y el EventBatch donde escriben.
+% Lo que hace cada lazo por evento o por bloque está en maquinas_estados.
+% Fuentes: software/libmca/include/{osciloscope_lote.h,osciloscope_ring.h},
+% software/API/osciloscope.py (Lector), software/API/osciloscope_ring.py
+% (LectorRing), software/API/osciloscope_store/events.py (EventBatch).
+% El texto que acompaña está en docs/API/libmca.md §4; el epígrafe, en
+% clases_lotes.txt. Estilo: docs/figuras/estilo_tikz.tex y clases_estilo.tex.
+%
+% Compilar:   pdflatex clases_lotes.tex
+%             pdftocairo -svg clases_lotes.pdf clases_lotes.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+\input{clases_estilo.tex}
+
+\begin{document}
+\catcode`\_=12
+\begin{tikzpicture}[fondo]
+
+\def\xL{-5.7} \def\xR{5.7}
+
+% ====================================================== Python: los envoltorios ===
+\node[clase=5.6cm, anchor=north] (lec) at (\xL,0) {
+  \clase{Lector}{API/osciloscope.py · lo usa BramSource}
+  \nodepart{two}
+  osc : Osciloscope · mt : MultiTrigger\\
+  _cfg : osciloscope_lote_cfg_t\\
+  _st : osciloscope_lote_estado_t\\
+  _lote · _res \es{reusados en cada llamada}
+  \nodepart{three}
+  iniciar() \es{después de armar}\\
+  leer(cols, i0, n_max, plazo_ns)\\
+  \hspace*{1em}-> (n, descartados, asignados)\\
+  pendientes \es{prop} · _apuntar(cols, i0, n_max)
+};
+
+\node[clase=5.6cm, anchor=north] (lr) at (\xR,0) {
+  \clase{LectorRing}{API/osciloscope_ring.py · lo usa RingSource}
+  \nodepart{two}
+  ring : OsciloscopeRing\\
+  _cfg : osciloscope_ring_cfg_t\\
+  _st : osciloscope_ring_estado_t\\
+  _lote · _res \es{reusados en cada llamada}
+  \nodepart{three}
+  configurar() \es{con el ring parado}\\
+  leer(cols, i0, n_max, plazo_ns)\\
+  \hspace*{1em}-> (n, descartados, asignados)\\
+  pendientes · estado \es{prop}
+};
+
+% ============================================================ C: las funciones ===
+\node[modulo=5.6cm, anchor=north, fill=rojo!30] (fb) at (\xL,-4.3) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont osciloscope_leer_lote}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont include/osciloscope_lote.h · src/osciloscope_lote.c}\\[3pt]
+  (osc, mt, \&cfg, \&st, lote, n_max, plazo_ns, \&res)\\[2pt]
+  vuelve con n_max eventos, o al plazo\\
+  lote = NULL: cuenta el evento y re-arma\\
+  \hspace*{1em}sin leer la ventana\\[2pt]
+  osciloscope_lote_iniciar(osc, \&cfg, \&st)\\
+  osciloscope_ahora_ns() \es{el reloj de perf_counter_ns}
+};
+\node[modulo=5.6cm, anchor=north, fill=rojo!30] (fr) at (\xR,-4.3) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont osciloscope_ring_leer_lote}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont include/osciloscope_ring.h · src/osciloscope_ring.c}\\[3pt]
+  (h, \&cfg, \&st, lote, n_max, plazo_ns, \&res)\\[2pt]
+  vuelve con n_max eventos, o al plazo\\
+  lote = NULL: no consume; los eventos\\
+  \hspace*{1em}esperan en la DDR\\[2pt]
+  osciloscope_ring_configurar(h, \&cfg, \&st)\\
+  \hspace*{1em}\es{parado: geometría, contadores, footers}
+};
+\draw[usa] (lec.south) -- (fb.north) node[rol, midway, right] {ctypes · sin el GIL};
+\draw[usa] (lr.south) -- (fr.north) node[rol, midway, left] {ctypes · sin el GIL};
+
+% los handles que reciben
+\node[modulo=3.0cm, anchor=north east, fill=rojo!30] (ho) at (-9.0,-4.3) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont osciloscope_h}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont slot 1 · la FSM,}\\
+  {\fontsize{5.6}{6.6}\selectfont wp_trig y la BRAM}
+};
+\node[modulo=3.0cm, anchor=north east, fill=rojo!30] (hm) at (-9.0,-5.9) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont multitrigger_h}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont slot 3 · las máscaras}\\
+  {\fontsize{5.6}{6.6}\selectfont y el snapshot}
+};
+\node[modulo=3.0cm, anchor=north west, fill=rojo!30] (hr) at (9.0,-4.3) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont osciloscope_ring_h}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont slot 2 · los registros}\\
+  {\fontsize{5.6}{6.6}\selectfont y ddr : mca_mem*}
+};
+\draw[usa] (fb.west |- ho.east) -- (ho.east) node[rol, midway, above] {osc};
+\draw[usa] (fb.west |- hm.east) -- (hm.east) node[rol, midway, above] {mt};
+\draw[usa] (fr.east |- hr.west) -- (hr.west) node[rol, midway, above] {h};
+\node[rotulo, anchor=north] at ($(hm.south)+(0,-0.05)$) {figura clases_libmca};
+\node[rotulo, anchor=north] at ($(hr.south)+(0,-0.05)$) {figura clases_libmca};
+
+% ========================================================== C: lo que reciben ===
+\node[ctipo=5.0cm, anchor=north] (cb) at (\xL,-8.3) {
+  \clase{osciloscope_lote_cfg_t}{la configuración · no cambia}
+  \nodepart{two}
+  pre · post · n_ch\\
+  mascara \es{lo que el re-armado escribe}\\
+  wp_off \es{el wp_trig del canal 0 o 1}\\
+  single_shot · rearmar · leer_snap\\
+  cal[n_ch] : osciloscope_adc_cal_t
+  \nodepart{three}
+  \es{la valida osciloscope_lote_iniciar}
+};
+\node[ctipo=5.0cm, anchor=north] (eb) at (\xL,-11.25) {
+  \clase{osciloscope_lote_estado_t}{lo que sigue de una llamada a la otra}
+  \nodepart{two}
+  pendientes \es{descartados: al próximo gap}\\
+  wp_prev \es{continuo: el último wp_trig}
+  \nodepart{three}
+  \es{lo pone en cero osciloscope_lote_iniciar}
+};
+\node[ctipo=5.0cm, anchor=north] (lb) at (\xL,-13.4) {
+  \clase{osciloscope_lote_t}{las columnas · NULL no se guarda}
+  \nodepart{two}
+  wave : int16* \es{(n_max, n_ch, pre + post)}\\
+  t_ns : int64* · wp : int32*\\
+  snap : uint32* · gap : uint8*\\
+  dead_ns : int64* \es{del disparo al re-armado}
+  \nodepart{three}
+  \es{cada una, desde la fila batch.n}
+};
+\node[grupo, fit=(cb) (eb) (lb), inner sep=5pt] (gb) {};
+\draw[usa] (fb.south) -- (gb.north) node[rol, midway, right] {\&cfg · \&st · lote};
+
+\node[ctipo=5.0cm, anchor=north] (cr) at (\xR,-8.3) {
+  \clase{osciloscope_ring_cfg_t}{la configuración · no cambia}
+  \nodepart{two}
+  pre · post · n_ch · dw\\
+  slot_shift · ring_bytes\\
+  lote_bytes \es{lo que se valida de una vez}\\
+  cal[n_ch] : osciloscope_adc_cal_t
+  \nodepart{three}
+  \es{la geometría: osciloscope_ring_geometria}
+};
+\node[ctipo=5.0cm, anchor=north] (er) at (\xR,-11.0) {
+  \clase{osciloscope_ring_estado_t}{lo que sigue de una llamada a la otra}
+  \nodepart{two}
+  next \es{el seq esperado} · publicado \es{RD_SLOT}\\
+  slot_shift · n_slots · drop_prev\\
+  pendientes \es{descartados: al próximo gap}
+  \nodepart{three}
+  \es{lo pone en cero configurar}
+};
+\node[ctipo=5.0cm, anchor=north] (lrr) at (\xR,-13.4) {
+  \clase{osciloscope_ring_lote_t}{las columnas · NULL no se guarda}
+  \nodepart{two}
+  wave : int16* · t_ns : int64*\\
+  wp : int32* \es{= -1} · snap · gap\\
+  dead_ns \es{= 0: el hardware re-arma}\\
+  ts_hw : int64* · seq : uint32*
+  \nodepart{three}
+  \es{cada una, desde la fila batch.n}
+};
+\node[grupo, fit=(cr) (er) (lrr), inner sep=5pt] (gr) {};
+\draw[usa] (fr.south) -- (gr.north) node[rol, midway, left] {\&cfg · \&st · lote};
+
+% ===================================================== al centro: lo común ===
+\node[ctipo=4.3cm, anchor=north] (res) at (0,-4.6) {
+  \clase{osciloscope_lote_resultado_t}{lo devuelven los dos lazos}
+  \nodepart{two}
+  n \es{guardados}\\
+  descartados \es{vistos}\\
+  asignados \es{a un gap}
+  \nodepart{three}
+  \es{-> la tupla de leer()}
+};
+\draw[usa] (fb.east |- res.west) ++(0,0.3) coordinate (a1) -- (a1 -| res.west) node[rol, midway, above] {\&res};
+\draw[usa] (fr.west |- res.east) ++(0,0.3) coordinate (a2) -- (a2 -| res.east) node[rol, midway, above] {\&res};
+
+\node[ctipo=3.6cm, anchor=north] (cal) at (0,-8.3) {
+  \clase{osciloscope_adc_cal_t}{la calibración de librp}
+  \nodepart{two}
+  gain · base · offset
+  \nodepart{three}
+  m = gain·(s - offset) / base\\
+  \es{de la EEPROM, al armar}
+};
+\draw[usa] ([yshift=-0.9cm]cb.north east) -- ([yshift=-0.9cm]cb.north east -| cal.west) node[rol, midway, above] {cal[]};
+\draw[usa] ([yshift=-0.9cm]cr.north west) -- ([yshift=-0.9cm]cr.north west -| cal.east) node[rol, midway, above] {cal[]};
+
+\node[clase=3.6cm, anchor=north] (bt) at (0,-12.4) {
+  \clase{EventBatch}{figura clases_sesion}
+  \nodepart{two}
+  wave : int16[cap, n_ch, S]\\
+  t_ns · wp · snap · gap\\
+  dead_ns \es{si se declara}\\
+  ts_hw · seq \es{las del ring}\\
+  n \es{la fila donde sigue}
+  \nodepart{three}
+  \es{numpy: C escribe adentro}
+};
+\draw[usa] (lb.east) -- (lb.east -| gb.east) -- (bt.west |- lb.east) node[rol, pos=0.5, above] {punteros};
+\draw[usa] (lrr.west) -- (lrr.west -| gr.west) -- (bt.east |- lrr.west) node[rol, pos=0.5, above] {punteros};
+
+% ============================================================== leyenda ===
+\leyendac{-12.0,-17.0}{19.0cm}{azul!30/clase de Python, rojo!30/tipo o función de C (libmca)}
+  {Flecha punteada: usa, o recibe por parámetro. Recuadro punteado: lo que la función
+   recibe en cada llamada.}
+
+\end{tikzpicture}
+\end{document}

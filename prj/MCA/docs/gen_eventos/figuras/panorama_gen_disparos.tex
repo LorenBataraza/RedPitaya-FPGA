@@ -1,0 +1,235 @@
+% Panorama de GEN_DISPAROS: el motor de disparos de los dos generadores
+% (gen_pulsos, en el lugar del ASG, y gen_eventos, dentro del event_ring). Decide
+% en cada ciclo si dispara, periódico o Poisson con tiempo muerto, y el disparo
+% decidido sale en el ciclo siguiente. El borde grueso es el límite del módulo;
+% lo que lo cruza son sus puertos, sólo con el nombre.
+% Fuente: modulos/gen_eventos/rtl/gen_disparos.sv.
+% Estilo: docs/figuras/estilo_tikz.tex, con los símbolos de operación: cada
+% operación con símbolo (máximo, resta, suma, comparación, XOR, mux, Y, O) va con
+% el símbolo. Los recuadros punteados agrupan por qué hace cada parte.
+% Nombres de red sin cable (arranque, disp, activo, en_i, run_i): la señal del
+% mismo nombre, que se dibuja una sola vez donde nace.
+% El epígrafe no va en la figura: está en panorama_gen_disparos.txt y en los docs
+% que la incluyen.
+%
+% Compilar:   pdflatex panorama_gen_disparos.tex
+%             pdftocairo -svg panorama_gen_disparos.pdf panorama_gen_disparos.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{
+  reg/.style   = {registro=#1, minimum height=0.7cm, font=\scriptsize\ttfamily},
+  reg/.default = 0.85cm,
+  zona/.style  = {draw=black!45, dashed, line width=0.5pt, rounded corners=3pt,
+                  fill=amarillo!22},
+  rotz/.style  = {font=\scriptsize\itshape, black!75, inner sep=2pt},
+  chico/.style = {font=\scriptsize\ttfamily, inner sep=1pt},
+  cflecha/.style = {->, line width=0.6pt},
+  red/.style   = {ctrl},
+}
+% una constante que entra a un operador desde arriba: #1 = operador, #2 = valor
+\newcommand{\cteArriba}[2]{\draw[cflecha] ($(#1.north)+(0,0.36)$) node[above, cte] {#2} -- (#1.north);}
+% las etiquetas 0 (arriba) y 1 (abajo) de un mux de alto #2
+\newcommand{\muxio}[2]{%
+  \node[font=\tiny] at ($(#1-in)+(0.13,{#2/4})$) {0};
+  \node[font=\tiny] at ($(#1-in)+(0.13,{-#2/4})$) {1};}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\def\xin{0.0}     % donde arrancan las entradas
+\def\xout{17.2}   % donde terminan las salidas
+
+% ============================================================== las zonas ===
+% primero, para que todo lo demás quede encima
+\node[zona, fit={(0.85,6.95) (5.95,4.5)}]      (zarr) {};
+\node[zona, fit={(0.85,1.6) (8.15,4.2)}]       (zper) {};
+\node[zona, fit={(0.55,-1.55) (7.3,1.25)}]     (zale) {};
+\node[zona, fit={(0.85,-4.55) (8.15,-1.62)}]   (zesp) {};
+\node[zona, fit={(8.45,-1.75) (12.4,2.05)}]    (zdec) {};
+\node[zona, fit={(12.55,-0.35) (16.1,1.2)}]   (zsal) {};
+\node[zona, fit={(11.15,-5.85) (16.1,-1.85)}] (zfin) {};
+\node[rotz, anchor=north east] at (zarr.north east) {arranque};
+\node[rotz, anchor=north east] at (zper.north east) {período};
+\node[rotz, anchor=north east] at (zale.north east) {número aleatorio};
+\node[rotz, anchor=south east] at (zesp.south east) {espera};
+\node[rotz, anchor=north east] at (zdec.north east) {decisión};
+\node[rotz, anchor=north east] at (zsal.north east) {salida};
+\node[rotz, anchor=south west] at (zfin.south west) {cuenta y fin};
+
+% ============================================ arranque: flanco de en o de run
+\node[reg] (end) at (2.5,6.1) {en\_d};
+\node[reg] (rud) at (2.5,4.95) {run\_d};
+\node[puerta y=ni] (ae) at (4.2,6.5) {};
+\node[puerta y=ni] (ar) at (4.2,5.35) {};
+\node[puerta o]    (oa) at (5.4,5.93) {};
+
+\draw[flujo] (\xin,6.65) node[left, sen] {en\_i} -- (3.6,6.65) |- (ae.input 1);
+\draw[flujo] (1.2,6.65) |- (end.west);
+\punto{1.2,6.65}
+\draw[flujo] (end.east) -- (3.75,6.1) |- (ae.input 2);
+\draw[flujo] (\xin,5.5) node[left, sen] {run\_i} -- (3.6,5.5) |- (ar.input 1);
+\draw[flujo] (1.2,5.5) |- (rud.west);
+\punto{1.2,5.5}
+\draw[flujo] (rud.east) -- (3.75,4.95) |- (ar.input 2);
+\draw[flujo] (ae.output) -- ++(0.2,0) |- (oa.input 1);
+\draw[flujo] (ar.output) -- ++(0.2,0) |- (oa.input 2);
+\draw[flujo] (oa.output) -- (\xout,0 |- oa.output) node[right, sen] {arranque\_o};
+
+% ============================================ período: cuenta de per_m1 a 0
+\node[oper, font=\tiny] (pmx) at (1.5,2.45) {max};
+\node[oper] (pm1) at (2.4,2.45) {$-$};
+\node[reg] (rpm) at (3.5,2.45) {per\_m1};
+\muxdec{mp}{(5.6,2.7)}{1.0}
+\muxio{mp}{1.0}
+\node[reg=1.0cm] (pc) at (6.8,2.7) {per\_cnt};
+\node[oper] (pdec) at (6.0,3.35) {$-$};
+\node[oper] (z0) at (7.65,1.85) {$=0$};
+
+\draw[flujo, ancho=32, ancho en=0.45] (\xin,2.45) node[left, sen] {periodo\_i} -- (pmx.west);
+\cteArriba{pmx}{2}
+\draw[flujo] (pmx.east) -- (pm1.west);
+\cteArriba{pm1}{1}
+\draw[flujo] (pm1.east) -- (rpm.west);
+\draw[flujo] (rpm.east) -- (mp-in |- 0,2.45);
+\draw[flujo] (mp-out) -- (pc.west);
+\draw[flujo] (pc.east) -- (7.65,2.7) -- (7.65,3.35) -- (pdec.east);
+\cteArriba{pdec}{1}
+\draw[flujo] (pdec.west) -- (4.75,3.35) -- (4.75,2.95) -- (mp-in |- 0,2.95);
+\draw[flujo] (7.65,2.7) -- (z0.north);
+\punto{7.65,2.7}
+\draw[flujo] (z0.west) -- (5.6,1.85) -- (mp-sel);
+
+% ===================================== número aleatorio: xorshift32 y comparador
+\muxdec{mx}{(1.5,0.55)}{0.9}
+\node[font=\tiny] at ($(mx-in)+(0.13,0.25)$) {0};
+\node[font=\tiny] at ($(mx-in)+(0.13,-0.25)$) {1};
+\node[reg=0.75cm] (rx) at (2.6,0.55) {x};
+\node[opxor] (x1) at (4.0,0.55) {};
+\node[opxor] (x2) at (5.2,0.55) {};
+\node[opxor] (x3) at (6.4,0.55) {};
+\node[desp] (s1) at (4.0,-0.1) {\texttt{<<13}};
+\node[desp] (s2) at (5.2,-0.1) {\texttt{>>17}};
+\node[desp] (s3) at (6.4,-0.1) {\texttt{<<5}};
+\node[oper] (lt) at (4.0,-0.85) {$<$};
+
+\draw[flujo, ancho=32, ancho en=0.5] (\xin,0.3) node[left, sen] {semilla\_i} -- (mx-in |- 0,0.3);
+\draw[red] (1.5,-0.35) node[below, chico, black!80] {arranque} -- (mx-sel);
+\draw[flujo] (mx-out) -- (rx.west);
+\draw[flujo] (rx.east) -- (x1.west);
+\draw[flujo] (3.25,0.55) -- (3.25,-0.1) -- (s1.west);
+\draw[flujo] (s1.north) -- (x1.south);
+\draw[flujo] (x1.east) -- (x2.west);
+\draw[flujo] (4.6,0.55) -- (4.6,-0.1) -- (s2.west);
+\draw[flujo] (s2.north) -- (x2.south);
+\draw[flujo] (x2.east) -- (x3.west);
+\draw[flujo] (5.8,0.55) -- (5.8,-0.1) -- (s3.west);
+\draw[flujo] (s3.north) -- (x3.south);
+\draw[flujo] (x3.east) -- (6.95,0.55) -- (6.95,1.08) -- (0.75,1.08) -- (0.75,0.8) -- (mx-in |- 0,0.8);
+\punto{3.25,0.55} \punto{3.25,-0.1} \punto{4.6,0.55} \punto{5.8,0.55}
+\draw[flujo] (3.25,-0.1) -- (3.25,-0.85) -- (lt.west);
+\node[chico, anchor=south] at (3.12,0.6) {$x$};
+\draw[flujo, ancho=32, ancho en=0.4] (\xin,-1.4) node[left, sen] {umbral\_i} -- (4.0,-1.4) -- (lt.south);
+
+% ============================================== espera: DT_MIN - 1 sin disparar
+\node[oper, font=\tiny] (dmx) at (1.5,-3.7) {max};
+\node[oper] (dm1) at (2.4,-3.7) {$-$};
+\node[reg] (rdm) at (3.5,-3.7) {dtm\_m1};
+\muxdec{md}{(5.6,-3.45)}{1.0}
+\muxio{md}{1.0}
+\node[reg=0.85cm] (ho) at (6.8,-3.45) {hold};
+\node[oper] (hdec) at (5.6,-2.5) {$-$};
+\node[oper] (nz0) at (7.65,-1.95) {$\neq 0$};
+
+\draw[flujo, ancho=16, ancho en=0.45] (\xin,-3.7) node[left, sen] {dt\_min\_i} -- (dmx.west);
+\cteArriba{dmx}{2}
+\draw[flujo] (dmx.east) -- (dm1.west);
+\cteArriba{dm1}{1}
+\draw[flujo] (dm1.east) -- (rdm.west);
+\draw[flujo] (rdm.east) -- (md-in |- 0,-3.7);
+\draw[flujo] (md-out) -- (ho.west);
+\draw[flujo] (ho.east) -- (7.65,-3.45) -- (7.65,-2.5) -- (hdec.east);
+\draw[flujo] (7.65,-2.5) -- (nz0.south);
+\punto{7.65,-2.5}
+\draw[flujo] (nz0.west) -- (5.6,-1.95) -- (hdec.north);
+\draw[flujo] (hdec.west) -- (4.75,-2.5) -- (4.75,-3.2) -- (md-in |- 0,-3.2);
+\draw[red] (5.6,-4.25) node[below, chico, black!80] {disp} -- (md-sel);
+
+% ======================================================= decisión: es un mux
+\node[puerta y=ni] (aa) at (9.55,-1.2) {};
+\muxdec{mdc}{(10.8,0.55)}{1.2}
+\node[font=\tiny] at ($(mdc-in)+(0.13,0.3)$) {0};
+\node[font=\tiny] at ($(mdc-in)+(0.13,-0.3)$) {1};
+\node[puerta y] (ad) at (12.0,0.55) {};
+
+\draw[flujo] (lt.east) -- (8.95,-0.85) |- (aa.input 1);
+\draw[flujo] (nz0.east) -- (8.95,-1.95) |- (aa.input 2);
+\draw[flujo] (z0.east) -- (10.05,1.85) -- (10.05,0.85) -- (mdc-in |- 0,0.85);
+\draw[flujo] (aa.output) -- (10.2,0 |- aa.output) -- (10.2,0.25) -- (mdc-in |- 0,0.25);
+\node[chico, anchor=south] at (8.9,1.85) {per\_cnt=0};
+\node[chico, anchor=south] at (8.1,-0.85) {$x$<UMBRAL};
+\node[chico, anchor=north] at (8.6,-1.97) {hold$\neq$0};
+\draw[ctrl] (\xin,-4.9) node[left, sen, black!80] {aleat\_i} -- (10.8,-4.9) -- (mdc-sel);
+\draw[flujo] (mdc-out) -- (11.5,0.55) |- (ad.input 1);
+\draw[red] (11.55,-0.3) node[below, chico, black!80] {activo} |- (ad.input 2);
+
+% ================================ salida: sale el ciclo siguiente, con en y run
+\node[reg=1.1cm] (tg) at (13.5,0.55) {trig\_gen};
+\node[puerta y=nnn, minimum height=0.75cm] (ap) at (14.85,0.55) {};
+
+\coordinate (jd) at (12.65,0.55);
+\draw[flujo] (ad.output) -- (tg.west);
+\punto{jd}
+\node[chico, anchor=east] at (12.6,1.1) {disp};
+\draw[flujo] (jd) -- (12.65,1.5) -- (\xout,1.5) node[right, sen] {disp\_o};
+\draw[flujo] (tg.east) -- (ap.input 2);
+\draw[red] (14.3,1.05) node[above, chico, black!80] {en\_i} |- (ap.input 1);
+\draw[red] (14.3,0.05) node[below, chico, black!80] {run\_i} |- (ap.input 3);
+\coordinate (jp) at (15.55,0 |- ap.output);
+\draw[flujo] (ap.output) -- (\xout,0 |- ap.output) node[right, sen] {pulso\_o};
+\punto{jp}
+
+% =================================== cuenta y fin: cnt + pulso, hecho, activo
+\node[oper] (sc) at (12.6,-2.4) {$+$};
+\node[reg] (cn) at (13.55,-2.4) {cnt};
+\node[oper] (ge) at (12.6,-3.6) {$\geq$};
+\node[oper] (nn0) at (12.6,-5.45) {$\neq 0$};
+\node[puerta y] (ah) at (13.9,-4.5) {};
+\node[puerta y=inn, minimum height=1.0cm] (aac) at (15.7,-5.3) {};
+
+\draw[flujo] (jp) -- (15.55,-1.6) -- (12.6,-1.6) -- node[chico, right, pos=0.4] {pulso} (sc.north);
+\draw[flujo] (sc.east) -- (cn.west);
+\coordinate (jc) at (14.3,-2.4);
+\draw[flujo, ancho=32, ancho en=0.55] (cn.east) -- (\xout,-2.4) node[right, sen] {cnt\_o};
+\punto{jc}
+\draw[flujo] (jc) -- (14.3,-3.0) -- (12.6,-3.0) -- (sc.south);
+\draw[flujo] (12.6,-3.0) -- (ge.north);
+\punto{12.6,-3.0}
+\draw[flujo, ancho=32, ancho en=0.25] (\xin,-5.45) node[left, sen] {n\_i} -- (nn0.west);
+\draw[flujo] (11.5,-5.45) -- (11.5,-3.6) -- (ge.west);
+\punto{11.5,-5.45}
+\draw[flujo] (ge.east) -- (13.3,-3.6) |- (ah.input 1);
+\draw[flujo] (nn0.east) -- (13.3,-5.45) |- (ah.input 2);
+\coordinate (jh) at (14.5,0 |- ah.output);
+\draw[flujo] (ah.output) -- (\xout,0 |- ah.output) node[right, sen] {hecho\_o};
+\punto{jh}
+\draw[flujo] (jh) |- (aac.input 1);
+\draw[red] (14.85,0 |- aac.input 2) node[left, chico, black!80] {en\_i} -- (aac.input 2);
+\draw[red] (14.85,0 |- aac.input 3) node[left, chico, black!80] {run\_i} -- (aac.input 3);
+\draw[flujo] (aac.output) -- (\xout,0 |- aac.output) node[right, sen] {activo\_o};
+
+% ============================================================== el límite ===
+\node[contenedor, fit={(0.4,7.1) (16.5,-6.05)}] (lim) {};
+\node[titulo, anchor=south west, inner sep=2pt, align=left] at (lim.north west)
+  {\texttt{\bfseries gen\_disparos}\;\; {\scriptsize\itshape uno en cada generador; sin parámetros}};
+
+% ================================================================= leyenda ===
+\leyenda{-0.6,-6.95}{amarillo!22/disparos, grisr/registro}{}
+
+\end{tikzpicture}
+\end{document}

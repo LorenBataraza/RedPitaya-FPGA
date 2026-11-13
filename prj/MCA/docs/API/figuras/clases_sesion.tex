@@ -2,13 +2,15 @@
 % acá: guarda espectros, no eventos). Arriba, AcquisitionSession: recibe la
 % fuente —cualquiera que cumpla EventSource, sin nombrar cuál— y los
 % annotators, deriva el esquema y el pool, y compone los dos hilos.
-% Al medio, el lector y el escritor pasándose EventBatch por las dos colas.
+% Al medio, el lector y el escritor pasándose EventBatch por las dos colas: el
+% pool son n_batches objetos (2 a 8) que circulan, figura pool_batches.
 % Abajo, los annotators (lo que se adjunta a cada evento sin definirlo) y lo
 % que queda en disco. Naranja = la clase ES un hilo (hereda de
 % threading.Thread); los subtítulos no nombran hilos.
 % Fuentes: software/API/osciloscope_store/session.py, reader.py, storage.py,
 % events.py, annotators.py. El texto que acompaña está en
-% docs/API/diseno_de_clases.md §7. Estilo: docs/figuras/estilo_tikz.tex
+% docs/API/adquisicion_de_eventos.md §5; el epígrafe, en clases_sesion.txt.
+% Estilo: docs/figuras/estilo_tikz.tex
 % y clases_estilo.tex.
 %
 % Compilar:   pdflatex clases_sesion.tex
@@ -46,10 +48,9 @@
 \node[modulo=4.7cm, anchor=north, fill=verde!45, dashed] (es) at (-0.6,0) {
   {\bfseries\fontsize{7.8}{9.2}\selectfont la fuente \es{EventSource}}\\[0.8pt]
   {\fontsize{5.6}{6.6}\selectfont intercambiable · figura clases_fuentes}\\[3pt]
-  n_ch · samples · scalar_fields\\
+  n_ch · samples · scalar_fields · wave_dtype\\
   arm() · close() · meta()\\
-  wait_event() · snapshot()\\
-  read_into() · rearm()
+  read_batch(batch, deadline_ns) · pending
 };
 \draw[usa] (as.west |- es.east) -- (es.east) node[rol, midway, above] {source};
 
@@ -72,14 +73,16 @@
   free_q · full_q · stats\\
   poll_timeout_ns · stop_event · error
   \nodepart{three}
-  run() · _loop() · stop()
+  run() · stop()\\
+  _loop_lotes() \es{las fuentes por lote}\\
+  _loop() \es{por evento: sin fuente en la placa}
 };
 
 \node[clase=5.0cm, anchor=north] (eb) at (6.3,-4.7) {
-  \clase{EventBatch}{osciloscope_store/events.py · preasignado}
+  \clase{EventBatch}{osciloscope_store/events.py · preasignado · 2 a 8}
   \nodepart{two}
   capacity · n_ch · samples · n · dropped\\
-  wave : [capacity, n_ch, samples]\\
+  wave : int16[capacity, n_ch, samples]\\
   scalars : \{nombre: [capacity]\}\\
   field_names\\
   t_ns · wp · snap · gap · …
@@ -92,7 +95,7 @@
   \clase{ChunkWriter(Thread)}{osciloscope_store/storage.py}
   \nodepart{two}
   run_dir · free_q · full_q · stats\\
-  meta_base · compress\\
+  formato \es{'npz' o 'lh5'} · meta_base · compress\\
   wave_dtype · wave_scale\\
   min_free_mb · disk_check_every\\
   index · error · disk_full
@@ -103,7 +106,7 @@
 % la sesión compone los dos hilos y el pool
 \draw[compone] ([xshift=-2.2cm]as.south) -- ++(0,-0.45) -| ([xshift=0.9cm]rt.north)
   node[rol, pos=0.25, above] {reader};
-\draw[compone] (as.south) -- (eb.north) node[rol, midway, right] {pool × n_batches};
+\draw[compone] (as.south) -- (eb.north) node[rol, midway, right] {pool · n_batches};
 \draw[compone] ([xshift=2.2cm]as.south) -- ++(0,-0.45) -| (cw.north)
   node[rol, pos=0.25, above] {writer};
 % el lector también llama a la fuente
@@ -126,9 +129,10 @@
   scalar_fields = ()
   \nodepart{three}
   start() · sample_into(batch, i)\\
+  sample_range(batch, i0, i1)\\
   stop() · meta()
 };
-\draw[usa] (rt.south) |- (an.west) node[rol, pos=0.75, above] {sample_into(batch, i)};
+\draw[usa] (rt.south) |- (an.west) node[rol, pos=0.75, above] {sample_into · sample_range};
 
 \node[clase=4.0cm, anchor=north] (can) at (0.2,-11.6) {
   \clase{ConstantAnnotator}{valores fijos por corrida}
@@ -136,7 +140,7 @@
   values\\
   scalar_fields = (k, float64) …
   \nodepart{three}
-  sample_into(batch, i) · meta()
+  sample_into() · sample_range() · meta()
 };
 \node[clase=5.0cm, anchor=north] (cac) at (6.3,-11.6) {
   \clase{CachedAnnotator}{base de lo lento: GPS, posición}
@@ -149,7 +153,7 @@
   \nodepart{three}
   poll() \es{la redefine la subclase} · _loop()\\
   start() · stop() · meta()\\
-  sample_into(batch, i)
+  sample_into(batch, i) · sample_range()
 };
 \node[clase=4.4cm, anchor=north] (dta) at (12.6,-11.6) {
   \clase{DeadTimeAnnotator}{tiempo ocupado del lector}
@@ -158,6 +162,7 @@
   total_ns · n · _t0_ns
   \nodepart{three}
   start() · sample_into(batch, i)\\
+  sample_range() \es{suma el dead_ns de C}\\
   busy_fraction() · meta()
 };
 \coordinate (ja) at ($(an.south)+(0,-0.5)$);
@@ -169,7 +174,7 @@
 % ============================================================== en disco ===
 \node[modulo=4.6cm, anchor=north] (disco) at (13.0,-8.75) {
   {\bfseries\fontsize{7.8}{9.2}\selectfont run_dir/}\\[3pt]
-  chunk_000000.npz · chunk_000001.npz · …\\
+  chunk_000000.npz · … \es{o evt_*.lh5}\\
   \hspace*{1em}<- ChunkWriter._write()\\
   run_summary.json\\
   \hspace*{1em}<- AcquisitionSession._write_summary()
@@ -177,10 +182,8 @@
 \draw[usa] (cw.south) -- (disco.north);
 
 % ============================================================== leyenda ===
-\leyendac{-1.8,-15.0}{17.5cm}{azul!30/clase, naranja!70/{es un hilo: hereda de threading.Thread}, verde!45/{interfaz}}
-  {Rombo: compone. Triángulo hueco: hereda. Flecha punteada: usa. Las dos colas
-   se pasan siempre los mismos \texttt{n\_batches} objetos. \texttt{CachedAnnotator}
-   no es un hilo, pero lanza uno propio (\texttt{\_thread}) para \texttt{poll()}.}
+\leyendac{-1.8,-15.7}{17.5cm}{azul!30/clase, naranja!70/{es un hilo: hereda de threading.Thread}, verde!45/{interfaz}}
+  {Rombo: compone. Triángulo hueco: hereda. Flecha punteada: usa.}
 
 \end{tikzpicture}
 \end{document}

@@ -1,0 +1,71 @@
+% La FSM de event_window_capture: IDLE -> DRAIN -> TAIL. Decide, en el ciclo
+% del trigger, si la ventana entra entera o se descarta: lo que el panorama de
+% event_ring_top resume como "entera o nada, al trigger".
+% Fuente: modulos/event_ring/rtl/event_window_capture.sv (FSM de ventana) y
+% event_stage_fifo.sv (s_accept_o). El epígrafe está en
+% fsm_event_window_capture.txt y en logica_de_captura_y_axi.md §2.4.
+%
+% Compilar:   pdflatex fsm_event_window_capture.tex
+%             pdftocairo -svg fsm_event_window_capture.pdf fsm_event_window_capture.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{
+  estado/.style = {rectangle split, rectangle split parts=2, rounded corners=4pt,
+                   draw=black, line width=0.7pt, align=center, text width=4.7cm,
+                   inner sep=3pt, font=\scriptsize,
+                   rectangle split part fill={#1, white!65!#1}},
+  trans/.style  = {->, line width=0.8pt},
+  pierde/.style = {->, line width=0.8pt, rojo!75!black, rounded corners=3pt},
+  guarda/.style = {font=\scriptsize, align=center, inner sep=1.5pt},
+}
+\newcommand{\s}[1]{\texttt{#1}}
+\newcommand{\cab}[2]{{\small\textsc{#1}}\\[-1pt]{\scriptsize #2}}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\node[titulo] at (-2.7,2.85) {\textbf{La FSM de la captura} (\s{event\_window\_capture}):
+  decide en el ciclo del trigger, ventana entera o nada};
+
+\node[estado=verde!55] (id) at (0,0) {
+  \cab{idle}{esperando trigger}
+  \nodepart{two}el pre-buffer circular se escribe\\ siempre, en cualquier estado};
+
+\node[estado=naranja!70] (dn) at (11,0) {
+  \cab{drain}{copiando la ventana}
+  \nodepart{two}desde \s{pre} muestras antes del trigger,\\
+  $(\s{pre} + \s{post})\cdot N_\mathrm{CH}$ muestras a la stage;\\ la primera lleva \s{sof}};
+
+\node[estado=amarillo] (tl) at (5.5,-3.3) {
+  \cab{tail}{un ciclo}
+  \nodepart{two}sale el \s{eof} de la última muestra};
+
+\draw[trans, black!55] ([yshift=1.0cm]id.north) node[above, guarda, black!70]
+  {\s{run\_i} = 0 (\textsc{stopped}), desde cualquier estado} -- (id.north);
+
+\draw[trans] ([yshift=4mm]id.east) -- ([yshift=4mm]id.east -| dn.west)
+  node[guarda, midway, above=1pt] {flanco de \s{trig} $\wedge$ \s{accept\_trig} $\wedge$ \s{m\_accept}}
+  node[guarda, midway, below=1pt] {\s{rd\_ptr} $\leftarrow$ \s{wr\_ptr} $-$ \s{pre}\\ guarda \s{ts} y \s{snapshot}};
+
+\draw[pierde] ([yshift=3mm]id.west) -- ++(-0.7,0) -- ++(0,-0.6) -- ([yshift=-3mm]id.west);
+\node[guarda, rojo!75!black, anchor=east, align=right] at ([xshift=-7.5mm]id.west)
+  {flanco de \s{trig} $\wedge$ \s{accept\_trig}\\ $\wedge\ \neg$\s{m\_accept}:\\
+   \s{drop\_full}, se descarta\\ \textbf{entero}};
+
+\draw[pierde] ([yshift=3mm]dn.east) -- ++(0.7,0) -- ++(0,-0.6) -- ([yshift=-3mm]dn.east);
+\node[guarda, rojo!75!black, anchor=west, align=left] at ([xshift=7.5mm]dn.east)
+  {flanco de \s{trig}:\\ \s{drop\_busy}};
+
+\draw[trans] (dn.south) |- node[guarda, pos=0.25, right=2pt, align=left] {la última\\ muestra} (tl.east);
+\draw[trans] (tl.west) -| node[guarda, pos=0.75, left=2pt, align=right]
+  {siempre; un \s{trig}\\ en este ciclo:\\ \s{drop\_busy}} (id.south);
+
+\end{tikzpicture}
+\end{document}

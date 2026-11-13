@@ -5,6 +5,7 @@
 % cruza son sus puertos, sólo con el nombre.
 % Fuente: modulos/mt/rtl/mt_slope_trig.sv; teoría en docs/mt/trigger_pendiente.md.
 % Estilo: docs/figuras/estilo_tikz.tex.
+% El epígrafe no va en la figura: está en panorama_mt_slope_trig.txt y en el doc que la incluye.
 %
 % Compilar:   pdflatex panorama_mt_slope_trig.tex
 %             pdftocairo -svg panorama_mt_slope_trig.pdf panorama_mt_slope_trig.svg
@@ -109,14 +110,7 @@
 \draw[flujo] (fla.east |- 0,-3.3) -- (\xout,-3.3) node[right, sen] {slope\_n\_o};
 
 % ================================================================= leyenda ===
-\leyenda{-1.6,-7.9}{amarillo!40/lógica del filtro y del disparo, grisr/líneas de retardo}
-  {$s[n] = s[n-1] + (x[n]-x[n-L]) - (x[n-L-G]-x[n-2L-G])$. Cada línea tiene
-   una sola toma dinámica, que es el patrón que Vivado lleva a SRLC32E. Las
-   líneas, \texttt{fill} y el pipeline avanzan sólo con \texttt{adc\_dv\_i}:
-   el filtro anda igual sobre el tap decimado que a 125~MS/s. Latencia: 5
-   ciclos de pipeline más lo que tarde \texttt{s} en cruzar \texttt{thr}.\\
-   \texttt{NOMBRE=valor}: parámetros con que lo instancia
-   \texttt{rp\_scope\_mt\_com}.}
+\leyenda{-1.6,-7.9}{amarillo!40/lógica del filtro y del disparo, grisr/líneas de retardo}{}
 
 \end{tikzpicture}
 \end{document}

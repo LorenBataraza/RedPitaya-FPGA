@@ -1,0 +1,7 @@
+Un mensaje es una cabecera JSON en UTF-8, en una sola línea que termina en `\n`, y a
+veces un payload binario; el cliente nunca manda payload. (a) Una función que no
+devuelve un arreglo: el resultado viaja dentro del JSON, en `valor`. (b) Una que
+devuelve un arreglo: la cabecera declara su largo, su tipo y su forma (`nbytes`,
+`dtype`, `shape`), y los bytes del arreglo van detrás, crudos. El payload no está a
+escala: son 65536 B contra unos 80 de cabecera. (c) Un error trae el tipo de la
+excepción, para que el cliente levante el mismo.

@@ -16,7 +16,7 @@
 | Módulo RTL | `mt_event_logic` |
 | Archivo | [`mt_event_logic.v`](../../modulos/mt/rtl/mt_event_logic.v) |
 | Parámetros | 7 |
-| Puertos | 34 (24 in / 10 out) |
+| Puertos | 38 (27 in / 11 out) |
 | Parte | `xc7z010clg400-1` |
 
 
@@ -42,6 +42,14 @@ produce el **evento conjunto** que usan el buffer del scope y el anillo de
 eventos. No tiene lógica propia de disparo: lo que aporta es la topología.
 
 ![Panorama de mt_event_logic](../mt/figuras/panorama_mt_event_logic.svg)
+
+*`trigger_event_o`, `event_arm_o` y `daisy_trig_o` son la misma señal: el OR de
+los disparos de los canales. Las fuentes del escudo son los disparos por canal
+más la entrada externa cruda (flancos y nivel), así que se puede vetar desde
+afuera sin gastar la máscara de un canal. El snapshot guarda las fuentes crudas
+del ciclo del evento, retrasadas uno para alinearlas con el registro de
+`mt_trig_src`. `NOMBRE=valor`: parámetros con que lo instancia
+`rp_scope_mt_com`.*
 
 *Por dentro:* los `mt_trig_src`, el escudo, el OR que da `trigger_event`, el snapshot y la cadena. Fuente TikZ en [`panorama_mt_event_logic.tex`](../mt/figuras/panorama_mt_event_logic.tex).
 
@@ -130,6 +138,9 @@ el orden en que hay que armar y disparar, en
 | `slope_p_i` | in | 4 | adc_clk_i | pendiente positiva por canal |
 | `slope_n_i` | in | 4 | adc_clk_i | pendiente negativa por canal |
 | `pz_p_i` | in | 4 | adc_clk_i | polo-cero por canal |
+| `slope_arm_p_i` | in | 4 | adc_clk_i | Estado de re-armado de los Schmitt, por canal: 1 = el próximo cruce dispara |
+| `slope_arm_n_i` | in | 4 | adc_clk_i |  |
+| `pz_arm_i` | in | 4 | adc_clk_i |  |
 
 
 ##### Shield config - Control Signals
@@ -152,6 +163,7 @@ el orden en que hay que armar y disparar, en
 | `event_arm_o` | out | 1 | adc_clk_i |  |
 | `trigger_event_o` | out | 1 | adc_clk_i | evento conjunto -> bram_sm/axi_sm |
 | `mca_veto_o` | out | 1 | adc_clk_i | nivel: el MCA no abre pulsos |
+| `trig_arm_o` | out | 1 | adc_clk_i | nivel: algún canal puede disparar |
 
 
 ##### State
@@ -300,18 +312,18 @@ make -C modulos/mt/work lint
 
 | Testbench | DUT | Escenas | Casos | Contra qué compara | Es el de este módulo |
 |---|---|---|---|---|---|
-| [`tb_mt_cfg`](../../modulos/mt/sim/tb_mt_cfg.sv) | `mt_cfg` | 14 | 59 | vectores a mano |  |
-| [`tb_mt_slope_trig`](../../modulos/mt/sim/tb_mt_slope_trig.sv) | `mt_slope_trig` | 8 | 15 | vectores a mano |  |
-| [`tb_mt_pz_trig`](../../modulos/mt/sim/tb_mt_pz_trig.sv) | `mt_pz_trig` | 8 | 1 | vectores a mano |  |
-| [`tb_mt_trig_src`](../../modulos/mt/sim/tb_mt_trig_src.sv) | `mt_trig_src` | 7 | 14 | vectores a mano |  |
-| [`tb_mt_event_logic`](../../modulos/mt/sim/tb_mt_event_logic.sv) | `mt_event_logic` | 8 | 11 | vectores a mano | **sí** |
+| [`tb_mt_cfg`](../../modulos/mt/sim/tb_mt_cfg.sv) | `mt_cfg` | 14 | 60 | vectores a mano |  |
+| [`tb_mt_slope_trig`](../../modulos/mt/sim/tb_mt_slope_trig.sv) | `mt_slope_trig` | 8 | 17 | vectores a mano |  |
+| [`tb_mt_pz_trig`](../../modulos/mt/sim/tb_mt_pz_trig.sv) | `mt_pz_trig` | 8 | 2 | vectores a mano |  |
+| [`tb_mt_trig_src`](../../modulos/mt/sim/tb_mt_trig_src.sv) | `mt_trig_src` | 8 | 21 | vectores a mano |  |
+| [`tb_mt_event_logic`](../../modulos/mt/sim/tb_mt_event_logic.sv) | `mt_event_logic` | 9 | 19 | vectores a mano | **sí** |
 | [`tb_trigger_shield`](../../modulos/mt/sim/tb_trigger_shield.sv) | `trigger_shield` | 8 | 19 | vectores a mano |  |
-| [`tb_mt_top`](../../modulos/mt/sim/tb_mt_top.sv) | `mt_top` | 20 | 51 | vectores a mano |  |
+| [`tb_mt_top`](../../modulos/mt/sim/tb_mt_top.sv) | `mt_top` | 20 | 55 | vectores a mano |  |
 
 
-**170 casos con nombre** en 7 testbenches (73 escenas). La lista completa, caso por caso, está en el plan de verificación.
+**193 casos con nombre** en 7 testbenches (75 escenas). La lista completa, caso por caso, está en el plan de verificación.
 
-Las escenas de [`tb_mt_event_logic`](../../modulos/mt/sim/tb_mt_event_logic.sv): 1) flanco ch0 -> evento conjunto + snapshot bit1 (a, 2) snapshot se resetea con sw_trig_dis_clr, 3) flanco en ch1 (adc_trig_p bit1) tambien dispara , 4) pendiente, 5) slope_n[1] (bit 22), 6) polo-cero, 7) SW de 6 ciclos con auto-rearme, 8) dos fuentes alternadas.
+Las escenas de [`tb_mt_event_logic`](../../modulos/mt/sim/tb_mt_event_logic.sv): 1) flanco ch0 -> evento conjunto + snapshot bit1 (a, 2) snapshot se resetea con sw_trig_dis_clr, 3) flanco en ch1 (adc_trig_p bit1) tambien dispara , 4) pendiente, 5) slope_n[1] (bit 22), 6) polo-cero, 7) SW de 6 ciclos con auto-rearme, 8) dos fuentes alternadas, 9) trig_arm.
 
 **Assertions** — en `sim/sva/`, enganchadas por `bind` (no tocan el RTL sintetizable).
 

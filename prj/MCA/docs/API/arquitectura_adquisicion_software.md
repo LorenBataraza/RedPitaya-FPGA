@@ -9,7 +9,12 @@ arm→máscara y la FSM de captura, y a
 [`../osc/register_map_osc.md`](../osc/register_map_osc.md).
 
 > **Estado:** la Parte 3 (rendimiento) está medida y cerrada. Las Partes 2 y 5
-> describen el pipeline a construir; la implementación vive en `software/API/osciloscope_store/`.
+> describen el pipeline; la implementación vive en `software/API/osciloscope_store/`.
+> **Desde la Parte 6 del plan de libmca (2026-11-08) el lazo por evento de
+> `BramSource` es de C** (`osciloscope_leer_lote`), con la calibración de librp y sin
+> `rp` para leer: ver [`libmca.md`](libmca.md) §4. Medido en la placa el
+> 2026-11-08: lee lo mismo que `rp`, muestra por muestra, con 18.2 µs de tiempo
+> muerto mediano, y la pérdida con Poisson sigue a τ = 20 µs.
 
 ---
 
@@ -84,21 +89,23 @@ limpia la máscara. Los dos sabores terminan en deadlock. Usar siempre `delay >=
 
 ## Parte 2 — Arquitectura del pipeline
 
-Productor/consumidor con dos colas y un **pool de batches preasignados**. El pool es lo
-que hace que la RAM sea una constante conocida de antemano y que descartar cueste O(1):
+Productor/consumidor con dos colas y un **pool de batches preasignados**: el hilo lector
+llena un `EventBatch` con el lazo de libmca, en C y sin el GIL, y el hilo escritor lo
+guarda y lo devuelve. Un solo hilo toca la fuente; el escritor sólo ve arrays de NumPy.
+Cómo está armado está en otros dos documentos, y acá no se repite:
 
-```
-  [hilo lector]                     [hilo escritor]
-   EventSource                       ChunkWriter
-       │                                  │
-       ├─ toma batch vacío ◄── free_q ◄───┤  (recicla el batch ya escrito)
-       ├─ llena N eventos                 │
-       └─ put_nowait ────► full_q ────────┘  ► chunk_%06d.npz
-             │
-             └─ si no hay batch libre: pending += 1 y SIGUE poleando
-```
+| Qué | Dónde |
+|---|---|
+| las fuentes (`BramSource`, `RingSource`) y su interfaz por lote | [`adquisicion_de_eventos.md`](adquisicion_de_eventos.md) §1 |
+| la corrida como máquina de estados, y por qué el re-armado ya no es una llamada de la API | [`adquisicion_de_eventos.md`](adquisicion_de_eventos.md) §2 |
+| los hilos en el tiempo, con y sin el GIL, y los invariantes del carril | [`adquisicion_de_eventos.md`](adquisicion_de_eventos.md) §3 |
+| el pool: cuántos batches, por qué no uno, qué pasa sin batch libre | [`adquisicion_de_eventos.md`](adquisicion_de_eventos.md) §4 |
+| la sesión: el orden de `start()` y `stop()` | [`adquisicion_de_eventos.md`](adquisicion_de_eventos.md) §5 |
+| el lazo por evento en C (`osciloscope_leer_lote`) y el del ring | [`libmca.md`](libmca.md) §4 |
+| la calibración de librp en C, y por qué `rp_Init()` sigue en los scripts | [`libmca.md`](libmca.md) §3.4 |
 
-Un solo hilo toca el scope. El escritor sólo ve arrays de NumPy.
+Lo que sigue es lo que hace al archivo: el esquema del evento, cómo se agregan columnas
+y el formato.
 
 ### El esquema de evento
 
@@ -110,7 +117,7 @@ Un solo hilo toca el scope. El escritor sólo ve arrays de NumPy.
 | `wp` | int32 | (C,) | `wp_trig` @0x1C — Δt fino, 8 ns de resolución |
 | `snap` | uint32 | (C,) | `trig_snapshot` @slot3 0x018 — qué fuente disparó |
 | `gap` | uint8 | (C,) | eventos descartados justo antes de éste |
-| `wave` | float32 → int16 | (C, n_ch, S) | ventanas crudas (ver nota de dtype) |
+| `wave` | int16 | (C, n_ch, S) | ventanas en cuentas calibradas (ver nota de dtype) |
 
 **`wave` con el canal como eje**, no como nombres `ch1`/`ch2`: el mismo código sirve
 para 2 o 4 canales (la RTL es paramétrica en `N_CH`). Qué canal es cada índice va en
@@ -127,7 +134,12 @@ distribución de Δt (dead-time, pileup, estadística de conteo). Es `uint8` sat
 (`wp`) da 8 ns pero envuelve cada 16384 muestras. Se guardan los dos crudos y los Δt
 salen de un `np.diff` offline.
 
-**Nota de dtype (`float32` en RAM, `int16` en disco).** El ADC es de 14 bits
+**Nota de dtype: `int16` de punta a punta desde la Parte 6.** `BramSource` declara
+`wave_dtype = int16` y el pool se arma de ese tipo: C escribe las cuentas calibradas y
+el escritor no convierte nada. Lo que sigue es el razonamiento de antes, que vale para
+`FakeSource` (volts en `float32`, que el escritor pasa a cuentas).
+
+**Antes de la Parte 6 (`float32` en RAM, `int16` en disco).** El ADC es de 14 bits
 (`parameter DW = 14`), así que `float32` son 4 bytes para 14 bits de información. Lo
 ideal sería `int16` de punta a punta, pero la API del `rp` de esta placa **no lo
 permite**: no existen las variantes `*NP`, y `rp_AcqGetDataPosRaw` existe pero su
@@ -158,7 +170,214 @@ tres casos futuros:
 | GPS | un `Annotator` que declara `lat/lon/t_gps_ns/fix_age_ns` |
 
 `meta['schema_version']` y `meta['fields']` registran qué había en cada corrida, así que
-los `.npz` viejos se siguen leyendo.
+los archivos viejos se siguen leyendo.
+
+### El formato del archivo: `.npz` y LH5
+
+`AcquisitionSession(..., formato='lh5')` escribe un `evt_%06d.lh5` por lote en vez de un
+`chunk_%06d.npz`. [LH5](https://legend-exp.github.io/legend-data-format-specs/dev/hdf5)
+es el formato HDF5 del experimento LEGEND, y su lector oficial (`legend-lh5io`) lo abre sin
+saber nada de este proyecto, y junta varios archivos como una sola tabla:
+
+```
+/raw            table{t_ns,wp,snap,gap,<annotators>,waveform_in1[,waveform_in2]}
+  waveform_inN  table{t0,dt,values}
+    t0, dt      float32, en ns. t0 = −pre·dt: el disparo es el tiempo 0
+    values      array_of_equalsized_arrays<1,1>{real}: las cuentas, como wave
+/meta           string, JSON
+```
+
+`load_chunk` da lo mismo con los dos, y `archivos_de_corrida(dir)` encuentra los de
+cualquier formato. El lote en RAM no cambia: sigue siendo la cola entre el lector y el
+escritor.
+
+**Quedan los dos** (decisión del 2026-11-08). `.npz` es el default: no necesita más que
+numpy y es el que más rápido escribe. LH5 es para los archivos que salen de este
+proyecto, o para leer unos pocos eventos de ventanas largas. Los dos guardan el mismo
+lote y salen del mismo hilo escritor: cambia sólo cómo se escribe el archivo.
+
+#### Qué da cada uno
+
+| | `.npz` | LH5 |
+|---|---|---|
+| quién lo abre | numpy | cualquier biblioteca de HDF5 (`h5py`, MATLAB, Julia, C), y el lector de LEGEND, que además entiende la tabla |
+| la metadata | un pickle: hace falta Python y `allow_pickle=True`, que puede ejecutar código del archivo | JSON en un string |
+| una columna sin la onda | sí: cada array es un miembro del zip, y se lee sin `allow_pickle` | sí: cada columna es un dataset |
+| unos pocos eventos | no: `wave` se lee entera | sí: sólo esas filas |
+| la corrida como una tabla | `load_chunk`, archivo por archivo | `lh5.read('raw', archivos)`, y `lh5concat` los junta en un archivo |
+| la escala de tiempo de la onda | en `meta` | en cada evento: `t0` y `dt`, con `units` |
+| compresión | el archivo entero o nada (`savez_compressed`) | por dataset (gzip), y el lector la resuelve solo |
+| bytes de más | — | 16 por evento (`t0` y `dt` de los dos canales) y unos 12 KB por archivo |
+| lo que necesita en la placa | numpy | `h5py` (3.6.0, de apt) |
+
+#### Lo que cuesta cada uno
+
+`make bench-formatos` (`API/bench/bench_formatos.py`) escribe una corrida de 20 archivos
+con el `ChunkWriter` real y la lee de cuatro maneras, con los archivos en el caché: mide
+el formato, no el disco. La onda es el ruido de la placa (σ = 4.6 cuentas) más un pulso
+por evento, en int16; cuánto se comprime una señal real depende de la señal. En la PC
+(2026-11-08, `h5py` 3.16, HDF5 2.0, `lh5` 0.3.1), con dos canales y sin comprimir:
+
+| ventana (eventos por lote) | | B/ev | escribir un lote | leer todo | sólo `t_ns`, `snap`, `gap` | 10 eventos por archivo | `lh5.read` |
+|---|---|---|---|---|---|---|---|
+| 32 (4096) | `.npz` | 145 | 0.8 ms | 14 ms | 5.7 ms | 9.4 ms | — |
+| | LH5 | 164 | 2.8 ms | 25 ms | 9.8 ms | 15 ms | 61 ms |
+| 256 (4096) | `.npz` | 1041 | 2.9 ms | 40 ms | 3.8 ms | 35 ms | — |
+| | LH5 | 1060 | 5.2 ms | 59 ms | 8.8 ms | 15 ms | 121 ms |
+| 2048 (1024) | `.npz` | 8211 | 6.0 ms | 84 ms | 4.0 ms | 90 ms | — |
+| | LH5 | 8238 | 8.7 ms | 100 ms | 9.4 ms | 18 ms | 155 ms |
+
+Comprimido:
+
+| ventana | | B/ev | ahorra | escribir un lote | leer todo | 10 eventos por archivo |
+|---|---|---|---|---|---|---|
+| 32 | `.npz` | 104 | 28 % | 28 ms | 71 ms | 60 ms |
+| | LH5 | 107 | 35 % | 13 ms | 92 ms | 64 ms |
+| 256 | `.npz` | 754 | 28 % | 175 ms | 461 ms | 538 ms |
+| | LH5 | 735 | 31 % | 91 ms | 561 ms | 274 ms |
+| 2048 | `.npz` | 4889 | 40 % | 401 ms | 1.0 s | 1.1 s |
+| | LH5 | 4462 | 46 % | 163 ms | 0.97 s | 0.45 s |
+
+- **Escribir:** `.npz` es siempre el más rápido. LH5 paga 2 a 3 ms fijos por archivo, la
+  estructura de HDF5, que con ventanas largas pesan menos: 8.7 contra 6.0 ms a 2048
+  muestras. En la placa, a 32 muestras, fue 107 contra 46 ms (abajo).
+- **Leer entero o sólo las columnas:** `.npz` es 1.2 a 2.4 veces más rápido. Las columnas
+  solas cuestan lo mismo con cualquier ventana, en los dos.
+- **Leer unos pocos eventos:** a 32 muestras gana `.npz`; con ventanas largas, LH5, que
+  lee sólo esas filas: 2.4 veces más rápido a 256 muestras y 5 a 2048.
+- **El lector oficial** trae la corrida entera en una llamada, 1.5 a 2.5 veces más lento
+  que leer los archivos uno por uno.
+- **Comprimir** ahorra 28 a 46 %, pero escribir se hace 35 a 67 veces más lento con
+  `.npz` y 5 a 19 con LH5. A 2048 muestras da 2.6 kev/s con `.npz` y 6.3 con LH5, en la
+  PC: no es para adquirir, sino para archivar después. LH5 comprime dos veces más rápido.
+
+**En la placa** (2026-11-08, `make bench-formatos-remoto`: Python 3.10.12, numpy 1.21.5,
+`h5py` 3.6.0, HDF5 1.10.7, sin `legend-lh5io`). Los tiempos de lectura son de la corrida
+entera, 20 archivos:
+
+| ventana (eventos por lote) | | B/ev | escribir un lote | leer todo | sólo `t_ns`, `snap`, `gap` | 10 eventos por archivo |
+|---|---|---|---|---|---|---|
+| 32 (4096) | `.npz` | 146 | 22 ms | 685 ms | 270 ms | 317 ms |
+| | LH5 | 164 | 86 ms | 625 ms | 231 ms | 308 ms |
+| 256 (4096) | `.npz` | 1042 | 108 ms | 1.80 s | 260 ms | 1.43 s |
+| | LH5 | 1060 | 151 ms | 1.42 s | 231 ms | 339 ms |
+| 2048 (1024) | `.npz` | 8211 | 202 ms | 3.86 s | 239 ms | 2.73 s |
+| | LH5 | 8238 | 218 ms | 2.15 s | 228 ms | 352 ms |
+
+Comprimido, en la placa:
+
+| ventana | | escribir un lote | leer todo | 10 eventos por archivo |
+|---|---|---|---|---|
+| 32 | `.npz` | 498 ms | 1.20 s | 0.80 s |
+| | LH5 | 264 ms | 1.41 s | 0.80 s |
+| 256 | `.npz` | 3.18 s | 5.57 s | 5.18 s |
+| | LH5 | 1.30 s | 5.74 s | 2.50 s |
+| 2048 | `.npz` | 6.28 s | 10.2 s | 9.79 s |
+| | LH5 | 2.55 s | 9.46 s | 5.66 s |
+
+- **Escribir:** `.npz` sigue siendo el más rápido, pero la diferencia se achica con la
+  ventana: 3.9 veces a 32 muestras (22 contra 86 ms por lote), 1.4 a 256 y casi igual a
+  2048 (202 contra 218 ms). El costo fijo de LH5 por archivo pesa en el A9 unos 60 ms.
+- **Leer:** al revés que en la PC, **LH5 lee más rápido en la placa**: entero, 1.1 veces a
+  32 muestras, 1.3 a 256 y 1.8 a 2048; las columnas solas, 1.1 veces. Lo más probable es
+  el CRC32 que `zipfile` verifica en cada miembro del `.npz` al leerlo, que en el A9 pesa
+  y HDF5 no hace; no está medido aparte.
+- **Unos pocos eventos:** igual a 32 muestras; con ventanas largas LH5 es 4.2 veces más
+  rápido a 256 y 7.8 a 2048.
+- **Comprimir en la placa no sirve:** escribir se hace 23 a 31 veces más lento con
+  `.npz` y 3 a 12 con LH5. A 2048 muestras da 0.2 kev/s (`.npz`) y 0.4 (LH5). Se comprime
+  después, en la PC.
+- Sin `legend-lh5io` en la placa no hay lectura oficial; el archivo es el mismo y se lee
+  en la PC.
+
+#### Con la adquisición corriendo
+
+Lo que decide los descartes es otra cosa: escribir un lote mientras el lector compite por
+el GIL (`bench_escritura.py`). En la PC:
+
+| 4096 eventos × 2 canales × 32 muestras | `.npz` | `.lh5` |
+|---|---|---|
+| bytes por evento | 145 | 164: `t0` y `dt` son 16 |
+| un lote, solo | 0.7 ms | 2.4 ms |
+| un lote, con un lector compitiendo por el GIL | 37 ms | 143 ms |
+| mayor demora del lector mientras se escribe | 1.6 ms | 1.8 ms |
+
+Con un lector compitiendo manda el GIL, no el disco: cada vez que el escritor lo suelta,
+espera hasta un intervalo de cambio (1 ms) para recuperarlo, y `h5py` lo suelta muchas más
+veces que `savez`. **Lo que no se ve es al lector frenado:** `h5py` 3.16 suelta el GIL
+durante el I/O. Con cada escritura frenada 50 ms a propósito, la demora del lector no pasó
+de 5.5 ms. La versión de la placa puede ser otra, y por eso se vuelve a medir allá:
+
+```bash
+make bench-escritura-remoto                  # costo y demora, sin tocar la PL
+python3 campanas/run_poisson_loss.py --formato lh5   # los descartes, con el generador
+```
+
+**En la placa (2026-11-07), con `h5py` 3.6.0 y HDF5 1.10.7 de apt, no pasa.**
+
+| 4096 eventos × 2 canales × 32 muestras, en la placa | `.npz` | `.lh5` |
+|---|---|---|
+| bytes por evento | 146 | 164 |
+| un lote, solo | 46 ms | 107 ms |
+| un lote, con un lector compitiendo por el GIL | 97 ms | 255 ms |
+| mayor demora del lector mientras se escribe | 3.1 ms | 11.2 ms |
+| lo más que aguanta el disco | 42 kev/s | 16 kev/s |
+
+El disco no se queda atrás: 16 kev/s es cuatro veces la tasa del lector. Pero este `h5py`
+retiene el GIL bastante más que el 3.16 de la PC, y eso se ve en los descartes. Con
+`run_poisson_loss.py`, la misma semilla y el mismo tren:
+
+| ρ | Poisson | `.npz`, 1.ª | `.npz`, 2.ª | `.lh5` |
+|---|---|---|---|---|
+| 0.1 | 9.1 % | 0.0 % | 0.0 % | 0.1 % |
+| 0.5 | 33.3 % | 29.7 % | 30.5 % | 30.9 % |
+| 1 | 50.0 % | 47.6 % | 46.5 % | 48.4 % |
+| 2 | 66.7 % | 67.1 % | 67.5 % | 69.5 % |
+
+Entre las dos corridas en `.npz` hay hasta 1.1 pp. LH5 pierde más en las tres tasas
+altas, y a ρ = 2 por 2 a 2.4 pp: unos 6 % menos de eventos leídos. Equivale a dejar
+ciego al lector unos 120 ms por lote, del orden de lo que tarda escribir uno. Con el
+lector de Python, por eso `.npz` quedó de default.
+
+**Con el lector en C (2026-11-08) la diferencia se va.** A las mismas tasas:
+
+| ρ (τ = 252.7 µs) | `.npz` | LH5 |
+|---|---|---|
+| 0.1 | 1.7 % | 1.6 % |
+| 0.5 | 7.4 % | 7.2 % |
+| 1 | 9.2 % | 9.4 % |
+| 2 | 15.6 % | 15.6 % |
+
+sin ningún descarte por falta de batch. Casi toda esa pérdida es el apilamiento del
+estímulo (6 a 8 % de los pulsos). Más arriba, entre 5 y 100 kHz con pulsos de 2 µs, la
+pérdida sigue a Poisson con τ = 20 µs a menos de 2.3 pp, y se guardan hasta 34 kev/s.
+Desde 25 kev/s el que no da abasto es el escritor: a 100 kHz descartó por falta de batch
+41.7 k eventos en 20 s con `.npz` y 57.5 k con LH5, con la pérdida total a 1 pp. Con
+esto quedaron los dos, y `.npz` de default (arriba).
+
+**Con el event_ring (2026-11-09) el lector sale del camino del disparo.** Las mismas
+corridas con `--fuente ring`, en `.npz`, con el bitstream del ring que arregla el bus
+(`out/v3_event_ring/LEEME.md`):
+
+| tasa | BRAM + C | ring | apilamiento del estímulo |
+|---|---|---|---|
+| 396 Hz | 1.7 % | 1.6 % | 0 % |
+| 1979 Hz | 7.4 % | 6.6 % | 7.2 % |
+| 3957 Hz | 9.2 % | 6.4 % | 6.2 % |
+| 7915 Hz | 15.6 % | 7.4 % | 7.6 % |
+| 5 kHz | 9.8 % | 1.2 % | 0 % |
+| 25 kHz | 30.8 % | 6.7 % | 8.0 % |
+| 50 kHz | 50.9 % | 16.2 % | 21.9 % |
+| 100 kHz | 69.6 % | 31.0 % | 31.1 % |
+
+Con el ring, la pérdida no crece con la tasa por sí misma: es la del estímulo, pulsos
+del Rigol tan juntos que dan un solo cruce de umbral (la columna de apilamiento cuenta
+los que caen a menos de un ancho, y el disparo por nivel separa algunos: por eso a
+50 kHz se pierde menos de lo que se apila). El ring no descartó nada hasta 50 kHz, y
+lo leído coincide con su `EV_CNT` a ±0.1 %. A 100 kHz se guardaron 77 kev/s (con la
+BRAM, 34) y el ring descartó por lleno 24.3 k eventos en 20 s (1.1 %): los mismos que
+la sesión contó como falta de batch, o sea que el que no dio abasto fue el escritor.
+Datos en `software/datos/placa_ring_20261109/`.
 
 **`EventSource` vs `Annotator`** — la distinción importa. Un GPS no define *cuándo*
 ocurre un evento, lo *anota*, y va 3-4 órdenes de magnitud más lento (1-10 Hz contra
@@ -381,6 +600,13 @@ efecto que hizo fracasar el intento 1 de saltear la API (~318 µs fijos por unas
 ufuncs). O sea que **el cuello de botella no es el bus AXI: es el intérprete**.
 
 ### Cuánto daría reescribir el lector en C
+
+> **Hecho en la Parte 6** (ver [`libmca.md`](libmca.md) §4): es lo que recomienda esta
+> sección, con el lazo en libmca y el resto en Python. Medido en la placa el
+> 2026-11-08: `dead_ns` con disparos por software de 18.2 µs de mediana (p99 19.2), y
+> con pulsos reales la pérdida sigue a Poisson con τ = 20 µs; se guardan hasta
+> 34 kev/s, y ahí el límite pasa a ser el escritor, no el lector.
+
 Medido, no estimado: [`API/bench/bench_reader_c.c`](../../software/API/bench/bench_reader_c.c)
 hace exactamente las mismas transacciones AXI que el lector de Python, sin intérprete
 en el medio (20000 repeticiones):
@@ -605,8 +831,17 @@ de registros y entran al esquema por `source.scalar_fields`, sin tocar reader ni
 - **Handler de configuración** (hilo aparte): parsea el JSON entrante y aplica sólo las
   diferencias. Está bloqueado en un socket el 99.99% del tiempo.
 - **File pusher**: consume los chunks completos del directorio. La escritura atómica
-  (`.npz.tmp` + `os.replace()`) garantiza que todo archivo visible está completo, así que
+  (`.tmp` + `os.replace()`) garantiza que todo archivo visible está completo, así que
   puede mirar el directorio sin carreras.
+
+  > **Reemplazado por un montaje de red (2026-11-12).** La sesión del ring escribe
+  > directamente en un directorio de la PC montado por NFS en la placa, y el servidor la
+  > controla con las ops `ring.*`
+  > ([`../event_ring/generador.md`](../event_ring/generador.md) §6, «La etapa C por la
+  > red»). Un pusher serializaba dos veces y dependía de `/dev/shm` (231 MB en la
+  > placa) como cola. Con el montaje el chunk se escribe una sola vez, y lo que limita
+  > es lo que mide la etapa C. La escritura atómica sigue sirviendo igual: el
+  > `os.replace` en NFS también es atómico para quien lee del lado de la PC.
 
 ---
 

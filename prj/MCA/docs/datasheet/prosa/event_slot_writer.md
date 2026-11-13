@@ -14,6 +14,19 @@ exactamente `2^(slot_shift−3)` palabras de 64 bits en orden de dirección
 creciente —cabecera, muestras intercaladas de los dos canales, relleno y
 footer— para que el generador lineal del `axi_wr_fifo` las coloque sin saltos.
 Es la última etapa del [`event_ring_top`](../datasheet_event_ring_top.md).
+![Panorama de event_slot_writer](../../event_ring/figuras/panorama_event_slot_writer.svg)
+
+*El estado de la FSM elige qué palabra sale: cuatro de cabecera, las muestras
+empaquetadas, ceros de relleno hasta la anteúltima y el footer `{~seq, seq}`.
+Cada palabra se sostiene en la salida hasta que el `axi_wr_fifo` la acepta
+(`wr_rdy_i`), así que la contrapresión frena al writer sin perder muestras.
+`wr_slot` y `seq` suben recién cuando se acepta el footer. `clr_cnt_i` los pone
+en cero y `flush_i` no, aunque en `event_ring_top` los dos vienen del mismo
+`flush`. Si la ventana no entra en el slot, `err_slot_ovf_o` queda prendido y el
+evento se trunca. `NOMBRE=valor`: parámetros con que lo instancia
+`event_ring_top`.*
+
+*Por dentro:* la FSM del slot, la cabecera, el empaquetador, el mux de la palabra, la salida con su handshake, los contadores de slot y la cuenta de palabras. Fuente TikZ en [`panorama_event_slot_writer.tex`](../../event_ring/figuras/panorama_event_slot_writer.tex).
 
 El formato completo, decodificado con el **mismo decodificador que usa el
 software en producción** (`ring_format.decode_slot`) sobre datos de una corrida

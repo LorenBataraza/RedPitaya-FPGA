@@ -15,20 +15,36 @@ y `post` desde el disparo— y la emite como un stream de 16 bits hacia
 [`event_ring_top`](../datasheet_event_ring_top.md) y lo que reemplaza el rol de
 `rp_bram_sm` en el camino de eventos.
 
+![Panorama de event_window_capture](../../event_ring/figuras/panorama_event_window_capture.svg)
+
+*Una sola memoria para el pre y el post: al aceptar, `rd_ptr` arranca `pre`
+palabras atrás de `wr_ptr`, y desde ahí el lector consume una palabra cada
+`N_CH` ciclos mientras el pre-buffer se sigue escribiendo a una por ciclo. Cada
+palabra trae los dos canales y el serializador los saca de a uno. `m_accept_i`
+se mira una sola vez, en el ciclo del trigger. Con `run_i = 0` la FSM vuelve a
+`IDLE`, y `wr_ptr` y el detector de flanco a cero, pero el contenido del buffer
+no se borra. `NOMBRE=valor`: parámetros con que lo instancia `event_ring_top`.*
+
+*Por dentro:* el detector de flanco, la FSM de ventana, los punteros, el pre-buffer circular, el serializador y los metadatos. Fuente TikZ en [`panorama_event_window_capture.tex`](../../event_ring/figuras/panorama_event_window_capture.tex).
+
 **La diferencia con el camino del scope es estructural, no de tamaño.**
 `rp_bram_sm` **congela** un buffer de 16384 muestras y no puede volver a
 capturar hasta que el PS lo re-arma: son ~**252 µs** de tiempo muerto por
 evento. Acá la ventana se copia a un stream aguas abajo y el bloque vuelve a
-estar listo en `pre+post` ciclos —~**256 ns**— sin que el PS intervenga. Eso es
-lo que convierte el osciloscopio en un adquisidor de eventos.
+estar listo en `(pre+post)·N_CH + 2` ciclos —**528 ns** con la ventana de 32
+muestras y dos canales— sin que el PS intervenga. Eso es lo que convierte el
+osciloscopio en un adquisidor de eventos.
 
 **Una sola memoria para el pre y el post.** El pre-trigger vive en un buffer
 circular que se escribe siempre, y la lectura de la ventana sale del **mismo**
-buffer, arrancando `pre` muestras atrás del trigger. El puntero de lectura
-queda rezagado y, como se consume una muestra por ciclo y se produce a lo sumo
-una, el rezago **nunca crece**: alcanza al productor y después va en lock-step
-durante el post. Por eso la profundidad sólo tiene que cubrir `pre`, no
-`pre+post`.
+buffer, arrancando `pre` palabras atrás del trigger. Cada palabra trae los
+`N_CH` canales y el stream saca una muestra por ciclo, así que el lector
+consume una palabra cada `N_CH` ciclos mientras el escritor sigue a una por
+ciclo: el rezago **crece** durante toda la ventana, hasta
+`(pre + post)·N_CH − post` (`2·pre + post` con dos canales). Si llega a
+`2^PRE_AW`, el escritor pisa lo que falta leer **sin aviso**: el RTL no lo
+verifica, lo verifica libmca. Con `PRE_AW = 11` entra cualquier ventana de
+hasta 1024 muestras.
 
 **El evento se acepta o se descarta entero, y se decide en el SOF.** El
 handshake con el consumidor ocurre en el ciclo del trigger: si la ventana
@@ -38,7 +54,8 @@ bueno** del lado del PS.
 
 **Las dos causas de pérdida se cuentan por separado** porque son diagnósticos
 distintos: `drop_busy` es el trigger que cayó mientras se drenaba la ventana
-anterior —el tiempo muerto **intrínseco** del PL, `pre+post` ciclos— y
+anterior —el tiempo muerto **intrínseco** del PL, `(pre+post)·N_CH + 2`
+ciclos— y
 `drop_full` es que aguas abajo no aceptó —la stage llena, o sin créditos de DDR
 porque el PS no drena: tiempo muerto del **consumidor**—. Confundirlos llevaría
 a agrandar el buffer cuando el problema es el software, o al revés.

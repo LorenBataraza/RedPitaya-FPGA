@@ -16,7 +16,7 @@
 | Módulo RTL | `mt_cfg` |
 | Archivo | [`mt_cfg.sv`](../../modulos/mt/rtl/mt_cfg.sv) |
 | Parámetros | 12 |
-| Puertos | 38 (16 in / 22 out) |
+| Puertos | 39 (17 in / 22 out) |
 | Parte | `xc7z010clg400-1` |
 
 
@@ -84,6 +84,15 @@ mientras otro está en su ventana de veto, y el estado de vuelta —qué fuente
 disparó (`SNAPSHOT`) y qué canales quedaron deshabilitados (`DIS_FLAGS`)—.
 
 ![Panorama de mt_cfg](../mt/figuras/panorama_mt_cfg.svg)
+
+*Los registros retienen el último valor escrito; los pulsos valen 1 sólo
+mientras dura la escritura. `OR_MASK` no se guarda acá para el datapath: la
+escritura emite `new_trg_src` y el dato pasa directo a `mt_trig_src`, que tiene
+su propia máscara (la que se limpia sola en single-shot); la copia es sólo para
+leer el último valor escrito. `TRIG_SW` y `TRIG_DIS_CLR` también llegan por el
+puente legacy del slot 1 (`0x004`, `0x094`) y se OR-ean. Los registros de
+pendiente no pasan por el fan-out: son de cada canal. `NOMBRE=valor`: parámetros
+con que lo instancia `rp_scope_mt_com`.*
 
 *Por dentro:* escritura, registros y pulsos, el puente legacy, el fan-out por `indep_mode` y la lectura. Fuente TikZ en [`panorama_mt_cfg.tex`](../mt/figuras/panorama_mt_cfg.tex).
 
@@ -161,6 +170,7 @@ el lazo completo, medido, en [§1.6](#16-transacciones).
 | `shield_cnt_i` | in | 16 | adc_clk_i |  |
 | `shield_active_i` | in | 1 | adc_clk_i |  |
 | `mca_veto_i` | in | 1 | adc_clk_i | nivel de veto hacia el MCA |
+| `trig_arm_i` | in | 1 | adc_clk_i | nivel: algún canal puede disparar |
 | `trig_snapshot_i` | in | 29 | adc_clk_i |  |
 
 
@@ -360,16 +370,16 @@ make -C modulos/mt/work lint
 
 | Testbench | DUT | Escenas | Casos | Contra qué compara | Es el de este módulo |
 |---|---|---|---|---|---|
-| [`tb_mt_cfg`](../../modulos/mt/sim/tb_mt_cfg.sv) | `mt_cfg` | 14 | 59 | vectores a mano | **sí** |
-| [`tb_mt_slope_trig`](../../modulos/mt/sim/tb_mt_slope_trig.sv) | `mt_slope_trig` | 8 | 15 | vectores a mano |  |
-| [`tb_mt_pz_trig`](../../modulos/mt/sim/tb_mt_pz_trig.sv) | `mt_pz_trig` | 8 | 1 | vectores a mano |  |
-| [`tb_mt_trig_src`](../../modulos/mt/sim/tb_mt_trig_src.sv) | `mt_trig_src` | 7 | 14 | vectores a mano |  |
-| [`tb_mt_event_logic`](../../modulos/mt/sim/tb_mt_event_logic.sv) | `mt_event_logic` | 8 | 11 | vectores a mano |  |
+| [`tb_mt_cfg`](../../modulos/mt/sim/tb_mt_cfg.sv) | `mt_cfg` | 14 | 60 | vectores a mano | **sí** |
+| [`tb_mt_slope_trig`](../../modulos/mt/sim/tb_mt_slope_trig.sv) | `mt_slope_trig` | 8 | 17 | vectores a mano |  |
+| [`tb_mt_pz_trig`](../../modulos/mt/sim/tb_mt_pz_trig.sv) | `mt_pz_trig` | 8 | 2 | vectores a mano |  |
+| [`tb_mt_trig_src`](../../modulos/mt/sim/tb_mt_trig_src.sv) | `mt_trig_src` | 8 | 21 | vectores a mano |  |
+| [`tb_mt_event_logic`](../../modulos/mt/sim/tb_mt_event_logic.sv) | `mt_event_logic` | 9 | 19 | vectores a mano |  |
 | [`tb_trigger_shield`](../../modulos/mt/sim/tb_trigger_shield.sv) | `trigger_shield` | 8 | 19 | vectores a mano |  |
-| [`tb_mt_top`](../../modulos/mt/sim/tb_mt_top.sv) | `mt_top` | 20 | 51 | vectores a mano |  |
+| [`tb_mt_top`](../../modulos/mt/sim/tb_mt_top.sv) | `mt_top` | 20 | 55 | vectores a mano |  |
 
 
-**170 casos con nombre** en 7 testbenches (73 escenas). La lista completa, caso por caso, está en el plan de verificación.
+**193 casos con nombre** en 7 testbenches (75 escenas). La lista completa, caso por caso, está en el plan de verificación.
 
 Las escenas de [`tb_mt_cfg`](../../modulos/mt/sim/tb_mt_cfg.sv): 1) CONTRATO DE BUS, 2) Los registros mudados conservan valor y layout d, 3) EL PUENTE LEGACY. librp escribe el SW-trigger en, 4) EL FAN-OUT POR indep_mode, 5) DISPARO POR PENDIENTE (nuevo, 0x060/0x070/0x080 , 6) DISPARO CON POLO-CERO (0x090/0x0A0/0x0B0/0x0C0 +, 1) IDENTIFICACIÓN, 2) SHIELD, 3) SNAPSHOT y FLAGS (eran 0x218 y 0x21C), 4) MÁSCARAS OR, 5) SW-TRIGGER, 6) FAN-OUT POR indep_mode, 7) DISPARO POR PENDIENTE, 8) BARRIDO DE ACK.
 

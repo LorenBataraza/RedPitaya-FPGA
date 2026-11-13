@@ -1,0 +1,5 @@
+Un handle de Python por bloque, cada uno dueño de su handle de C (`_c`). Arriba, las
+funciones públicas con `@_api`, que miran `h._via` y van a libmca, a la referencia en
+Python o a la red; a la izquierda, lo común del binding. Abajo, los dos que existen
+sólo en C, sin referencia ni red: `OsciloscopeRing` y `GenPulsos`. Los métodos que son
+una función de C no se repiten: están en la figura de §3.

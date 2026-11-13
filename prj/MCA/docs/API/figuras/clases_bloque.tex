@@ -1,0 +1,171 @@
+% La forma de un bloque de libmca: lo que comparten todos los handles, dibujado
+% una sola vez. Las figuras de los bloques (clases_libmca) y de los lazos
+% (clases_lotes) no lo repiten.
+%   arriba     quién la llama (el binding, por ctypes; un programa en C) y el
+%              handle genérico <bloque>_h, con mca_bloque como primer miembro (la
+%              herencia a la manera de C); a la derecha, lo que es común a la
+%              interfaz: los códigos, la versión y las tablas de registros;
+%   abajo      la única puerta a la PL: mca_bus con el backend devmem_bus, y la
+%              PL; a la izquierda, mca_mem, la región de DDR que sólo usa el ring.
+% Los backends por callbacks y por fichero (bus_callback.c, el _open_file de
+% bus_mmap.c) no se dibujan: sirven a las pruebas (diseno_de_clases.md §5.1).
+% Fuentes: software/libmca/include/{mca_api.h,mca_bus.h,mca_mem.h},
+% software/libmca/src/{bloque.h,bus.h,bus.c,devmem.h,bus_devmem.c,bus_mmap.c,mem.c}.
+% El texto que acompaña está en docs/API/libmca.md §1 y §2; el epígrafe, en
+% clases_bloque.txt. Estilo: docs/figuras/estilo_tikz.tex y clases_estilo.tex.
+%
+% Compilar:   pdflatex clases_bloque.tex
+%             pdftocairo -svg clases_bloque.pdf clases_bloque.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+\input{clases_estilo.tex}
+
+\begin{document}
+\catcode`\_=12
+\begin{tikzpicture}[fondo]
+
+% ============================================================ el handle ===
+\node[ctipo=6.6cm, anchor=north] (h) at (0,0) {
+  \clase{<bloque>_h}{include/<bloque>.h · src/<bloque>.c · struct opaco}
+  \nodepart{two}
+  b : mca_bloque \es{primer miembro}\\
+  lo propio del bloque: la geometría, la DDR, …
+  \nodepart{three}
+  \gr{ciclo de vida}
+  <bloque>_open(\&h, phys, size, …) · <bloque>_close(h)\\
+  <bloque>_open_bus(\&h, bus, propio, …)\\
+  <bloque>_last_error(h)\\
+  \gr{el mapa, de {\ttfamily <bloque>_regs.h}}
+  <bloque>_reg_count() · <bloque>_reg_info(i)\\
+  <bloque>_r32(h, off, \&v) · <bloque>_w32(h, off, v)\\
+  \gr{un campo}
+  <bloque>_get_<campo>(h, \&v) · <bloque>_set_<campo>(h, v)\\
+  \gr{una operación}
+  int <bloque>_<op>(h, …, \&salida) -> MCA_OK | MCA_E*
+};
+
+\node[ctipo=4.3cm, anchor=north] (bl) at (-6.6,-1.2) {
+  \clase{mca_bloque}{src/bloque.h · privado}
+  \nodepart{two}
+  bus : mca_bus*\\
+  propio \es{close cierra el bus}\\
+  error[400] \es{el detalle}
+  \nodepart{three}
+  bloque_fallar(b, rc, fmt, …)\\
+  bloque_ultimo_error(b)\\
+  INICIO(h) · TRY(x)
+};
+\draw[hereda] (h.west |- bl.north east) ++(0,-0.75) coordinate (hh) -- (hh -| bl.east);
+
+% ======================================================== quién la llama ===
+\node[modulo=4.3cm, anchor=north] (py) at (-6.6,1.75) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont API/<bloque>.py}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont el binding · figura clases_binding}\\[3pt]
+  una función de Python por cada\\
+  \hspace*{1em}función de C, mismo nombre
+};
+\node[modulo=4.3cm, anchor=north] (cc) at (6.9,1.75) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont un programa en C}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont tests/bench_libmca.c}\\[3pt]
+  \#include "<bloque>.h"\\
+  sin Python de por medio
+};
+\draw[usa] (py.east) -| ([xshift=-1.6cm]h.north) node[rol, pos=0.3, above] {ctypes};
+\draw[usa] (cc.west) -| ([xshift=1.6cm]h.north);
+
+% ================================================ lo común a la interfaz ===
+\node[modulo=4.6cm, anchor=north] (api) at (6.9,-0.3) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont mca_api.h}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont lo común a todos los bloques}\\[3pt]
+  MCA_OK = 0 · todo error < 0:\\
+  \hspace*{1em}MCA_EINVAL · MCA_ENOTPRESENT\\
+  \hspace*{1em}MCA_ETIMEOUT · MCA_ENOSYS\\
+  \hspace*{1em}MCA_EALIGN · MCA_ERANGE · MCA_EOPEN\\
+  \hspace*{1em}MCA_EBACKEND · MCA_EVERIFY · MCA_ENOKEY\\
+  mca_strerror(rc) · mca_lib_version()\\
+  MCA_API \es{lo único que ve ctypes}\\[2pt]
+  mca_reg_t · mca_field_t \es{las filas del mapa}
+};
+\node[modulo=4.6cm, anchor=north] (rg) at (6.9,-4.15) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont <bloque>_regs.h}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont el mapa de registros · X-macros}\\[3pt]
+  una sola lista (nombre, offset, bits)\\
+  genera el enum de offsets y la tabla\\
+  que el binding compara con Python
+};
+\draw[usa] (h.east |- api.north) ++(0,-1.4) coordinate (ha) -- (ha -| api.west);
+\draw[usa] (h.east |- rg.north) ++(0,-0.55) coordinate (hr) -- (hr -| rg.west);
+
+% ================================================================= bus ===
+\node[ctipo=4.6cm, anchor=north] (bus) at (0,-6.8) {
+  \clase{mca_bus}{include/mca_bus.h · src/bus.h · bus.c}
+  \nodepart{two}
+  vt : const mca_bus_vt* · size
+  \nodepart{three}
+  mca_bus_r32(bus, off, \&v)\\
+  mca_bus_w32(bus, off, v)\\
+  mca_bus_read_words(bus, off, n, dst)\\
+  mca_bus_sondear(bus, off, n, …) \es{medir}\\
+  \es{validan alineación y rango}
+};
+\draw[usa] (h.south) -- (bus.north) node[rol, midway, right] {b.bus};
+
+\node[ctipo=4.6cm, anchor=north] (dm) at (0,-10.6) {
+  \clase{devmem_bus}{src/devmem.h · el único que toca la PL}
+  \nodepart{two}
+  base : mca_bus \es{primer miembro}\\
+  fd · map · map_len · regs
+  \nodepart{three}
+  dm_r32 · dm_w32 · dm_read_words\\
+  \hspace*{1em}\es{bus_devmem.c: un ldr / str de 32 b}\\
+  mca_bus_open_devmem() \es{bus_mmap.c}
+};
+\draw[hereda] (dm.north) -- (bus.south);
+
+\node[modulo=4.6cm, anchor=north] (pl) at (6.9,-10.0) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont la PL}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont /dev/mem · un mmap por slot}\\[3pt]
+  0x4000_0000 · HK \es{el lazo digital}\\
+  0x4010_0000 · slot 1 · osciloscopio\\
+  0x4020_0000 · slot 2 · event_ring\\
+  0x4021_0000 · slot 2 · gen_pulsos\\
+  0x4030_0000 · slot 3 · multitrigger\\
+  0x4060_0000 · slot 6 · TOP\\
+  0x4070_0000 · slot 7 · MCA\\[2pt]
+  de a una palabra de 32 b, sin ráfagas
+};
+\draw[usa] (dm.east |- pl.west) -- (pl.west) node[rol, midway, above] {map};
+
+% ========================================================== la DDR del ring ===
+\node[ctipo=4.3cm, anchor=north] (mem) at (-6.6,-10.0) {
+  \clase{mca_mem}{include/mca_mem.h · src/mem.c}
+  \nodepart{two}
+  \es{memoria común, no la PL}\\
+  phys · size · dir · fd · map
+  \nodepart{three}
+  mca_mem_open_devmem(\&m, phys, size)\\
+  _open_file · _open_ptr\\
+  mca_mem_read(m, off, n, dst) \es{memcpy}\\
+  mca_mem_write(m, off, n, src)
+};
+\node[modulo=4.3cm, anchor=north] (ddr) at (-6.6,-13.4) {
+  {\bfseries\fontsize{7.8}{9.2}\selectfont la DDR reservada}\\[0.8pt]
+  {\fontsize{5.6}{6.6}\selectfont device tree · la escribe la PL por HP}\\[3pt]
+  un slot por evento
+};
+\draw[usa] (mem.south) -- (ddr.north) node[rol, midway, right] {map};
+% sólo el ring tiene una región de DDR
+\draw[usa] (h.south west) ++(0.9,0) coordinate (hd) -- (hd |- 0,-6.2) -| (mem.north)
+  node[rol, pos=0.25, above] {la DDR: sólo el ring};
+
+% ============================================================== leyenda ===
+\leyendac{-9.0,-15.1}{19.0cm}{rojo!30/tipo de C (libmca), white/{módulo, programa o memoria}}
+  {Triángulo hueco: hereda (el struct base va como primer miembro). Flecha punteada: usa.}
+
+\end{tikzpicture}
+\end{document}

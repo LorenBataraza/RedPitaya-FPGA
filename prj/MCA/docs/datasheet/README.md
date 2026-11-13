@@ -1,6 +1,6 @@
 # Datasheets de los módulos RTL
 
-Una página por **top de RTL**, generada por [`modulos/mk/datasheet.py`](../../modulos/mk/datasheet.py) a partir del código: interfaces, mapa de registros, dominios de reloj, Fmax, las figuras de transacciones y de ondas, y el plan de verificación cosechado de los testbenches.
+Una página por **top de RTL**, generada por [`modulos/mk/datasheet.py`](../../modulos/mk/datasheet.py) a partir del código: interfaces, mapa de registros —con la secuencia de programación, donde el módulo la tiene—, dominios de reloj, Fmax, las figuras de transacciones y de ondas, y el plan de verificación cosechado de los testbenches.
 
 Lo que está entre marcas `<!-- AUTO:x -->` se **reescribe en cada corrida**; todo lo demás es prosa a mano y no se toca.
 
@@ -14,7 +14,7 @@ make -C modulos/<módulo>/work datasheet-check  # falla si quedó vieja (CI)
 
 `DS_TOPS` es a los datasheets lo que `TBS` a los testbenches: la lista de tops que tienen página. Vacía —que es lo normal— quiere decir **todos los de `files.f`**.
 
-Los diagramas de interfaz están en [`figuras/`](figuras/). Usan la paleta de las figuras TikZ de [`osc/figuras/`](../osc/figuras/) (`PALETA` en el generador): el encabezado lleva el color de la región —azul `osc`, amarillo `mt`, verde `mca`, naranja `event_ring`, gris `comun`—, el bus de sistema (esclavo) va en rojo y el AXI maestro hacia DDR en naranja. Las figuras de **transacciones** y de **ondas** se quedan en `docs/<módulo>/figuras/`, donde las escribe el script de cada módulo; a estas páginas llegan por ruta relativa.
+Los diagramas de interfaz están en [`figuras/`](figuras/). Usan la paleta de las figuras TikZ de [`osc/figuras/`](../osc/figuras/) (`PALETA` en el generador): el encabezado lleva el color de la región —azul `osc`, amarillo `mt`, verde `mca`, naranja `event_ring`, gris `comun`—, el bus de sistema (esclavo) va en rojo y el AXI maestro hacia DDR en naranja. Las figuras de **secuencia**, de **transacciones** y de **ondas** se quedan en `docs/<módulo>/figuras/`, donde las escribe el script de cada módulo; a estas páginas llegan por ruta relativa.
 
 La columna «Qué es» se copia de la cabecera del RTL. Un `—` quiere decir que ese archivo **no tiene cabecera**, que es en sí mismo el dato.
 

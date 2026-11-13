@@ -1,0 +1,75 @@
+% La FSM de event_slot_writer: de un evento de la stage a un slot de la DDR.
+% W_IDLE -> W_HDR -> W_DATA -> W_PAD -> W_FOOT -> W_DONE -> W_IDLE.
+% Fuente: modulos/event_ring/rtl/event_slot_writer.sv. El epígrafe está en
+% fsm_event_slot_writer.txt y en logica_de_captura_y_axi.md §4.1.
+%
+% Compilar:   pdflatex fsm_event_slot_writer.tex
+%             pdftocairo -svg fsm_event_slot_writer.pdf fsm_event_slot_writer.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{
+  estado/.style = {rectangle split, rectangle split parts=2, rounded corners=4pt,
+                   draw=black, line width=0.7pt, align=center, text width=4.7cm,
+                   inner sep=3pt, font=\scriptsize,
+                   rectangle split part fill={#1, white!65!#1}},
+  trans/.style  = {->, line width=0.8pt},
+  pierde/.style = {->, line width=0.8pt, rojo!75!black, rounded corners=3pt},
+  guarda/.style = {font=\scriptsize, align=center, inner sep=1.5pt},
+}
+\newcommand{\s}[1]{\texttt{#1}}
+\newcommand{\cab}[2]{{\small\textsc{#1}}\\[-1pt]{\scriptsize #2}}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\tikzset{estado/.append style={text width=3.6cm}}
+\node[titulo] at (-2.6,2.85) {\textbf{La FSM del writer} (\s{event\_slot\_writer}):
+  un evento entero, o ninguno, por slot; sin crédito se frena};
+
+\node[estado=grisr] (wi) at (0,0) {
+  \cab{\ttfamily W\_IDLE}{esperando}
+  \nodepart{two}un evento completo en\\ la stage y un crédito};
+\node[estado=naranja!70] (wh) at (7,0) {
+  \cab{\ttfamily W\_HDR}{cabecera}
+  \nodepart{two}4 palabras: \s{ts},\\ \s{\{n\_ch, n\_samp, seq\}},\\ \s{snapshot}, reservada};
+\node[estado=naranja!70] (wd) at (14,0) {
+  \cab{\ttfamily W\_DATA}{las muestras}
+  \nodepart{two}4 muestras de 16 b\\ por palabra de 64 b};
+\node[estado=naranja!70] (wp) at (14,-3.6) {
+  \cab{\ttfamily W\_PAD}{relleno}
+  \nodepart{two}ceros hasta la\\ anteúltima palabra};
+\node[estado=amarillo] (wf) at (7,-3.6) {
+  \cab{\ttfamily W\_FOOT}{el commit}
+  \nodepart{two}la última palabra:\\ \s{\{$\sim$seq, seq\}}};
+\node[estado=grisr] (wo) at (0,-3.6) {
+  \cab{\ttfamily W\_DONE}{cerrando}
+  \nodepart{two}espera que el FIFO\\ acepte el footer};
+
+\draw[trans, black!55] ([yshift=1.0cm]wi.north) node[above, guarda, black!70]
+  {\s{flush} (\textsc{stopped} o \s{clr}), desde cualquier estado} -- (wi.north);
+
+\draw[trans] (wi.east) -- (wh.west)
+  node[guarda, midway, above=1pt] {metadato $\wedge$ \s{credit\_ok}}
+  node[guarda, midway, below=1pt] {guarda \s{ts}, \s{snapshot},\\ \s{n\_samp}};
+\draw[pierde] ([yshift=3mm]wi.west) -- ++(-0.7,0) -- ++(0,-0.6) -- ([yshift=-3mm]wi.west);
+\node[guarda, rojo!75!black, anchor=east, align=right] at ([xshift=-7.5mm]wi.west)
+  {metadato $\wedge\ \neg$\s{credit\_ok}:\\ \s{no\_credit}, \textbf{se frena};\\ no descarta};
+\draw[trans] (wh.east) -- node[guarda, above=1pt] {la cuarta} node[guarda, below=1pt] {palabra} (wd.west);
+\draw[trans] (wd.south) -- node[guarda, right=2pt, align=left] {no falta nada\\ del evento} (wp.north);
+\draw[trans] (wp.west) -- node[guarda, above=1pt] {la anteúltima} node[guarda, below=1pt] {palabra} (wf.east);
+\draw[pierde, densely dashed] (wd.south west) -- node[guarda, sloped, above=1pt, rojo!75!black]
+  {el evento no entra en el slot:} node[guarda, sloped, below=1pt, rojo!75!black]
+  {\s{err\_slot\_ovf}, se trunca} (wf.north east);
+\draw[trans] (wf.west) -- node[guarda, above=1pt] {sale el} node[guarda, below=1pt] {footer} (wo.east);
+\draw[trans] (wo.north) -- node[guarda, left=2pt, align=right] {footer aceptado:\\ pop del metadato;\\
+  \s{WR\_SLOT} y \s{SEQ} $+1$} (wi.south);
+
+\end{tikzpicture}
+\end{document}

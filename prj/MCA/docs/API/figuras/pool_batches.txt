@@ -1,0 +1,6 @@
+Un instante cualquiera de una corrida con los valores por defecto. No es un batch:
+son `n_batches` objetos `EventBatch`, creados una vez al armar la sesión, que circulan
+siempre los mismos. El lector llena uno (C escribe las filas desde `batch.n`), lo pone
+en `full_q`, el escritor lo guarda, lo resetea y lo devuelve a `free_q`. Si `free_q`
+está vacía, el lector llama a `read_batch(None, …)` y la fuente decide qué pasa con
+los eventos.

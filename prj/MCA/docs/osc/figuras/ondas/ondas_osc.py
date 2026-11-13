@@ -8,10 +8,9 @@ cuenta las discrepancias ciclo a ciclo. Por eso las figuras dibujan las dos
 salidas superpuestas: lo que se ve es la prueba de que el rediseno no cambio la
 respuesta, no un dibujo de como deberia ser.
 
-La tercera es un ESQUEMA: el flujo de utilizacion de `osc_cfg`, donde una
-columna es una transaccion del bus y no un ciclo de reloj. No hay VCD detras
---`osc_cfg` no tiene testbench, ver §1.7 de su datasheet-- y el epigrafe lo
-dice.
+La secuencia de programacion de `osc_cfg` (el contrato PS <-> modulo) ya no
+es una figura de ondas: es un diagrama de secuencia en
+docs/osc/figuras/secuencia/, y va en la §1.3 del datasheet.
 
 La ventana de cada figura se ubica por CONDICIONES SOBRE LAS SENALES, no por un
 tiempo fijo: la escena se busca por el juego de coeficientes que la define y el
@@ -24,8 +23,7 @@ Salidas en <out_dir> (por defecto, el directorio de este script):
                                       coeficientes de reset (cadena transparente)
   osc_filter_polocero.json / .svg     el mismo impulso con compensacion
                                       polo-cero: la cola que decae
-  osc_cfg_adquisicion.json / .svg     el flujo de una adquisicion (esquema)
-  ondas_osc.html                      visor con las tres; no necesita nada
+  ondas_osc.html                      visor con las dos; no necesita nada
                                       instalado (WaveDrom viene del CDN)
 
 El FST que viene al lado de este script es la salida de
@@ -229,65 +227,12 @@ def detalle_filtro(info):
 
 
 # ----------------------------------------------------------------------
-# El flujo de utilizacion de osc_cfg (esquema, sin VCD)
-# ----------------------------------------------------------------------
-
-def fig_adquisicion(hscale):
-    """La secuencia de una adquisicion, paso por paso.
-
-    Una columna es un PASO del software, no un ciclo: los tiempos reales entre
-    pasos los pone el que programa y no tienen nada que ver con el ancho de las
-    columnas. Lo que la figura fija es el ORDEN y que cada paso depende del
-    anterior.
-    """
-    # La configuracion es una escalera: cada registro en su paso (mapa
-    # canonico; los de canal, base 0x01100 + 0x40*ch). Primero los modos
-    # globales y despues la cadena de cada canal en el orden del datapath.
-    # Entran cuatro por columna y las cajas van sin texto: el nombre esta en
-    # la fila. El grupo va pegado a la fila de escritura para que las flechas
-    # de abajo no lo crucen, y los nodos van en mayuscula para que WaveDrom no
-    # dibuje la letra.
-    n_col = 19
-    cfg, _ = O.escalera([(r, None) for r in (
-        "CFG_INDEP", "CFG_WE_KEEP", "DEC", "FILT_BYP", "FILT_AA", "FILT_BB",
-        "FILT_KK", "FILT_PP", "CALIB_OFFSET", "CALIB_GAIN", "AVG_EN",
-        "THRESH", "HYST", "DEB_LEN", "DLY  (>= 1)")], 1, n_col, por_col=4)
-    filas = [
-        ["configuracion"] + cfg,
-        {"name": "escritura del PS", "wave": "x3...x4.x..........",
-         "data": ["configuracion", "CMD_ARM"],
-         "node": "........C.........."},
-        {},
-        {"name": "trigger", "wave": "0.........10.......",
-         "node": "..........E........"},
-        {"name": "escribiendo en el buffer", "wave": "0.......1.....0....",
-         "node": "........F.....G...."},
-        {"name": "write_ptr", "wave": "x.......=.=.=.=....",
-         "data": ["0", "N1", "N2", "fin"]},
-        {"name": "trig_ptr", "wave": "x.........=........", "data": ["donde pego"]},
-        {},
-        {"name": "lectura del PS", "wave": "x..............6..x",
-         "data": ["buffer + punteros"]},
-        {},       # wavedrom-cli no cuenta el grupo en el alto: sin esto el pie
-                  # queda recortado
-    ]
-    edge = ["C~>F armado", "E~>G post-trigger"]
-    pie = ("ESQUEMA: una columna es un paso, no un ciclo; cada registro se "
-           "escribe en su propio paso. El tiempo entre pasos lo pone el "
-           "software; lo que fija la figura es el orden.")
-    return O.esquema(filas,
-                     head={"text": "FLUJO DE UNA ADQUISICION  -  osc_cfg"},
-                     foot=pie, hscale=hscale) | {"edge": edge}
-
-
-# ----------------------------------------------------------------------
 
 TITULOS = {
     "impulso": "RESPUESTA AL IMPULSO  -  coeficientes de reset (la cadena es "
                "transparente), osc_filter vs osc_filter_ref",
     "polocero": "RESPUESTA AL IMPULSO  -  compensacion polo-cero (aa=25000): "
                 "la cola que compensa el preamplificador",
-    "adquisicion": "FLUJO DE UNA ADQUISICION  -  osc_cfg",
 }
 
 NOTAS = {
@@ -313,19 +258,6 @@ NOTAS = {
         "Se dibuja el impulso y no un escalon porque con aa=25000 la constante "
         "de tiempo es de cientos de ciclos: un escalon no se asienta dentro de "
         "una ventana que se pueda mirar.",
-    "adquisicion":
-        "Es un esquema de la SECUENCIA, no una medicion: no hay testbench de "
-        "osc_cfg del que sacar las ondas (ver §1.7 de su datasheet, que lo "
-        "marca como deuda de verificacion). La configuracion es una escalera: "
-        "el bus del PS escribe un registro por vez, primero los modos globales "
-        "y despues la cadena de cada canal en el orden del datapath; DLY tiene "
-        "que quedar en 1 o mas, porque el 0 de reset es el caso degenerado de "
-        "rp_bram_sm. Lo que la figura fija es el orden y "
-        "las dependencias: la configuracion del filtro y del diezmado va ANTES "
-        "del armado, porque cambiarla con el buffer llenandose mezcla muestras "
-        "de dos configuraciones en la misma traza; y la lectura va despues de "
-        "que el puntero deje de moverse, porque leer durante la captura "
-        "devuelve una traza partida entre dos vueltas del buffer.",
 }
 
 CABECERA = """EPÍGRAFES DE LAS FIGURAS DE ONDAS DEL MODULO OSC
@@ -335,9 +267,6 @@ Las dos primeras las escribe `ondas_osc.py` leyendo el VCD de
 `modulos/osc/sim/tb_osc_filter.sv`, que corre `osc_filter` y `osc_filter_ref`
 en paralelo y compara ciclo a ciclo. Los números de abajo los mide el script
 sobre el VCD, así que no pueden desincronizarse de los dibujos.
-
-La tercera es un esquema de secuencia y no tiene VCD detrás; se marca como tal
-en su epígrafe.
 
 Reloj de la simulación: clk = {f_clk:.0f} MHz (como adc_clk en la placa).
 Escenas del testbench de las que salen las ventanas:
@@ -391,22 +320,11 @@ def main():
                                  f"{'coeficientes de reset' if kind == 'impulso' else 'compensacion polo-cero'}",
                           detalle=detalle_filtro(info)))
 
-    wj = fig_adquisicion(max(args.hscale, 2))
-    avisado = O.emitir(out_dir, "osc_cfg_adquisicion", wj, args.render, avisado,
-                       info="esquema, sin VCD")
-    items.append(dict(
-        titulo=TITULOS["adquisicion"], nota=NOTAS["adquisicion"], json=wj,
-        archivo="osc_cfg_adquisicion.svg",
-        origen="esquema (sin VCD: `osc_cfg` no tiene testbench)",
-        detalle="  · ESQUEMA: una columna es un paso del software, no un "
-                "ciclo de reloj.\n  · Sin VCD: `osc_cfg` no tiene testbench."))
-
     html = out_dir / "ondas_osc.html"
     O.write_html(html, "Ondas del m&oacute;dulo OSC",
                  escape("Generado por docs/osc/figuras/ondas/ondas_osc.py. Las "
-                        "dos primeras salen del VCD de tb_osc_filter "
-                        "(osc_filter contra osc_filter_ref); la tercera es un "
-                        "esquema de secuencia."),
+                        "dos salen del VCD de tb_osc_filter "
+                        "(osc_filter contra osc_filter_ref)."),
                  items, titulo_tab="Ondas del modulo OSC")
     print(f"escrito {html.name}  (abrilo en el browser: renderiza desde CDN)")
 
