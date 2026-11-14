@@ -74,7 +74,8 @@ app/
 ├── panel_integracion.py  ← el ruteo del datapath (slot 6)
 ├── panel_pulsos.py       ← «Pulses»: pulso o mapa de calor, y la curva de tasa
 ├── panel_multitrigger.py ← máscaras OR, shield y snapshot
-├── panel_generador.py    ← el generador de pulsos y el lazo digital
+├── panel_generador.py    ← «Generator»: el generador por etapa y el lazo digital
+├── diagrama_gen.py       ← su franja: disparos, amplitud, forma y salida
 ├── panel_ring.py         ← el ring: una adquisición a archivos de la placa (va embebido)
 ├── panel_log.py          ← la pestaña de mensajes
 ├── widgets_config.py     ← los controles con su marca de «cuándo se puede tocar»

@@ -64,7 +64,7 @@ MCA falso vea la tasa del generador (y 0 con el generador parado).
 
 ## 3. La GUI — `app/tests/test_mcamon_gui.py`
 
-Cuarenta y nueve pruebas con `QT_QPA_PLATFORM=offscreen`, así que corren en CI y por ssh. No
+Cincuenta y una pruebas con `QT_QPA_PLATFORM=offscreen`, así que corren en CI y por ssh. No
 prueban estética: prueban **el hilo del socket, las señales entre hilos y el
 guardado**, que es donde una GUI se rompe de verdad.
 
@@ -79,7 +79,9 @@ con su pestaña visible**; que el tiempo muerto se muestre en total
 (`deadtime_real_s`, no la ocupación) y se desglose por etapa con «detail»; que
 el tope de ranuras sea el `n_acc_max` de la placa; que la pestaña del generador
 aplique y relea, avise un error sin diálogo modal, lleve su Mq al trapecio, y que
-prender el lazo muestre el aviso y lleve la tasa del generador al espectro; que el
+prender el lazo muestre el aviso y lleve la tasa del generador al espectro, que
+lo editado sin aplicar marque su etapa en la franja y se limpie al aplicar, y que
+con el lazo la franja compare la λ̂ del MCA con la tasa del generador; que el
 ring de «OSC settings» corra con el generador de eventos y cierre EV_CNT + DROP_BUSY + DROP_FULL = N con archivos en la carpeta nueva y la
 franja con las mismas cuentas, que corra sin fin hasta «Stop», que avise en la
 pestaña una carpeta inválida, y que la ocupación no se muestre llena por una resta

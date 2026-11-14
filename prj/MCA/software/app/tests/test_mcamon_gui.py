@@ -1150,7 +1150,7 @@ def test_la_pestana_del_generador_configura_y_relee():
         p.ed_pesos.setText('3, 1')
         p.spn_tau.setValue(3.0)
         p.btn_aplicar.click()
-        assert _esperar(app, lambda: 'sorteadas' in p.lbl_amp_modo.text())
+        assert _esperar(app, lambda: 'drawn' in p.lbl_amp_modo.text())
         # Lo que vuelve es lo releído de la placa: los pesos, en fracción de tabla.
         assert p.ed_amplitudes.text() == '1500, 4000'
         assert p.ed_pesos.text().startswith('0.75')
@@ -1159,7 +1159,7 @@ def test_la_pestana_del_generador_configura_y_relee():
         # Un error se avisa en la pestaña, sin diálogo modal, y no escribe nada.
         p.ed_amplitudes.setText('1500, 99999')
         p.btn_aplicar.click()
-        assert 'no se aplicó' in p.lbl_error.text()
+        assert 'not applied' in p.lbl_error.text()
         p.btn_releer.click()
         assert _esperar(app, lambda: p.ed_amplitudes.text() == '1500, 4000')
     _con_gui(cuerpo)
@@ -1175,12 +1175,12 @@ def test_el_lazo_se_ve_en_la_barra_y_lleva_la_tasa_al_espectro():
         p.spn_tasa.setValue(5000)
         p.ed_amplitudes.setText('2000')
         p.btn_aplicar.click()
-        assert _esperar(app, lambda: p.lbl_amp_modo.text() == 'una amplitud fija')
+        assert _esperar(app, lambda: p.lbl_amp_modo.text() == 'one fixed amplitude')
         assert not v.lbl_lazo.isVisibleTo(v)
         p.chk_lazo.setChecked(True)
         assert _esperar(app, lambda: v.lbl_lazo.isVisibleTo(v))
         p.btn_arrancar.click()
-        assert _esperar(app, lambda: p.lbl_estado.text() == 'generando')
+        assert _esperar(app, lambda: p.lbl_estado.text() == 'generating')
         v.sig_start.emit(0.0, True)
         assert _esperar(app, lambda: v.panel_espectro.contadores.get(
             'realtime_s', 0) > 1.5)
@@ -1190,6 +1190,57 @@ def test_el_lazo_se_ve_en_la_barra_y_lleva_la_tasa_al_espectro():
         p.btn_parar.click()
         p.chk_lazo.setChecked(False)
         assert _esperar(app, lambda: not v.lbl_lazo.isVisibleTo(v))
+    _con_gui(cuerpo)
+
+
+def test_la_franja_del_generador_compara_tasas():
+    from app.diagrama_gen import comparar_tasas
+    assert abs(comparar_tasas(1000.0, 990.0) + 0.01) < 1e-12
+    for gen, lam in ((0, 990.0), (None, 990.0), (1000.0, None), (1000.0, 0.0)):
+        assert comparar_tasas(gen, lam) is None
+
+
+def test_la_pestana_del_generador_marca_lo_editado_y_compara_con_el_mca():
+    """Lo editado sin aplicar marca su etapa en la franja y se avisa al lado de
+    «Apply»; aplicar (o releer) lo limpia. El ratón sobre un grupo resalta su
+    bloque. Con el lazo y el generador andando, la franja compara la λ̂ del MCA
+    con la tasa del generador."""
+    from PyQt5.QtCore import QEvent
+
+    def cuerpo(app, v):
+        p = v.panel_gen
+        assert _esperar(app, lambda: p.lbl_mq.text() != '—')
+        assert p.editadas == set()
+        p.spn_tau.setValue(p.spn_tau.value() + 0.5)
+        p.ed_amplitudes.textEdited.emit(p.ed_amplitudes.text())
+        assert p.editadas == {'forma', 'amplitud'}
+        assert p.diagrama.marcadas == {'forma', 'amplitud'}
+        assert 'Amplitude, Pulse shape' in p.lbl_pendiente.text()
+        p.btn_aplicar.click()
+        assert _esperar(app, lambda: not p.editadas and not p.diagrama.marcadas)
+        assert p.lbl_pendiente.text() == ''
+
+        g = p._grupos['disparos'][0]
+        app.sendEvent(g, QEvent(QEvent.Enter))
+        assert p.diagrama.resaltada == 'disparos'
+        app.sendEvent(g, QEvent(QEvent.Leave))
+
+        p.cmb_modo.setCurrentIndex(1)
+        p.spn_tasa.setValue(5000)
+        p.btn_aplicar.click()
+        assert _esperar(app, lambda: not p.editadas)
+        p.chk_lazo.setChecked(True)
+        assert _esperar(app, lambda: p.diagrama.lazo)
+        p.btn_arrancar.click()
+        v.sig_start.emit(0.0, True)
+        assert _esperar(app, lambda: p.diagrama.diferencia() is not None)
+        assert _esperar(app, lambda: v.panel_espectro.contadores.get(
+            'realtime_s', 0) > 1.5)
+        assert abs(p.diagrama.diferencia()) < 0.15, p.diagrama.diferencia()
+        v.sig_parar.emit()
+        p.btn_parar.click()
+        p.chk_lazo.setChecked(False)
+        assert _esperar(app, lambda: p.diagrama.diferencia() is None)
     _con_gui(cuerpo)
 
 

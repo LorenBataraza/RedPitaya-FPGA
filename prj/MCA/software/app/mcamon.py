@@ -770,6 +770,9 @@ class Mcamon(QMainWindow):
         self.lbl_lazo.setVisible(bool(gen.get('lazo')))
         if self.panel_gen is not None and gen:
             self.panel_gen.actualizar_estado(gen)
+        # Con el lazo, la franja del generador compara la λ̂ del MCA con su tasa.
+        if self.panel_gen is not None:
+            self.panel_gen.actualizar_mca(est)
 
     def _al_config(self, cfg):
         self.panel_espectro.actualizar_config(cfg)

@@ -204,14 +204,14 @@ def sesion(app, v, placa, args):
     g.ed_pesos.setText('')
     g.spn_tau.setValue(2.0)
     g.btn_aplicar.click()
-    if not esperar(app, lambda: g.lbl_amp_modo.text() == 'una amplitud fija'
+    if not esperar(app, lambda: g.lbl_amp_modo.text() == 'one fixed amplitude'
                    and g.spn_n.value() == 0, timeout=10):
         raise AssertionError(f'C: el generador no se configuró: {g.lbl_error.text()}')
     g.chk_lazo.setChecked(True)
     if not esperar(app, lambda: v.lbl_lazo.isVisibleTo(v), timeout=10):
         raise AssertionError('C: el lazo no se prendió')
     g.btn_arrancar.click()
-    if not esperar(app, lambda: g.lbl_estado.text() == 'generando', timeout=10):
+    if not esperar(app, lambda: g.lbl_estado.text() == 'generating', timeout=10):
         raise AssertionError('C: el generador no arrancó')
 
     def prep_c(p):
