@@ -33,6 +33,13 @@ from .storage import ChunkWriter
 # de contexto, irrelevante con dos hilos. Ver el doc, Parte 3.
 SWITCH_INTERVAL_S = 0.001
 
+# Al parar una fuente que corta su estímulo (`RingSource.detener`): cuánto se espera
+# a que el lector se lleve lo que quedó, y cada cuánto se mira. El ring lleno de la
+# placa se vacía en menos de un segundo. Sin batch libre el lector del ring no consume
+# (los eventos esperan en la DDR): con el escritor trabado, vence el plazo.
+VACIAR_S = 5.0
+VACIAR_SONDEO_S = 0.002
+
 
 def scope_regs(sc):
     """Snapshot de los registros clave del scope, para la meta de la corrida.
@@ -200,9 +207,12 @@ class AcquisitionSession:
         return None
 
     def stop(self):
-        """Apagado ordenado: lector -> centinela -> escritor -> HW."""
+        """Apagado ordenado: estímulo -> vaciado -> lector -> centinela -> escritor ->
+        HW. Las dos primeras, sólo con una fuente que sabe cortar su estímulo
+        (`_vaciar`)."""
         if not self._started:
             return self.stats
+        self._vaciar()
         self.reader.stop()
         self.reader.join(timeout=10)       # el lector pone el centinela al salir
         self.writer.join(timeout=60)
@@ -223,6 +233,29 @@ class AcquisitionSession:
                                            / self.stats['duration_s'])
         self._write_summary()
         return self.stats
+
+    def _vaciar(self):
+        """Con una fuente que tiene `detener` y `vaciado` (`RingSource`): corta el
+        estímulo con el hardware corriendo y espera a que el lector se lleve lo que
+        quedó. Antes el lector paraba primero, y lo que el hardware capturaba hasta
+        parar quedaba sin leer (en la placa, unos 40 ms de disparos).
+
+        Deja `stats['vaciado']`: True, o False si venció `VACIAR_S` o el lector se
+        cayó. Si el lector ya no corre no corta nada: lo que quedó no lo lee nadie, y
+        `close` destraba el ring si hace falta."""
+        detener = getattr(self.source, 'detener', None)
+        if detener is None or not self.reader.is_alive():
+            return
+        detener()
+        plazo = time.perf_counter() + VACIAR_S
+        seguidas = 0
+        while seguidas < 2:          # dos veces: una ventana puede estar por empezar
+            time.sleep(VACIAR_SONDEO_S)
+            if not self.reader.is_alive() or time.perf_counter() > plazo:
+                self.stats['vaciado'] = False
+                return
+            seguidas = seguidas + 1 if self.source.vaciado() else 0
+        self.stats['vaciado'] = True
 
     def _write_summary(self):
         """`run_summary.json` con los totales finales de la corrida.

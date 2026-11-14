@@ -670,6 +670,7 @@ class RingSource:
         self._lector = None
         self._final = None
         self.destrabe = None             # cómo se destrabó al cerrar (ver close)
+        self._cortado = False            # `detener` ya cortó el estímulo
 
     # -- ciclo de vida ------------------------------------------------------
 
@@ -699,7 +700,48 @@ class RingSource:
                 delay=1, we_keep_both=True, auto_rearm=True)
         self._lector = lector
         self._final = None
+        self._cortado = False
         self.ring.correr()
+
+    def detener(self):
+        """Corta el estímulo con el ring corriendo, para que el lector se lleve lo que
+        quedó antes de parar (`AcquisitionSession.stop`, que después espera
+        `vaciado()`). Hace falta porque con el ring parado WR_SLOT vuelve a 0, y lo que
+        quedaba en la DDR ya no se lee: en la placa, unos 40 ms de disparos.
+
+        - Con el generador, N ← 1: el motor ya pasó de N y no dispara más (con
+          GEN_CNT = 0 sale uno más). `GEN_CTRL.EN ← 0` no sirve: devuelve el disparo
+          del ring al multitrigger. `hw_gen_terminado` sigue siendo respecto del N de
+          la corrida.
+        - Con el disparo del ADC, la máscara OR en 0: el armado al revés. El resto del
+          desarme (la FSM del scope) queda para `close`, con el ring parado."""
+        if self.ring is None or self._lector is None or self._cortado:
+            return
+        self._cortado = True
+        if self.generador is not None:
+            self.ring.w32(R_GEN_N, 1)
+        elif hasattr(self.sc, 'set_or_mask'):
+            self.sc.set_or_mask(0, 0)
+        else:
+            self.sc.disarm()
+
+    def vaciado(self):
+        """¿Quedó algo por leer? Después de `detener`: True si no hay ninguna ventana
+        en vuelo (WR_SLOT = EV_CNT: EV_CNT sube cuando la ventana empieza a salir de la
+        captura, WR_SLOT cuando terminó de escribirse) y el lector está al día
+        (WR_SLOT = el próximo que lee). Entre que termina una ventana y empieza la
+        siguiente puede dar True un instante: hay que verlo dos veces seguidas."""
+        k = self.ring.contadores()
+        return k['wr_slot'] == k['ev_cnt'] == self._lector.estado['next']
+
+    def _gen_estado(self):
+        """`gen_estado()`, con `terminado` respecto del N de la corrida: después de
+        `detener` (N ← 1) el motor dice terminado aunque lo hayan cortado antes."""
+        e = self.ring.gen_estado()
+        if self._cortado:
+            n = self.generador['n']
+            e['terminado'] = bool(n) and e['gen_cnt'] >= n
+        return e
 
     def close(self):
         """Para el ring (la ventana en vuelo termina), desarma el disparo y guarda los
@@ -721,13 +763,17 @@ class RingSource:
                 except TimeoutError:
                     self.destrabe = destrabar(self.ring, self._lector)
                 if self.generador is not None:
-                    k, e = self.ring.contadores(), self.ring.gen_estado()
+                    k, e = self.ring.contadores(), self._gen_estado()
                     self.ring.gen_apagar()
                     if self._final is not None and self.destrabe != 'clr':
                         self._final.update({f'hw_{n}': k[n] for n in
                                             ('ev_cnt', 'drop_busy', 'drop_full')},
                                            hw_gen_cnt=e['gen_cnt'],
                                            hw_gen_terminado=e['terminado'])
+                    if self._final is not None:
+                        # Lo cortó `detener` antes de llegar a N (o era sin fin).
+                        self._final['hw_gen_cortado'] = (
+                            self._cortado and not self._final['hw_gen_terminado'])
                 if self._final is not None:
                     self._final['hw_destrabe'] = self.destrabe
         finally:
@@ -766,7 +812,7 @@ class RingSource:
             out['hw_no_leidos'] = (k['wr_slot'] - self._lector.estado['next']) & 0xFFFFFFFF
         out['hw_slot_sz'] = self.slot_sz
         if self.generador is not None:
-            e = self.ring.gen_estado()
+            e = self._gen_estado()
             out['hw_gen_cnt'], out['hw_gen_terminado'] = e['gen_cnt'], e['terminado']
         return out
 
@@ -803,6 +849,9 @@ class _Disparo:
     def arm_for_adc_trigger(self, **kw):
         from API.multitrigger import multitrigger_arm
         return multitrigger_arm(self.osc, self.mt, **kw)
+
+    def set_or_mask(self, mask_ch0, mask_ch1=None):
+        return self.mt.set_or_mask(mask_ch0, mask_ch1)
 
     def disarm(self):
         from API.multitrigger import multitrigger_disarm
@@ -927,9 +976,13 @@ class AdquisicionRing:
         ses, src = self._ses, self._src
         motivo, error = ses.motivo(), self._errores()
         ses.stop()
+        notas = []
+        if ses.stats.get('vaciado') is False:
+            sin_leer = (src.meta()['hw_final'] or {}).get('hw_no_leidos')
+            notas.append(f'al parar quedaron {sin_leer} eventos sin leer en el ring')
         if src.destrabe is not None:
-            nota = f'parar no terminó: el ring estaba lleno ({src.destrabe})'
-            error = f'{error}; {nota}' if error else nota
+            notas.append(f'parar no terminó: el ring estaba lleno ({src.destrabe})')
+        error = '; '.join(([error] if error else []) + notas) or None
         self._fin = dict(corriendo=False, motivo=motivo, stats=dict(ses.stats),
                          hw_final=src.meta()['hw_final'], n_slots=src.n_slots,
                          error=error, run_dir=self.run_dir, fs=self.fs)

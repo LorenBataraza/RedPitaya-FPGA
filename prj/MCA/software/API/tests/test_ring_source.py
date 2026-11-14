@@ -492,6 +492,27 @@ def test_close_guarda_los_contadores_y_para():
     assert rf.gst == 0 and rf.log[-1] == ('scope', 'disarm', None)
 
 
+def test_detener_corta_el_disparo_y_vaciado_mira_el_hardware():
+    """Lo que usa `AcquisitionSession.stop` antes de parar el lector: `detener` apaga la
+    máscara OR con el ring corriendo (el resto del desarme queda para `close`), y
+    `vaciado` dice si queda una ventana en vuelo o algo sin leer."""
+    rf, src = armada()
+    src.sc.set_or_mask = lambda m0, m1=None: rf.log.append(('scope', 'or_mask', (m0, m1)))
+    rf.disparar()
+    assert not src.vaciado()                    # escrito y sin leer
+    _leer(src, lote())
+    assert src.vaciado()
+    rf.ev += 1                                  # una ventana que empezó y no terminó
+    assert not src.vaciado()
+    rf.ev -= 1
+    src.detener()
+    src.detener()                               # corta una vez
+    assert [x[1:] for x in rf.log if x[0] == 'scope'][1:] == [('or_mask', (0, 0))]
+    assert rf.gst == 1, 'el ring sigue corriendo: el lector se lleva lo que quedó'
+    src.close()
+    assert rf.gst == 0 and rf.log[-1] == ('scope', 'disarm', None)
+
+
 def test_el_esquema_tiene_las_columnas_del_ring():
     nombres = [n for n, _ in RingSource.scalar_fields]
     assert nombres[-2:] == ['ts_hw', 'seq'] and 'wp' in nombres

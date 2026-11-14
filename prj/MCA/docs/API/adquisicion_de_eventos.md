@@ -30,7 +30,7 @@ están en [`arquitectura_adquisicion_software.md`](arquitectura_adquisicion_soft
 ![la interfaz EventSource por lote, quién llama cada parte del contrato, BramSource y RingSource, y el lazo de C que usa cada una](figuras/clases_fuentes.svg)
 
 *`AcquisitionSession` lee la forma del evento y llama `arm`, `close` y `meta` una vez
-por corrida; `ReaderThread` llama `read_batch` una vez por lote. `BramSource` y
+por corrida, y al parar `detener` y `vaciado` si la fuente los tiene; `ReaderThread` llama `read_batch` una vez por lote. `BramSource` y
 `RingSource` cumplen la interfaz sin heredar, y cada una tiene su lazo de C (`Lector`
 o `LectorRing`). Las dos arman el disparo con el shim `MultiTriggerScope`.*
 
@@ -45,6 +45,7 @@ entrega eventos de a uno: llena un batch.
 |---|---|---|
 | `scalar_fields`, `n_ch`, `samples`, `wave_dtype` | la sesión, al armar el pool | la forma de un evento: las columnas que aporta, los canales, las muestras, el tipo de la onda |
 | `arm()`, `close()`, `meta()` | la sesión, una vez por corrida | dejar el hardware listo para disparar, desarmarlo, y lo que va a la metadata |
+| `detener()`, `vaciado()` (opcionales) | la sesión, al parar | cortar el estímulo con el hardware corriendo, y decir si quedó algo en vuelo o sin leer (§5). Sólo `RingSource` |
 | `read_batch(batch, deadline_ns)` | el lector, una vez por lote | llenar `batch` desde `batch.n` hasta llenarlo o hasta el plazo. Devuelve `(nuevos, descartados, asignados)` |
 | `pending` | el lector, al cerrar | los descartados que no fueron a ningún `gap`: los del final de la corrida |
 
@@ -296,12 +297,34 @@ colas y los dos hilos. Lo importante es el **orden**, y por eso vive en un solo 
 
 ```
 start():  switchinterval → annotators → source.arm() → escritor → lector
-stop():   lector → (batch parcial, centinela) → escritor → annotators → source.close() → run_summary.json
+stop():   [source.detener() → hasta source.vaciado()] → lector → (batch parcial, centinela)
+          → escritor → annotators → source.close() → run_summary.json
 ```
 
 El escritor arranca antes que el lector para que el primer batch lleno ya tenga quien
 lo reciba, y el lector para antes que el escritor para que el escritor drene todo lo
 que el lector alcanzó a poner.
+
+**Con el ring, el estímulo se corta antes que el lector.** Si el lector para primero,
+lo que el hardware captura hasta `source.close()` queda en la DDR, y con el ring parado
+`WR_SLOT` vuelve a 0: ya no se lee. En la placa eran unos 40 ms de disparos (431 de
+39 301 a 10 k/s, el 2026-11-13). Por eso, si la fuente tiene `detener` y `vaciado`, la
+sesión:
+
+1. llama a `detener()` con el ring corriendo. Con el generador escribe N ← 1, y el
+   motor, que ya pasó de N, no dispara más. Con el disparo del ADC pone la máscara OR
+   en 0, el armado al revés, y el resto del desarme queda para `close()`;
+2. espera a que `vaciado()` dé True dos veces seguidas: `WR_SLOT = EV_CNT` (ninguna
+   ventana en vuelo) y `WR_SLOT` = el próximo slot que lee el lector. Dos veces
+   porque entre una ventana que termina y la siguiente puede dar True un instante;
+3. recién ahí para el lector, y `close()` para el ring sin nada en vuelo.
+
+Deja `stats['vaciado']`, que es False si vencieron los 5 s de `VACIAR_S` (sin batch
+libre el lector del ring no consume, así que un escritor trabado lo hace vencer) o si
+el lector se cayó. Si el lector ya no corre, no corta nada: lo que quedó no lo lee nadie,
+y `close()` destraba el ring si quedó lleno. Con el ring lleno, el vaciado además
+evita destrabarlo, porque el lector devuelve los créditos que la ventana en vuelo
+está esperando.
 
 **Compone y no hereda** porque **no es un hilo**: orquesta dos. Es *context manager*
 para que `stop()` ocurra aunque la corrida termine con una excepción. `wait()` devuelve

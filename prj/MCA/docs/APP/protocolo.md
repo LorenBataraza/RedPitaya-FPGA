@@ -283,9 +283,12 @@ control ([`generador.md`](../event_ring/generador.md) §6, «La etapa C por la r
   - `motivo`: `null` mientras corre, `error`, `disk` o `source`.
 
   Ya parada, devuelve lo final.
-- **`ring.parar`** para la sesión y el ring. Si el ring quedó lleno sin créditos, lo
-  destraba y lo dice en `error`. Devuelve los contadores con el ring parado
-  (`hw_final`). Repetida, devuelve lo mismo.
+- **`ring.parar`** corta el estímulo con el ring corriendo, espera a que el lector se
+  lleve lo que quedó, y recién ahí para la sesión y el ring
+  ([`../API/adquisicion_de_eventos.md`](../API/adquisicion_de_eventos.md) §5). Si no
+  se vació, o si el ring quedó lleno sin créditos y hubo que destrabarlo, lo dice en
+  `error`. Devuelve los contadores con el ring parado (`hw_final`; con el generador
+  cortado antes de N, `hw_gen_cortado`). Repetida, devuelve lo mismo.
 
 Igual que la exposición del MCA, **la adquisición sigue si el cliente se va**:
 `identify` trae `ring_corriendo`, y `has_ring` y `has_gen` dicen si el bitstream trae

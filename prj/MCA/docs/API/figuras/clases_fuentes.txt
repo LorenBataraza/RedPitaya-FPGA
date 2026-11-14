@@ -1,4 +1,4 @@
 `AcquisitionSession` lee la forma del evento y llama `arm`, `close` y `meta` una vez
-por corrida; `ReaderThread` llama `read_batch` una vez por lote. `BramSource` y
+por corrida, y al parar `detener` y `vaciado` si la fuente los tiene; `ReaderThread` llama `read_batch` una vez por lote. `BramSource` y
 `RingSource` cumplen la interfaz sin heredar, y cada una tiene su lazo de C (`Lector`
 o `LectorRing`). Las dos arman el disparo con el shim `MultiTriggerScope`.

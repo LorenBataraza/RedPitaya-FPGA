@@ -11,6 +11,10 @@ ver docs/arquitectura_adquisicion_software.md Parte 5) solo cambie esta capa:
         arm()          -> deja el HW listo para disparar
         close()
 
+        opcional, al parar (`AcquisitionSession.stop`, antes de parar el lector):
+        detener()      -> corta el estímulo con el HW corriendo
+        vaciado()      -> True si no queda nada en vuelo ni sin leer
+
     y una de dos formas de entregar eventos:
 
         por lote (la que se usa si existe):

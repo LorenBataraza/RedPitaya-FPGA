@@ -211,6 +211,21 @@ class RingFalsoGen(RingFalso):
         super().w32(off, v)
         if arranca and self.reg.get(R_GEN_CTRL, 0) & GEN_CTRL_EN:
             self._armar()
+        if off == R_GEN_N and self.marcas is not None:
+            with self._lock:
+                self._cortar(v)
+
+    def _cortar(self, n):
+        """N escrito con el generador andando, como en el RTL (`hecho = cnt >= N`): dispara
+        hasta que GEN_CNT llega a N, y si ya pasó no dispara más. Es lo que hace
+        `RingSource.detener` (N ← 1). Volver a sin fin (N = 0) no lo usa nadie."""
+        if not n:
+            return
+        while self._sin_fin and self.marcas.size < n:
+            self.marcas = np.concatenate([self.marcas, self._tramo(self.marcas[-1])])
+        self._sin_fin = False
+        self.marcas = self.marcas[:max(n, self.k)]
+        self.gen_fin = self.k >= self.marcas.size
 
     def _armar(self):
         import API.generadores as G

@@ -67,6 +67,7 @@ def test_inicia_informa_y_para(tmp_path):
     assert hw['hw_ev_cnt'] + hw['hw_drop_busy'] + hw['hw_drop_full'] == 2000
     assert fin['stats']['n_read'] == fin['stats']['n_written'] == hw['hw_ev_cnt']
     assert hw['hw_destrabe'] is None
+    assert fin['stats']['vaciado'] and not hw['hw_gen_cortado']
     # los archivos: el patrón del generador, con fs en el meta
     arch = archivos_de_corrida(fin['run_dir'])
     assert arch
@@ -80,13 +81,53 @@ def test_inicia_informa_y_para(tmp_path):
     assert not adq.corriendo
 
 
+def test_parar_vacia_el_ring_antes_de_pararlo(tmp_path):
+    """Sin fin y con el ring lleno: `parar` corta el generador (N ← 1) con el ring
+    corriendo, el lector se lleva lo que quedó, y recién ahí para el ring. Antes el
+    lector paraba primero: lo de los últimos sondeos quedaba en la DDR, y el ring
+    lleno no paraba sin destrabarlo."""
+    rf = RingFalsoGen(ddr_bytes=16 * 256, trabado=True)
+    adq, _ = _adq(tmp_path, rf, generador=G.disparos(tasa=1e6, n=0))
+    adq.iniciar()
+    time.sleep(0.3)
+    fin = adq.parar()
+    hw, st = fin['hw_final'], fin['stats']
+    assert fin['error'] is None and st['vaciado']
+    assert hw['hw_destrabe'] is None and hw['hw_no_leidos'] == 0
+    assert hw['hw_drop_full'] > 0, 'el ring se llenó'
+    assert st['n_read'] == st['n_written'] == hw['hw_ev_cnt']
+    assert hw['hw_ev_cnt'] + hw['hw_drop_busy'] + hw['hw_drop_full'] == hw['hw_gen_cnt']
+    assert hw['hw_gen_cortado'] and not hw['hw_gen_terminado']
+    assert rf.gst == 0
+
+
+def test_si_no_se_vacia_lo_dice(tmp_path, monkeypatch):
+    import API.osciloscope_store.session as S
+
+    monkeypatch.setattr(S, 'VACIAR_S', 0.05)
+    adq, _ = _adq(tmp_path, generador=G.disparos(tasa=1e5, n=0))
+    adq.iniciar()
+    time.sleep(0.1)
+    adq._src.vaciado = lambda: False
+    fin = adq.parar()
+    assert fin['stats']['vaciado'] is False
+    assert 'al parar quedaron' in fin['error']
+
+
+def _sin_lector(adq):
+    """El lector se cae (un error, el disco): nadie vacía el ring."""
+    adq._ses.reader.stop()
+    adq._ses.reader.join(5)
+
+
 def test_parar_con_el_ring_lleno_destraba(tmp_path):
-    """El lector se va con el ring lleno (paró la sesión con el estímulo corriendo):
-    `parar` no vence, se destraba devolviendo los créditos, y lo dice."""
+    """El lector se cayó con el ring lleno: no hay vaciado, `parar` vence, se destraba
+    devolviendo los créditos, y lo dice."""
     rf = RingFalsoGen(ddr_bytes=16 * 256, trabado=True)
     adq, _ = _adq(tmp_path, rf, generador=G.disparos(tasa=1e5, n=200_000))
     adq.iniciar()
     time.sleep(0.3)
+    _sin_lector(adq)
     fin = adq.parar()
     assert fin['hw_final']['hw_destrabe'] == 'creditos'
     assert 'parar no terminó: el ring estaba lleno (creditos)' in fin['error']
@@ -108,6 +149,7 @@ def test_con_clr_quedan_los_contadores_de_antes_de_parar(tmp_path):
         raise LibMCAError('el lector no puede devolver', -1)
 
     adq._src._lector.medir = no_devuelve
+    _sin_lector(adq)
     fin = adq.parar()
     hw = fin['hw_final']
     assert hw['hw_destrabe'] == 'clr' and rf.gst == 0

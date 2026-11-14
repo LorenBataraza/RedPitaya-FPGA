@@ -1,7 +1,8 @@
 % Las fuentes de eventos del osciloscopio: la interfaz EventSource, por lote, y
 % sus dos implementaciones sobre la placa. Arriba, quién llama cada parte del
 % contrato: AcquisitionSession lee la forma del evento y llama arm, close y
-% meta, una vez por corrida; ReaderThread llama read_batch y lee pending, una vez
+% meta, una vez por corrida (y al parar detener y vaciado, si la fuente los
+% tiene); ReaderThread llama read_batch y lee pending, una vez
 % por lote. Al medio, BramSource y RingSource, que cumplen la interfaz sin
 % heredar. Abajo, lo que cada una usa: el lazo de C (Lector o LectorRing, en
 % clases_lotes), el ring, y el shim con que arman el disparo.
@@ -37,6 +38,7 @@
   wave_dtype \es{opcional: float32 si no}
   \nodepart{three}
   arm() · close() · meta() -> dict\\
+  detener() · vaciado() \es{opcionales, al parar}\\
   read_batch(batch, deadline_ns)\\
   \hspace*{1em}-> (nuevos, descartados, asignados)\\
   pending \es{prop: descartados sin gap todavía}
@@ -48,7 +50,8 @@
   {\fontsize{5.6}{6.6}\selectfont session.py · una vez por corrida}\\[3pt]
   lee: n_ch · samples · scalar_fields\\
   \hspace*{1.6em}wave_dtype \es{para armar el pool}\\
-  llama: arm() · close() · meta()
+  llama: arm() · close() · meta()\\
+  \hspace*{1.6em}detener() · vaciado() \es{en stop()}
 };
 \node[modulo=4.6cm, anchor=north] (rt) at (7.2,0) {
   {\bfseries\fontsize{7.8}{9.2}\selectfont ReaderThread}\\[0.8pt]
@@ -85,6 +88,7 @@
   thr · hyst · mask · slot_shift · n_slots · calib
   \nodepart{three}
   arm() \es{configurar el ring, disparo, correr}\\
+  detener() \es{corta el disparo} · vaciado()\\
   close() \es{para el ring y desarma} · meta()\\
   read_batch(batch, deadline_ns) · pending \es{prop}\\
   hw_counters() -> dict \es{EV_CNT, DROP_*}
@@ -109,7 +113,7 @@
   \nodepart{three}
   arm_for_adc_trigger(mask_ch0, mask_ch1,\\
   \hspace*{1em}thr, hyst, delay, we_keep_both, …)\\
-  disarm()
+  set_or_mask(0, 0) \es{RingSource.detener} · disarm()
 };
 \node[modulo=4.6cm, anchor=north, fill=rojo!30] (lr) at (7.6,-10.4) {
   {\bfseries\fontsize{7.8}{9.2}\selectfont LectorRing}\\[0.8pt]
