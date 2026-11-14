@@ -144,18 +144,21 @@ def test_la_pestana_2d_aparece_porque_el_bitstream_la_trae():
         assert v.info['has_2d'] is True
         assert v.panel_mapa is not None
         titulos = [v.tabs.tabText(i) for i in range(v.tabs.count())]
-        assert titulos == ['Mensajes', 'Espectro', 'MCA', 'Mapa 2D (PSD)',
-                           'OSC', 'Multitrigger', 'Generador', 'Ring']
+        assert titulos == ['Mensajes', 'Espectro', 'Configuración MCA',
+                           'Mapa 2D (PSD)', 'Pulsos', 'Configuración OSC',
+                           'Multitrigger', 'Generador']
         # La de Integración NO está: el MCA falso no simula el slot 6, y la
-        # pestaña se crea sólo si el bitstream lo trae. Las de OSC, Multitrigger
-        # y el generador SÍ: el simulador incluye los bloques, que es lo que
-        # permite desarrollarlas sin placa.
+        # pestaña se crea sólo si el bitstream lo trae. Las del osciloscopio, el
+        # Multitrigger y el generador SÍ: el simulador incluye los bloques, que es
+        # lo que permite desarrollarlas sin placa. El ring no tiene pestaña: va
+        # dentro de «Configuración OSC».
         assert v.panel_integracion is None
         assert v.info.get('has_integracion') is False
         assert v.info.get('has_osc') is True
         assert v.info.get('has_mtrg') is True
         assert v.info.get('has_pulsos') is True
         assert v.info.get('has_ring') is True
+        assert v.panel_ring is v.panel_config_osc.ring is not None
     _con_gui(cuerpo)
 
 
@@ -618,6 +621,149 @@ def test_el_rango_del_eje_sigue_al_zoom():
     _con_gui(cuerpo)
 
 
+def test_flujo_mca_cierra_las_cuentas():
+    """La cuenta de la franja, con números a mano: cada tramo, cada pérdida y el
+    total perdido sobre los pulsos estimados."""
+    from app.diagrama_mca import flujo_mca
+
+    cnt = dict(realtime_s=10.5, vetotime_s=0.5, cross=1000, lost_veto=10, open=950,
+               lost_active=25, dropped=20, total=940, accepted=900, rej_amp=40,
+               rej_discr=10, full_supp=5)
+    fl = flujo_mca(cnt, tasa_entrada_hz=104.0)      # N̂ = 104 · 10 s = 1040
+    c = fl['cuentas']
+    assert fl['T'] == 10.0
+    assert c['pulsos'] == 1040.0 and c['disparos'] == 990
+    assert c['rearmado'] == 50.0                    # 1040 − 990
+    assert c['publicador'] == 15                    # 1000 − 950 − 25 − 10
+    assert c['colisiones'] == 5                     # dropped − lost_busy
+    assert c['al_histograma'] == 880                # 900 − 10 − 5 − 5
+    assert fl['perdidos'] == 50 + 25 + 15
+    assert abs(fl['frac_perdidos'] - 90 / 1040) < 1e-12
+    assert fl['tasas']['ventanas'] == 95.0
+    # sin tiempo medido ni tasa: ceros, no divisiones por cero
+    vacio = flujo_mca({}, 0.0)
+    assert vacio['frac_perdidos'] == 0.0 and vacio['tasas']['ventanas'] == 0.0
+
+
+def _panel_mca():
+    from app.panel_config_mca import PanelConfigMCA
+
+    app = QApplication.instance() or QApplication([])
+    p = PanelConfigMCA()
+    p.configurar_mca({'n_acc_max': 3, 'trap': True})
+    p.set_conectado(True)
+    return app, p
+
+
+def _estado(real, total):
+    return {'counters': {'realtime_s': real, 'total': total, 'accepted': total,
+                         'cross': total, 'open': total},
+            'tasa_entrada_hz': 100.0}
+
+
+def test_la_pestana_mca_avisa_cuando_el_histograma_mezcla_configuraciones():
+    """Nada del MCA pide pararlo; lo que se rompe es lo acumulado. Un cambio con
+    cuentas marca su etapa y muestra el aviso; las ranuras no (no cambian lo que
+    se mide), sin cuentas tampoco, y el aviso se va al borrar, lo borre quien
+    sea (el reloj real vuelve atrás)."""
+    if QApplication is None:
+        print('    (sin PyQt5: salteada)')
+        return
+    _app, p = _panel_mca()
+    borrados = []
+    p.pedir_clear.connect(lambda: borrados.append(1))
+
+    p.actualizar_estado(_estado(5.0, 0))            # recién borrado: nada que mezclar
+    p._emitir('pre_dly', 20)
+    assert p.mezcla == {} and p.frm_mezcla.isHidden()
+
+    p.actualizar_estado(_estado(6.0, 500))
+    p._emitir('n_acc', 2)                           # CALIENTE: no marca
+    assert p.mezcla == {}
+    p._emitir('pre_dly', 21)
+    p._emitir('sel_1d', 1)
+    assert p.mezcla == {'entrada': {'pre_dly'}, 'publicacion': {'sel_1d'}}
+    assert not p.frm_mezcla.isHidden()
+    assert 'pre_dly' in p.lbl_mezcla.text() and 'sel_1d' in p.lbl_mezcla.text()
+    assert p.diagrama.marcadas == {'entrada', 'publicacion'}
+
+    p.actualizar_estado(_estado(7.0, 900))          # sigue midiendo: sigue el aviso
+    assert p.mezcla
+    p.actualizar_estado(_estado(0.2, 3))            # alguien borró (Espectro)
+    assert p.mezcla == {} and p.frm_mezcla.isHidden() and not p.diagrama.marcadas
+
+    p.actualizar_estado(_estado(1.0, 50))
+    p._emitir('gate_long', 300)
+    assert p.mezcla == {'estadisticos': {'gate_long'}}
+    p.btn_borrar.click()                            # y desde acá
+    assert borrados == [1] and p.mezcla == {}
+
+
+def test_la_franja_sigue_al_raton_y_lleva_a_los_controles():
+    """Cada control pertenece a una etapa; el grupo bajo el ratón se resalta en
+    la franja, y un clic en un bloque pide esa etapa."""
+    if QApplication is None:
+        print('    (sin PyQt5: salteada)')
+        return
+    from PyQt5.QtCore import QEvent, QPoint, Qt
+    from PyQt5.QtTest import QTest
+    from app.diagrama_mca import COLOR
+
+    app, p = _panel_mca()
+    assert set(p._etapa_de) == set(p.campos())
+    assert set(p._etapa_de.values()) <= set(COLOR)
+
+    g_base = p._grupos['base'][0]
+    app.sendEvent(g_base, QEvent(QEvent.Enter))
+    assert p.diagrama.resaltada == 'base'
+    app.sendEvent(g_base, QEvent(QEvent.Leave))
+    assert p.diagrama.resaltada is None
+
+    p.resize(1240, 700)
+    p.diagrama.resize(1200, p.diagrama.height())
+    p.diagrama._geometria()                         # las cajas, para este ancho
+    pedidas = []
+    p.diagrama.etapa_elegida.connect(pedidas.append)
+    centro = p.diagrama._cajas['publicacion'].center()
+    QTest.mouseClick(p.diagrama, Qt.LeftButton, pos=QPoint(int(centro.x()),
+                                                            int(centro.y())))
+    assert pedidas == ['publicacion']
+
+
+def test_la_pestana_mca_va_en_tres_columnas_con_la_leyenda_en_la_franja():
+    """Una columna por función del panorama: preprocesamiento; disparo y ranuras;
+    publicación. La leyenda ya no es un texto abajo: la dibuja la franja."""
+    if QApplication is None:
+        print('    (sin PyQt5: salteada)')
+        return
+    from PyQt5.QtCore import QPoint
+    from PyQt5.QtWidgets import QLabel
+
+    app, p = _panel_mca()
+    # El alto que le queda a la pestaña en la ventana de 1240 × 860, con el trapecio
+    # y con el aviso de mezcla a la vista: el peor caso.
+    p.resize(1240, 745)
+    p.show()
+    p.actualizar_estado(_estado(5.0, 10))
+    p._emitir('trap_k', 48)
+    for _ in range(5):
+        app.processEvents()
+    try:
+        assert not p.frm_mezcla.isHidden()
+        x = {k: {g.mapTo(p, QPoint(0, 0)).x() for g in gs}
+             for k, gs in p._grupos.items()}
+        assert len(x['entrada'] | x['base'] | x['trapecio']) == 1, x
+        assert len(x['segmentacion'] | x['estadisticos']) == 1, x
+        assert len(x['publicacion']) == 1, x          # eje, discriminador, histograma
+        assert min(x['entrada']) < min(x['segmentacion']) < min(x['publicacion'])
+        assert not [w for w in p.findChildren(QLabel) if 'Nada pide parar' in w.text()]
+        assert p.diagrama.LEYENDA
+        # todo a la vista, sin scroll, en la ventana de siempre
+        assert p.scroll.verticalScrollBar().maximum() == 0
+    finally:
+        p.hide()
+
+
 def test_todos_los_campos_de_la_pestana_tienen_setter():
     """El trabajador escribe por `getattr(A, f'mca_set_{campo}')`.
 
@@ -701,8 +847,8 @@ def test_el_panel_de_integracion_pinta_ruteo_y_avisa_de_la_divergencia():
 def test_la_pestana_osc_captura_y_dibuja():
     """Una captura llega por el socket y termina dibujada, en volts y en us."""
     def cuerpo(app, v):
-        p = v.panel_osc
-        assert p is not None, 'no se creó la pestaña de OSC'
+        p = v.panel_pulsos
+        assert p is not None, 'no se creó la pestaña Pulsos'
         v.tabs.setCurrentWidget(p)
         app.processEvents()
 
@@ -727,7 +873,7 @@ def test_la_pestana_osc_captura_y_dibuja():
 
 def test_la_persistencia_acumula_y_se_puede_apagar():
     def cuerpo(app, v):
-        p = v.panel_osc
+        p = v.panel_pulsos
         v.tabs.setCurrentWidget(p)
         for _ in range(3):
             p._capturar()
@@ -753,7 +899,7 @@ def test_la_curva_de_tasa_sale_del_status_del_mca():
     `status`, y hasta ahora se mostraba como texto y se tiraba.
     """
     def cuerpo(app, v):
-        p = v.panel_osc
+        p = v.panel_pulsos
         v.sig_start.emit(0.0, True)
         assert _esperar(app, lambda: len(p._serie(1)[0]) >= 2), \
             'la curva de tasa del MCA no acumuló puntos'
@@ -766,7 +912,7 @@ def test_la_curva_de_tasa_sale_del_status_del_mca():
 def test_la_marca_de_captura_cae_en_la_curva_de_tasa():
     """Lo que ata los dos gráficos: la forma de arriba y el instante de abajo."""
     def cuerpo(app, v):
-        p = v.panel_osc
+        p = v.panel_pulsos
         v.tabs.setCurrentWidget(p)
         v.sig_start.emit(0.0, True)
         assert _esperar(app, lambda: len(p._historia) >= 2)
@@ -789,7 +935,7 @@ def test_escribir_un_campo_del_osc_va_al_bloque_del_osc():
     nombre, un campo del osciloscopio terminaría escrito en el MCA.
     """
     def cuerpo(app, v):
-        p = v.panel_osc
+        p = v.panel_config_osc
         assert p.BLOQUE == 'osc'
         pre_mca_antes = v.panel_config._controles['pre_dly'][1]()
 
@@ -799,6 +945,137 @@ def test_escribir_un_campo_del_osc_va_al_bloque_del_osc():
             'el umbral del OSC no volvió releído del hardware'
         # Y el del MCA no se movió.
         assert v.panel_config._controles['pre_dly'][1]() == pre_mca_antes
+    _con_gui(cuerpo)
+
+
+def test_el_mapa_de_pulsos_cuenta_las_lineas():
+    """Cada traza suma uno en las celdas que recorre su línea: el flanco llena la
+    columna entera entre las dos muestras. Se agranda el eje V si una traza se sale,
+    empieza de nuevo con otra ventana y resta las trazas que salen por el tope."""
+    if QApplication is None:
+        print('    (sin PyQt5: salteada)')
+        return
+    from app.panel_pulsos import MapaPulsos
+
+    m = MapaPulsos(ny=100)
+    escalon = np.r_[np.zeros(25), np.ones(25)].astype(np.float32)
+    m.agregar(escalon, pre=25)
+    H, (t0, t1), (lo, hi) = m.matriz()
+    assert H.shape == (100, 49) and (t0, t1) == (-25, 24)
+    assert lo < 0 < 1 < hi
+    assert (H.sum(axis=0) >= 1).all(), 'una columna sin traza'
+    f0, f1 = m._filas(np.array([0.0, 1.0], np.float32))
+    assert (H[f0:f1 + 1, 24] == 1).all(), 'el flanco no llenó su columna'
+    assert H[:, 0].sum() == 1
+
+    m.agregar(escalon, pre=25)
+    assert m.matriz()[0].max() == 2
+    m.agregar(3 * escalon, pre=25)                    # se sale: se agranda
+    H, _t, (_lo, hi) = m.matriz()
+    assert hi > 3 and m.n == 3 and H.sum(axis=0).min() >= 3
+
+    m.agregar(np.zeros(80, np.float32), pre=10)       # otra ventana
+    assert m.n == 1 and m.matriz()[0].shape[1] == 79 and m.matriz()[1] == (-10, 69)
+
+    m2 = MapaPulsos(ny=20, max_trazas=50)
+    for _ in range(60):
+        m2.agregar(np.zeros(30, np.float32), pre=0)
+    assert m2.n == 50 and m2.agregadas == 60 and m2.matriz()[0].max() == 50
+
+
+def test_la_vista_de_pulsos_junta_un_mapa_de_calor():
+    """Las capturas van al mapa de los dos canales; una que trae el mismo disparo
+    que la anterior no se suma (sería el mismo pulso dos veces). Con el mapa, el
+    continuo pide más seguido, pero nunca con una captura en vuelo."""
+    def cuerpo(app, v):
+        p = v.panel_pulsos
+        v.tabs.setCurrentWidget(p)
+        p.cmb_vista.setCurrentIndex(p.cmb_vista.findData('mapa'))
+        assert p.intervalo_continuo_ms() < 500
+        for k in range(3):
+            p._capturar()
+            assert _esperar(app, lambda: p._mapas[0].n > k), 'la captura no llegó al mapa'
+            time.sleep(0.01)
+        assert p._mapas[0].n == p._mapas[1].n == 3
+        assert p._imagen is not None and p._imagen.get_visible()
+        assert not p.lineas_ch[0].get_visible()
+        assert '3 trazas' in p.lbl_mapa.text()
+
+        pre, datos = p._trazas[-1]
+        meta = {'pre': pre, 'dec': 1, 'fs_hz': 125e6, 'wp': 1234}
+        p.actualizar_traza(meta, datos)
+        p.actualizar_traza(meta, datos)               # el mismo disparo
+        assert p._mapas[0].n == 4 and p.repetidas == 1
+        assert 'sin disparo nuevo' in p.lbl_mapa.text()
+
+        pedidas = []
+        p.pedir_captura.connect(lambda a, b: pedidas.append((a, b)))
+        p._pedida = time.monotonic()
+        p.pedir_una()
+        assert pedidas == [], 'pidió otra con una captura en vuelo'
+
+        p.cmb_vista.setCurrentIndex(p.cmb_vista.findData('pulso'))
+        assert p.lineas_ch[0].get_visible() and not p._imagen.get_visible()
+        p.borrar_mapa()
+        assert p._mapas[0].n == 0
+    _con_gui(cuerpo)
+
+
+def test_el_flujo_del_ring_cierra_las_cuentas():
+    from app.diagrama_osc import flujo_ring
+
+    assert flujo_ring({'corriendo': False, 'stats': None, 'hw': None}) is None
+    f = flujo_ring({'corriendo': True,
+                    'stats': {'n_read': 88, 'n_written': 80, 'chunks': 2},
+                    'hw': {'hw_ev_cnt': 90, 'hw_drop_busy': 6, 'hw_drop_full': 4,
+                           'hw_no_leidos': 0xFFFFFFFE, 'hw_n_slots': 4096}})
+    assert f['disparos'] == 100 and f['perdidos'] == 10
+    assert abs(f['frac_perdidos'] - 0.1) < 1e-12
+    assert f['sin_leer'] == 0, 'la resta sin signo que da la vuelta es cero'
+    assert (f['leidos'], f['escritos'], f['archivos']) == (88, 80, 2)
+
+
+def test_configuracion_osc_lleva_el_ring_en_su_franja():
+    """El ring es la fila de abajo de la franja: sus grupos son etapas, el estímulo
+    se mueve entre el disparo y el generador, y el disparo del ADC usa el umbral de
+    la etapa Disparo (una sola vez en la pestaña)."""
+    from PyQt5.QtCore import QEvent, QPoint, Qt
+    from PyQt5.QtTest import QTest
+
+    def cuerpo(app, v):
+        c, r = v.panel_config_osc, v.panel_ring
+        assert c.diagrama.hay_ring and r is c.ring
+        assert {'entrada', 'diezmado', 'disparo', 'bram', 'ventana', 'ddr',
+                'archivos'} <= set(c._grupos)
+
+        r.cmb_estimulo.setCurrentIndex(r.cmb_estimulo.findData('generador'))
+        assert r.grp_estimulo in c._grupos['generador']
+        assert c.diagrama._estimulo == 'generador'
+        r.cmb_estimulo.setCurrentIndex(r.cmb_estimulo.findData('disparo'))
+        assert r.grp_estimulo in c._grupos['disparo']
+        assert r.grp_estimulo not in c._grupos['generador']
+
+        c.fijar_disparo_v(0.125, 0.02)
+        kw = r.argumentos()
+        assert abs(kw['disparo']['thr'] - 0.125) < 1 / 8192
+        assert abs(kw['disparo']['hyst'] - 0.02) < 1 / 8192
+        assert r.spn_thr.isHidden() and not r.lbl_disparo.isHidden()
+        assert '+0.125 V' in r.lbl_disparo.text()
+
+        app.sendEvent(r.grp_ventana, QEvent(QEvent.Enter))
+        assert c.diagrama.resaltada == 'ventana'
+        app.sendEvent(r.grp_ventana, QEvent(QEvent.Leave))
+        assert c.diagrama.resaltada is None
+
+        c.diagrama.resize(1200, c.diagrama.height())
+        pedidas = []
+        c.diagrama.etapa_elegida.connect(pedidas.append)
+        for clave in ('bram', 'ddr'):
+            centro = c.diagrama.caja(clave).center()
+            QTest.mouseClick(c.diagrama, Qt.LeftButton,
+                             pos=QPoint(int(centro.x()), int(centro.y())))
+        assert pedidas == ['bram', 'ddr']
+        assert c.diagrama.resaltada == 'ddr'
     _con_gui(cuerpo)
 
 
@@ -837,7 +1114,7 @@ def test_los_campos_de_los_paneles_existen_en_su_bloque():
     """
     def cuerpo(app, v):
         from app.widgets_config import campos_desconocidos
-        for panel in (v.panel_config, v.panel_osc, v.panel_mtrg):
+        for panel in (v.panel_config, v.panel_config_osc, v.panel_mtrg):
             malos = campos_desconocidos(panel.campos(), panel.BLOQUE)
             assert not malos, f'{type(panel).__name__} ({panel.BLOQUE}): {malos}'
     _con_gui(cuerpo)
@@ -933,8 +1210,8 @@ def test_la_mq_del_generador_va_al_trapecio():
 
 def _ring_visible(app, v, carpeta):
     p = v.panel_ring
-    assert p is not None, 'sin pestaña del ring'
-    v.tabs.setCurrentWidget(p)
+    assert p is not None, 'sin el ring en «Configuración OSC»'
+    v.tabs.setCurrentWidget(v.panel_config_osc)
     p.ed_carpeta.setText(carpeta)
     return p
 
@@ -965,6 +1242,9 @@ def test_la_pestana_del_ring_corre_con_el_generador_y_cierra_las_cuentas():
             assert run_dir.startswith(tmp) and archivos_de_corrida(run_dir)
             assert p.lbl_estado.text().startswith('parado')
             assert p.btn_iniciar.isEnabled()
+            fl = v.panel_config_osc.diagrama.flujo
+            assert fl['disparos'] == 2000 and fl['capturados'] == hw['hw_ev_cnt']
+            assert fl['escritos'] == p.ultimo['stats']['n_written']
     _con_gui(cuerpo)
 
 

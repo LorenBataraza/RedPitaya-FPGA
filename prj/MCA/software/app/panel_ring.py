@@ -20,7 +20,12 @@ Las pérdidas del ring se **cuentan**, porque el disparo llega y se descarta:
 slot libre: el lector no daba abasto). Con ellas, EV_CNT + DROP_BUSY + DROP_FULL = los
 disparos. Docs: `docs/event_ring/` y `docs/API/adquisicion_de_eventos.md`.
 
-Aparece sólo con el bitstream del ring: el del MCA no lo trae.
+Aparece sólo con el bitstream del ring: el del MCA no lo trae. En la app va
+**embebido** en la pestaña «Configuración OSC» (`panel_config_osc.py`), como la fila
+del camino a DDR de su franja: la pestaña acomoda los grupos (`grp_estimulo`,
+`grp_ventana`, `grp_destino`, `caja_control`) y le da el umbral y la histéresis de
+su etapa Disparo (`usar_disparo_de`), que son los registros que el ring escribe al
+armarse. Sin embeber, arma su propia página, como antes.
 """
 
 import os
@@ -64,32 +69,40 @@ class PanelRing(QWidget):
     pedir_estado = pyqtSignal()
     log = pyqtSignal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, embebido=False):
         super().__init__(parent)
         self._prev = None                    # (t, n_read) para la tasa de lectura
         self.ultimo = {}                     # el último estado, crudo (pruebas, scripts)
-        self._construir()
+        self.tasa_lectura = None             # eventos/s, del último par de estados
+        self.fuente_disparo = None           # () -> (thr, hyst) en volts, embebido
+        self._construir_grupos()
+        if embebido:
+            # Las cuentas van en la franja de la pestaña que lo embebe. Las filas se
+            # sacan del formulario (ocultas, en Qt 5 dejarían su espaciado); los
+            # rótulos siguen vivos y actualizándose, para las pruebas y los scripts.
+            for w in (self.lbl_disparos, self.lbl_ev, self.lbl_busy, self.lbl_full,
+                      self.lbl_leidos, self.lbl_escritos, self.lbl_tasa,
+                      self.bar_ring):
+                fila = self._form_estado.takeRow(w)
+                for item in (fila.labelItem, fila.fieldItem):
+                    if item is not None and item.widget() is not None:
+                        item.widget().setVisible(False)
+        else:
+            self._armar()
         self.set_conectado(False)
 
     # =========================================================================
     # Construcción
     # =========================================================================
 
-    def _construir(self):
-        # Dos columnas, como la del generador: la configuración a la izquierda; a la
-        # derecha los botones y el estado, que se miran mientras corre.
-        izq = QWidget()
-        izq.setMaximumWidth(460)
-        v = QVBoxLayout(izq)
-        v.setContentsMargins(0, 0, 0, 0)
-        v.addWidget(self._grupo_ventana())
-        v.addWidget(self._grupo_estimulo())
-        v.addWidget(self._grupo_destino())
-        v.addStretch(1)
+    def _construir_grupos(self):
+        self.grp_ventana = self._grupo_ventana()
+        self.grp_estimulo = self._grupo_estimulo()
+        self.grp_destino = self._grupo_destino()
 
-        der = QWidget()
-        der.setMaximumWidth(540)
-        v = QVBoxLayout(der)
+        # Los botones, el error y el estado: lo que se mira mientras corre.
+        self.caja_control = QWidget()
+        v = QVBoxLayout(self.caja_control)
         v.setContentsMargins(0, 0, 0, 0)
         fila = QHBoxLayout()
         self.btn_iniciar = QPushButton('Iniciar')
@@ -107,7 +120,26 @@ class PanelRing(QWidget):
         self.lbl_error.setStyleSheet('color: #c0392b;')
         self.lbl_error.setWordWrap(True)
         v.addWidget(self.lbl_error)
-        v.addWidget(self._grupo_estado())
+        self.grp_estado = self._grupo_estado()
+        v.addWidget(self.grp_estado)
+
+    def _armar(self):
+        # Dos columnas, como la del generador: la configuración a la izquierda; a la
+        # derecha los botones y el estado, que se miran mientras corre.
+        izq = QWidget()
+        izq.setMaximumWidth(460)
+        v = QVBoxLayout(izq)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.addWidget(self.grp_ventana)
+        v.addWidget(self.grp_estimulo)
+        v.addWidget(self.grp_destino)
+        v.addStretch(1)
+
+        der = QWidget()
+        der.setMaximumWidth(540)
+        v = QVBoxLayout(der)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.addWidget(self.caja_control)
         v.addStretch(1)
 
         interior = QWidget()
@@ -169,6 +201,12 @@ class PanelRing(QWidget):
         self.spn_hyst.setToolTip('Re-arma cuando la señal baja de umbral − histéresis.')
         f.addRow('umbral, V', self.spn_thr)
         f.addRow('histéresis, V', self.spn_hyst)
+        # Embebido, el umbral es el de la etapa Disparo: una sola vez en la pestaña.
+        self.lbl_disparo = QLabel('—')
+        self.lbl_disparo.setToolTip(
+            'Al iniciar, el ring arma el disparo del ADC con el umbral y la histéresis '
+            'de la etapa Disparo (IN1): son los mismos registros.')
+        f.addRow('umbral', self.lbl_disparo)
 
         self.cmb_modo = QComboBox()
         self.cmb_modo.addItem('periódico', False)
@@ -260,13 +298,33 @@ class PanelRing(QWidget):
 
     def _cambio_estimulo(self, *_):
         gen = self.cmb_estimulo.currentData() == 'generador'
+        propio = self.fuente_disparo is None
         f = self._form_estimulo
-        for w, ver in ((self.spn_thr, not gen), (self.spn_hyst, not gen),
+        for w, ver in ((self.spn_thr, not gen and propio),
+                       (self.spn_hyst, not gen and propio),
+                       (self.lbl_disparo, not gen and not propio),
                        (self.cmb_modo, gen), (self.spn_tasa, gen),
                        (self.spn_dt_min, gen and bool(self.cmb_modo.currentData())),
                        (self.spn_n, gen)):
             w.setVisible(ver)
             f.labelForField(w).setVisible(ver)
+
+    def usar_disparo_de(self, fuente):
+        """Embebido: `fuente()` da (umbral, histéresis) en volts, los de la etapa
+        Disparo de la pestaña. Reemplaza los dos campos propios."""
+        self.fuente_disparo = fuente
+        self._cambio_estimulo()
+        self.mostrar_disparo()
+
+    def mostrar_disparo(self):
+        if self.fuente_disparo is not None:
+            thr, hyst = self.fuente_disparo()
+            self.lbl_disparo.setText(f'{thr:+.3f} V, histéresis {hyst:.3f} V\n'
+                                     '(los de la etapa Disparo, IN1)')
+
+    def estimulo(self):
+        """'disparo' o 'generador': lo que dispara las ventanas."""
+        return self.cmb_estimulo.currentData()
 
     def configurar_ring(self, hay_generador):
         """Al conectarse: sin el generador de eventos (el ring del 2026-11-09 para
@@ -297,8 +355,9 @@ class PanelRing(QWidget):
                                'dt_min': int(self.spn_dt_min.value()),
                                'n': int(self.spn_n.value())}
         else:
-            kw['disparo'] = {'thr': float(self.spn_thr.value()),
-                             'hyst': float(self.spn_hyst.value())}
+            thr, hyst = (self.fuente_disparo() if self.fuente_disparo is not None
+                         else (self.spn_thr.value(), self.spn_hyst.value()))
+            kw['disparo'] = {'thr': float(thr), 'hyst': float(hyst)}
         return kw
 
     def _iniciar(self):
@@ -376,8 +435,10 @@ class PanelRing(QWidget):
             ahora = time.monotonic()
             if corriendo and self._prev is not None and ahora > self._prev[0]:
                 tasa = (leidos - self._prev[1]) / (ahora - self._prev[0])
+                self.tasa_lectura = tasa
                 self.lbl_tasa.setText(f'{tasa:.4g}')
             elif not corriendo and stats.get('rate_ev_s') is not None:
+                self.tasa_lectura = float(stats['rate_ev_s'])
                 self.lbl_tasa.setText(f"{stats['rate_ev_s']:.4g} (media)")
             self._prev = (ahora, leidos) if corriendo else None
         self._set_corriendo(corriendo)

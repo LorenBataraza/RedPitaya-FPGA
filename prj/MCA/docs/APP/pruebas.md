@@ -64,7 +64,7 @@ MCA falso vea la tasa del generador (y 0 con el generador parado).
 
 ## 3. La GUI — `app/tests/test_mcamon_gui.py`
 
-Cuarenta y una pruebas con `QT_QPA_PLATFORM=offscreen`, así que corren en CI y por ssh. No
+Cuarenta y nueve pruebas con `QT_QPA_PLATFORM=offscreen`, así que corren en CI y por ssh. No
 prueban estética: prueban **el hilo del socket, las señales entre hilos y el
 guardado**, que es donde una GUI se rompe de verdad.
 
@@ -80,16 +80,27 @@ con su pestaña visible**; que el tiempo muerto se muestre en total
 el tope de ranuras sea el `n_acc_max` de la placa; que la pestaña del generador
 aplique y relea, avise un error sin diálogo modal, lleve su Mq al trapecio, y que
 prender el lazo muestre el aviso arriba y lleve la tasa del generador al
-espectro; que la pestaña del ring corra con el generador de eventos y cierre
-EV_CNT + DROP_BUSY + DROP_FULL = N con archivos en la carpeta nueva, que corra sin
-fin hasta «Parar», que avise en la pestaña una carpeta inválida, y que la ocupación
-no se muestre llena por una resta negativa; y que desconectar y volver a conectar
+espectro; que el ring de «Configuración OSC» corra con el generador de eventos y
+cierre EV_CNT + DROP_BUSY + DROP_FULL = N con archivos en la carpeta nueva y la
+franja con las mismas cuentas, que corra sin fin hasta «Parar», que avise en la
+pestaña una carpeta inválida, y que la ocupación no se muestre llena por una resta
+negativa; que la franja del ring cierre sus cuentas, que sus grupos sean etapas de
+la franja (el del estímulo pasa del disparo al generador) y que su disparo del ADC
+use el umbral de la etapa Disparo; que la franja de «Configuración MCA» cierre sus
+cuentas (cada tramo, cada pérdida y el total perdido sobre λ̂·T), que un cambio con
+cuentas en el histograma marque su etapa y muestre el aviso de mezcla, que se vaya
+al borrar desde cualquier pestaña, que la franja siga al ratón y lleve a los
+controles, y que las tres columnas entren sin scroll con el aviso a la vista; que el
+mapa de calor de «Pulsos» sume cada traza por su línea, se agrande, empiece de nuevo
+con otra ventana y reste las que salen, que no sume dos veces el mismo disparo y que
+el continuo no pida con una captura en vuelo; y que desconectar y volver a conectar
 funcione.
 
 La pestaña 2D tiene su propia prueba porque aparece o desaparece según lo que
 publique `CAPS`, y eso es una decisión que se toma en tiempo de conexión. Lo
-mismo la de Integración con `has_integracion`, y las de OSC y Multitrigger con
-`has_osc` / `has_mtrg`.
+mismo la de Integración con `has_integracion`, las del osciloscopio y el
+Multitrigger con `has_osc` / `has_mtrg`, y el ring dentro de «Configuración OSC» con
+`has_ring`.
 
 Las dos últimas agregan cuatro cosas más: que una captura **viaje como binario y
 termine dibujada**, con el trigger exactamente en `t=0` (la muestra `pre`); que

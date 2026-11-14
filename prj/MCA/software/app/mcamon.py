@@ -35,14 +35,14 @@ import API.mca as A
 from API.mca_net import PORT_DEFAULT
 from API.mca_remote import MCARemote
 from app.panel_config_mca import PanelConfigMCA
+from app.panel_config_osc import PanelConfigOsc
 from app.panel_espectro import PanelEspectro
 from app.panel_generador import PanelGenerador
 from app.panel_integracion import PanelIntegracion
 from app.panel_log import PanelLog
 from app.panel_mapa2d import PanelMapa2D
 from app.panel_multitrigger import PanelMultitrigger
-from app.panel_osc import PanelOsc
-from app.panel_ring import PanelRing
+from app.panel_pulsos import PanelPulsos
 
 PERIODO_ESTADO_MS = 200
 REFRESCO_ESPECTRO_S = 1.0
@@ -492,16 +492,18 @@ class Mcamon(QMainWindow):
         self.panel_config = PanelConfigMCA()
         self.panel_mapa = None
         # La de Integración se crea al conectarse, si el bitstream trae el
-        # slot 6: mismo criterio que la del mapa 2D. Las de OSC y Multitrigger,
-        # igual, según `has_osc` / `has_mtrg`.
+        # slot 6: mismo criterio que la del mapa 2D. Las del osciloscopio («Pulsos»
+        # y «Configuración OSC») y la del Multitrigger, igual, según `has_osc` /
+        # `has_mtrg`; el ring va dentro de «Configuración OSC», según `has_ring`.
         self.panel_integracion = None
-        self.panel_osc = None
+        self.panel_pulsos = None
+        self.panel_config_osc = None
+        self.panel_ring = None          # el embebido en panel_config_osc, o None
         self.panel_mtrg = None
         self.panel_gen = None           # según `has_pulsos`
-        self.panel_ring = None          # según `has_ring`
         self.tabs.addTab(self.panel_log, 'Mensajes')
         self.tabs.addTab(self.panel_espectro, 'Espectro')
-        self.tabs.addTab(self.panel_config, 'MCA')
+        self.tabs.addTab(self.panel_config, 'Configuración MCA')
         self.tabs.setCurrentWidget(self.panel_espectro)
         self.tabs.currentChanged.connect(self._cambio_pestana)
         v.addWidget(self.tabs, 1)
@@ -518,15 +520,15 @@ class Mcamon(QMainWindow):
         self.panel_config.pedir_clear.connect(self.sig_borrar)
         self.panel_config.log.connect(self.panel_log.info)
 
-        # El modo continuo del osciloscopio. Sólo dispara con la pestaña
+        # El modo continuo del osciloscopio. Sólo dispara con la pestaña «Pulsos»
         # VISIBLE y la casilla marcada: una captura son hasta 16384 muestras por
         # canal y no se pagan de fondo, igual que el mapa 2D.
         self._t_traza = QTimer(self, interval=500)
         self._t_traza.timeout.connect(self._tic_traza)
-        # El estado del ring, con su pestaña visible: son unas lecturas de registros
-        # y los contadores de la sesión, no los datos.
-        self._t_ring = QTimer(self, interval=500)
-        self._t_ring.timeout.connect(self.sig_ring_estado)
+        # El estado del OSC y del ring, con «Configuración OSC» visible: son unas
+        # lecturas de registros y los contadores de la sesión, no los datos.
+        self._t_config_osc = QTimer(self, interval=500)
+        self._t_config_osc.timeout.connect(self._tic_config_osc)
 
         acc = QAction('Cargar bitstream del MCA…', self)
         acc.triggered.connect(self._cargar_bitstream)
@@ -697,10 +699,10 @@ class Mcamon(QMainWindow):
                                        tuple(info.get('map2d_shape') or (0, 0)))
         self._sincronizar_pestana_integracion(bool(info.get('has_integracion')))
         self._sincronizar_pestanas_osc(bool(info.get('has_osc')),
-                                       bool(info.get('has_mtrg')))
-        self._sincronizar_pestana_generador(bool(info.get('has_pulsos')))
-        self._sincronizar_pestana_ring(bool(info.get('has_ring')),
+                                       bool(info.get('has_mtrg')),
+                                       bool(info.get('has_ring')),
                                        bool(info.get('has_gen')))
+        self._sincronizar_pestana_generador(bool(info.get('has_pulsos')))
         if info.get('ring_corriendo'):
             self.panel_log.info('hay una adquisición del ring corriendo en la placa')
         for nota in info.get('bases_notas') or ():
@@ -711,20 +713,22 @@ class Mcamon(QMainWindow):
         self.lbl_estado.setText('sin conectar')
         self.panel_espectro.set_conectado(False)
         self.panel_config.set_conectado(False)
-        for panel in (self.panel_integracion, self.panel_osc, self.panel_mtrg,
-                      self.panel_gen, self.panel_ring):
+        for panel in (self.panel_integracion, self.panel_pulsos,
+                      self.panel_config_osc, self.panel_mtrg, self.panel_gen):
             if panel is not None:
                 panel.set_conectado(False)
         self.lbl_lazo.setVisible(False)
-        self._t_ring.stop()
+        self._t_config_osc.stop()
         self.panel_log.info('desconectado')
 
     def _al_estado(self, est):
         self.panel_espectro.actualizar_estado(est)
-        # La curva de tasa del OSC se alimenta del `status` del MCA, que ya
+        # La franja del datapath: tasas, pérdidas y si se borró el histograma.
+        self.panel_config.actualizar_estado(est)
+        # La curva de tasa de «Pulsos» se alimenta del `status` del MCA, que ya
         # llega cada 200 ms: no cuesta ninguna lectura extra.
-        if self.panel_osc is not None:
-            self.panel_osc.actualizar_estado(est)
+        if self.panel_pulsos is not None:
+            self.panel_pulsos.actualizar_estado(est)
         # El generador también viaja en el status: el aviso del lazo y el estado
         # de su pestaña no cuestan otra vuelta.
         gen = est.get('gen') or {}
@@ -805,30 +809,56 @@ class Mcamon(QMainWindow):
         if self.panel_integracion is not None:
             self.panel_integracion.actualizar(info)
 
-    # ---------- pestañas de OSC y Multitrigger ----------
+    # ---------- pestañas del osciloscopio (con el ring) y del Multitrigger ----------
 
-    def _sincronizar_pestanas_osc(self, hay_osc, hay_mtrg):
-        """Las dos existen si el bitstream trae el bloque, igual que las otras.
+    def _sincronizar_pestanas_osc(self, hay_osc, hay_mtrg, hay_ring=False,
+                                  hay_gen=False):
+        """Existen si el bitstream trae el bloque, igual que las otras.
 
-        Son dos pestañas para un mismo slot físico a propósito: el osciloscopio
-        clásico y el multitrigger son dos APIs sobre la misma región, y juntarlas
-        escondería eso. Pueden aparecer por separado porque el servidor abre los
-        handles por separado.
+        Del osciloscopio son dos: «Pulsos», la vista de las capturas, y
+        «Configuración OSC», sus registros por etapa y, con el bitstream del ring, el
+        ring como la fila del camino a DDR. El Multitrigger es otra pestaña para el
+        mismo slot físico a propósito: el osciloscopio clásico y el multitrigger son
+        dos APIs sobre la misma región, y juntarlas escondería eso.
         """
-        if hay_osc and self.panel_osc is None:
-            self.panel_osc = PanelOsc()
-            self.panel_osc.log.connect(self.panel_log.info)
-            self.panel_osc.pedir_campo.connect(self.sig_campo_osc)
-            self.panel_osc.pedir_ctrl.connect(self.sig_ctrl_osc)
-            self.panel_osc.pedir_captura.connect(self.sig_capturar)
-            self.tabs.addTab(self.panel_osc, 'OSC')
-        elif not hay_osc and self.panel_osc is not None:
-            self.tabs.removeTab(self.tabs.indexOf(self.panel_osc))
-            self.panel_osc.deleteLater()
-            self.panel_osc = None
-        if self.panel_osc is not None:
-            self.panel_osc.set_conectado(True)
+        if hay_osc and self.panel_pulsos is None:
+            self.panel_pulsos = PanelPulsos()
+            self.panel_pulsos.log.connect(self.panel_log.info)
+            self.panel_pulsos.pedir_captura.connect(self.sig_capturar)
+            self.tabs.addTab(self.panel_pulsos, 'Pulsos')
+        elif not hay_osc and self.panel_pulsos is not None:
+            self.tabs.removeTab(self.tabs.indexOf(self.panel_pulsos))
+            self.panel_pulsos.deleteLater()
+            self.panel_pulsos = None
+        if self.panel_pulsos is not None:
+            self.panel_pulsos.set_conectado(True)
+
+        hay_cfg = hay_osc or hay_ring
+        if hay_cfg and self.panel_config_osc is None:
+            self.panel_config_osc = PanelConfigOsc()
+            self.panel_config_osc.log.connect(self.panel_log.info)
+            self.panel_config_osc.pedir_campo.connect(self.sig_campo_osc)
+            self.panel_config_osc.pedir_ctrl.connect(self.sig_ctrl_osc)
+            self.tabs.addTab(self.panel_config_osc, 'Configuración OSC')
+        elif not hay_cfg and self.panel_config_osc is not None:
+            self.tabs.removeTab(self.tabs.indexOf(self.panel_config_osc))
+            self.panel_config_osc.deleteLater()
+            self.panel_config_osc = None
+        ring = None
+        if self.panel_config_osc is not None:
+            self.panel_config_osc.configurar(hay_osc, hay_ring, hay_gen)
+            self.panel_config_osc.set_conectado(True)
+            ring = self.panel_config_osc.ring
+        if ring is not None and ring is not self.panel_ring:
+            ring.log.connect(self.panel_log.info)
+            ring.pedir_iniciar.connect(self.sig_ring_iniciar)
+            ring.pedir_parar.connect(self.sig_ring_parar)
+            ring.pedir_estado.connect(self.sig_ring_estado)
+        self.panel_ring = ring
+        if hay_osc:
             self.sig_pedir_osc.emit()
+        if ring is not None:
+            self.sig_ring_estado.emit()
 
         if hay_mtrg and self.panel_mtrg is None:
             self.panel_mtrg = PanelMultitrigger()
@@ -868,34 +898,15 @@ class Mcamon(QMainWindow):
             self.panel_gen.set_conectado(True)
             self.sig_pedir_gen.emit()
 
-    # ---------- pestaña del event_ring ----------
-
-    def _sincronizar_pestana_ring(self, hay, hay_generador):
-        """Existe con el bitstream del ring; el del MCA no lo trae."""
-        if hay and self.panel_ring is None:
-            self.panel_ring = PanelRing()
-            self.panel_ring.log.connect(self.panel_log.info)
-            self.panel_ring.pedir_iniciar.connect(self.sig_ring_iniciar)
-            self.panel_ring.pedir_parar.connect(self.sig_ring_parar)
-            self.panel_ring.pedir_estado.connect(self.sig_ring_estado)
-            self.tabs.addTab(self.panel_ring, 'Ring')
-        elif not hay and self.panel_ring is not None:
-            self.tabs.removeTab(self.tabs.indexOf(self.panel_ring))
-            self.panel_ring.deleteLater()
-            self.panel_ring = None
-        if self.panel_ring is not None:
-            self.panel_ring.configurar_ring(hay_generador)
-            self.panel_ring.set_conectado(True)
-            self.sig_ring_estado.emit()
-        self._cambio_pestana()
+    # ---------- el event_ring, dentro de «Configuración OSC» ----------
 
     def _al_ring(self, e):
-        if self.panel_ring is not None:
-            self.panel_ring.actualizar_ring(e)
+        if self.panel_config_osc is not None:
+            self.panel_config_osc.actualizar_ring(e)
 
     def _al_ring_fallo(self, mensaje):
-        if self.panel_ring is not None:
-            self.panel_ring.mostrar_fallo(mensaje)
+        if self.panel_config_osc is not None:
+            self.panel_config_osc.mostrar_fallo_ring(mensaje)
 
     def _al_gen(self, info):
         self.lbl_lazo.setVisible(bool(info.get('lazo')))
@@ -903,46 +914,59 @@ class Mcamon(QMainWindow):
             self.panel_gen.actualizar_gen(info)
 
     def _al_osc(self, info):
-        if self.panel_osc is not None:
-            self.panel_osc.actualizar_osc(info)
+        if self.panel_pulsos is not None:
+            self.panel_pulsos.actualizar_osc(info)
+        if self.panel_config_osc is not None:
+            self.panel_config_osc.actualizar_osc(info)
 
     def _al_mtrg(self, info):
         if self.panel_mtrg is not None:
             self.panel_mtrg.actualizar_mtrg(info)
 
     def _al_traza(self, meta, datos):
-        if self.panel_osc is not None:
-            self.panel_osc.actualizar_traza(meta, datos)
+        if self.panel_pulsos is not None:
+            self.panel_pulsos.actualizar_traza(meta, datos)
 
     def _tic_traza(self):
         """Pide una captura si el modo continuo está activo y la pestaña se ve."""
-        if self.panel_osc is None or not self.info.get('has_osc'):
+        p = self.panel_pulsos
+        if p is None or not self.info.get('has_osc'):
             return
-        if self.tabs.currentWidget() is not self.panel_osc:
+        if self.tabs.currentWidget() is not p:
             return
-        if self.panel_osc.quiere_continuo():
-            self.panel_osc.pedir_una()
+        # El mapa de calor junta trazas y pide más seguido que el pulso.
+        if self._t_traza.interval() != p.intervalo_continuo_ms():
+            self._t_traza.setInterval(p.intervalo_continuo_ms())
+        if p.quiere_continuo():
+            p.pedir_una()
             # El `osc.get` va en el mismo tic: es de donde sale la tasa de
             # disparos del OSC (Δwe_cnt/Δt), que sin refresco no tiene serie.
             self.sig_pedir_osc.emit()
+
+    def _tic_config_osc(self):
+        """Con «Configuración OSC» visible: el estado del OSC y el del ring."""
+        if self.info.get('has_osc'):
+            self.sig_pedir_osc.emit()
+        if self.panel_ring is not None:
+            self.sig_ring_estado.emit()
 
     def _cambio_pestana(self, *_):
         visible = (self.panel_mapa is not None and
                    self.tabs.currentWidget() is self.panel_mapa)
         self.sig_mapa_visible.emit(visible)
-        osc_visible = (self.panel_osc is not None and
-                       self.tabs.currentWidget() is self.panel_osc)
-        if osc_visible and not self._t_traza.isActive():
+        pulsos_visible = (self.panel_pulsos is not None and
+                          self.tabs.currentWidget() is self.panel_pulsos)
+        if pulsos_visible and not self._t_traza.isActive():
             self._t_traza.start()
-        elif not osc_visible and self._t_traza.isActive():
+        elif not pulsos_visible and self._t_traza.isActive():
             self._t_traza.stop()
-        ring_visible = (self.panel_ring is not None and
-                        self.tabs.currentWidget() is self.panel_ring)
-        if ring_visible and not self._t_ring.isActive():
-            self.sig_ring_estado.emit()
-            self._t_ring.start()
-        elif not ring_visible and self._t_ring.isActive():
-            self._t_ring.stop()
+        cfg_visible = (self.panel_config_osc is not None and
+                       self.tabs.currentWidget() is self.panel_config_osc)
+        if cfg_visible and not self._t_config_osc.isActive():
+            self._tic_config_osc()
+            self._t_config_osc.start()
+        elif not cfg_visible and self._t_config_osc.isActive():
+            self._t_config_osc.stop()
 
     # ---------- bitstream ----------
 

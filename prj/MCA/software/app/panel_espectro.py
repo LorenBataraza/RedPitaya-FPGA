@@ -157,7 +157,7 @@ class PanelEspectro(QWidget):
         f.addRow('entrada inst., 1/s', self.lbl_rate_inst)
         f.addRow('entrada media, 1/s', self.lbl_rate_avg)
         # La tasa de los pulsos que llegan, no la de los aceptados: ésa queda en
-        # la curva de la pestaña OSC. La cuenta está en `arribos_y_tiempo` del
+        # la curva de la pestaña Pulsos. La cuenta está en `arribos_y_tiempo` del
         # servidor.
         ayuda = ('Pulsos que llegan por segundo, corregido por tiempo muerto:\n'
                  '(cross − lost_veto) / (real − veto − t_rearm).\n'

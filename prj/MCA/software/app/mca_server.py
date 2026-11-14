@@ -520,7 +520,7 @@ class ServidorMCA:
         # Dos tasas, cada una instantánea (entre dos status consecutivos) y
         # media (sobre toda la corrida):
         #   rate_*          aceptados por segundo vivo, la curva "MCA (aceptados)"
-        #                   de la pestaña OSC;
+        #                   de la pestaña Pulsos;
         #   tasa_entrada_*  λ̂, los pulsos que llegan, corregida por tiempo muerto
         #                   (`arribos_y_tiempo`).
         inst = inst_ent = 0.0

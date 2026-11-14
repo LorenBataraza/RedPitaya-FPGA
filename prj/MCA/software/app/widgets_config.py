@@ -44,8 +44,8 @@ RIESGO   = 'riesgo'      # mal puesto, deja el sistema sin eventos
 _EXPLICACION = {
     CALIENTE: 'Se puede cambiar con la medición corriendo.',
     CORTA:    'Cambiarlo REINICIA la cuenta en curso.',
-    INVALIDA: ('Cambia el significado del eje: lo que ya está acumulado se '
-               'mezcla con lo nuevo. Conviene borrar después de aplicar.'),
+    INVALIDA: ('Cambia lo que se mide: lo ya acumulado se mezcla con lo nuevo. '
+               'Conviene borrar el histograma después de cambiarlo.'),
     RIESGO:   'Mal puesto puede dejar el sistema SIN EVENTOS.',
 }
 
@@ -77,6 +77,9 @@ class PanelCampos(QWidget):
     # A qué bloque van los campos de este panel. La ventana lo mira para
     # decidir a qué operación mandarlos; el panel no sabe nada de la red.
     BLOQUE = 'mca'
+    # La marca que lleva el texto de una casilla según cuándo se puede tocar. Un
+    # panel donde casi todo es de una clase puede marcar sólo las otras.
+    MARCAS = _MARCA
 
     pedir_campo = pyqtSignal(str, int)
     log = pyqtSignal(str)
@@ -101,8 +104,8 @@ class PanelCampos(QWidget):
         self.pedir_campo.emit(campo, int(valor))
         cuando = self._cuando.get(campo, CALIENTE)
         if cuando == INVALIDA:
-            self.log.emit(f'{campo}: cambia el eje — lo acumulado antes de '
-                          f'este punto ya no es comparable')
+            self.log.emit(f'{campo}: cambia lo que se mide — lo acumulado antes '
+                          f'de este punto ya no es comparable')
         elif cuando == RIESGO:
             self.log.emit(f'{campo} = {valor}: si el espectro se queda en cero, '
                           f'es esto')
@@ -118,7 +121,7 @@ class PanelCampos(QWidget):
         return self._registrar(campo, s, s.value, s.setValue, cuando, ayuda)
 
     def _check(self, campo, texto, cuando=CALIENTE, ayuda=''):
-        c = QCheckBox(texto + _MARCA[cuando])
+        c = QCheckBox(texto + self.MARCAS[cuando])
         # Sin temporizador: una casilla no tiene estados intermedios, así que
         # el antirrebote no aporta y sí agregaría un retardo visible.
         c.toggled.connect(lambda v: self._emitir(campo, 1 if v else 0))
