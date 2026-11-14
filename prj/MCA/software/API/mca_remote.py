@@ -427,11 +427,12 @@ _UMBR_DE_FORMA = (R_TRAP_UMBR, R_FORMA1_UMBR, R_FORMA2_UMBR, R_FORMA3_UMBR)
 class FakeMCA(MCA):
     """Un MCA2 que no existe: fotopico gaussiano que crece con el tiempo vivo.
 
-    Respeta la ventana de aceptación `amp_min`/`amp_max` (sobre la feature de
-    16 b, como el RTL) y el zoom del eje 1D, así que moverlos desde la GUI
-    recorta y corre el pico de verdad. `centro` y `sigma` están en canales del
-    eje 1D a fondo de escala. Las ranuras no se modelan: no hay pérdidas ni
-    solapes, y todo el tiempo ocupado cae en `t_ocup[1]`.
+    Respeta la ventana de aceptación `amp_min`/`amp_max` (sobre el pico crudo
+    de 14 b, o la integral con amp_src, como el RTL) y el zoom del eje 1D, así
+    que moverlos desde la GUI recorta y corre el pico de verdad. `centro` y
+    `sigma` están en canales del eje 1D a fondo de escala. Las ranuras no se
+    modelan: no hay pérdidas ni solapes, y todo el tiempo ocupado cae en
+    `t_ocup[1]`.
 
     Con `trap=True` tiene los registros del banco de trapecios como el RTL
     (`N_FORMAS`, `umbr_ok` y el ok de cada forma, de sólo lectura), para que la
@@ -505,7 +506,11 @@ class FakeMCA(MCA):
         self._cnt['pileup'] += int(self._rng.binomial(n, 0.01))
         self._cnt['total'] += n
 
-        dentro = (amp >= amp_min) & (amp <= amp_max)
+        # La ventana NO compara la feature del eje: compara el pico crudo de 14 b
+        # (mca_slot.sv:251; el eje lo lleva `<< 2`, mca_publish.sv:342), o la
+        # integral con amp_src, que sí es la del eje. Igual que replica_mca2.
+        comparada = amp if self._reg.get(R_AMP_SRC, 0) & 1 else amp >> (AMP_W - 14)
+        dentro = (comparada >= amp_min) & (comparada <= amp_max)
         self._cnt['rej_amp'] += int((~dentro).sum())
         amp = amp[dentro]
         if amp.size == 0:

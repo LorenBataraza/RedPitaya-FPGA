@@ -26,17 +26,17 @@ sys.path.insert(0, os.path.dirname(_AQUI))          # .../software
 
 from PyQt5.QtCore import (QMetaObject, QObject, Qt, QThread, QTimer,
                           pyqtSignal, pyqtSlot)
-from PyQt5.QtWidgets import (QAction, QApplication, QComboBox, QDoubleSpinBox,
-                             QHBoxLayout, QInputDialog, QLabel, QLineEdit,
-                             QMainWindow, QMessageBox, QPushButton, QSpinBox,
-                             QSizePolicy, QTabWidget, QVBoxLayout, QWidget)
+from PyQt5.QtWidgets import (QAction, QApplication, QHBoxLayout, QInputDialog,
+                             QLabel, QLineEdit, QMainWindow, QMessageBox,
+                             QPushButton, QSpinBox, QSizePolicy, QTabWidget,
+                             QVBoxLayout, QWidget)
 
 import API.mca as A
 from API.mca_net import PORT_DEFAULT
 from API.mca_remote import MCARemote
 from app.panel_config_mca import PanelConfigMCA
 from app.panel_config_osc import PanelConfigOsc
-from app.panel_espectro import PanelEspectro
+from app.panel_espectro import REFRESCO_ESPECTRO_S, PanelEspectro
 from app.panel_generador import PanelGenerador
 from app.panel_integracion import PanelIntegracion
 from app.panel_log import PanelLog
@@ -45,7 +45,6 @@ from app.panel_multitrigger import PanelMultitrigger
 from app.panel_pulsos import PanelPulsos
 
 PERIODO_ESTADO_MS = 200
-REFRESCO_ESPECTRO_S = 1.0
 
 
 # =============================================================================
@@ -556,6 +555,7 @@ class Mcamon(QMainWindow):
         # El atajo de Spectrum arma con lo que diga la pestaña del Multitrigger.
         self.panel_espectro.pedir_disparo.connect(self._disparo_desde_espectro)
         self.panel_espectro.ir_a.connect(self._ir_a_pestana)
+        self.panel_espectro.pedir_refresco.connect(self.sig_refresco)
         self._ultimo_disparo = None     # el último estado del disparo del MCA
         self._ultima_cfg = None         # la última configuración del MCA
         self.panel_espectro.log.connect(self.panel_log.info)
@@ -592,28 +592,9 @@ class Mcamon(QMainWindow):
         self.spn_port = QSpinBox(minimum=1, maximum=65535)
         self.spn_port.setValue(port)
 
-        self.cmb_canal = QComboBox()
-        self.cmb_canal.addItems(['IN1', 'IN2'])
-        self.cmb_canal.currentIndexChanged.connect(
-            lambda i: self._campo_si_conectado('channel', i))
-
-        self.cmb_estimador = QComboBox()
-        self.cmb_estimador.addItems(['peak', 'integral'])
-        self.cmb_estimador.currentIndexChanged.connect(
-            lambda i: self._campo_si_conectado('amp_src', i))
-
-        self.spn_dec = QSpinBox(minimum=1, maximum=0xFFFF)
-        self.spn_dec.setKeyboardTracking(False)
-        self.spn_dec.valueChanged.connect(
-            lambda v: self._campo_si_conectado('dec', v))
-
-        self.spn_refresco = QDoubleSpinBox()
-        self.spn_refresco.setDecimals(1)
-        self.spn_refresco.setRange(0.2, 60.0)
-        self.spn_refresco.setSingleStep(0.5)
-        self.spn_refresco.setValue(REFRESCO_ESPECTRO_S)
-        self.spn_refresco.setSuffix(' s')
-        self.spn_refresco.valueChanged.connect(self.sig_refresco)
+        # El canal, el estimador y la decimación del MCA están en «MCA settings»
+        # (Input, Histogram axis), y el refresco del espectro, en «Spectrum»: acá
+        # sólo la conexión y el estado.
 
         # Se corta en vez de ensanchar la ventana: entero, el texto la llevaba a
         # más de 1240 px. Entero, en el tooltip.
@@ -631,15 +612,6 @@ class Mcamon(QMainWindow):
         for w in (self.btn_conectar, self.ed_host, QLabel(':'), self.spn_port):
             h.addWidget(w)
         h.addSpacing(16)
-        h.addWidget(QLabel('channel'))
-        h.addWidget(self.cmb_canal)
-        h.addWidget(QLabel('estimator'))
-        h.addWidget(self.cmb_estimador)
-        h.addWidget(QLabel('decimation'))
-        h.addWidget(self.spn_dec)
-        h.addWidget(QLabel('refresh'))
-        h.addWidget(self.spn_refresco)
-        h.addSpacing(12)
         h.addWidget(self.lbl_estado, 1)
         return h
 
@@ -800,14 +772,6 @@ class Mcamon(QMainWindow):
         self.panel_config.actualizar_config(cfg)
         if self.panel_mtrg is not None:
             self.panel_mtrg.actualizar_mca_config(cfg)
-        for widget, clave in ((self.cmb_canal, 'channel'),
-                              (self.cmb_estimador, 'amp_src')):
-            widget.blockSignals(True)
-            widget.setCurrentIndex(int(cfg.get(clave, 0)))
-            widget.blockSignals(False)
-        self.spn_dec.blockSignals(True)
-        self.spn_dec.setValue(max(1, int(cfg.get('dec', 1))))
-        self.spn_dec.blockSignals(False)
 
     def _al_mapa(self, mapa):
         if self.panel_mapa is not None:
@@ -815,10 +779,6 @@ class Mcamon(QMainWindow):
 
     def _al_fallo(self, mensaje):
         self.panel_log.error(mensaje)
-
-    def _campo_si_conectado(self, campo, valor):
-        if self.info.get('presente'):
-            self.sig_campo.emit(campo, int(valor))
 
     # ---------- pestaña 2D, según lo que publique el hardware ----------
 

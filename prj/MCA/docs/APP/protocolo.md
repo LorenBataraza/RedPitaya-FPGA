@@ -370,8 +370,8 @@ puede contar. Es lo que muestra la pestaña del espectro.
 
 `gen` es el estado corto del generador de pulsos, o `null` si el bitstream no lo
 trae. Viaja en el `status` por el `lazo`: con el lazo prendido el MCA mide el
-generador y no la entrada, y la GUI lo avisa en la barra superior desde cualquier
-pestaña sin pedir nada más.
+generador y no la entrada, y la GUI lo avisa en la esquina de las pestañas desde
+cualquiera sin pedir nada más.
 
 `exposure.target_s` es **livetime absoluto acumulado**, no un delta: una segunda
 exposición sin borrar antes continúa donde iba.

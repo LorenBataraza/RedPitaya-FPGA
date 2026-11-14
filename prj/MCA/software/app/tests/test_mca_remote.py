@@ -230,9 +230,11 @@ def test_ventana_de_amplitud_recorta_el_pico():
         A.mca_stop(h)
         assert A.mca_read_counters(h)['rej_amp'] == 0
 
-        # La ventana es sobre la feature de 16 b, no sobre el canal: el pico
-        # está en el canal ~8000 y el corte va en el 12000.
-        A.mca_set_amp_min(h, A.mca_amplitud_de_canal(12000, h.h_aw))
+        # La ventana es sobre el pico crudo de 14 b, no sobre el canal ni sobre
+        # la feature del eje (que lo lleva << 2): el pico está en el canal ~8000
+        # y el corte va en el 12000.
+        A.mca_set_amp_min(h, A.mca_amplitud_de_canal(12000, h.h_aw)
+                          >> (A.AMP_W - 14))
         A.mca_clear(h)
         A.mca_start(h)
         time.sleep(0.4)

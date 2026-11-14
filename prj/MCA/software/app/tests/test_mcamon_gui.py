@@ -100,17 +100,20 @@ def test_conecta_y_toma_la_geometria_del_hardware():
 
 
 def test_la_ventana_de_amplitud_cae_en_el_canal_correcto():
-    """El bug que motivó todo esto.
+    """El bug que motivó todo esto, y el segundo, el de las unidades.
 
-    `amp_min`/`amp_max` viven en cuentas de amplitud de AMP_W=16 bits y el eje
-    está en canales, así que la línea va en `amp >> (16 - h_aw)`. El código
-    usaba `>> h_shift`, un registro que el bitstream nuevo dejó DEPRECADO y que
-    lee 0: la línea caía 8 veces más a la derecha con 8192 canales, y los
-    límites altos no se dibujaban porque se salían del eje.
+    El eje está en canales, los h_aw bits altos de la feature de AMP_W=16 bits.
+    El código usaba `>> h_shift`, un registro que el bitstream nuevo dejó
+    DEPRECADO y que lee 0: la línea caía 8 veces más a la derecha con 8192
+    canales, y los límites altos no se dibujaban porque se salían del eje.
 
-    Con h_aw=13, amp_min=1000 tiene que dar el canal 125. Daba 1000.
+    Y en modo pico `amp_min`/`amp_max` no están en las unidades del eje: la
+    ventana compara el pico CRUDO de 14 bits (mca_slot.sv:251) y el eje muestra
+    `pico << 2` (mca_publish.sv:342). Con h_aw=13, amp_min=1000 es el canal
+    500; tratarlo como feature de 16 b daba 125. Con la integral sí coinciden.
+    Y si el eje muestra otra feature, no hay líneas.
     """
-    from API.mca import mca_canal_de_amplitud
+    from API.mca import F_INT, F_TRAP, mca_canal_de_amplitud
 
     for h_aw in (14, 13):
         def cuerpo(app, v, h_aw=h_aw):
@@ -119,23 +122,39 @@ def test_la_ventana_de_amplitud_cae_en_el_canal_correcto():
             # el hardware, y la config que vuelve la desmarca sola porque la
             # ventana sigue abierta (amp_min=0, amp_max=0xFFFF). Acá se está
             # probando el dibujo, no el ida y vuelta.
-            p._cargando = True
-            p.chk_ventana.setChecked(True)
-            p.spn_amp_min.setValue(1000)
-            p.spn_amp_max.setValue(60000)
-            p._cargando = False
-            p._redibujar()
-            app.processEvents()
+            def dibujar(amp_src, sel_1d, lo, hi):
+                p._cargando = True
+                p._amp_src, p._sel_1d = amp_src, sel_1d
+                p.chk_ventana.setChecked(True)
+                p.spn_amp_min.setValue(lo)
+                p.spn_amp_max.setValue(hi)
+                p._cargando = False
+                p._redibujar()
+                app.processEvents()
+                return sorted(int(round(ln.get_xdata()[0]))
+                              for ln in p._lineas_ventana)
 
-            esperados = sorted(mca_canal_de_amplitud(x, h_aw)
-                               for x in (1000, 60000))
-            dibujados = sorted(int(round(ln.get_xdata()[0]))
-                               for ln in p._lineas_ventana)
+            # Pico: el crudo de 14 b, el eje lo lleva << 2.
+            dibujados = dibujar(0, 0, 1000, 8000)
+            esperados = sorted(mca_canal_de_amplitud(x << 2, h_aw)
+                               for x in (1000, 8000))
             assert dibujados == esperados, (
                 f'h_aw={h_aw}: líneas en {dibujados}, esperadas {esperados}')
-            # Y ninguna se cae del eje: antes, 60000 no se dibujaba.
+            if h_aw == 13:
+                assert dibujados[0] == 500
+            # Y ninguna se cae del eje: antes, las altas no se dibujaban.
             assert len(dibujados) == 2, f'h_aw={h_aw}: se perdió una línea'
             assert all(0 <= c < (1 << h_aw) for c in dibujados)
+            assert f'channels {esperados[0]} … {esperados[1]}' in p.lbl_ventana.text()
+
+            # Integral: la ventana y el eje miden lo mismo.
+            dibujados = dibujar(1, F_INT, 1000, 60000)
+            assert dibujados == sorted(mca_canal_de_amplitud(x, h_aw)
+                                       for x in (1000, 60000))
+
+            # Otra feature en el eje: no hay dónde ponerlas.
+            assert dibujar(0, F_TRAP, 1000, 8000) == []
+            assert 'another feature' in p.lbl_ventana.text()
         _con_gui(cuerpo, h_aw=h_aw)
 
 
@@ -325,9 +344,10 @@ def test_un_campo_del_mca2_llega_al_hardware():
 def test_la_ventana_de_amplitud_recorta_y_se_dibuja():
     def cuerpo(app, v):
         pe = v.panel_espectro
-        # La ventana es sobre la feature de 16 b: el pico simulado está en el
-        # canal ~8000 de 16384, y el corte va en el 12000 (= 48000).
-        corte = mca_amplitud_de_canal(12000, 14)
+        # La ventana es sobre el pico crudo de 14 b, que el eje lleva << 2: el
+        # pico simulado está en el canal ~8000 de 16384, y el corte va en el
+        # 12000 (= 48000 en el eje, 12000 en la ventana).
+        corte = mca_amplitud_de_canal(12000, 14) >> 2
         v.sig_campo.emit('amp_min', corte)
         assert _esperar(app, lambda: pe.spn_amp_min.value() == corte)
         v.sig_borrar.emit()

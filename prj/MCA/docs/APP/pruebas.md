@@ -134,9 +134,17 @@ esto: la ventana de aceptación se dibujaba con `amp >> h_shift`, un registro
 deprecado que lee 0, en vez de `amp >> (AMP_W − h_aw)`. Con 8192 canales las
 líneas caían 8× a la derecha y las de amplitud alta ni se dibujaban.
 
-`test_la_ventana_de_amplitud_cae_en_el_canal_correcto` es la que pone el número:
-con `h_aw=13`, `amp_min=1000` tiene que dar el canal **125**. Daba 1000. Se
-comprobó que la prueba falla contra el código viejo antes de darla por buena.
+`test_la_ventana_de_amplitud_cae_en_el_canal_correcto` es la que pone el número.
+Y pone un segundo: en modo pico la ventana **no** está en las unidades del eje.
+Compara el pico crudo de 14 bits (`mca_slot.sv:251`, `replica_mca2.py`) y el eje
+muestra `pico << 2` (`mca_publish.sv:342`), así que con `h_aw=13`, `amp_min=1000`
+tiene que dar el canal **500**. Tratada como feature de 16 b daba 125 (y antes
+de eso, con `h_shift`, 1000). Con la integral (`amp_src=1`) la ventana y el eje sí
+miden lo mismo, y si el eje muestra otra feature no se dibuja ninguna línea. Se
+comprobó que la prueba falla contra el código viejo antes de darla por buena
+(líneas en 250 y 2000 en vez de 1000 y 8000, con `h_aw=14`). El servidor falso
+recorta igual que el RTL, así que `test_la_ventana_de_amplitud_recorta_y_se_dibuja`
+pone el corte en unidades del pico crudo.
 
 Y `test_guardar_y_recargar_desde_la_gui` exige que `h_aw` y el zoom estén en la
 metadata: sin ellos un espectro dice "8192 canales" sin decir sobre qué ventana

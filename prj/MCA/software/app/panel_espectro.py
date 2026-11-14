@@ -5,14 +5,24 @@ El dibujo va sobre `NavigationToolbar2QT`, que ya trae home / desplazar / zoom
 / guardar imagen: es la misma barra que se ve en la aplicación de referencia y
 no hay razón para reimplementarla.
 
-La ventana de amplitud se escribe por campo (`mca_set_amp_min`, read-modify-
-write), NO con `mca_configure`: el bloque entero escribe R_CTRL con run=0, o sea
-que tocarla pararía la adquisición en curso.
+Dos grupos que no hay que confundir, aunque los dos digan «ventana» en el RTL:
 
-En el MCA2 la ventana la abre el disparo del multitrigger, no un umbral del
-MCA. Se configura en la pestaña «Multitrigger» (Sources → MCA trigger); acá queda
-su estado y un atajo para armarlo y desarmarlo (op `mca.disparo`, con los
-parámetros de esa pestaña: los pone la ventana). Sin él no se mide.
+- **MCA trigger**: el disparo del multitrigger abre la ventana de TIEMPO (la
+  ranura) en la que el MCA mide un pulso. Se configura en la pestaña
+  «Multitrigger» (Sources → MCA trigger); acá queda su estado y un atajo para
+  armarlo y desarmarlo (op `mca.disparo`, con los parámetros de esa pestaña: los
+  pone la ventana principal). Sin él no se mide.
+- **Amplitude acceptance**: la ventana de AMPLITUD `[amp_min, amp_max]`. Al
+  cerrar la ranura, un pulso fuera de ella no va al histograma y se cuenta en
+  `rej_amp`. Se escribe por campo (`mca_set_amp_min`, read-modify-write), NO con
+  `mca_configure`: el bloque entero escribe R_CTRL con run=0, o sea que tocarla
+  pararía la adquisición en curso.
+
+Las unidades de la ventana de amplitud no son las del eje. Compara el pico CRUDO
+de 14 bits (`mca_slot.sv:251`), o la integral `Q >> q_shift` con amp_src, y el
+eje 1D muestra el pico alineado a la izquierda, `pico << 2`
+(`mca_publish.sv:342`, `replica_mca2.py`). Por eso las líneas se corren por
+`CORR_PICO` en modo pico, y no se dibujan si el eje muestra otra feature.
 """
 
 import os
@@ -31,12 +41,16 @@ from PyQt5.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox,
                              QWidget)
 
 from API.analisis import buscar_picos
-from API.mca import (mca_canal_de_amplitud, mca_load_file,
-                     mca_save_file_binary, mca_save_file_json, mca_save_file_n42,
-                     mca_write_file_histogram)
+from API.mca import (AMP_W, F_INT, F_PEAK, mca_canal_de_amplitud,
+                     mca_load_file, mca_save_file_binary, mca_save_file_json,
+                     mca_save_file_n42, mca_write_file_histogram)
 
 COLOR_ESPECTRO = '#ff9900'
 REBIN = (1, 2, 4, 8, 16, 32, 64)
+REFRESCO_ESPECTRO_S = 1.0                # cada cuánto se lee el histograma
+# El eje 1D lleva el pico alineado a la izquierda de AMP_W bits (`pico << 2`) y
+# la ventana de amplitud compara el pico crudo de 14 bits: ver el docstring.
+CORR_PICO = AMP_W - 14
 
 
 class PanelEspectro(QWidget):
@@ -47,6 +61,7 @@ class PanelEspectro(QWidget):
     ir_a = pyqtSignal(str)                   # 'mtrg': el disparo se configura ahí
     pedir_clear = pyqtSignal()
     pedir_campo = pyqtSignal(str, int)       # campo de _CAMPOS, valor
+    pedir_refresco = pyqtSignal(float)       # segundos entre lecturas del histograma
     log = pyqtSignal(str)
 
     def __init__(self, parent=None):
@@ -63,7 +78,9 @@ class PanelEspectro(QWidget):
         self.n_canales = 1 << self.h_aw
         self.h_shift = 0                     # DEPRECADO: no gobierna el eje
         self._canal = 0                      # el del MCA: el disparo va ahí
-        self.zoom_z = 0                      # ventana = 2^-z del fondo de escala
+        self._amp_src = 0                    # qué compara la ventana: pico o integral
+        self._sel_1d = F_PEAK                # qué muestra el eje
+        self.zoom_z = 0                     # ventana = 2^-z del fondo de escala
         self.zoom_k = 0                      # cuál de las 2^z ventanas
         self._cargando = False               # evita el eco de los spinbox
         self.picos = []                      # lo que devolvió `buscar_picos`
@@ -99,6 +116,13 @@ class PanelEspectro(QWidget):
         self.cmb_rebin = QComboBox()
         self.cmb_rebin.addItems(str(r) for r in REBIN)
         self.cmb_rebin.currentIndexChanged.connect(self._redibujar)
+        # Vivía en la barra de arriba, pero sólo cambia cada cuánto se lee ESTE
+        # histograma.
+        self.spn_refresco = QDoubleSpinBox(decimals=1, minimum=0.2, maximum=60.0,
+                                           singleStep=0.5, suffix=' s')
+        self.spn_refresco.setValue(REFRESCO_ESPECTRO_S)
+        self.spn_refresco.setToolTip('How often the spectrum is read from the board.')
+        self.spn_refresco.valueChanged.connect(self.pedir_refresco)
 
         pie = QHBoxLayout()
         pie.addWidget(self.barra)
@@ -106,6 +130,8 @@ class PanelEspectro(QWidget):
         pie.addWidget(self.chk_log)
         pie.addWidget(QLabel('group bins'))
         pie.addWidget(self.cmb_rebin)
+        pie.addWidget(QLabel('refresh'))
+        pie.addWidget(self.spn_refresco)
 
         w = QWidget()
         v = QVBoxLayout(w)
@@ -125,7 +151,8 @@ class PanelEspectro(QWidget):
         v.addWidget(self._grupo_lectura())
         v.addWidget(self._grupo_contadores())
         v.addWidget(self._grupo_picos())
-        v.addWidget(self._grupo_umbral())
+        v.addWidget(self._grupo_disparo())
+        v.addWidget(self._grupo_aceptacion())
         v.addWidget(self._grupo_exposicion())
         v.addWidget(self._grupo_archivo())
         v.addStretch(1)
@@ -172,15 +199,16 @@ class PanelEspectro(QWidget):
             f.labelForField(lbl).setToolTip(ayuda)
         return g
 
-    def _grupo_umbral(self):
-        g = QGroupBox('trigger and window')
+    def _grupo_disparo(self):
+        """El disparo es del multitrigger y se configura en su pestaña: acá, el
+        estado y el atajo para armarlo con lo que diga esa pestaña."""
+        g = QGroupBox('MCA trigger')
+        g.setToolTip('Each trigger opens a time window in which the MCA measures '
+                     'one pulse. No trigger, no counts.')
         f = QFormLayout(g)
-
-        # El disparo es del multitrigger y se configura en su pestaña: acá, el
-        # estado y el atajo para armarlo con lo que diga esa pestaña.
         self.lbl_disparo = QLabel('—')
         self.lbl_disparo.setWordWrap(True)
-        f.addRow('trigger', self.lbl_disparo)
+        f.addRow(self.lbl_disparo)
         self.btn_armar = QPushButton('Arm')
         self.btn_armar.setToolTip('Arms the MCA trigger with the source and the '
                                   'parameters of Multitrigger → Sources → MCA trigger.')
@@ -195,14 +223,33 @@ class PanelEspectro(QWidget):
         fila.addWidget(self.btn_desarmar)
         fila.addWidget(self.btn_ir_mtrg)
         f.addRow(fila)
+        return g
 
-        self.chk_ventana = QCheckBox('amplitude window')
+    def _grupo_aceptacion(self):
+        """La ventana de amplitud: qué pulsos medidos van al histograma."""
+        g = QGroupBox('amplitude acceptance')
+        ayuda = ('Only pulses whose amplitude falls in [min, max] go to the '
+                 'spectrum; the rest are counted in «rej. ampl.».\n'
+                 'Amplitude = the peak sample in ADC counts (0 … 8191), or the '
+                 'charge integral >> q_shift with «use the charge integral» '
+                 '(MCA settings → Histogram axis).\n'
+                 'Off = everything is accepted. Changing it does not stop the run.')
+        g.setToolTip(ayuda)
+        f = QFormLayout(g)
+        self.chk_ventana = QCheckBox('only count amplitudes in')
+        self.chk_ventana.setToolTip(ayuda)
         self.chk_ventana.toggled.connect(self._cambio_ventana)
         self.spn_amp_min = self._spin(0, 0xFFFF, 'amp_min')
         self.spn_amp_max = self._spin(0, 0xFFFF, 'amp_max')
+        rango = QHBoxLayout()
+        rango.addWidget(self.spn_amp_min, 1)
+        rango.addWidget(QLabel('…'))
+        rango.addWidget(self.spn_amp_max, 1)
         f.addRow(self.chk_ventana)
-        f.addRow('min', self.spn_amp_min)
-        f.addRow('max', self.spn_amp_max)
+        f.addRow(rango)
+        self.lbl_ventana = QLabel('—')
+        self.lbl_ventana.setWordWrap(True)
+        f.addRow(self.lbl_ventana)
         return g
 
     def _grupo_exposicion(self):
@@ -486,6 +533,8 @@ class PanelEspectro(QWidget):
         self._cargando = True
         try:
             self._canal = int(cfg.get('channel', 0))
+            self._amp_src = int(cfg.get('amp_src', 0) or 0)
+            self._sel_1d = int(cfg.get('sel_1d', self._amp_src) or 0)
             self.spn_amp_min.setValue(int(cfg.get('amp_min', 0)))
             self.spn_amp_max.setValue(int(cfg.get('amp_max', 0xFFFF)))
             abierta = (int(cfg.get('amp_min', 0)) == 0 and
@@ -572,8 +621,7 @@ class PanelEspectro(QWidget):
                         [p['fwhm_lo'], p['fwhm_hi']], [media, media],
                         color='#3080ff', lw=1.4, alpha=0.8, zorder=5)[0])
 
-        # Los límites de aceptación viven en cuentas de amplitud de AMP_W bits;
-        # el eje está en canales, que son los h_aw bits altos de la feature
+        # El eje está en canales, que son los h_aw bits altos de la feature
         # después del zoom. La conversión NO es `>> h_shift`: ese registro quedó
         # deprecado y ya no gobierna el datapath, así que usarlo acá ponía las
         # líneas 2^(AMP_W-h_aw) veces más a la derecha — un factor 8 con 8192
@@ -581,17 +629,39 @@ class PanelEspectro(QWidget):
         for ln in self._lineas_ventana:
             ln.remove()
         self._lineas_ventana = []
-        if self.chk_ventana.isChecked():
-            for valor in (self.spn_amp_min.value(), self.spn_amp_max.value()):
-                canal = mca_canal_de_amplitud(valor, self.h_aw,
-                                              self.zoom_z, self.zoom_k)
+        canales = self.canales_de_la_ventana()
+        if not self.chk_ventana.isChecked():
+            self.lbl_ventana.setText('off: every amplitude is counted')
+        elif canales is None:
+            self.lbl_ventana.setText('the axis shows another feature, so the '
+                                     'limits are not drawn')
+        else:
+            for canal in canales:
                 # Los extremos SÍ se dibujan: con zoom, un límite fuera de la
                 # ventana satura contra el borde, y ver la línea pegada al
                 # borde es justamente la señal de que la ventana lo dejó afuera.
                 self._lineas_ventana.append(
                     self.ax.axvline(canal, color='#cc3333', ls='--', lw=0.9))
+            self.lbl_ventana.setText(f'= channels {canales[0]} … {canales[1]} '
+                                     '(the dashed red lines)')
 
         self.canvas.draw_idle()
+
+    def canales_de_la_ventana(self):
+        """(canal de amp_min, canal de amp_max) en el eje actual, o None si el eje
+        muestra otra feature que la que compara la ventana.
+
+        La ventana compara el pico crudo (o la integral, con amp_src) y el eje
+        muestra la feature `sel_1d`: sólo coinciden si `sel_1d` es esa misma, y
+        en modo pico el eje la lleva `<< CORR_PICO`.
+        """
+        if self._sel_1d != (F_INT if self._amp_src else F_PEAK):
+            return None
+        corr = 0 if self._amp_src else CORR_PICO
+        return tuple(
+            mca_canal_de_amplitud(min(valor << corr, (1 << AMP_W) - 1), self.h_aw,
+                                  self.zoom_z, self.zoom_k)
+            for valor in (self.spn_amp_min.value(), self.spn_amp_max.value()))
 
     def _sobre_grafico(self, ev):
         if ev.inaxes is not self.ax or self.hist is None:
