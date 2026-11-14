@@ -155,9 +155,15 @@ class PanelMultitrigger(PanelPorEtapas):
                            'How far the signal has to come back before another '
                            'trigger is allowed. Too low, noise triggers too often.')
             f.addRow(self._texto_con_marca(campo, f'hysteresis {canal_txt(ch)}'), w)
-        # En volts, en una fila propia: como campo de un QFormLayout no entra.
-        self.lbl_thr_v = self._gris('—')
+        # En volts, en una fila propia: como campo de un QFormLayout no entra. Es el
+        # Schmitt de rp_adc_trig: ↑ dispara con x ≥ thr y re-arma con x < thr − hyst.
+        self.lbl_thr_v = self._nota('—', '#333')
         f.addRow(self.lbl_thr_v)
+        f.addRow(self._nota(
+            'Hysteresis: after a trigger the signal has to come back below '
+            'threshold − hysteresis before the next one (level ↑; ↓ is the mirror). '
+            'It keeps noise on the edge from firing many times; too large, it '
+            'never re-arms.'))
         w = self._spin('deb_len', 0, 0xFFFFF, CORTA,
                        'ADC cycles the external trigger (DIO0) stays inhibited after '
                        'one. The RTL reset value is 62500 = 500 µs.')
@@ -190,8 +196,11 @@ class PanelMultitrigger(PanelPorEtapas):
         return self._controles[campo][1]() / self.cnt_por_v
 
     def _pintar_umbral(self, *_):
-        self.lbl_thr_v.setText(f"IN1 {self._volts('thr_ch0'):+.3f} V · "
-                               f"IN2 {self._volts('thr_ch1'):+.3f} V")
+        self.lbl_thr_v.setText('\n'.join(
+            f"{canal_txt(ch)}: triggers at {self._volts(f'thr_ch{ch}'):+.3f} V, "
+            f"re-arms below "
+            f"{self._volts(f'thr_ch{ch}') - self._volts(f'hyst_ch{ch}'):+.3f} V"
+            for ch in (0, 1)))
 
     def _emitir(self, campo, valor):
         """Los del nivel van al OSC, donde están sus registros; los demás, al
@@ -263,6 +272,8 @@ class PanelMultitrigger(PanelPorEtapas):
                              'allows triggering on the tail of another pulse.')
         fp.addRow('threshold (s)', self.spn_thr)
         fp.addRow('hysteresis (s)', self.spn_hyst)
+        self.lbl_nota_pend = self._nota()
+        fp.addRow(self.lbl_nota_pend)
         v.addWidget(self._w_pend)
 
         # El polo-cero: el umbral y el re-armado en cuentas de amplitud; el servidor
@@ -295,7 +306,12 @@ class PanelMultitrigger(PanelPorEtapas):
                                     'amplitude counts (25).')
         fz.addRow('threshold', self.spn_thr_pz)
         fz.addRow('hysteresis', self.spn_hyst_pz)
+        self.lbl_nota_pz = self._nota()
+        fz.addRow(self.lbl_nota_pz)
         v.addWidget(self._w_pz)
+        for w in (self.spn_l, self.spn_thr, self.spn_hyst, self.spn_thr_pz,
+                  self.spn_hyst_pz):
+            w.valueChanged.connect(self._pintar_notas_mca)
 
         self.btn_armar_mca = QPushButton('Arm for the MCA')
         self.btn_armar_mca.setToolTip(
@@ -316,7 +332,33 @@ class PanelMultitrigger(PanelPorEtapas):
         self.lbl_disparo.setMinimumWidth(150)
         v.addWidget(self.lbl_disparo)
         self._cambio_fuente()
+        self._pintar_notas_mca()
         return g
+
+    def _pintar_notas_mca(self, *_):
+        """Qué significan los números del disparo del MCA, en cuentas y en volts.
+
+        Pendiente: s es la suma de L muestras menos la de L muestras G antes, así
+        que un escalón de alto A da s = L·A (mt_slope_trig.sv). Polo-cero: el
+        trapecio corto mide la amplitud, así que el umbral ya está en cuentas.
+        """
+        def mv(cuentas):
+            return f'{1000.0 * cuentas / self.cnt_por_v:.1f} mV'
+
+        L = max(1, self.spn_l.value())
+        a = self.spn_thr.value() / L
+        b = (self.spn_thr.value() - self.spn_hyst.value()) / L
+        self.lbl_nota_pend.setText(
+            f's = sum of L samples − sum of L samples G earlier; a step of height A '
+            f'gives s = L·A. Triggers at s ≥ threshold, re-arms below threshold − '
+            f'hysteresis: now a rise of {a:.0f} counts ({mv(a)}), re-arm below '
+            f'{b:.0f} ({mv(b)}).')
+        # Corta: el polo-cero tiene más filas y con más renglones no entra.
+        t, h = self.spn_thr_pz.value(), self.spn_hyst_pz.value()
+        self.lbl_nota_pz.setText(
+            f'The trapezoid height is the pulse amplitude (tail cancelled with Mq), '
+            f'so the threshold is in ADC counts: {t:.0f} ({mv(t)}), re-arm below '
+            f'{t - h:.0f} ({mv(t - h)}).')
 
     def _cambio_fuente(self, *_):
         pz = self.cmb_fuente.currentData() == 'pz'
@@ -675,6 +717,7 @@ class PanelMultitrigger(PanelPorEtapas):
         self.cnt_por_v = float(info.get('adc_cnt_per_v', self.cnt_por_v))
         self.actualizar_config(info.get('config') or {})
         self._pintar_umbral()
+        self._pintar_notas_mca()
 
     def actualizar_disparo(self, est):
         """El estado que devuelve la op `mca.disparo`: la etiqueta, y lo armado vuelve

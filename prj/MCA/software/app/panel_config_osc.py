@@ -56,6 +56,7 @@ class PanelConfigOsc(PanelPorEtapas):
         self._hay_osc = True
         self._conectado = False
         self._umbral = {}                    # thr/hyst del nivel, de osc.get (cuentas)
+        self._factor = {}                    # canal -> QLabel con el ×gain
         self._construir()
         self.set_conectado(False)
 
@@ -106,10 +107,25 @@ class PanelConfigOsc(PanelPorEtapas):
                                   'Calibration offset, in counts. Set wrong, it '
                                   'shifts the baseline and with it the whole '
                                   'spectrum.'))
-            self._fila(f, f'calib_gain_ch{ch}', f'gain IN{ch + 1}',
-                       self._spin(f'calib_gain_ch{ch}', 0, 0xFFFF, RIESGO,
-                                  'Calibration gain. 0x8000 is unity: with 0 no '
-                                  'signal gets in.'))
+            # El factor al lado del registro: «32768» solo no dice que es ×1.
+            spn = self._spin(f'calib_gain_ch{ch}', 0, 0xFFFF, RIESGO,
+                             'Calibration gain. 0x8000 is unity: with 0 no signal '
+                             'gets in.')
+            self._factor[ch] = QLabel()
+            fila = QWidget()
+            h = QHBoxLayout(fila)
+            h.setContentsMargins(0, 0, 0, 0)
+            h.addWidget(spn)
+            h.addWidget(self._factor[ch])
+            self._fila(f, f'calib_gain_ch{ch}', f'gain IN{ch + 1}', fila)
+            spn.valueChanged.connect(self._pintar_ganancia)
+        # rp_scope_calib.v: sat(((x + off) << 15) · gain >>> 30), o sea
+        # (x + off) · gain / 2^15, saturado a 14 bits con signo. Corta: con más
+        # renglones la pestaña ya no entra sin scroll.
+        f.addRow(self._nota(
+            'out = (ADC + offset) · gain / 32768, saturated; 32768 = ×1. Scope, '
+            'triggers and MCA all see it.'))
+        self._pintar_ganancia()
         self._fila(f, 'filt_bypass', 'skip filter',
                    self._spin('filt_bypass', 0, 0xF, CORTA,
                               'One bit per channel: bypasses the input filter. '
@@ -241,6 +257,11 @@ class PanelConfigOsc(PanelPorEtapas):
         self._reasignar(self.ring.grp_estimulo,
                         'generador' if estimulo == 'generador' else 'disparo')
         self.diagrama.set_estimulo(estimulo)
+
+    def _pintar_ganancia(self, *_):
+        for ch in (0, 1):
+            g = self._controles[f'calib_gain_ch{ch}'][1]()
+            self._factor[ch].setText(f'×{g / 32768:.3f}')
 
     def _disparo_v(self):
         """El umbral y la histéresis de nivel de IN1, en volts: con los que se arma el

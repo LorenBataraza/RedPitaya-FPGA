@@ -145,7 +145,10 @@ def test_la_ventana_de_amplitud_cae_en_el_canal_correcto():
             # Y ninguna se cae del eje: antes, las altas no se dibujaban.
             assert len(dibujados) == 2, f'h_aw={h_aw}: se perdió una línea'
             assert all(0 <= c < (1 << h_aw) for c in dibujados)
-            assert f'channels {esperados[0]} … {esperados[1]}' in p.lbl_ventana.text()
+            # La aclaración dice las unidades, no los canales (pedido del usuario).
+            texto = p.lbl_ventana.text()
+            assert 'ADC counts of the peak' in texto and 'not channels' in texto
+            assert 'dashed red lines' in texto and 'channels ' + str(esperados[0]) not in texto
 
             # Integral: la ventana y el eje miden lo mismo.
             dibujados = dibujar(1, F_INT, 1000, 60000)
@@ -201,7 +204,12 @@ def test_los_contadores_y_las_tasas_se_llenan():
         assert _esperar(app, lambda:
                         v.panel_espectro.contadores.get('livetime_s', 0) > 0.2)
         assert _esperar(app, lambda:
-                        float(v.panel_espectro.lbl_rate_avg.text()) > 0)
+                        v.panel_espectro.tasa_media_hz > 0)
+        # Con prefijo, no en notación científica: el falso da ~1000 /s.
+        from app.franja import _tasa
+        texto = v.panel_espectro.lbl_rate_avg.text()
+        assert texto.endswith('/s') and 'e+' not in texto
+        assert texto == _tasa(v.panel_espectro.tasa_media_hz)
         assert v.panel_espectro.contadores['accepted'] > 0
         assert v.panel_espectro.baseline is not None
         assert 'accepted' in v.panel_espectro.lbl_contadores.text()
@@ -1363,7 +1371,7 @@ def test_el_lazo_se_ve_en_la_barra_y_lleva_la_tasa_al_espectro():
         v.sig_start.emit(0.0, True)
         assert _esperar(app, lambda: v.panel_espectro.contadores.get(
             'realtime_s', 0) > 1.5)
-        tasa = float(v.panel_espectro.lbl_rate_avg.text())
+        tasa = v.panel_espectro.tasa_media_hz
         assert abs(tasa / 5000 - 1) < 0.15, tasa
         v.sig_parar.emit()
         p.btn_parar.click()

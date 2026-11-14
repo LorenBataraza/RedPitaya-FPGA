@@ -12,7 +12,8 @@ ring) se suman con `_adoptar(grupo, etapa)`, y `_reasignar` los cambia de etapa.
 """
 
 from PyQt5.QtCore import QEvent, Qt
-from PyQt5.QtWidgets import QApplication, QFormLayout, QGroupBox, QWidget
+from PyQt5.QtWidgets import (QApplication, QFormLayout, QGroupBox, QLabel,
+                             QSizePolicy, QWidget)
 
 from app.widgets_config import PanelCampos
 
@@ -62,6 +63,17 @@ class PanelPorEtapas(PanelCampos):
         f.setVerticalSpacing(3)
         f.setContentsMargins(8, 4, 8, 4)
         return f
+
+    @staticmethod
+    def _nota(texto='', color='#666'):
+        """Una aclaración a la vista, en gris: se parte en renglones y NO ensancha la
+        columna (política Ignored), para que la pestaña siga entrando sin scroll."""
+        lbl = QLabel(texto)
+        lbl.setWordWrap(True)
+        lbl.setStyleSheet(f'color: {color};')
+        lbl.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        lbl.setMinimumWidth(120)
+        return lbl
 
     def _grupo(self, etapa, titulo):
         """Un grupo de la etapa `etapa`: el título con su color, y los campos que se

@@ -5,16 +5,19 @@ El dibujo va sobre `NavigationToolbar2QT`, que ya trae home / desplazar / zoom
 / guardar imagen: es la misma barra que se ve en la aplicación de referencia y
 no hay razón para reimplementarla.
 
-Dos grupos que no hay que confundir, aunque los dos digan «ventana» en el RTL:
+La columna de la derecha: la lectura; la medición entera (contadores,
+exposición, Start / Stop / Clear y guardado, juntos); los picos, con lo que entra
+al histograma; y el disparo. Dos cosas que no hay que confundir, aunque las dos
+digan «ventana» en el RTL:
 
 - **MCA trigger**: el disparo del multitrigger abre la ventana de TIEMPO (la
   ranura) en la que el MCA mide un pulso. Se configura en la pestaña
   «Multitrigger» (Sources → MCA trigger); acá queda su estado y un atajo para
   armarlo y desarmarlo (op `mca.disparo`, con los parámetros de esa pestaña: los
   pone la ventana principal). Sin él no se mide.
-- **Amplitude acceptance**: la ventana de AMPLITUD `[amp_min, amp_max]`. Al
-  cerrar la ranura, un pulso fuera de ella no va al histograma y se cuenta en
-  `rej_amp`. Se escribe por campo (`mca_set_amp_min`, read-modify-write), NO con
+- **La aceptación en amplitud**, dentro de los picos: la ventana de AMPLITUD
+  `[amp_min, amp_max]`. Al cerrar la ranura, un pulso fuera de ella no va al
+  histograma y se cuenta en `rej_amp`. Se escribe por campo (`mca_set_amp_min`, read-modify-write), NO con
   `mca_configure`: el bloque entero escribe R_CTRL con run=0, o sea que tocarla
   pararía la adquisición en curso.
 
@@ -34,7 +37,7 @@ from matplotlib.figure import Figure
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox,
-                             QDoubleSpinBox, QFileDialog, QFormLayout,
+                             QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
                              QGroupBox, QHBoxLayout, QHeaderView, QLabel,
                              QMessageBox, QPushButton, QScrollArea, QSpinBox,
                              QTableWidget, QTableWidgetItem, QVBoxLayout,
@@ -44,6 +47,7 @@ from API.analisis import buscar_picos
 from API.mca import (AMP_W, F_INT, F_PEAK, mca_canal_de_amplitud,
                      mca_load_file, mca_save_file_binary, mca_save_file_json,
                      mca_save_file_n42, mca_write_file_histogram)
+from app.franja import _tasa
 
 COLOR_ESPECTRO = '#ff9900'
 REBIN = (1, 2, 4, 8, 16, 32, 64)
@@ -70,6 +74,8 @@ class PanelEspectro(QWidget):
         self.meta = {}
         self.contadores = {}
         self.baseline = None
+        self.tasa_inst_hz = 0.0              # las tasas de entrada, en números
+        self.tasa_media_hz = 0.0
         # La geometría real llega en `configurar_geometria` al conectarse, leída
         # del registro WIDTHS. Estos defaults sólo cubren el rato antes de la
         # primera conexión, y se derivan de h_aw para que no puedan
@@ -144,17 +150,13 @@ class PanelEspectro(QWidget):
         interior = QWidget()
         v = QVBoxLayout(interior)
         v.setContentsMargins(6, 0, 6, 0)
-        # Primero lo que se MIRA, después lo que se TOCA. Los tres primeros
-        # grupos son lectura permanente y tienen que entrar sin desplazar: en un
-        # portátil de 768 px, con los controles arriba la tabla de picos quedaba
-        # abajo de todo y había que buscarla con la barra.
+        # La lectura, después la medición entera (contadores, exposición, Start /
+        # Stop y guardado juntos), los picos con lo que entra al histograma, y el
+        # estado del disparo.
         v.addWidget(self._grupo_lectura())
         v.addWidget(self._grupo_contadores())
         v.addWidget(self._grupo_picos())
         v.addWidget(self._grupo_disparo())
-        v.addWidget(self._grupo_aceptacion())
-        v.addWidget(self._grupo_exposicion())
-        v.addWidget(self._grupo_archivo())
         v.addStretch(1)
 
         # En un portátil de 768 px de alto la columna no entra entera; con el
@@ -173,8 +175,8 @@ class PanelEspectro(QWidget):
         self.lbl_bin_cuentas = QLabel('—')
         self.lbl_bin_numero = QLabel('—')
         self.lbl_total = QLabel('0')
-        self.lbl_rate_inst = QLabel('0.00e+00')
-        self.lbl_rate_avg = QLabel('0.00e+00')
+        self.lbl_rate_inst = QLabel('0 /s')
+        self.lbl_rate_avg = QLabel('0 /s')
 
         bajo_cursor = QHBoxLayout()
         bajo_cursor.addWidget(self.lbl_bin_numero)
@@ -183,8 +185,8 @@ class PanelEspectro(QWidget):
         bajo_cursor.addStretch(1)
         f.addRow('bin / counts', bajo_cursor)
         f.addRow('total counts', self.lbl_total)
-        f.addRow('input inst., 1/s', self.lbl_rate_inst)
-        f.addRow('input mean, 1/s', self.lbl_rate_avg)
+        f.addRow('input rate, inst.', self.lbl_rate_inst)
+        f.addRow('input rate, mean', self.lbl_rate_avg)
         # La tasa de los pulsos que llegan, no la de los aceptados: ésa queda en
         # la curva de la pestaña Pulsos. La cuenta está en `arribos_y_tiempo` del
         # servidor.
@@ -203,9 +205,13 @@ class PanelEspectro(QWidget):
         """El disparo es del multitrigger y se configura en su pestaña: acá, el
         estado y el atajo para armarlo con lo que diga esa pestaña."""
         g = QGroupBox('MCA trigger')
-        g.setToolTip('Each trigger opens a time window in which the MCA measures '
-                     'one pulse. No trigger, no counts.')
         f = QFormLayout(g)
+        nota = QLabel('It tells the MCA when a pulse arrives: the multitrigger '
+                      'watches the MCA input, and each time it fires the MCA measures '
+                      'one pulse. Not armed, no counts. It is set in Multitrigger.')
+        nota.setWordWrap(True)
+        nota.setStyleSheet('color: #666;')
+        f.addRow(nota)
         self.lbl_disparo = QLabel('—')
         self.lbl_disparo.setWordWrap(True)
         f.addRow(self.lbl_disparo)
@@ -225,37 +231,32 @@ class PanelEspectro(QWidget):
         f.addRow(fila)
         return g
 
-    def _grupo_aceptacion(self):
-        """La ventana de amplitud: qué pulsos medidos van al histograma."""
-        g = QGroupBox('amplitude acceptance')
-        ayuda = ('Only pulses whose amplitude falls in [min, max] go to the '
-                 'spectrum; the rest are counted in «rej. ampl.».\n'
-                 'Amplitude = the peak sample in ADC counts (0 … 8191), or the '
-                 'charge integral >> q_shift with «use the charge integral» '
-                 '(MCA settings → Histogram axis).\n'
-                 'Off = everything is accepted. Changing it does not stop the run.')
-        g.setToolTip(ayuda)
-        f = QFormLayout(g)
-        self.chk_ventana = QCheckBox('only count amplitudes in')
-        self.chk_ventana.setToolTip(ayuda)
+    def _aceptacion(self, v):
+        """La ventana de amplitud, dentro de los picos: qué pulsos medidos van al
+        histograma. La aclaración va en rojo, a la vista (`_pintar_ventana`)."""
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet('color: #bbb;')
+        v.addWidget(sep)
+        self.chk_ventana = QCheckBox('amplitude acceptance')
         self.chk_ventana.toggled.connect(self._cambio_ventana)
+        v.addWidget(self.chk_ventana)
         self.spn_amp_min = self._spin(0, 0xFFFF, 'amp_min')
         self.spn_amp_max = self._spin(0, 0xFFFF, 'amp_max')
         rango = QHBoxLayout()
+        rango.addWidget(QLabel('from'))
         rango.addWidget(self.spn_amp_min, 1)
-        rango.addWidget(QLabel('…'))
+        rango.addWidget(QLabel('to'))
         rango.addWidget(self.spn_amp_max, 1)
-        f.addRow(self.chk_ventana)
-        f.addRow(rango)
+        v.addLayout(rango)
         self.lbl_ventana = QLabel('—')
         self.lbl_ventana.setWordWrap(True)
-        f.addRow(self.lbl_ventana)
-        return g
+        self.lbl_ventana.setStyleSheet('color: #c0392b;')
+        v.addWidget(self.lbl_ventana)
 
-    def _grupo_exposicion(self):
-        g = QGroupBox('exposure time (live)')
-        v = QVBoxLayout(g)
-
+    def _exposicion(self, v):
+        """La exposición, Start / Stop / Clear y el guardado: todo el control de la
+        medición, debajo de sus contadores."""
         self.spn_h = QSpinBox()
         self.spn_h.setMaximum(999)
         self.spn_m = QSpinBox()
@@ -264,29 +265,49 @@ class PanelEspectro(QWidget):
         self.spn_s.setDecimals(3)
         self.spn_s.setMaximum(59.999)
         self.spn_s.setValue(50.0)
+        # Sin rótulo: no entra en el ancho de la columna, y el título del grupo ya
+        # dice «exposure».
         fila = QHBoxLayout()
         for spn, unidad in ((self.spn_h, 'h'), (self.spn_m, 'm'), (self.spn_s, 's')):
+            spn.setToolTip('Exposure: the live time to measure. The run stops on '
+                           'its own when the MCA has been live this long.')
             fila.addWidget(spn)
             fila.addWidget(QLabel(unidad))
+        fila.addStretch(1)
         v.addLayout(fila)
 
-        self.chk_sin_limite = QCheckBox('no limit (stop by hand)')
-        v.addWidget(self.chk_sin_limite)
+        self.chk_sin_limite = QCheckBox('no limit')
+        self.chk_sin_limite.setToolTip('Stop by hand.')
         self.lbl_restante = QLabel('—')
-        v.addWidget(self.lbl_restante)
+        fila = QHBoxLayout()
+        fila.addWidget(self.chk_sin_limite)
+        fila.addStretch(1)
+        fila.addWidget(self.lbl_restante)
+        v.addLayout(fila)
 
         self.btn_start = QPushButton('Start')
         self.btn_stop = QPushButton('Stop')
-        self.btn_clear = QPushButton('Clear counts')
+        self.btn_clear = QPushButton('Clear')
+        self.btn_clear.setToolTip('Clears the histogram and the counters.')
         self.btn_start.clicked.connect(self._start)
         self.btn_stop.clicked.connect(self.pedir_stop)
         self.btn_clear.clicked.connect(self._clear)
-        fila_btn = QHBoxLayout()
-        fila_btn.addWidget(self.btn_start)
-        fila_btn.addWidget(self.btn_stop)
-        v.addLayout(fila_btn)
-        v.addWidget(self.btn_clear)
-        return g
+        fila = QHBoxLayout()
+        for b in (self.btn_start, self.btn_stop, self.btn_clear):
+            fila.addWidget(b)
+        v.addLayout(fila)
+
+        fila = QHBoxLayout()
+        for texto, ayuda, slot in (
+                ('Save', 'spectrum + metadata in csv, npz, json or n42',
+                 self._guardar_archivo),
+                ('Load', 'reread a saved spectrum', self._cargar_archivo),
+                ('Image', 'png, pdf or svg of the plot', self._guardar_imagen)):
+            b = QPushButton(texto)
+            b.setToolTip(ayuda)
+            b.clicked.connect(slot)
+            fila.addWidget(b)
+        v.addLayout(fila)
 
     def _grupo_picos(self):
         """Los picos que hay en el espectro, con su ancho. Se llena solo.
@@ -309,8 +330,9 @@ class PanelEspectro(QWidget):
         self.tabla_picos.setSelectionMode(QAbstractItemView.SingleSelection)
         self.tabla_picos.setFont(QFont('monospace', 9))
         self.tabla_picos.setAlternatingRowColors(True)
+        # Las columnas llenan el ancho de la tabla, sin un hueco blanco a la derecha.
         self.tabla_picos.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeToContents)
+            QHeaderView.Stretch)
         # Alto fijo de unas seis filas: la tabla crece con lo que encuentre, y
         # sin tope empujaría fuera de la vista a los grupos de abajo.
         self.tabla_picos.setMinimumHeight(150)
@@ -362,6 +384,7 @@ class PanelEspectro(QWidget):
         self.chk_marcar.setChecked(True)
         self.chk_marcar.toggled.connect(self._redibujar)
         v.addWidget(self.chk_marcar)
+        self._aceptacion(v)
         return g
 
     def _grupo_contadores(self):
@@ -370,7 +393,7 @@ class PanelEspectro(QWidget):
         Por defecto, el tiempo muerto en total; con «detail», desglosado por
         etapa (ver `_desglose`).
         """
-        g = QGroupBox('counters and times')
+        g = QGroupBox('counters, times and exposure')
         v = QVBoxLayout(g)
         # Un bloque monoespaciado en vez de una grilla de QLabel: entran los
         # nueve números sin truncar ninguna etiqueta y ocupa cuatro renglones.
@@ -386,6 +409,7 @@ class PanelEspectro(QWidget):
             self.contadores, self.baseline if self.baseline is not None else '—'))
         v.addWidget(self.chk_detalle)
         self._pintar_contadores({})
+        self._exposicion(v)
         return g
 
     def _pintar_contadores(self, cnt, baseline='—'):
@@ -408,10 +432,10 @@ class PanelEspectro(QWidget):
         muerto = s('deadtime_real_s')
         pct = 100.0 * muerto / medido if medido > 1e-9 else 0.0
         texto = (
-            f"accepted    {n('accepted'):>9}   lost      "
+            f"accepted   {n('accepted'):>8}  lost     "
             f"{n('lost_active') + n('dropped'):>7}\n"
-            f"rej. ampl.  {n('rej_amp'):>9}   piled-up  {n('pileup'):>7}\n"
-            f"rej. shape  {n('rej_psd'):>9}   baseline  {baseline:>7}\n"
+            f"rej. ampl. {n('rej_amp'):>8}  piled-up {n('pileup'):>7}\n"
+            f"rej. shape {n('rej_psd'):>8}  baseline {baseline:>7}\n"
             f"real {s('realtime_s'):7.3f} s  live {s('livetime_s'):7.3f} s\n"
             f"dead {muerto:7.3f} s ({pct:.1f} %)"
             # Sólo si hay veto: un bitstream sin él lee 0 y no hace falta
@@ -459,20 +483,6 @@ class PanelEspectro(QWidget):
         lineas.append(f"{'dropped on publish':<22}"
                       f"{max(0, n('dropped') - lost_busy):>10}")
         return '\n'.join(lineas)
-
-    def _grupo_archivo(self):
-        g = QGroupBox()
-        h = QHBoxLayout(g)
-        for texto, ayuda, slot in (
-                ('Save', 'spectrum + metadata in csv, npz or json',
-                 self._guardar_archivo),
-                ('Load', 'reread a saved spectrum', self._cargar_archivo),
-                ('Image', 'png, pdf or svg of the plot', self._guardar_imagen)):
-            b = QPushButton(texto)
-            b.setToolTip(ayuda)
-            b.clicked.connect(slot)
-            h.addWidget(b)
-        return g
 
     def _spin(self, minimo, maximo, campo):
         """Un spinbox que escribe su campo en el hardware, con antirrebote.
@@ -559,8 +569,10 @@ class PanelEspectro(QWidget):
         self.baseline = est.get('baseline_now')
         cnt = self.contadores
         self.lbl_total.setText(f"{cnt.get('accepted', 0):,}".replace(',', ' '))
-        self.lbl_rate_inst.setText(f"{est.get('tasa_entrada_inst_hz', 0.0):.2e}")
-        self.lbl_rate_avg.setText(f"{est.get('tasa_entrada_hz', 0.0):.2e}")
+        self.tasa_inst_hz = float(est.get('tasa_entrada_inst_hz', 0.0))
+        self.tasa_media_hz = float(est.get('tasa_entrada_hz', 0.0))
+        self.lbl_rate_inst.setText(_tasa(self.tasa_inst_hz))
+        self.lbl_rate_avg.setText(_tasa(self.tasa_media_hz))
         self._pintar_contadores(cnt, self.baseline if self.baseline is not None
                                 else '—')
 
@@ -630,22 +642,28 @@ class PanelEspectro(QWidget):
             ln.remove()
         self._lineas_ventana = []
         canales = self.canales_de_la_ventana()
-        if not self.chk_ventana.isChecked():
-            self.lbl_ventana.setText('off: every amplitude is counted')
-        elif canales is None:
-            self.lbl_ventana.setText('the axis shows another feature, so the '
-                                     'limits are not drawn')
-        else:
+        self._pintar_ventana(canales)
+        if self.chk_ventana.isChecked() and canales is not None:
             for canal in canales:
                 # Los extremos SÍ se dibujan: con zoom, un límite fuera de la
                 # ventana satura contra el borde, y ver la línea pegada al
                 # borde es justamente la señal de que la ventana lo dejó afuera.
                 self._lineas_ventana.append(
                     self.ax.axvline(canal, color='#cc3333', ls='--', lw=0.9))
-            self.lbl_ventana.setText(f'= channels {canales[0]} … {canales[1]} '
-                                     '(the dashed red lines)')
 
         self.canvas.draw_idle()
+
+    def _pintar_ventana(self, canales):
+        """La aclaración en rojo de la ventana de amplitud: qué hace y en qué
+        unidades están min y max, que NO son canales."""
+        unidades = ('in units of the charge integral >> q_shift' if self._amp_src
+                    else 'in ADC counts of the peak sample (0 … 8191)')
+        texto = (f'Pulses outside [from, to] do not go to the spectrum; they are '
+                 f'counted in «rej. ampl.». The limits are {unidades}, not channels.')
+        if self.chk_ventana.isChecked():
+            texto += (' The axis shows another feature, so they are not drawn.'
+                      if canales is None else ' They are the dashed red lines.')
+        self.lbl_ventana.setText(texto)
 
     def canales_de_la_ventana(self):
         """(canal de amp_min, canal de amp_max) en el eje actual, o None si el eje

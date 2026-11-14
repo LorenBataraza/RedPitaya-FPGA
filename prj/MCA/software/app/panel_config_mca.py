@@ -238,11 +238,29 @@ class PanelConfigMCA(PanelPorEtapas):
             'gate_long', 0, 0xFFFF, INVALIDA,
             'Samples from the trigger until the window closes, whatever the signal '
             'does. Each slot latches it when it opens.'))
-        nota = QLabel('The amplitude window is set in Spectrum.')
-        nota.setWordWrap(True)
-        nota.setStyleSheet('color: #777;')
-        f.addRow(nota)
+        # Q_total suma [0, larga) desde el disparo y Q_cola [corta, larga): la PSD
+        # es Q_cola / Q_total (docs/mca/register_map_mca.md).
+        self.lbl_compuertas = self._nota()
+        f.addRow(self.lbl_compuertas)
+        for campo in ('gate_short', 'gate_long', 'dec'):
+            self._controles[campo][0].valueChanged.connect(self._pintar_compuertas)
+        self._pintar_compuertas()
         return g
+
+    def _pintar_compuertas(self, *_):
+        ns = 8.0 * max(1, self._controles['dec'][1]())        # 125 MSPS / dec
+
+        def t(muestras):
+            x = muestras * ns
+            return f'{x / 1000:.2f} µs' if x >= 1000 else f'{x:.0f} ns'
+
+        corta = self._controles['gate_short'][1]()
+        larga = self._controles['gate_long'][1]()
+        self.lbl_compuertas.setText(
+            f'Counted from the trigger: the window closes at long ({t(larga)}) '
+            f'whatever the signal does; Q_total sums all of it and Q_tail from short '
+            f'({t(corta)}) on. PSD = Q_tail / Q_total. The amplitude window is in '
+            f'Spectrum.')
 
     def _grupo_eje(self):
         g = self._grupo('publicacion', 'Histogram axis')
