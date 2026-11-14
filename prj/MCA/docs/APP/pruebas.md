@@ -223,6 +223,7 @@ make rigol-off
 | `API/tests/placa/diag_mca_hw.py` | placa | el camino de lectura palabra a palabra sigue intacto |
 | `API/tests/test_compat_api.py` | PC | que nada público de `API/mca.py` cambió, contra un baseline congelado |
 | `app/tests/placa/e2e_lazo_app.py` (`make verificar-placa-lazo`) | PC contra el servidor de la placa | la app con el generador de pulsos por el **lazo digital**, sin el Rigol: λ̂ contra la tasa del generador, las dos líneas del espectro (dónde caen y cuánto pesa cada una), el teselado y el modo con N pulsos. Deja el generador parado y el lazo apagado |
+| `app/tests/placa/e2e_ring_app.py` (`make verificar-placa-ring-app`) | PC contra el servidor de la placa, con el bitstream del ring | el **ring de «Configuración OSC»** manejado como un usuario, en tres corridas: el generador de eventos con N (EV + DROP_BUSY + DROP_FULL = N), Poisson sin fin con el ring lleno al parar, y el disparo del ADC con `gen_pulsos` por el lazo. En las tres, que al parar se lea todo: leídos = EV_CNT, nada sin leer, sin error y sin destrabar el ring. Borra sus corridas de la placa |
 
 `e2e_lazo_app.py` pasó en la placa el 2026-11-13 (cce7b66b, 20 de 20). Con una
 ranura, a 20 000/s y con el 6.1 % de tiempo muerto: λ̂ = 19 964/s (−0.18 %),

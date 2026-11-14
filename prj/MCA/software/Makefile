@@ -145,6 +145,7 @@ export PYTHONPATH := $(RAIZ):$(PYTHONPATH)
         verificar-placa-osciloscope \
         verificar-placa-diag verificar-placa-ring verificar-placa-bus \
         verificar-placa-datapath verificar-placa-e2e verificar-placa-app \
+        verificar-placa-lazo verificar-placa-ring-app \
         verificar-placa-bitstream \
         verificar-remoto verificar-placa-remoto verificar-placa-app-remoto \
         montecarlo montecarlo-rapido montecarlo-apilamiento montecarlo-apilamiento-mca1 \
@@ -635,6 +636,14 @@ app-placa: exige-gui app-servidor-remoto  ## servidor + GUI, SIN tocar el genera
 # como estaba: generador parado, lazo apagado y disparo desarmado.
 verificar-placa-lazo: app-servidor-remoto  ## (P) la app con el generador por el lazo digital, sin el Rigol
 	$(PY) app/tests/placa/e2e_lazo_app.py --host $(IP_PITAYA) --port $(PUERTO_PLACA)
+
+# El ring de «Configuración OSC», con el bitstream del ring cargado (c1875919 o posterior): tres
+# corridas desde la pestaña, sin pantalla (el generador con N, Poisson sin fin con el
+# ring lleno, el disparo del ADC por el lazo), y que al parar se lea todo lo capturado.
+# Borra sus corridas de la placa; con ARGS=--guardar quedan.
+verificar-placa-ring-app: app-servidor-remoto  ## (P) el ring de la app contra el bitstream del ring
+	$(PY) app/tests/placa/e2e_ring_app.py --host $(IP_PITAYA) --port $(PUERTO_PLACA) \
+	  --ssh $(PITAYA) $(ARGS)
 
 # --- la sesión entera --------------------------------------------------------
 #
