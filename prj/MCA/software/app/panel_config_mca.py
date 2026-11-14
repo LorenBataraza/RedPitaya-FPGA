@@ -208,10 +208,10 @@ class PanelConfigMCA(PanelPorEtapas):
         return g
 
     def _grupo_segmentacion(self):
-        g = self._grupo('segmentacion', 'Trigger and slots')
+        g = self._grupo('segmentacion', 'Segmentation')
         f = self._forma(g)
-        nota = QLabel('The trigger (threshold, hysteresis) belongs to the '
-                      'multitrigger: it is armed in Spectrum.')
+        nota = QLabel('Each trigger of the multitrigger opens a slot. The trigger '
+                      'is set in the Multitrigger tab.')
         nota.setWordWrap(True)
         nota.setStyleSheet('color: #777;')
         f.addRow(nota)

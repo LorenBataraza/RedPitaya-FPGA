@@ -8,8 +8,9 @@ sus colores: todo el multitrigger es disparo (amarillo) y lo que entra, gris.
                           ↑ re-arma   │
                           └─ shield ←─┘ → veto al MCA
 
-- las fuentes: por canal, el Schmitt de nivel (su umbral es del OSC), la pendiente y
-  el polo-cero; y el externo (DIO0), el ASG (`gen_pulsos`) y el software;
+- las fuentes: por canal, el Schmitt de nivel (su registro vive en el slot del OSC),
+  la pendiente y el polo-cero; y el externo (DIO0), el ASG (`gen_pulsos`) y el
+  software;
 - la máscara OR de cada canal dice qué fuentes lo disparan; sin `indep_mode` todos
   los canales usan la del canal 0. Un canal que disparó queda bloqueado (protect)
   hasta que algo lo re-arme;
@@ -23,8 +24,8 @@ disparo). Las tasas son las del MCA: los disparos que le llegan (`cross`), el ti
 con el veto y el tiempo con el disparo sin re-armar (`t_rearm`).
 
 Las cuentas, sin Qt: `filas_mascara` (los bits del servidor, en filas por fuente),
-`describir_escudo` (el shield en palabras), `diagnostico` (lo que está mal puesto) y
-`flujo_mt` (las tasas).
+`describir_escudo` (el shield en palabras), `diagnostico` (lo que está mal puesto),
+`texto_disparo` (el disparo del MCA en una línea) y `flujo_mt` (las tasas).
 """
 
 import re
@@ -45,10 +46,11 @@ ETAPAS = (
 COLOR = {clave: color for clave, _t, _d, color in ETAPAS}
 
 AYUDA = {
-    'fuentes': 'What can trigger. Per channel: the level Schmitt (its threshold is '
-               'in OSC settings → Trigger), the slope trigger and the pole-zero '
-               'trigger (armed from Spectrum or by scripts). Plus the external '
-               'input DIO0, the pulse generator (ASG source) and software.',
+    'fuentes': 'What can trigger. Per channel: the level Schmitt, the slope trigger '
+               'and the pole-zero trigger; plus the external input DIO0, the pulse '
+               'generator (ASG source) and software. The level and the MCA trigger '
+               '(slope or pole-zero) are set here; Spectrum keeps a shortcut to arm '
+               'the MCA trigger.',
     'mascara': 'One OR mask per channel: the sources that trigger it. Without '
                'indep_mode every channel uses the mask of IN1. A channel that '
                'triggered stays blocked (protect) until something re-arms it; with '
@@ -345,6 +347,23 @@ def diagnostico(info):
     if any(efect) and not any(we_keep[c] for c in range(len(efect)) if efect[c]):
         decir('mascara', 'single shot: no we_keep, the mask turns off', False)
     return out
+
+
+def texto_disparo(est):
+    """El estado del disparo del MCA (lo que devuelve la op `mca.disparo`), en una
+    línea: la fuente, el canal y sus parámetros, o que no hay disparo."""
+    est = est or {}
+    ch = canal_txt(est.get('ch', 0))
+    aviso = '' if est.get('we_keep') else ' (no we_keep!)'
+    if est.get('armado') and est.get('fuente') == 'pz':
+        z = est.get('polo_cero') or {}
+        return (f"armed: pole-zero {ch}, k {z.get('k')} · m {z.get('m')} · "
+                f"Mq {z.get('mq')} · thr {z.get('thr')}" + aviso)
+    if est.get('armado'):
+        s = est.get('pendiente') or {}
+        return (f"armed: slope {ch}, L {s.get('L')} · G {s.get('G')} · "
+                f"thr {s.get('thr')} · hyst {s.get('hyst')}" + aviso)
+    return 'NO TRIGGER: the MCA opens no windows'
 
 
 def flujo_mt(cnt):

@@ -31,7 +31,7 @@ from app.franja import (AMARILLO, AZUL, GRIS, GRIS_CORTE, GRIS_LEYENDA, NARANJA,
 ETAPAS_OSC = (
     ('entrada', 'Input', 'offset, gain\nfilter', AZUL),
     ('diezmado', 'Decimation', 'factor\nand averaging', AZUL),
-    ('disparo', 'Trigger', 'threshold, hysteresis\ndebounce', AMARILLO),
+    ('disparo', 'Trigger', 'from the\nmultitrigger', AMARILLO),
     ('bram', 'BRAM capture', 'ring of 2^RSZ\npost-trigger delay', VERDE),
 )
 ETAPAS_RING = (
@@ -48,9 +48,10 @@ AYUDA = {
                'filter, which can be bypassed per channel.',
     'diezmado': 'The decimation factor (only six legal values) and whether it averages '
                 'the samples it drops. It stretches the window in real time.',
-    'disparo': 'The ADC edge trigger: threshold, hysteresis and debounce. It belongs '
-               'to the multitrigger, through the bridge of the scope registers. With '
-               'the ring, it also triggers its windows.',
+    'disparo': 'The trigger comes from the multitrigger: one for the capture, the '
+               'MCA and the ring, set in its tab (the level threshold too, although '
+               'its register is in this slot). With the ring, it also triggers its '
+               'windows.',
     'bram': 'The BRAM ring of each channel and its FSM: after the trigger it writes '
             'the delay and stops. It is what the «Pulses» tab reads.',
     'generador': 'The ring\'s event generator: it triggers by itself, periodic or '

@@ -82,12 +82,12 @@ aplique y relea, avise un error sin diálogo modal, lleve su Mq al trapecio, y q
 prender el lazo muestre el aviso y lleve la tasa del generador al espectro, que
 lo editado sin aplicar marque su etapa en la franja y se limpie al aplicar, y que
 con el lazo la franja compare la λ̂ del MCA con la tasa del generador; que el
-ring de «OSC settings» corra con el generador de eventos y cierre EV_CNT + DROP_BUSY + DROP_FULL = N con archivos en la carpeta nueva y la
-franja con las mismas cuentas, que corra sin fin hasta «Stop», que avise en la
+ring de «OSC settings» corra con el generador de eventos y cierre EV_CNT +
+DROP_BUSY + DROP_FULL = N con archivos en la carpeta nueva y la franja con las mismas cuentas, que corra sin fin hasta «Stop», que avise en la
 pestaña una carpeta inválida, y que la ocupación no se muestre llena por una resta
 negativa; que la franja del ring cierre sus cuentas, que sus grupos sean etapas de
 la franja (el del estímulo pasa del disparo al generador) y que su disparo del ADC
-use el umbral de la etapa Disparo; que la franja de «MCA settings» cierre sus
+use el umbral de nivel de IN1; que la franja de «MCA settings» cierre sus
 cuentas (cada tramo, cada pérdida y el total perdido sobre λ̂·T), que un cambio con
 cuentas en el histograma marque su etapa y muestre el aviso de mezcla, que se vaya
 al borrar desde cualquier pestaña, que la franja siga al ratón y lleve a los
@@ -98,9 +98,14 @@ el continuo no pida con una captura en vuelo; que la franja del Multitrigger arm
 las filas de la máscara con los bits del servidor (sin los canales que el
 bitstream no trae), use la máscara de IN1 en IN2 sin `indep_mode`, diga el shield
 en palabras y marque lo que deja sin disparos (el veto por nivel de DIO0 deja de
-re-armar IN1) sin alarmar por IN2 repitiendo a IN1; que armar el disparo del MCA
-desde «Spectrum» se vea en la máscara, en las fuentes y en el shield, que el shield
-se escriba con sus casillas, que la franja siga al ratón y lleve a los controles, y
+re-armar IN1) sin alarmar por IN2 repitiendo a IN1; que el disparo del MCA se
+configure en el Multitrigger y el atajo de «Spectrum» arme con esos parámetros
+(la pendiente, y el polo-cero con el umbral en cuentas, que vuelve en cuentas), que
+un polo-cero armado por un script vuelva como polo-cero, que armarlo se vea en la
+máscara, en el shield y en la etapa Disparo de «OSC settings», que el umbral de
+nivel se edite en el Multitrigger pero vaya a `osc.set` y vuelva a las dos
+pestañas, que el shield se escriba con sus casillas, que la franja siga al ratón y
+lleve a los controles, que «OSC settings» y «Spectrum» lleven al Multitrigger, y
 que la pestaña entre sin scroll; y que desconectar y volver a conectar funcione.
 
 La pestaña 2D tiene su propia prueba porque aparece o desaparece según lo que

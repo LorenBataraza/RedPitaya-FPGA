@@ -81,7 +81,8 @@ OPS = (
     'mtrg.arm',             # mask_ch0, mask_ch1, thr, hyst, delay, auto_rearm
     'mtrg.disarm',
     # --- el disparo del MCA2: sin él la ventana no abre ---
-    'mca.disparo',          # ch, armar (True|False|None), L, G, thr, hyst -> estado
+    'mca.disparo',          # ch, armar (True|False|None), L, G, thr, hyst, fuente, mq,
+                            # k, m, sh, thr_cuentas, hyst_cuentas -> estado
     # --- una función de API/mca.py entera, en la placa (como un comando SCPI) ---
     'call',                 # fn, a, k  -> el resultado (o un arreglo, binario)
     # --- el event_ring (slot 2), opcional: una adquisición con su sesión, que escribe

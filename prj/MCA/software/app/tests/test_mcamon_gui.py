@@ -239,37 +239,53 @@ def test_la_exposicion_para_sola():
 
 
 def test_el_disparo_de_la_gui_se_arma_y_vuelve():
-    """El grupo «disparo» arma el disparo por pendiente del multitrigger (op
-    `mca.disparo`) y el estado releído vuelve a la etiqueta y a los spins."""
+    """El disparo del MCA se configura en el Multitrigger (Sources → MCA trigger) y
+    el atajo de Spectrum arma con esos parámetros (op `mca.disparo`); el estado
+    releído vuelve a las dos etiquetas. El polo-cero se arma desde el Multitrigger,
+    con el umbral en cuentas, y vuelve en cuentas."""
     def cuerpo(app, v):
-        p = v.panel_espectro
+        p, m = v.panel_espectro, v.panel_mtrg
         assert _esperar(app, lambda: 'NO TRIGGER' in p.lbl_disparo.text()), \
             'al conectar no se leyó el estado del disparo'
-        p.spn_thr.setValue(900)
-        p.spn_hyst.setValue(200)
+        m.spn_thr.setValue(900)
+        m.spn_hyst.setValue(200)
         p.btn_armar.click()
         assert _esperar(app, lambda: p.lbl_disparo.text().startswith('armed')
-                        and 'thr=900' in p.lbl_disparo.text()), \
+                        and 'thr 900' in p.lbl_disparo.text()), \
             'el disparo armado no volvió del servidor'
+        assert m.lbl_disparo.text() == p.lbl_disparo.text()
         p.btn_desarmar.click()
         assert _esperar(app, lambda: 'NO TRIGGER' in p.lbl_disparo.text())
+
+        m.cmb_fuente.setCurrentIndex(m.cmb_fuente.findData('pz'))
+        m.spn_thr_pz.setValue(40.0)
+        m.btn_armar_mca.click()
+        assert _esperar(app, lambda: 'pole-zero IN1' in p.lbl_disparo.text())
+        assert abs(m.spn_thr_pz.value() - 40.0) < 0.5
+        m.btn_desarmar_mca.click()
+        assert _esperar(app, lambda: 'NO TRIGGER' in m.lbl_disparo.text())
     _con_gui(cuerpo)
 
 
-def test_el_disparo_con_polo_cero_no_se_muestra_como_pendiente():
-    """Si lo armó un script con polo-cero, la etiqueta lo dice y los spins (que
-    son de la pendiente) quedan como estaban."""
+def test_el_disparo_con_polo_cero_vuelve_como_polo_cero():
+    """Si lo armó un script con polo-cero, las etiquetas lo dicen y el Multitrigger
+    pasa a esa fuente con sus parámetros (el umbral, de vuelta en cuentas)."""
+    from API.multitrigger import pz_ganancia
+
     def cuerpo(app, v):
-        p = v.panel_espectro
-        p.spn_thr.setValue(777)
-        p.actualizar_disparo({
-            'armado': True, 'fuente': 'pz', 'we_keep': True,
-            'pendiente': {'L': 8, 'G': 4, 'thr': 600, 'hyst': 300},
-            'polo_cero': {'k': 2, 'm': 1, 'thr': 353, 'mq': 3885}})
+        est = {'armado': True, 'fuente': 'pz', 'we_keep': True, 'ch': 0,
+               'pendiente': {'L': 8, 'G': 4, 'thr': 600, 'hyst': 300},
+               'polo_cero': {'k': 2, 'm': 1, 'sh': 10, 'thr': 353, 'hyst': 177,
+                             'mq': 3885}}
+        p, m = v.panel_espectro, v.panel_mtrg
+        p.actualizar_disparo(est)
         texto = p.lbl_disparo.text()
-        assert 'pole-zero' in texto and 'mq=3885' in texto and 'thr=353' in texto
-        assert 'L=8' not in texto
-        assert p.spn_thr.value() == 777
+        assert 'pole-zero' in texto and 'Mq 3885' in texto and 'thr 353' in texto
+        assert 'L 8' not in texto
+        m.actualizar_disparo(est)
+        assert m.cmb_fuente.currentData() == 'pz' and m.spn_mq.value() == 3885
+        assert abs(m.spn_thr_pz.value() - 353 / pz_ganancia(2, 1, 3885, 10)) < 0.1
+        assert m._w_pz.isVisibleTo(m) is not m._w_pend.isVisibleTo(m)
     _con_gui(cuerpo)
 
 
@@ -941,10 +957,17 @@ def test_escribir_un_campo_del_osc_va_al_bloque_del_osc():
 
         v.sig_campo_osc.emit('thr_ch0', -250)
         assert _esperar(app, lambda:
-                        p._controles['thr_ch0'][1]() == -250), \
+                        v.panel_mtrg._controles['thr_ch0'][1]() == -250), \
             'el umbral del OSC no volvió releído del hardware'
+        assert p._umbral['thr_ch0'] == -250 and '-0.' in p.lbl_thr_v.text()
         # Y el del MCA no se movió.
         assert v.panel_config._controles['pre_dly'][1]() == pre_mca_antes
+
+        # El umbral de nivel se edita en el Multitrigger, pero es un registro del
+        # OSC: va a osc.set y vuelve a las dos pestañas.
+        v.panel_mtrg._emitir('thr_ch1', -300)
+        assert _esperar(app, lambda: p._umbral.get('thr_ch1') == -300
+                        and v.panel_mtrg._controles['thr_ch1'][1]() == -300)
     _con_gui(cuerpo)
 
 
@@ -1169,10 +1192,11 @@ def test_la_franja_del_multitrigger_lee_las_fuentes_y_el_shield():
 
 def test_la_pestana_del_multitrigger_va_por_etapas_y_sigue_al_disparo_del_mca():
     """Armar el disparo del MCA desde Spectrum se ve en el Multitrigger: la pendiente
-    de IN1 en la máscara y en las fuentes, el shield re-armando IN1. El shield se
-    escribe con casillas con nombre y se describe en palabras; la franja marca lo mal
-    puesto, sigue al ratón y lleva a los controles; los botones de las fuentes llevan
-    a las otras pestañas, y todo entra sin scroll en la ventana de siempre."""
+    de IN1 en la máscara y en las fuentes, el shield re-armando IN1; y en «OSC
+    settings», que sólo muestra las fuentes. El shield se escribe con casillas con
+    nombre y se describe en palabras; la franja marca lo mal puesto, sigue al ratón y
+    lleva a los controles; «OSC settings» y «Spectrum» llevan al Multitrigger, y todo
+    entra sin scroll en la ventana de siempre."""
     from PyQt5.QtCore import QEvent, QPoint, Qt
     from PyQt5.QtTest import QTest
     from API.multitrigger import BIT_SLOPE_P0
@@ -1190,7 +1214,8 @@ def test_la_pestana_del_multitrigger_va_por_etapas_y_sigue_al_disparo_del_mca():
         v.panel_espectro.btn_armar.click()
         assert _esperar(app, lambda: p._casillas[(0, BIT_SLOPE_P0)].isChecked()), \
             'el disparo del MCA no se ve en la máscara'
-        assert 'L 8' in p._lbl_fuente[(0, 'pendiente')].text()
+        assert p.spn_l.value() == 8 and 'slope IN1' in p.lbl_disparo.text()
+        assert _esperar(app, lambda: 'slope IN1' in v.panel_config_osc.lbl_fuentes.text())
         assert 'hardware re-arm' in p.lbl_escudo.text()
         assert graves(p) == []
         # Sin los canales 2 y 3: ni columnas en la máscara ni casillas en el shield.
@@ -1225,10 +1250,12 @@ def test_la_pestana_del_multitrigger_va_por_etapas_y_sigue_al_disparo_del_mca():
         assert p.scroll.horizontalScrollBar().maximum() == 0
         assert v.width() == 1240
 
-        p.btn_ir_osc.click()
-        assert v.tabs.currentWidget() is v.panel_config_osc
-        p.btn_ir_espectro.click()
-        assert v.tabs.currentWidget() is v.panel_espectro
+        v.tabs.setCurrentWidget(v.panel_config_osc)
+        v.panel_config_osc.btn_ir_mtrg.click()
+        assert v.tabs.currentWidget() is p
+        v.tabs.setCurrentWidget(v.panel_espectro)
+        v.panel_espectro.btn_ir_mtrg.click()
+        assert v.tabs.currentWidget() is p and p.diagrama.resaltada == 'fuentes'
         v.sig_disparo.emit({'ch': 0, 'armar': False})
     _con_gui(cuerpo)
 
@@ -1243,8 +1270,12 @@ def test_los_campos_de_los_paneles_existen_en_su_bloque():
     def cuerpo(app, v):
         from app.widgets_config import campos_desconocidos
         for panel in (v.panel_config, v.panel_config_osc, v.panel_mtrg):
-            malos = campos_desconocidos(panel.campos(), panel.BLOQUE)
-            assert not malos, f'{type(panel).__name__} ({panel.BLOQUE}): {malos}'
+            for bloque, campos in panel.campos_por_bloque().items():
+                malos = campos_desconocidos(campos, bloque)
+                assert not malos, f'{type(panel).__name__} ({bloque}): {malos}'
+        # El Multitrigger escribe en dos bloques: el nivel es del OSC.
+        assert set(v.panel_mtrg.campos_por_bloque()['osc']) == {
+            'thr_ch0', 'thr_ch1', 'hyst_ch0', 'hyst_ch1', 'deb_len'}
     _con_gui(cuerpo)
 
 

@@ -33,7 +33,7 @@ ETAPAS = (
     ('entrada', 'Input', 'channel, dec.\ndelay', AZUL),
     ('base', 'Baseline', 'tracker\nor fixed', AZUL),
     ('trapecio', 'Trapezoids', 'k, m, M', AZUL),
-    ('segmentacion', 'Trigger', 'assigns\nthe slot', AMARILLO),
+    ('segmentacion', 'Segmentation', 'each trigger\nopens a slot', AMARILLO),
     ('estadisticos', 'Slots', 'gates', VERDE),
     ('publicacion', 'Publication', 'axis, discr.\nhistogram', NARANJA),
 )
@@ -46,8 +46,9 @@ AYUDA = {
             'windows, or a fixed value.',
     'trapecio': 'The pole-zero trapezoid bank: a continuous filter shared by the '
                 'slots.',
-    'segmentacion': 'The trigger comes from the multitrigger (armed in Spectrum); the '
-                    'allocator gives it the lowest free slot.\n'
+    'segmentacion': 'The trigger comes from the multitrigger (set in its tab, armed '
+                    'there or from Spectrum); the allocator gives it the lowest free '
+                    'slot.\n'
                     'Losses: trigger re-arm (estimated with λ̂), no free slot, '
                     'and waiting for the publisher.',
     'estadisticos': 'Each slot measures its window: peak, integrals, length. The '

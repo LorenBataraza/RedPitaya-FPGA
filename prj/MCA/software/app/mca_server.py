@@ -871,11 +871,14 @@ class ServidorMCA:
         return {'valor': a_json(r)}
 
     def op_mca_disparo(self, ch=0, armar=None, L=8, G=4, thr=600, hyst=300,
-                       fuente='pendiente', mq=3992):
+                       fuente='pendiente', mq=3992, k=2, m=1, sh=10,
+                       thr_cuentas=50.0, hyst_cuentas=25.0):
         """El disparo del MCA2: armar=True lo arma, False lo apaga, None sólo
         informa. Sin él la ventana no abre (ver `multitrigger_armar_mca`).
         fuente='pz' arma el disparo con polo-cero (el del banco de trapecios),
-        con `mq` el M·16 del MCA; 'pendiente' el de siempre, con L, G, thr, hyst."""
+        con `mq` el M·16 del MCA, la forma k, m, sh y el umbral y el re-armado en
+        cuentas de amplitud; 'pendiente' el de siempre, con L, G, thr, hyst.
+        Devuelve el estado del canal, con `ch`."""
         if self.mtr is None or self.osc is None:
             raise RuntimeError('no está la región del multitrigger o el '
                                'osciloscopio: no se puede armar el disparo')
@@ -883,10 +886,13 @@ class ServidorMCA:
         if armar:
             multitrigger_armar_mca(self.osc, self.mtr, ch=ch, L=int(L),
                                    G=int(G), thr=int(thr), hyst=int(hyst),
-                                   fuente=str(fuente), mq=int(mq))
+                                   fuente=str(fuente), mq=int(mq), k=int(k),
+                                   m=int(m), sh=int(sh),
+                                   thr_cuentas=float(thr_cuentas),
+                                   hyst_cuentas=float(hyst_cuentas))
         elif armar is not None:
             multitrigger_desarmar_mca(self.osc, self.mtr, ch=ch)
-        return multitrigger_disparo_mca(self.mtr, ch)
+        return dict(multitrigger_disparo_mca(self.mtr, ch), ch=ch)
 
     # ---------- el generador de pulsos (slot 2, 0x4021_0000) ----------
 
@@ -1070,7 +1076,9 @@ class ServidorMCA:
                                              'hyst', 'delay', 'auto_rearm')),
         'mtrg.disarm':      ('op_mtrg_disarm', ()),
         'mca.disparo':      ('op_mca_disparo', ('ch', 'armar', 'L', 'G', 'thr',
-                                                'hyst', 'fuente', 'mq')),
+                                                'hyst', 'fuente', 'mq', 'k', 'm',
+                                                'sh', 'thr_cuentas',
+                                                'hyst_cuentas')),
         'call':             ('op_call', ('fn', 'a', 'k')),
         'ring.iniciar':     ('op_ring_iniciar', ('run_dir', 'pre', 'post', 'n_ch',
                                                  'slot_shift', 'generador', 'disparo',

@@ -201,12 +201,13 @@ class PanelRing(QWidget):
         self.spn_hyst.setToolTip('Re-arms when the signal drops below threshold − hysteresis.')
         f.addRow('threshold, V', self.spn_thr)
         f.addRow('hysteresis, V', self.spn_hyst)
-        # Embebido, el umbral es el de la etapa Disparo: una sola vez en la pestaña.
+        # Embebido, el umbral es el de nivel de IN1, que se configura en el
+        # Multitrigger: una sola vez en la GUI.
         self.lbl_disparo = QLabel('—')
         self.lbl_disparo.setWordWrap(True)
         self.lbl_disparo.setToolTip(
-            'On start, the ring arms the ADC trigger with the threshold and hysteresis '
-            'of the Trigger stage (IN1): they are the same registers.')
+            'On start, the ring arms the ADC trigger with the level threshold and '
+            'hysteresis of IN1 (Multitrigger → Sources → Level): the same registers.')
         f.addRow('threshold', self.lbl_disparo)
 
         self.cmb_modo = QComboBox()
@@ -324,7 +325,7 @@ class PanelRing(QWidget):
         if self.fuente_disparo is not None:
             thr, hyst = self.fuente_disparo()
             self.lbl_disparo.setText(f'{thr:+.3f} V, hysteresis {hyst:.3f} V\n'
-                                     '(those of the Trigger stage, IN1)')
+                                     '(the level of IN1, set in Multitrigger)')
 
     def estimulo(self):
         """'disparo' o 'generador': lo que dispara las ventanas."""

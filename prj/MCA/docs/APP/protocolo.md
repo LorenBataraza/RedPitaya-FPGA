@@ -111,7 +111,7 @@ La lista viva es el dict `_OPS` de
 | `mtrg.set` | `fields` | el `get` de vuelta |
 | `mtrg.arm` | `mask_ch0`, `mask_ch1`, `thr`, `hyst`, `delay`, `auto_rearm` | el `get` de vuelta |
 | `mtrg.disarm` | — | el `get` de vuelta |
-| `mca.disparo` | `ch`, `armar`, `L`, `G`, `thr`, `hyst`, `fuente`, `mq` | el estado del disparo del MCA2: `pendiente`, `polo_cero`, `fuente`, `or_mask`, `armado`, `we_keep`, `shield` |
+| `mca.disparo` | `ch`, `armar`, `L`, `G`, `thr`, `hyst`, `fuente`, `mq`, `k`, `m`, `sh`, `thr_cuentas`, `hyst_cuentas` | el estado del disparo del MCA2: `ch`, `pendiente`, `polo_cero`, `fuente`, `or_mask`, `armado`, `we_keep`, `shield` |
 | `call` | `fn`, `a`, `k` | `{"valor": ...}` con el resultado de la función, o un arreglo **binario** (ver abajo) |
 | `ring.iniciar` | `run_dir`, `pre`, `post`, `n_ch`, `slot_shift`, `generador` o `disparo`, `calib`, `formato`, `capacity`, `ram_mb`, `margen_mb`, `meta` | `run_dir`, `fs`, `n_slots`, `pool` |
 | `ring.estado` | — | `corriendo`, `motivo`, `stats`, `hw`, `error` |
@@ -128,8 +128,9 @@ cuando la función devuelve un arreglo (`mca_read_histogram`, `mca_read_map2d`).
 disparo del multitrigger. Con `armar: true` corre `multitrigger_armar_mca`
 (en modo continuo, shield y `we_keep`), con `false` lo apaga (las dos fuentes) y
 sin `armar` sólo informa. `fuente` es `pendiente` (el de siempre, con `L`, `G`,
-`thr`, `hyst`) o `pz` (con polo-cero, con `mq`; `identify` dice si está en
-`has_pz`). Necesita la región propia del multitrigger (base de `SLOTS`,
+`thr`, `hyst`) o `pz` (con polo-cero: `mq`, la forma `k`, `m`, `sh`, y el umbral
+y el re-armado en cuentas de amplitud, `thr_cuentas` y `hyst_cuentas`, que pasan
+a unidades de la salida con `pz_ganancia`; `identify` dice si está en `has_pz`). Necesita la región propia del multitrigger (base de `SLOTS`,
 `bases.mtrg_region`) y el osciloscopio: `identify` dice si están en `has_disparo`.
 `identify` trae también `n_formas_max`: las formas del banco de trapecios, 0 sin
 banco.

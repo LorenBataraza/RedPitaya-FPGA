@@ -168,6 +168,11 @@ class PanelCampos(QWidget):
     def campos(self):
         return tuple(self._controles)
 
+    def campos_por_bloque(self):
+        """{bloque: campos}. Un panel cuyos campos van a más de un bloque (el del
+        Multitrigger: el nivel es del OSC) lo redefine."""
+        return {self.BLOQUE: list(self.campos())}
+
 
 def campos_sin_setter(campos):
     """Los que NO tienen `mca_set_<campo>` en API/mca.py.

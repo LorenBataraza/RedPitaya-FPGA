@@ -13,16 +13,21 @@ Los campos del OSC son de `API/osciloscope.py` (`BLOQUE = 'osc'`): la ventana lo
 rutea a `osc.set`. Se escriben en caliente; los marcados con · reinician la captura
 en curso y los ⚠ (la calibración), mal puestos, dejan sin disparos.
 
+El disparo NO se configura acá: es el del multitrigger, el mismo para la captura, el
+MCA y el ring, y su pestaña es la única que lo toca (también el umbral de nivel, cuyo
+registro vive en este slot). La etapa Disparo sólo muestra qué fuentes están en la
+máscara y el umbral, con un botón a «Multitrigger» (`ir_a`).
+
 El ring es el `PanelRing` de siempre, embebido (`self.ring`): sus grupos van en las
-dos columnas de la derecha, y su disparo del ADC usa el umbral y la histéresis de la
-etapa Disparo (IN1), que son los registros que escribe al armarse. Su configuración
-se toma al iniciar una corrida. Las cuentas de la corrida (disparos, pérdidas,
+dos columnas de la derecha, y su disparo del ADC usa el umbral y la histéresis de
+nivel de IN1 (`_disparo_v`), que son los registros que escribe al armarse. Su
+configuración se toma al iniciar una corrida. Las cuentas de la corrida (disparos, pérdidas,
 leídos, escritos) van en la franja y no se repiten en su estado.
 """
 
 import time
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (QHBoxLayout, QLabel, QPushButton,
                              QScrollArea, QVBoxLayout, QWidget)
 
@@ -30,7 +35,7 @@ from API.osciloscope import ADC_CNT_PER_V, DEC_LEGAL, N_BUF
 from app.diagrama_osc import COLOR, DiagramaOsc
 from app.panel_etapas import PanelPorEtapas
 from app.panel_ring import PanelRing
-from app.widgets_config import CALIENTE, CORTA, RIESGO
+from app.widgets_config import CORTA, RIESGO
 
 
 class PanelConfigOsc(PanelPorEtapas):
@@ -40,6 +45,7 @@ class PanelConfigOsc(PanelPorEtapas):
     COLOR = COLOR
 
     pedir_ctrl = pyqtSignal(str)             # 'reset' | 'sw_trig'
+    ir_a = pyqtSignal(str)                   # 'mtrg': el disparo se configura ahí
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -49,6 +55,7 @@ class PanelConfigOsc(PanelPorEtapas):
         self._we_prev = None
         self._hay_osc = True
         self._conectado = False
+        self._umbral = {}                    # thr/hyst del nivel, de osc.get (cuentas)
         self._construir()
         self.set_conectado(False)
 
@@ -126,30 +133,31 @@ class PanelConfigOsc(PanelPorEtapas):
         return g
 
     def _grupo_disparo(self):
+        """Sólo lectura: el disparo es del multitrigger y se configura en su pestaña."""
         g = self._grupo('disparo', 'Trigger')
         f = self._forma(g)
-        # El umbral es de 14 bits CON SIGNO: un pulso negativo dispara con el
-        # umbral negativo, y por eso el rango no arranca en cero.
-        for ch in (0, 1):
-            self._fila(f, f'thr_ch{ch}', f'threshold IN{ch + 1}',
-                       self._spin(f'thr_ch{ch}', -8192, 8191, CALIENTE,
-                                  f'Trigger threshold of channel {ch}, in ADC '
-                                  f'counts. {ADC_CNT_PER_V} counts = 1 V in LV.'))
-        for ch in (0, 1):
-            self._fila(f, f'hyst_ch{ch}', f'hysteresis IN{ch + 1}',
-                       self._spin(f'hyst_ch{ch}', 0, 16383, CALIENTE,
-                                  'How far the signal has to come back before '
-                                  'another trigger is allowed. Too low, noise '
-                                  'triggers too often.'))
-        # En volts, en una fila propia: como campo de un QFormLayout no entra.
+        nota = QLabel('One trigger for the capture, the MCA and the ring: the '
+                      'multitrigger\'s. It is set in its tab.')
+        nota.setWordWrap(True)
+        nota.setStyleSheet('color: #666;')
+        f.addRow(nota)
+        self.lbl_fuentes = QLabel('—')
+        self.lbl_fuentes.setWordWrap(True)
+        self.lbl_fuentes.setToolTip('The sources in the OR masks of the multitrigger.')
+        f.addRow('sources', self.lbl_fuentes)
         self.lbl_thr_v = QLabel('—')
-        f.addRow(self.lbl_thr_v)
-        self._fila(f, 'deb_len', 'debounce',
-                   self._spin('deb_len', 0, 0xFFFFF, CORTA,
-                              'ADC cycles the trigger stays inhibited after one. '
-                              'The RTL reset value is 62500 = 500 us.'))
-        for campo in ('thr_ch0', 'thr_ch1', 'hyst_ch0'):
-            self._controles[campo][0].valueChanged.connect(self._refrescar_umbral)
+        self.lbl_thr_v.setToolTip('Threshold and hysteresis of the level trigger. Their '
+                                  'registers are in this slot (where Red Pitaya has '
+                                  'them), but the comparator is in the multitrigger.')
+        f.addRow('level', self.lbl_thr_v)
+        self.btn_ir_mtrg = QPushButton('Multitrigger…')
+        self.btn_ir_mtrg.setToolTip('Sources, OR masks, event and shield.')
+        self.btn_ir_mtrg.clicked.connect(lambda: self.ir_a.emit('mtrg'))
+        fila = QHBoxLayout()
+        fila.setContentsMargins(0, 0, 0, 0)
+        fila.addWidget(self.btn_ir_mtrg)
+        fila.addStretch(1)
+        f.addRow(fila)
         return g
 
     def _grupo_bram(self):
@@ -235,14 +243,29 @@ class PanelConfigOsc(PanelPorEtapas):
         self.diagrama.set_estimulo(estimulo)
 
     def _disparo_v(self):
-        """El umbral y la histéresis de IN1, en volts: con los que se arma el ring."""
-        return (self._controles['thr_ch0'][1]() / self.cnt_por_v,
-                self._controles['hyst_ch0'][1]() / self.cnt_por_v)
+        """El umbral y la histéresis de nivel de IN1, en volts: con los que se arma el
+        ring."""
+        return (int(self._umbral.get('thr_ch0', 0)) / self.cnt_por_v,
+                int(self._umbral.get('hyst_ch0', 0)) / self.cnt_por_v)
 
     def fijar_disparo_v(self, thr, hyst):
-        """Escribe el umbral y la histéresis de IN1 en volts (los scripts de placa)."""
-        self._controles['thr_ch0'][2](int(round(thr * self.cnt_por_v)))
-        self._controles['hyst_ch0'][2](int(round(hyst * self.cnt_por_v)))
+        """Escribe el umbral y la histéresis de nivel de IN1 en volts (los scripts de
+        placa). Se ven en seguida; el `osc.get` de vuelta los confirma."""
+        for campo, v in (('thr_ch0', thr), ('hyst_ch0', hyst)):
+            self._umbral[campo] = int(round(v * self.cnt_por_v))
+            self.pedir_campo.emit(campo, self._umbral[campo])
+        self._refrescar_umbral()
+
+    def actualizar_mtrg(self, info):
+        """El `mtrg.get`: qué fuentes están en las máscaras (las que de verdad usa
+        cada canal, con o sin indep_mode)."""
+        from app.diagrama_mt import mascaras_efectivas, nombre_corto
+        cfg = info.get('config') or {}
+        efect = mascaras_efectivas(cfg, int(info.get('n_ch') or 2), info.get('indep'))
+        usadas = [nombre_corto(n) for n, v, _a in info.get('bits') or ()
+                  if any(m & int(v) for m in efect)]
+        self.lbl_fuentes.setText(', '.join(usadas) if usadas
+                                 else 'none: nothing triggers')
 
     def configurar(self, hay_osc, hay_ring, hay_generador=False):
         """Lo que trae el bitstream: el osciloscopio, el ring y su generador."""
@@ -262,12 +285,16 @@ class PanelConfigOsc(PanelPorEtapas):
 
     def actualizar_config(self, cfg):
         super().actualizar_config(cfg)
+        for campo in ('thr_ch0', 'thr_ch1', 'hyst_ch0', 'hyst_ch1'):
+            if campo in cfg:
+                self._umbral[campo] = int(cfg[campo])
         self._refrescar_umbral()
 
     def _refrescar_umbral(self, *_):
-        v0 = self._controles['thr_ch0'][1]() / self.cnt_por_v
-        v1 = self._controles['thr_ch1'][1]() / self.cnt_por_v
-        self.lbl_thr_v.setText(f'IN1 {v0:+.3f} V   ·   IN2 {v1:+.3f} V')
+        v = {c: int(self._umbral.get(c, 0)) / self.cnt_por_v
+             for c in ('thr_ch0', 'thr_ch1', 'hyst_ch0', 'hyst_ch1')}
+        self.lbl_thr_v.setText(f"IN1 {v['thr_ch0']:+.3f} V, hyst {v['hyst_ch0']:.3f}\n"
+                               f"IN2 {v['thr_ch1']:+.3f} V, hyst {v['hyst_ch1']:.3f}")
         if self.ring is not None:
             self.ring.mostrar_disparo()
 

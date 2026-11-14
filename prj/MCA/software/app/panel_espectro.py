@@ -10,8 +10,9 @@ write), NO con `mca_configure`: el bloque entero escribe R_CTRL con run=0, o sea
 que tocarla pararía la adquisición en curso.
 
 En el MCA2 la ventana la abre el disparo del multitrigger, no un umbral del
-MCA: el grupo «disparo» arma el disparo por pendiente en modo continuo
-(`multitrigger_armar_mca`, op `mca.disparo` del servidor). Sin él no se mide.
+MCA. Se configura en la pestaña «Multitrigger» (Sources → MCA trigger); acá queda
+su estado y un atajo para armarlo y desarmarlo (op `mca.disparo`, con los
+parámetros de esa pestaña: los pone la ventana). Sin él no se mide.
 """
 
 import os
@@ -42,7 +43,8 @@ class PanelEspectro(QWidget):
 
     pedir_start = pyqtSignal(float, bool)    # segundos (0 = sin límite), borrar antes
     pedir_stop = pyqtSignal()
-    pedir_disparo = pyqtSignal(dict)         # args de la op mca.disparo
+    pedir_disparo = pyqtSignal(dict)         # {'ch', 'armar'}: la ventana completa
+    ir_a = pyqtSignal(str)                   # 'mtrg': el disparo se configura ahí
     pedir_clear = pyqtSignal()
     pedir_campo = pyqtSignal(str, int)       # campo de _CAMPOS, valor
     log = pyqtSignal(str)
@@ -174,40 +176,25 @@ class PanelEspectro(QWidget):
         g = QGroupBox('trigger and window')
         f = QFormLayout(g)
 
-        # El disparo por pendiente del multitrigger: s = suma de L muestras
-        # menos la de L muestras G antes. Para un escalón de alto A, s = L·A.
-        self.spn_l = QSpinBox(minimum=1, maximum=16, value=8)
-        self.spn_g = QSpinBox(minimum=0, maximum=31, value=4)
-        self.spn_thr = QSpinBox(minimum=0, maximum=(1 << 18) - 1, value=600)
-        self.spn_hyst = QSpinBox(minimum=0, maximum=(1 << 18) - 1, value=300)
-        for spn, ayuda in (
-                (self.spn_l, 'Samples in each sum of the slope.'),
-                (self.spn_g, 'Gap between the two sums.'),
-                (self.spn_thr, 'Threshold on the slope s (a step of height A '
-                               'gives s = L·A). Measured on the board with the '
-                               'campaign pulse: 600.'),
-                (self.spn_hyst, 'Re-arms when s drops below thr − hyst: it is '
-                                'what allows triggering on the tail of another '
-                                'pulse.')):
-            spn.setToolTip(ayuda)
-        fila = QHBoxLayout()
-        fila.addWidget(QLabel('L'))
-        fila.addWidget(self.spn_l)
-        fila.addWidget(QLabel('G'))
-        fila.addWidget(self.spn_g)
-        f.addRow('slope', fila)
-        f.addRow('threshold (s)', self.spn_thr)
-        f.addRow('hysteresis (s)', self.spn_hyst)
-        self.btn_armar = QPushButton('Arm trigger')
+        # El disparo es del multitrigger y se configura en su pestaña: acá, el
+        # estado y el atajo para armarlo con lo que diga esa pestaña.
+        self.lbl_disparo = QLabel('—')
+        self.lbl_disparo.setWordWrap(True)
+        f.addRow('trigger', self.lbl_disparo)
+        self.btn_armar = QPushButton('Arm')
+        self.btn_armar.setToolTip('Arms the MCA trigger with the source and the '
+                                  'parameters of Multitrigger → Sources → MCA trigger.')
         self.btn_desarmar = QPushButton('Disarm')
+        self.btn_ir_mtrg = QPushButton('Settings…')
+        self.btn_ir_mtrg.setToolTip('The trigger is set in the Multitrigger tab.')
         self.btn_armar.clicked.connect(lambda: self._disparo(True))
         self.btn_desarmar.clicked.connect(lambda: self._disparo(False))
+        self.btn_ir_mtrg.clicked.connect(lambda: self.ir_a.emit('mtrg'))
         fila = QHBoxLayout()
         fila.addWidget(self.btn_armar)
         fila.addWidget(self.btn_desarmar)
+        fila.addWidget(self.btn_ir_mtrg)
         f.addRow(fila)
-        self.lbl_disparo = QLabel('—')
-        f.addRow('status', self.lbl_disparo)
 
         self.chk_ventana = QCheckBox('amplitude window')
         self.chk_ventana.toggled.connect(self._cambio_ventana)
@@ -462,38 +449,16 @@ class PanelEspectro(QWidget):
     # =========================================================================
 
     def _disparo(self, armar):
-        self.pedir_disparo.emit({
-            'ch': self._canal, 'armar': bool(armar),
-            'L': self.spn_l.value(), 'G': self.spn_g.value(),
-            'thr': self.spn_thr.value(), 'hyst': self.spn_hyst.value()})
+        # Los parámetros los agrega la ventana, desde la pestaña del Multitrigger.
+        self.pedir_disparo.emit({'ch': self._canal, 'armar': bool(armar)})
 
     def actualizar_disparo(self, est):
         """El estado que devuelve la op `mca.disparo`."""
-        p = est.get('pendiente') or {}
-        if est.get('armado') and est.get('fuente') == 'pz':
-            # Lo armó un script: esta pestaña sólo arma por pendiente. Los spins
-            # son de la pendiente, así que no se tocan.
-            z = est.get('polo_cero') or {}
-            self.lbl_disparo.setText(
-                f"armed with pole-zero: k={z.get('k')} m={z.get('m')} "
-                f"thr={z.get('thr')} mq={z.get('mq')}"
-                + ('' if est.get('we_keep') else ' (no we_keep!)')
-                + '. «Arm trigger» switches it to slope')
-        elif est.get('armado'):
-            self.lbl_disparo.setText(
-                f"armed: L={p.get('L')} G={p.get('G')} thr={p.get('thr')} "
-                f"hyst={p.get('hyst')}" + ('' if est.get('we_keep')
-                                            else ' (no we_keep!)'))
-            self.spn_l.setValue(int(p.get('L', 8)))
-            self.spn_g.setValue(int(p.get('G', 4)))
-            self.spn_thr.setValue(int(p.get('thr', 600)))
-            self.spn_hyst.setValue(int(p.get('hyst', 300)))
-        else:
-            self.lbl_disparo.setText('NO TRIGGER: the MCA opens no windows')
+        from app.diagrama_mt import texto_disparo
+        self.lbl_disparo.setText(texto_disparo(est))
 
     def set_conectado(self, conectado, running=False):
-        for w in (self.btn_clear, self.spn_thr, self.spn_hyst, self.spn_l,
-                  self.spn_g, self.btn_armar, self.btn_desarmar,
+        for w in (self.btn_clear, self.btn_armar, self.btn_desarmar,
                   self.spn_amp_min, self.spn_amp_max, self.chk_ventana):
             w.setEnabled(conectado)
         self.btn_start.setEnabled(conectado and not running)

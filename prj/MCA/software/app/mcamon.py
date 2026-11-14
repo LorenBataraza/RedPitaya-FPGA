@@ -370,10 +370,17 @@ class Trabajador(QObject):
         except Exception as e:                                   # noqa: BLE001
             self.fallo.emit(f'mca.disparo: {type(e).__name__}: {e}')
 
-    @pyqtSlot(bool)
-    def armar_mtrg(self, armar):
-        self._pedir_osc('mtrg.arm' if armar else 'mtrg.disarm', self.mtrg_info)
-        self.aviso.emit('trigger armed' if armar else 'trigger disarmed')
+    @pyqtSlot(dict)
+    def armar_mtrg(self, args):
+        """El disparo de nivel del scope: {'armar': True, 'thr', 'hyst'} (en volts)
+        o {'armar': False}."""
+        args = dict(args)
+        armar = args.pop('armar', True)
+        if armar:
+            self._pedir_osc('mtrg.arm', self.mtrg_info, **args)
+        else:
+            self._pedir_osc('mtrg.disarm', self.mtrg_info)
+        self.aviso.emit('level trigger armed' if armar else 'level trigger disarmed')
 
     # ---------- el generador de pulsos ----------
 
@@ -489,7 +496,7 @@ class Mcamon(QMainWindow):
     sig_pedir_mtrg = pyqtSignal()
     sig_campo_mtrg = pyqtSignal(str, int)
     sig_mascara = pyqtSignal(int, int)
-    sig_armar = pyqtSignal(bool)
+    sig_armar = pyqtSignal(dict)
     sig_disparo = pyqtSignal(dict)
     sig_pedir_gen = pyqtSignal()
     sig_gen_configurar = pyqtSignal(dict)
@@ -546,7 +553,11 @@ class Mcamon(QMainWindow):
         self.panel_espectro.pedir_stop.connect(self.sig_parar)
         self.panel_espectro.pedir_clear.connect(self.sig_borrar)
         self.panel_espectro.pedir_campo.connect(self.sig_campo)
-        self.panel_espectro.pedir_disparo.connect(self.sig_disparo)
+        # El atajo de Spectrum arma con lo que diga la pestaña del Multitrigger.
+        self.panel_espectro.pedir_disparo.connect(self._disparo_desde_espectro)
+        self.panel_espectro.ir_a.connect(self._ir_a_pestana)
+        self._ultimo_disparo = None     # el último estado del disparo del MCA
+        self._ultima_cfg = None         # la última configuración del MCA
         self.panel_espectro.log.connect(self.panel_log.info)
 
         self.panel_config.pedir_campo.connect(self.sig_campo)
@@ -673,7 +684,7 @@ class Mcamon(QMainWindow):
         self.sig_ring_parar.connect(self.trabajador.parar_ring)
         self.trabajador.ring_info.connect(self._al_ring)
         self.trabajador.ring_fallo.connect(self._al_ring_fallo)
-        self.trabajador.disparo_info.connect(self.panel_espectro.actualizar_disparo)
+        self.trabajador.disparo_info.connect(self._al_disparo)
 
         self.trabajador.integracion.connect(self._al_integracion)
         self.trabajador.osc_info.connect(self._al_osc)
@@ -784,8 +795,11 @@ class Mcamon(QMainWindow):
             self.panel_gen.actualizar_mca(est)
 
     def _al_config(self, cfg):
+        self._ultima_cfg = cfg
         self.panel_espectro.actualizar_config(cfg)
         self.panel_config.actualizar_config(cfg)
+        if self.panel_mtrg is not None:
+            self.panel_mtrg.actualizar_mca_config(cfg)
         for widget, clave in ((self.cmb_canal, 'channel'),
                               (self.cmb_estimador, 'amp_src')):
             widget.blockSignals(True)
@@ -885,6 +899,7 @@ class Mcamon(QMainWindow):
             self.panel_config_osc = PanelConfigOsc()
             self.panel_config_osc.log.connect(self.panel_log.info)
             self.panel_config_osc.pedir_campo.connect(self.sig_campo_osc)
+            self.panel_config_osc.ir_a.connect(self._ir_a_pestana)
             self.panel_config_osc.pedir_ctrl.connect(self.sig_ctrl_osc)
             self.tabs.addTab(self.panel_config_osc, 'OSC settings')
         elif not hay_cfg and self.panel_config_osc is not None:
@@ -914,7 +929,12 @@ class Mcamon(QMainWindow):
             self.panel_mtrg.pedir_mascara.connect(self.sig_mascara)
             self.panel_mtrg.pedir_armar.connect(self.sig_armar)
             self.panel_mtrg.pedir_refresco.connect(self.sig_pedir_mtrg)
-            self.panel_mtrg.ir_a.connect(self._ir_a_pestana)
+            self.panel_mtrg.pedir_disparo.connect(self.sig_disparo)
+            self.panel_mtrg.pedir_campo_osc.connect(self.sig_campo_osc)
+            if self._ultima_cfg is not None:
+                self.panel_mtrg.actualizar_mca_config(self._ultima_cfg)
+            if self._ultimo_disparo is not None:
+                self.panel_mtrg.actualizar_disparo(self._ultimo_disparo)
             self.tabs.addTab(self.panel_mtrg, 'Multitrigger')
         elif not hay_mtrg and self.panel_mtrg is not None:
             self.tabs.removeTab(self.tabs.indexOf(self.panel_mtrg))
@@ -927,14 +947,26 @@ class Mcamon(QMainWindow):
         self._cambio_pestana()
 
     def _ir_a_pestana(self, destino):
-        """Los botones de las fuentes del Multitrigger: el umbral de nivel está en
-        la etapa Trigger de «OSC settings» y el disparo del MCA en «Spectrum»."""
-        if destino == 'osc' and self.panel_config_osc is not None:
-            self.tabs.setCurrentWidget(self.panel_config_osc)
-            self.panel_config_osc._ir_a_etapa('disparo')
-        elif destino == 'espectro':
-            self.tabs.setCurrentWidget(self.panel_espectro)
-            self.panel_espectro.spn_thr.setFocus(Qt.OtherFocusReason)
+        """«OSC settings» y «Spectrum» muestran el disparo y llevan al Multitrigger,
+        que es donde se configura: a sus fuentes."""
+        if destino == 'mtrg' and self.panel_mtrg is not None:
+            self.tabs.setCurrentWidget(self.panel_mtrg)
+            self.panel_mtrg._ir_a_etapa('fuentes')
+
+    def _disparo_desde_espectro(self, args):
+        """El atajo de Spectrum: armar usa la fuente y los parámetros de la pestaña
+        del Multitrigger (sin ella, los del servidor)."""
+        if args.get('armar') and self.panel_mtrg is not None:
+            args = dict(self.panel_mtrg.args_disparo(), **args)
+        self.sig_disparo.emit(args)
+
+    def _al_disparo(self, est):
+        self._ultimo_disparo = est
+        self.panel_espectro.actualizar_disparo(est)
+        if self.panel_mtrg is not None:
+            self.panel_mtrg.actualizar_disparo(est)
+            # Armar o desarmar cambia la máscara, el shield y la fuente.
+            self.sig_pedir_mtrg.emit()
 
     # ---------- pestaña del generador de pulsos ----------
 
@@ -983,6 +1015,8 @@ class Mcamon(QMainWindow):
     def _al_mtrg(self, info):
         if self.panel_mtrg is not None:
             self.panel_mtrg.actualizar_mtrg(info)
+        if self.panel_config_osc is not None:
+            self.panel_config_osc.actualizar_mtrg(info)
 
     def _al_traza(self, meta, datos):
         if self.panel_pulsos is not None:
@@ -1005,9 +1039,12 @@ class Mcamon(QMainWindow):
             self.sig_pedir_osc.emit()
 
     def _tic_config_osc(self):
-        """Con «OSC settings» visible: el estado del OSC y el del ring."""
+        """Con «OSC settings» visible: el estado del OSC, el del ring y qué fuentes
+        disparan (las máscaras del multitrigger)."""
         if self.info.get('has_osc'):
             self.sig_pedir_osc.emit()
+        if self.panel_mtrg is not None:
+            self.sig_pedir_mtrg.emit()
         if self.panel_ring is not None:
             self.sig_ring_estado.emit()
 
