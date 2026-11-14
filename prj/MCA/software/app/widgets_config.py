@@ -42,11 +42,11 @@ INVALIDA = 'invalida'    # el histograma YA acumulado deja de tener sentido
 RIESGO   = 'riesgo'      # mal puesto, deja el sistema sin eventos
 
 _EXPLICACION = {
-    CALIENTE: 'Se puede cambiar con la medición corriendo.',
-    CORTA:    'Cambiarlo REINICIA la cuenta en curso.',
-    INVALIDA: ('Cambia lo que se mide: lo ya acumulado se mezcla con lo nuevo. '
-               'Conviene borrar el histograma después de cambiarlo.'),
-    RIESGO:   'Mal puesto puede dejar el sistema SIN EVENTOS.',
+    CALIENTE: 'Can be changed while acquiring.',
+    CORTA:    'Changing it RESTARTS the capture in progress.',
+    INVALIDA: ('Changes what is measured: what was accumulated mixes with the new. '
+               'Clear the histogram after changing it.'),
+    RIESGO:   'Set wrong, it can leave the system WITHOUT EVENTS.',
 }
 
 _MARCA = {CALIENTE: '', CORTA: ' ·', INVALIDA: ' ··', RIESGO: ' ⚠'}
@@ -104,11 +104,11 @@ class PanelCampos(QWidget):
         self.pedir_campo.emit(campo, int(valor))
         cuando = self._cuando.get(campo, CALIENTE)
         if cuando == INVALIDA:
-            self.log.emit(f'{campo}: cambia lo que se mide — lo acumulado antes '
-                          f'de este punto ya no es comparable')
+            self.log.emit(f'{campo}: changes what is measured — what was accumulated '
+                          f'before this point is no longer comparable')
         elif cuando == RIESGO:
-            self.log.emit(f'{campo} = {valor}: si el espectro se queda en cero, '
-                          f'es esto')
+            self.log.emit(f'{campo} = {valor}: if the spectrum stays at zero, '
+                          f'this is why')
 
     def _spin(self, campo, minimo, maximo, cuando=CALIENTE, ayuda='', paso=1):
         s = QSpinBox()

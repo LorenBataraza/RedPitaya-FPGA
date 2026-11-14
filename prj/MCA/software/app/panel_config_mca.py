@@ -16,7 +16,7 @@ valen desde el ciclo siguiente: ninguno se toma recién al arrancar (mca_top.sv)
 ranuras retienen sus compuertas al abrir, y escribir el trapecio reinicia su estado.
 Lo que sí se rompe es el histograma: casi todo cambia lo que se mide, y lo acumulado
 pasa a mezclar dos configuraciones. Por eso un cambio con cuentas en el histograma
-marca su etapa en la franja y muestra el aviso con «Borrar»; el aviso se va al
+marca su etapa en la franja y muestra el aviso con «Clear»; el aviso se va al
 borrar (desde acá, desde Espectro, o con el borrado de una adquisición). Sólo las
 ranuras habilitadas y el bin lleno no cambian lo que se mide (CALIENTE).
 
@@ -56,10 +56,20 @@ def _fila(*widgets):
     return w
 
 
+# Cómo se leen en la GUI: los nombres de FEATURES son los de la API.
+_NOMBRE_FEATURE = {'pico': 'peak', 'integral': 'integral', 'trapecio': 'trapezoid',
+                   'psd': 'psd', 'ancho_inv': 'inverse width', 'largo': 'length',
+                   't_subida': 'rise time', 'dt_anterior': 'dt to previous',
+                   'dt_siguiente': 'dt to next', 'solape': 'overlap',
+                   'forma': 'shape'}
+
+
 def _opciones_features():
-    conocidas = [(n, FEATURES[n]) for n in _ORDEN_FEATURES if n in FEATURES]
+    conocidas = [(_NOMBRE_FEATURE.get(n, n), FEATURES[n]) for n in _ORDEN_FEATURES
+                 if n in FEATURES]
     # Si alguna vez FEATURES crece, aparece igual en vez de quedar invisible.
-    conocidas += [(n, v) for n, v in sorted(FEATURES.items(), key=lambda kv: kv[1])
+    conocidas += [(_NOMBRE_FEATURE.get(n, n), v)
+                  for n, v in sorted(FEATURES.items(), key=lambda kv: kv[1])
                   if n not in _ORDEN_FEATURES]
     return conocidas
 
@@ -128,181 +138,180 @@ class PanelConfigMCA(PanelPorEtapas):
     # ---------- las etapas, en el orden del dato ----------
 
     def _grupo_entrada(self):
-        g = self._grupo('entrada', 'Entrada')
+        g = self._grupo('entrada', 'Input')
         f = self._forma(g)
         f.addRow(self._check(
-            'channel', 'usar IN2 (en vez de IN1)', INVALIDA,
-            'Hay UN solo MCA con un mux de canal, no dos MCA independientes.'))
-        f.addRow('decimación', self._spin(
+            'channel', 'use IN2 (instead of IN1)', INVALIDA,
+            'There is ONE MCA with a channel mux, not two independent MCAs.'))
+        f.addRow('decimation', self._spin(
             'dec', 1, 0xFFFF, INVALIDA,
-            'Decimación propia del MCA. 1 = sin decimar.'))
-        f.addRow('retardo (ciclos)', self._spin(
+            'The MCA\'s own decimation. 1 = no decimation.'))
+        f.addRow('delay (cycles)', self._spin(
             'pre_dly', 0, 127, INVALIDA,
-            'Retardo de la muestra respecto del disparo, para que la ventana '
-            'abra en el pie del pulso: el disparo por pendiente llega tarde.\n'
-            'Medido en placa con el pulso de la campaña y L=8, G=4: 16.\n'
-            'Mueve también las ventanas del trapecio: trap_off = c + pre_dly + 2.\n'
-            'La tabla y la regla: docs/mca/register_map_mca.md, "La línea de '
+            'Delay of the sample relative to the trigger, so the window opens at '
+            'the foot of the pulse: the slope trigger arrives late.\n'
+            'Measured on the board with the campaign pulse and L=8, G=4: 16.\n'
+            'It also moves the trapezoid windows: trap_off = c + pre_dly + 2.\n'
+            'The table and the rule: docs/mca/register_map_mca.md, "La línea de '
             'retardo".'))
         return g
 
     def _grupo_linea_base(self):
-        g = self._grupo('base', 'Línea de base')
+        g = self._grupo('base', 'Baseline')
         f = self._forma(g)
         f.addRow(self._check(
-            'bl_auto', 'seguidor automático', RIESGO,
-            'Con el seguidor apagado se usa el valor fijo de abajo, que es '
-            'inmune al problema de bl_k.'))
+            'bl_auto', 'automatic tracker', RIESGO,
+            'With the tracker off, the fixed value below is used, which is immune '
+            'to the bl_k problem.'))
         f.addRow('bl_k (τ = 2^k) ⚠', self._spin(
             'bl_k', 0, 15, RIESGO,
-            'La constante tiene que ser MUCHO más larga que el pulso: si es '
-            'comparable, el seguidor persigue el pulso y lo borra antes de que '
-            'cruce el umbral, y no se detecta NADA.\n'
-            'Medido en placa con un pulso de 62 us:\n'
-            '    bl_k=6  (τ=0.5 us)  ->      0 eventos\n'
-            '    bl_k=9  (τ=4.1 us)  ->   2002 eventos\n'
-            '    bl_k=12 (τ=32.8 us) ->   2001 eventos\n'
-            'Regla: τ >= 100x la duración del pulso.'))
+            'The time constant has to be MUCH longer than the pulse: if it is '
+            'comparable, the tracker follows the pulse and erases it before it '
+            'crosses the threshold, and NOTHING is detected.\n'
+            'Measured on the board with a 62 us pulse:\n'
+            '    bl_k=6  (τ=0.5 us)  ->      0 events\n'
+            '    bl_k=9  (τ=4.1 us)  ->   2002 events\n'
+            '    bl_k=12 (τ=32.8 us) ->   2001 events\n'
+            'Rule: τ >= 100x the pulse duration.'))
         f.addRow('holdoff', self._spin(
             'bl_holdoff', 0, 0xFFFF, INVALIDA,
-            'Muestras que el seguidor ignora después de un pulso, para no '
-            'aprender del propio pulso.'))
-        f.addRow('base fija', self._spin(
+            'Samples the tracker ignores after a pulse, so it does not learn from '
+            'the pulse itself.'))
+        f.addRow('fixed baseline', self._spin(
             'baseline', 0, 0x3FFF, INVALIDA,
-            'En cuentas. Sólo se usa con el seguidor automático apagado.'))
+            'In counts. Only used with the automatic tracker off.'))
         return g
 
     def _grupo_trapecio(self):
-        self.grp_trapecio = g = self._grupo('trapecio', 'Trapecio (F_TRAP)')
+        self.grp_trapecio = g = self._grupo('trapecio', 'Trapezoid (F_TRAP)')
         f = self._forma(g)
-        f.addRow('subida k, meseta m', _fila(self._spin(
+        f.addRow('rise k, flat top m', _fila(self._spin(
             'trap_k', 1, 1023, INVALIDA,
-            'Subida k, en muestras. Escribirlo reinicia el estado del trapecio. k '
-            'largo promedia más ruido pero alarga la separación mínima entre pulsos, '
+            'Rise k, in samples. Writing it resets the trapezoid state. A long k '
+            'averages more noise but lengthens the minimum pulse separation, '
             'k + m.'), self._spin(
             'trap_m', 0, 1023, INVALIDA,
-            'Meseta m, en muestras. Tiene que ser más larga que el tiempo de subida '
-            'del pulso, o no hay meseta y F_TRAP promedia el flanco.')))
-        f.addRow('M·16 (polo-cero)', self._spin(
+            'Flat top m, in samples. It has to be longer than the pulse rise time, '
+            'or there is no flat top and F_TRAP averages the edge.')))
+        f.addRow('M·16 (pole-zero)', self._spin(
             'trap_mq', 0, 0xFFFFF, INVALIDA,
-            'M ~ τ − 0.5 de la cola que llega al ADC, y se ajusta en la placa '
-            '(en la campaña quedó en 242.8: Mq = 3885).'))
-        f.addRow('ventana desde, 2^lw', _fila(self._spin(
+            'M ~ τ − 0.5 of the tail reaching the ADC, tuned on the board (in the '
+            'campaign it ended at 242.8: Mq = 3885).'))
+        f.addRow('window from, 2^lw', _fila(self._spin(
             'trap_off', 0, 0xFFFF, INVALIDA,
-            'Muestras desde la apertura hasta el promedio sobre la meseta.'),
+            'Samples from the window opening to the average over the flat top.'),
             self._spin('trap_lw', 0, 7, INVALIDA,
-                       'El promedio sobre la meseta dura 2^lw muestras.')))
-        f.addRow('escala >> sh', self._spin('trap_sh', 0, 63, INVALIDA))
-        g.setToolTip('Sólo si el bitstream trae el trapecio (CAPS bit 2). Cómo '
-                     'elegir los parámetros: docs/mca/register_map_mca.md.')
+                       'The average over the flat top lasts 2^lw samples.')))
+        f.addRow('scale >> sh', self._spin('trap_sh', 0, 63, INVALIDA))
+        g.setToolTip('Only if the bitstream has the trapezoid (CAPS bit 2). How to '
+                     'choose the parameters: docs/mca/register_map_mca.md.')
         return g
 
     def _grupo_segmentacion(self):
-        g = self._grupo('segmentacion', 'Disparo y ranuras')
+        g = self._grupo('segmentacion', 'Trigger and slots')
         f = self._forma(g)
-        nota = QLabel('El disparo (umbral, histéresis) es del multitrigger: se '
-                      'arma en Espectro.')
+        nota = QLabel('The trigger (threshold, hysteresis) belongs to the '
+                      'multitrigger: it is armed in Spectrum.')
         nota.setWordWrap(True)
         nota.setStyleSheet('color: #777;')
         f.addRow(nota)
-        f.addRow('ranuras', self._spin(
+        f.addRow('slots', self._spin(
             'n_acc', 1, 4, CALIENTE,
-            'Juegos de acumuladores que miden a la vez. Con 1 es la ventana '
-            'única de antes; con más, un disparo que llega con una ventana '
-            'abierta abre otra, y la pérdida pasa de ~ρ a ~ρ^N/N!.\n'
-            'Lo medido sobre la cola de otro pulso viene contaminado: se marca '
-            'en las features dt_anterior, dt_siguiente y solape, y lo corrige '
-            'el trapecio.\n'
-            'No cambia lo que se mide, sólo cuánto se pierde: no marca el '
-            'histograma.'))
+            'Sets of accumulators that measure at the same time. With 1 it is the '
+            'single window of before; with more, a trigger that arrives with a '
+            'window open opens another one, and the loss goes from ~ρ to ~ρ^N/N!.\n'
+            'What is measured on the tail of another pulse is contaminated: it is '
+            'flagged in the features dt_anterior, dt_siguiente and solape, and the '
+            'trapezoid corrects it.\n'
+            'It does not change what is measured, only how much is lost: it does '
+            'not mark the histogram.'))
         return g
 
     def _grupo_compuertas(self):
-        g = self._grupo('estadisticos', 'Ranuras: compuertas')
+        g = self._grupo('estadisticos', 'Slots: gates')
         f = self._forma(g)
-        f.addRow('corta', self._spin(
+        f.addRow('short', self._spin(
             'gate_short', 0, 0xFFFF, INVALIDA,
-            'Muestras desde el disparo hasta que arranca la integral de cola. '
-            'Con 0, Q_cola == Q_total y el evento entra al 1D pero no al 2D.'))
-        f.addRow('larga', self._spin(
+            'Samples from the trigger until the tail integral starts. With 0, '
+            'Q_tail == Q_total and the event goes to the 1D but not to the 2D.'))
+        f.addRow('long', self._spin(
             'gate_long', 0, 0xFFFF, INVALIDA,
-            'Muestras desde el disparo hasta que la ventana cierra, pase lo que '
-            'pase con la señal. Cada ranura la retiene al abrir.'))
-        nota = QLabel('La ventana de amplitud se pone en Espectro.')
+            'Samples from the trigger until the window closes, whatever the signal '
+            'does. Each slot latches it when it opens.'))
+        nota = QLabel('The amplitude window is set in Spectrum.')
         nota.setWordWrap(True)
         nota.setStyleSheet('color: #777;')
         f.addRow(nota)
         return g
 
     def _grupo_eje(self):
-        g = self._grupo('publicacion', 'Eje del histograma')
+        g = self._grupo('publicacion', 'Histogram axis')
         f = self._forma(g)
         f.addRow(self._check(
-            'amp_src', 'usar integral de carga', INVALIDA,
-            'Apagado: la muestra de pico. Encendido: Q_total >> q_shift.\n'
-            'La integral promedia el ruido blanco como sigma/sqrt(N) y es '
-            'inmune al jitter de muestreo del pico; con la muestra de pico la '
-            'amplitud sale de UNA muestra y el muestreo casi nunca cae en el '
-            'máximo real.\n'
-            'OJO: escribir este registro también mueve el selector del eje 1D, '
-            'por compatibilidad con la campaña vieja.'))
+            'amp_src', 'use the charge integral', INVALIDA,
+            'Off: the peak sample. On: Q_total >> q_shift.\n'
+            'The integral averages white noise as sigma/sqrt(N) and is immune to '
+            'the sampling jitter of the peak; with the peak sample the amplitude '
+            'comes from ONE sample and the sampling almost never hits the real '
+            'maximum.\n'
+            'NOTE: writing this register also moves the 1D axis selector, for '
+            'compatibility with the old campaign.'))
         f.addRow('q_shift', self._spin(
             'q_shift', 0, 31, INVALIDA,
-            'Divide la integral para que entre en el eje. Sólo con la integral.'))
-        f.addRow('qué mide', self._combo(
+            'Divides the integral so it fits in the axis. Only with the integral.'))
+        f.addRow('measures', self._combo(
             'sel_1d', _opciones_features(), INVALIDA,
-            'Qué feature del pulso alimenta el espectro.\n'
-            'Es el registro que agarró un bug del RTL en simulación: con el mux '
-            'mal, TODO el espectro cae en el canal 0 sin ningún error.'))
+            'Which pulse feature feeds the spectrum.\n'
+            'It is the register that caught an RTL bug in simulation: with the mux '
+            'wrong, the WHOLE spectrum falls in channel 0 without any error.'))
         f.addRow('zoom (z)', self._spin(
             'zoom_1d_z', 0, 4, INVALIDA,
-            'La ventana del eje es 2^-z del fondo de escala. z=0 es fondo de '
-            'escala entero.\n'
-            'NO mejora la resolución: sólo recupera la pérdida por binning, que '
-            'ya es menor al 0.6 %. Sirve para encuadrar el eje sobre dos picos '
-            'juntos, y para poder usar un histograma más chico sin ceder nada.\n'
-            'Y la deriva empeora 2^z COMO FRACCIÓN DE LA VENTANA: con z=3 un '
-            'corrimiento del 6.45 % mueve el pico un 41 % del ancho.'))
-        f.addRow('ventana (k)', self._spin(
+            'The axis window is 2^-z of full scale. z=0 is the whole full scale.\n'
+            'It does NOT improve the resolution: it only recovers the binning loss, '
+            'already below 0.6 %. It frames the axis on two close peaks, and lets a '
+            'smaller histogram be used without giving anything up.\n'
+            'And drift gets 2^z worse AS A FRACTION OF THE WINDOW: with z=3 a 6.45 % '
+            'shift moves the peak 41 % of the width.'))
+        f.addRow('window (k)', self._spin(
             'zoom_1d_k', 0, 255, INVALIDA,
-            'Cuál de las 2^z ventanas se mira. Con z=0 no se usa.'))
+            'Which of the 2^z windows is shown. Not used with z=0.'))
         self.lbl_rango = QLabel('—')
         self.lbl_rango.setTextFormat(Qt.PlainText)
-        f.addRow('rango', self.lbl_rango)
+        f.addRow('range', self.lbl_rango)
         return g
 
     def _grupo_discriminador(self):
-        g = self._grupo('publicacion', 'Discriminador')
+        g = self._grupo('publicacion', 'Discriminator')
         f = self._forma(g)
         f.addRow(_fila(self._check(
-            'discr_en', 'activo', INVALIDA,
-            'Rechaza eventos por una feature elegida. Lo que rechaza se cuenta '
-            'aparte en cnt_rej_discr, separado de cnt_rej_amp: son criterios '
-            'distintos y hay que poder atribuir la pérdida a cada uno.'),
+            'discr_en', 'active', INVALIDA,
+            'Rejects events by a chosen feature. What it rejects is counted apart '
+            'in cnt_rej_discr, separate from cnt_rej_amp: they are different '
+            'criteria and the loss has to be attributable to each.'),
             self._check(
-            'discr_ext', 'intervalo externo', INVALIDA,
-            'Rechaza adentro del intervalo. Con el intervalo externo, min > max '
-            'es legítimo: acepta todo. Con el interno, min > max sería un '
-            'intervalo vacío y la API lo rechaza — el síntoma sería un espectro '
-            'sin una sola cuenta.')))
+            'discr_ext', 'outer interval', INVALIDA,
+            'Rejects inside the interval. With the outer interval, min > max is '
+            'legitimate: it accepts everything. With the inner one, min > max would '
+            'be an empty interval and the API rejects it — the symptom would be a '
+            'spectrum without a single count.')))
         f.addRow('feature', self._combo(
             'discr_sel', _opciones_features(), INVALIDA))
-        f.addRow('mínimo … máximo', _fila(
+        f.addRow('minimum … maximum', _fila(
             self._spin('discr_min', 0, 0xFFFF, INVALIDA), QLabel('…'),
             self._spin('discr_max', 0, 0xFFFF, INVALIDA)))
         return g
 
     def _grupo_histograma(self):
-        g = self._grupo('publicacion', 'Histograma')
+        g = self._grupo('publicacion', 'Histogram')
         f = self._forma(g)
         self._check(
-            'keep_if_full', 'seguir con el bin lleno', CALIENTE,
-            'Apagado: los eventos que caen en un bin saturado NO se cuentan, y '
-            'se acumulan aparte en cnt_full_supp.')
-        self.btn_borrar = QPushButton('Borrar el histograma')
+            'keep_if_full', 'keep going with a full bin', CALIENTE,
+            'Off: events that fall in a saturated bin are NOT counted, and are '
+            'accumulated apart in cnt_full_supp.')
+        self.btn_borrar = QPushButton('Clear the histogram')
         self.btn_borrar.setToolTip(
-            'Después de cambiar algo con cuentas en el histograma, para no '
-            'mezclar dos configuraciones.')
+            'After changing something with counts in the histogram, so as not to '
+            'mix two configurations.')
         self.btn_borrar.clicked.connect(self._borrar)
         f.addRow(_fila(self._controles['keep_if_full'][0], self.btn_borrar))
         return g
@@ -316,7 +325,7 @@ class PanelConfigMCA(PanelPorEtapas):
         self.lbl_mezcla = QLabel()
         self.lbl_mezcla.setWordWrap(True)
         h.addWidget(self.lbl_mezcla, 1)
-        b = QPushButton('Borrar')
+        b = QPushButton('Clear')
         b.clicked.connect(self._borrar)
         h.addWidget(b)
         w.setVisible(False)
@@ -350,8 +359,8 @@ class PanelConfigMCA(PanelPorEtapas):
             if clave in self._mezcla:
                 partes.append(f"{_NOMBRE_ETAPA[clave]} ({', '.join(sorted(self._mezcla[clave]))})")
         self.lbl_mezcla.setText(
-            f'El histograma mezcla dos configuraciones desde las {self._mezcla_desde}: '
-            f'cambió {"; ".join(partes)}. Conviene borrarlo.')
+            f'The histogram mixes two configurations since {self._mezcla_desde}: '
+            f'{"; ".join(partes)} changed. Clear it.')
         self.frm_mezcla.setVisible(True)
 
     def _limpiar_mezcla(self):
@@ -436,4 +445,4 @@ class PanelConfigMCA(PanelPorEtapas):
         hi = mca_amplitud_de_canal((1 << self.h_aw) - 1, self.h_aw, z, k)
         ancho = (hi - lo) / max(1, (1 << self.h_aw) - 1)
         self.lbl_rango.setText(
-            f'{lo} … {hi} cuentas\n{1 << self.h_aw} canales, {ancho:.1f} por canal')
+            f'{lo} … {hi} counts\n{1 << self.h_aw} channels, {ancho:.1f} per channel')

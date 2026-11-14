@@ -53,7 +53,7 @@ class PanelMultitrigger(PanelCampos):
     def _construir(self):
         interior = QWidget()
         self._v = QVBoxLayout(interior)
-        self._grupo_mascaras = QGroupBox('Fuentes de disparo (máscara OR)')
+        self._grupo_mascaras = QGroupBox('Trigger sources (OR mask)')
         self._rejilla = QGridLayout(self._grupo_mascaras)
         # Una columna elástica al final: sin esto las tres columnas de casillas
         # se reparten todo el ancho y quedan separadas por medio panel.
@@ -79,58 +79,58 @@ class PanelMultitrigger(PanelCampos):
         return f
 
     def _grupo_shield(self):
-        g = QGroupBox('trigger_shield (re-armado por hardware)')
+        g = QGroupBox('trigger_shield (hardware re-arm)')
         f = self._forma(g)
-        f.addRow('arman (src)',
+        f.addRow('arm (src)',
                  self._spin('shield_src', 0, 0x7F, CORTA,
-                            'Máscara de fuentes que activan el shield. Bits '
-                            '0-3: disparo de cada canal (0x3 = ch0 y ch1). '
-                            'Bit 4: entrada externa DIO0_P, flanco de subida. '
-                            'Bit 5: flanco de bajada. Bit 6: NIVEL de DIO0_P. '
-                            'Con 0 el shield está apagado y el re-armado vuelve '
-                            'a ser por software.'))
-        f.addRow('limpian (dst)',
+                            'Mask of the sources that activate the shield. Bits '
+                            '0-3: trigger of each channel (0x3 = ch0 and ch1). '
+                            'Bit 4: external input DIO0_P, rising edge. Bit 5: '
+                            'falling edge. Bit 6: LEVEL of DIO0_P. With 0 the '
+                            'shield is off and re-arming is done by software '
+                            'again.'))
+        f.addRow('clear (dst)',
                  self._spin('shield_dst', 0, 0x1F, CORTA,
-                            'Máscara de destinos. Bits 0-3: canales cuyo '
-                            'adc_trg_dis se limpia (normalmente igual que src). '
-                            'Bit 4: VETO al MCA — mientras el shield esté activo '
-                            'no abre pulsos y su reloj de tiempo vivo se para. '
-                            'Veto de nivel: src=0x40, dst=0x10, holdoff=0.'))
-        f.addRow('holdoff (ciclos)',
+                            'Mask of destinations. Bits 0-3: channels whose '
+                            'adc_trg_dis is cleared (usually the same as src). '
+                            'Bit 4: VETO to the MCA — while the shield is active '
+                            'it opens no pulses and its live-time clock stops. '
+                            'Level veto: src=0x40, dst=0x10, holdoff=0.'))
+        f.addRow('holdoff (cycles)',
                  self._spin('shield_dur', 0, 0xFFFF, CORTA,
-                            'Ciclos de espera antes de limpiar. Con 0 la '
-                            'limpieza sale en el MISMO ciclo del disparo, que '
-                            'es lo que permite re-disparar a velocidad de HW.'))
+                            'Cycles to wait before clearing. With 0 the clear '
+                            'happens in the SAME cycle as the trigger, which is '
+                            'what allows re-triggering at HW speed.'))
 
         self.lbl_runtime = QLabel('—')
-        f.addRow('runtime del shield', self.lbl_runtime)
+        f.addRow('shield runtime', self.lbl_runtime)
         self.lbl_flags = QLabel('—')
-        self.lbl_flags.setToolTip('dis_act / we_keep, tal como los publica DIS_FLAGS.')
+        self.lbl_flags.setToolTip('dis_act / we_keep, as published by DIS_FLAGS.')
         f.addRow('flags', self.lbl_flags)
 
-        btn_armar = QPushButton('Armar disparo por ADC')
+        btn_armar = QPushButton('Arm ADC trigger')
         btn_armar.setToolTip(
-            'Secuencia completa de armado. Cruza registros del osciloscopio y '
-            'del multitrigger, y su orden importa: por eso es una operación del '
-            'servidor y no una escritura suelta desde acá.')
+            'Full arming sequence. It crosses registers of the oscilloscope and '
+            'of the multitrigger, and its order matters: that is why it is a server '
+            'operation and not a loose write from here.')
         btn_armar.clicked.connect(lambda: self.pedir_armar.emit(True))
-        btn_desarmar = QPushButton('Desarmar')
+        btn_desarmar = QPushButton('Disarm')
         btn_desarmar.clicked.connect(lambda: self.pedir_armar.emit(False))
         f.addRow(btn_armar)
         f.addRow(btn_desarmar)
         return g
 
     def _grupo_snapshot(self):
-        g = QGroupBox('Qué disparó (snapshot, sticky)')
+        g = QGroupBox('What triggered (snapshot, sticky)')
         v = QVBoxLayout(g)
         self.lbl_snap = QLabel('—')
         self.lbl_snap.setWordWrap(True)
         self.lbl_snap.setToolTip(
-            'El registro es STICKY: acumula todas las fuentes que dispararon '
-            'desde la última limpieza, no la última. Ver dos fuentes acá no '
-            'significa que hayan disparado juntas.')
+            'The register is STICKY: it accumulates every source that triggered '
+            'since the last clear, not the last one. Seeing two sources here does '
+            'not mean they triggered together.')
         v.addWidget(self.lbl_snap)
-        btn = QPushButton('Releer')
+        btn = QPushButton('Reread')
         btn.clicked.connect(self.pedir_refresco)
         v.addWidget(btn)
         return g
@@ -156,7 +156,7 @@ class PanelMultitrigger(PanelCampos):
 
         for canal in (0, 1):
             base = canal * (len(self._bits) // COLUMNAS + 2)
-            self._rejilla.addWidget(QLabel(f'<b>canal {canal}</b>'), base, 0, 1,
+            self._rejilla.addWidget(QLabel(f'<b>channel {canal}</b>'), base, 0, 1,
                                     COLUMNAS)
             for i, (nombre, valor, ayuda) in enumerate(self._bits):
                 c = QCheckBox(nombre)
@@ -201,15 +201,15 @@ class PanelMultitrigger(PanelCampos):
         crudo = est.get('snapshot', 0)
         self.lbl_snap.setText(
             f'{crudo:#07x} — ' + (', '.join(fuentes) if fuentes
-                                  else 'ninguna fuente registrada'))
+                                  else 'no source recorded'))
         rt = est.get('shield_runtime')
         if rt is None:
             self.lbl_runtime.setText('—')
         else:
             self.lbl_runtime.setText(
-                f'{rt & 0xFFFF} ciclos'
-                + (' · activo' if est.get('shield_active') else '')
-                + (' · VETO al MCA' if est.get('mca_veto') else ''))
+                f'{rt & 0xFFFF} cycles'
+                + (' · active' if est.get('shield_active') else '')
+                + (' · VETO to the MCA' if est.get('mca_veto') else ''))
         self.lbl_flags.setText(f'{est.get("flags", 0):#010x}')
 
     def set_conectado(self, conectado, running=False):

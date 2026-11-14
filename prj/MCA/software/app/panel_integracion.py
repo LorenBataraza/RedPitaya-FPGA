@@ -31,17 +31,17 @@ from PyQt5.QtWidgets import (QComboBox, QFormLayout, QGroupBox, QHBoxLayout,
 from API.integration import TAP_ADC, TAP_BRAM_IN, TAP_DEC_IN, TAP_NATIVE
 
 CONSUMIDORES = (
-    ('osc',  'Osciloscopio', 'adc_bram_in'),
+    ('osc',  'Oscilloscope', 'adc_bram_in'),
     ('mtrg', 'Multitrigger', 'adc_dly_in'),
     ('mca',  'MCA',          'adc_dec_in'),
     ('ring', 'event_ring',   'adc_dec_in'),
 )
 
 _AYUDA_TAP = {
-    TAP_NATIVE:  'como estaba cableado antes del refactor. Es el valor de reset.',
-    TAP_ADC:     'muestra cruda, ANTES de calibración y ecualizador.',
-    TAP_DEC_IN:  'post-calibración y ecualizador, PRE-decimación (125 MSPS).',
-    TAP_BRAM_IN: 'después de todo el DSP (decimación + retardo).',
+    TAP_NATIVE:  'as it was wired before the refactor. It is the reset value.',
+    TAP_ADC:     'raw sample, BEFORE calibration and equalizer.',
+    TAP_DEC_IN:  'post-calibration and equalizer, PRE-decimation (125 MSPS).',
+    TAP_BRAM_IN: 'after all the DSP (decimation + delay).',
 }
 
 
@@ -83,16 +83,15 @@ class PanelIntegracion(QWidget):
         caja.addWidget(scroll)
 
     def _grupo_ruteo(self):
-        g = QGroupBox('Ruteo del datapath')
+        g = QGroupBox('Datapath routing')
         v = QVBoxLayout(g)
 
         aviso = QLabel(
-            'Cambiar de tap CORRE LA LATENCIA: el contador de retardo cuenta en '
-            'muestras decimadas, así que un OSC en adc_dat y un multitrigger en '
-            'nativo quedan desalineados en el pre-trigger. Es legítimo, no es '
-            'gratis.\n'
-            'Y el camino a DDR por AXI no se rutea: esto afecta la captura en '
-            'BRAM, no las capturas rp_AcqAxi*.')
+            'Changing the tap SHIFTS THE LATENCY: the delay counter counts in '
+            'decimated samples, so an OSC on adc_dat and a multitrigger on native '
+            'end up misaligned in the pre-trigger. It is legitimate, not free.\n'
+            'And the AXI path to DDR is not routed: this affects the BRAM capture, '
+            'not the rp_AcqAxi* captures.')
         aviso.setWordWrap(True)
         aviso.setStyleSheet('color: #888;')
         v.addWidget(aviso)
@@ -100,13 +99,13 @@ class PanelIntegracion(QWidget):
         f = QFormLayout()
         for clave, etiqueta, nativo in CONSUMIDORES:
             cb = QComboBox()
-            cb.addItem(f'nativo ({nativo})', TAP_NATIVE)
-            cb.addItem('adc_dat  (crudo)', TAP_ADC)
-            cb.addItem('adc_dec_in  (pre-decimación)', TAP_DEC_IN)
+            cb.addItem(f'native ({nativo})', TAP_NATIVE)
+            cb.addItem('adc_dat  (raw)', TAP_ADC)
+            cb.addItem('adc_dec_in  (pre-decimation)', TAP_DEC_IN)
             cb.addItem('adc_bram_in  (post-DSP)', TAP_BRAM_IN)
             cb.setToolTip('\n'.join(
                 f'{n}: {_AYUDA_TAP[t]}'
-                for t, n in ((TAP_NATIVE, 'nativo'), (TAP_ADC, 'adc_dat'),
+                for t, n in ((TAP_NATIVE, 'native'), (TAP_ADC, 'adc_dat'),
                              (TAP_DEC_IN, 'adc_dec_in'),
                              (TAP_BRAM_IN, 'adc_bram_in'))))
             cb.currentIndexChanged.connect(
@@ -116,11 +115,10 @@ class PanelIntegracion(QWidget):
         v.addLayout(f)
 
         fila = QHBoxLayout()
-        self.btn_nativo = QPushButton('Volver todo a nativo')
+        self.btn_nativo = QPushButton('Everything back to native')
         self.btn_nativo.setToolTip(
-            'El estado de reset del hardware, o sea el comportamiento '
-            'pre-refactor. Es la salida a terreno conocido sin tener que '
-            'recargar el bitstream.')
+            'The hardware reset state, that is, the pre-refactor behaviour. It is '
+            'the way back to known ground without reloading the bitstream.')
         self.btn_nativo.clicked.connect(self.pedir_reset_ruteos.emit)
         fila.addWidget(self.btn_nativo)
         fila.addStretch(1)
@@ -128,7 +126,7 @@ class PanelIntegracion(QWidget):
         return g
 
     def _grupo_control(self):
-        g = QGroupBox('Control global')
+        g = QGroupBox('Global control')
         v = QVBoxLayout(g)
 
         fila = QHBoxLayout()
@@ -140,7 +138,7 @@ class PanelIntegracion(QWidget):
         self.btn_clear.clicked.connect(lambda: self._ctrl('clear'))
         self.btn_srst = QPushButton('soft reset')
         self.btn_srst.setToolTip(
-            'Pulso de reset a todos los bloques. Autolimpiante en hardware.')
+            'Reset pulse to every block. Self-clearing in hardware.')
         self.btn_srst.clicked.connect(lambda: self._ctrl('srst'))
         for b in (self.btn_run, self.btn_clear, self.btn_srst):
             fila.addWidget(b)
@@ -153,7 +151,7 @@ class PanelIntegracion(QWidget):
         return g
 
     def _grupo_topologia(self):
-        g = QGroupBox('Qué trae este bitstream')
+        g = QGroupBox('What this bitstream has')
         v = QVBoxLayout(g)
         self.lbl_topologia = QLabel('—')
         self.lbl_topologia.setTextFormat(Qt.PlainText)
@@ -195,7 +193,7 @@ class PanelIntegracion(QWidget):
                 cb.setEnabled(True)
                 if not r.get('enable', True):
                     cb.setItemText(cb.currentIndex(),
-                                   cb.currentText().split('  [')[0] + '  [SIN SEÑAL]')
+                                   cb.currentText().split('  [')[0] + '  [NO SIGNAL]')
 
             self.btn_run.setChecked(bool(info.get('run', False)))
             st = info.get('status') or {}
@@ -206,15 +204,15 @@ class PanelIntegracion(QWidget):
             mods = info.get('modules') or {}
             slots = info.get('slots') or {}
             presentes = [k for k, v in mods.items() if v]
-            filas = [f'módulos : {" ".join(presentes) or "(ninguno)"}']
+            filas = [f'modules : {" ".join(presentes) or "(none)"}']
             if slots:
                 filas.append('slots   : ' + '  '.join(
                     f'{k}={v}' for k, v in sorted(slots.items(),
                                                   key=lambda kv: kv[1])))
             c = info.get('caps') or {}
             if c:
-                filas.append(f'sistema : n_ch={c.get("n_ch")} dw={c.get("dw")} '
-                             f'rsz={c.get("rsz")} filtro={c.get("en_filt")}')
+                filas.append(f'system  : n_ch={c.get("n_ch")} dw={c.get("dw")} '
+                             f'rsz={c.get("rsz")} filter={c.get("en_filt")}')
             self.lbl_topologia.setText('\n'.join(filas))
 
             self._pintar_geometria(info)
@@ -235,13 +233,13 @@ class PanelIntegracion(QWidget):
         if coincide:
             self.lbl_geometria.setStyleSheet('color: #888;')
             self.lbl_geometria.setText(
-                f'geometría del MCA: h_aw={c.get("h_aw")} (coincide con WIDTHS)')
+                f'MCA geometry: h_aw={c.get("h_aw")} (matches WIDTHS)')
         else:
             self.lbl_geometria.setStyleSheet('color: #cc6600;')
             self.lbl_geometria.setText(
                 info.get('geometria_motivo')
-                or 'la geometría publicada acá NO coincide con la del MCA; '
-                   'vale la del MCA')
+                or 'the geometry published here does NOT match the MCA one; '
+                   'the MCA one holds')
 
     def set_conectado(self, conectado, running=False):
         for w in list(self._combos.values()) + [

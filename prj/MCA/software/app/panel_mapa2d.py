@@ -37,13 +37,13 @@ class PanelMapa2D(QWidget):
     def _construir(self):
         self.fig = Figure(figsize=(6.0, 4.6), tight_layout=True)
         self.ax = self.fig.add_subplot(111)
-        self.ax.set_xlabel('factor de forma (Q_cola / Q_total)')
-        self.ax.set_ylabel('amplitud (bin del mapa)')
+        self.ax.set_xlabel('shape factor (Q_tail / Q_total)')
+        self.ax.set_ylabel('amplitude (map bin)')
         self.imagen = None
         self.canvas = FigureCanvas(self.fig)
         self.barra = NavigationToolbar(self.canvas, self)
 
-        self.chk_log = QCheckBox('escala log')
+        self.chk_log = QCheckBox('log scale')
         self.chk_log.setChecked(True)
         self.chk_log.toggled.connect(self._redibujar)
 
@@ -66,19 +66,19 @@ class PanelMapa2D(QWidget):
         v = QVBoxLayout(w)
         v.setContentsMargins(6, 0, 0, 0)
 
-        g = QGroupBox('figura de mérito')
+        g = QGroupBox('figure of merit')
         gv = QVBoxLayout(g)
-        gv.addWidget(QLabel('rebanada de amplitud'))
+        gv.addWidget(QLabel('amplitude slice'))
         self.spn_lo = QSpinBox()
         self.spn_hi = QSpinBox()
         fila = QHBoxLayout()
-        fila.addWidget(QLabel('de'))
+        fila.addWidget(QLabel('from'))
         fila.addWidget(self.spn_lo)
-        fila.addWidget(QLabel('a'))
+        fila.addWidget(QLabel('to'))
         fila.addWidget(self.spn_hi)
         gv.addLayout(fila)
 
-        btn = QPushButton('Calcular FOM')
+        btn = QPushButton('Compute FOM')
         btn.clicked.connect(self._calcular_fom)
         gv.addWidget(btn)
         self.lbl_fom = QLabel('—')
@@ -86,10 +86,10 @@ class PanelMapa2D(QWidget):
         gv.addWidget(self.lbl_fom)
         v.addWidget(g)
 
-        self.lbl_totales = QLabel('sin datos')
+        self.lbl_totales = QLabel('no data')
         v.addWidget(self.lbl_totales)
 
-        btn_img = QPushButton('Guardar imagen…')
+        btn_img = QPushButton('Save image…')
         btn_img.clicked.connect(self._guardar_imagen)
         v.addWidget(btn_img)
         v.addStretch(1)
@@ -104,13 +104,13 @@ class PanelMapa2D(QWidget):
         self.spn_hi.setValue(forma[0] - 1)
         self.imagen = None
         self.ax.clear()
-        self.ax.set_xlabel('factor de forma (Q_cola / Q_total)')
-        self.ax.set_ylabel('amplitud (bin del mapa)')
+        self.ax.set_xlabel('shape factor (Q_tail / Q_total)')
+        self.ax.set_ylabel('amplitude (map bin)')
         self._redibujar()
 
     def actualizar_mapa(self, mapa):
         self.mapa = np.asarray(mapa)
-        self.lbl_totales.setText(f'{int(self.mapa.sum())} eventos en el mapa')
+        self.lbl_totales.setText(f'{int(self.mapa.sum())} events in the map')
         self._redibujar()
 
     def _redibujar(self):
@@ -123,7 +123,7 @@ class PanelMapa2D(QWidget):
                                          norm=norma, cmap='inferno',
                                          interpolation='nearest')
             self._barra_color = self.fig.colorbar(self.imagen, ax=self.ax,
-                                                  label='cuentas')
+                                                  label='counts')
         else:
             self.imagen.set_data(datos)
             self.imagen.set_norm(norma)
@@ -132,7 +132,7 @@ class PanelMapa2D(QWidget):
     def _calcular_fom(self):
         lo, hi = self.spn_lo.value(), self.spn_hi.value()
         if hi <= lo:
-            self.lbl_fom.setText('la rebanada está vacía')
+            self.lbl_fom.setText('the slice is empty')
             return
         try:
             r = fom(self.mapa, lo, hi + 1)
@@ -145,16 +145,16 @@ class PanelMapa2D(QWidget):
         # El umbral de 1.27 es el que se usa para decir que dos poblaciones
         # están separadas; está en el docstring de API.analisis.fom.
         self.lbl_fom.setText(
-            f"FOM {r['fom']:.3f} ({'buena' if r['fom'] > 1.27 else 'pobre'} "
-            f"separación)\nvalle en el bin {r['valley']}\n"
-            f"centroides {r['peak1']['centroid']:.1f} y "
+            f"FOM {r['fom']:.3f} ({'good' if r['fom'] > 1.27 else 'poor'} "
+            f"separation)\nvalley at bin {r['valley']}\n"
+            f"centroids {r['peak1']['centroid']:.1f} and "
             f"{r['peak2']['centroid']:.1f}")
-        self.log.emit(f'FOM en amplitud [{lo}, {hi}] = {r["fom"]:.3f}')
+        self.log.emit(f'FOM in amplitude [{lo}, {hi}] = {r["fom"]:.3f}')
 
     def _guardar_imagen(self):
         ruta, _ = QFileDialog.getSaveFileName(
-            self, 'Guardar imagen', 'mapa2d.png',
+            self, 'Save image', 'mapa2d.png',
             'PNG (*.png);;PDF (*.pdf);;SVG (*.svg)')
         if ruta:
             self.fig.savefig(ruta, dpi=150)
-            self.log.emit(f'imagen guardada en {ruta}')
+            self.log.emit(f'image saved to {ruta}')

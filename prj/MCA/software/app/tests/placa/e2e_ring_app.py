@@ -2,7 +2,7 @@
 """(P) El ring de mcamon contra la placa, sin pantalla. Corre EN LA PC, contra el
 `mca_server` de la placa con el bitstream del ring.
 
-    mcamon («Configuración OSC», el ring) --TCP--> mca_server --> AdquisicionRing
+    mcamon («OSC settings», el ring) --TCP--> mca_server --> AdquisicionRing
                                                                    --> event_ring
 
 Maneja el ring de la pestaña como un usuario (los mismos widgets, las mismas ops

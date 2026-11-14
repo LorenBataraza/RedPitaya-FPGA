@@ -358,7 +358,7 @@ espectro, en una sola vuelta.
 `rate_inst_hz` es Δ`accepted`/Δ`livetime` entre dos `status` consecutivos —el
 servidor guarda la muestra anterior—, y `rate_avg_hz` es `accepted`/`livetime`.
 Son los dos números de la aplicación de referencia, y los que dibuja la curva
-"MCA (aceptados)" de la pestaña Pulsos.
+"MCA (aceptados)" de la pestaña Pulses.
 
 `tasa_entrada_hz` es la tasa de los pulsos que **llegan**, corregida por tiempo
 muerto: λ̂ = (`cross` − `lost_veto`) / (`realtime` − `vetotime` − `t_rearm`), y

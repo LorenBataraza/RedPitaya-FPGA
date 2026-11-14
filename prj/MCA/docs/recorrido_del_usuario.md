@@ -376,7 +376,7 @@ uno está mirando.
 > al mayor de ~2000 máximos locales—. Con los 3 σ que uno escribiría, un
 > espectro de puro ruido devolvía una docena de picos, todos falsos.
 
-**(c) La pestaña Pulsos, que es el diagnóstico propiamente dicho.** Con el
+**(c) La pestaña Pulses, que es el diagnóstico propiamente dicho.** Con el
 histograma solo, un fotopico corrido puede ser el umbral, la línea de base, la
 forma del pulso o el apilamiento, y **desde la GUI no hay forma de
 distinguirlos**. La pestaña muestra las dos cosas que lo deciden, **atadas en el
@@ -534,7 +534,7 @@ make campana-poisson                     # pérdidas del lector con arribos Pois
 | **Tabla de progreso cada medio segundo** | evento, tasa, descartes, chunks, cola libre — el mismo lazo de realimentación de la GUI, en la terminal |
 
 Esa última tabla merece su propia lectura, porque es el equivalente en consola
-de la pestaña Pulsos:
+de la pestaña Pulses:
 
 | Columna | Qué mirar |
 |---|---|
@@ -597,7 +597,7 @@ Para redibujar el mapa, esto es lo que cambió de carril:
 | Cargar a la SD / flashear | software de flasheo, conocimiento especializado | `sudo ./instalar.sh --cargar` | el **instalador** (elige el bitstream por EEPROM) |
 | Conexión a la placa | IP, proxy, obtener la IP del dispositivo | un alias ssh, un campo | la **convención `pitaya`** |
 | *(no existía)* | — | **verificar que la PL es la que se cree** | `placa-cargar-remoto` + `verificar-placa-*` |
-| Personalizar la adquisición | escribir un script, saber el register map | pestaña «Configuración MCA», 24 campos con readback y marcas | la **GUI** |
+| Personalizar la adquisición | escribir un script, saber el register map | pestaña «MCA settings», 24 campos con readback y marcas | la **GUI** |
 | Correr script de medición | línea de comandos, un script por caso | `make app` / `campana-*` | **Makefile + API** |
 | *(no existía)* | — | **supervisar y diagnosticar en vivo** | la **GUI** (espectro, picos, OSC, mensajes) |
 | Copiar/ejecutar comando | `scp`, saber dónde quedaron los archivos | botón de guardar, o `-remoto` que los trae | **GUI + Makefile** |

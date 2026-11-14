@@ -67,21 +67,23 @@ refresco en el hilo de la interfaz la congelaría.
 
 ## Qué hay en cada pestaña
 
+La interfaz está en inglés; este documento, en castellano, la nombra como se ve.
+
 | Pestaña | Contenido |
 |---|---|
-| **Mensajes** | cada operación y cada error con hora. Es lo que permite reconstruir qué pasó cuando el síntoma llega tarde y desfigurado |
-| **Espectro** | el histograma 1D, umbrales, exposición, la tasa de entrada, contadores con el **tiempo muerto en total o desglosado por etapa**, **la lista de picos detectados con su FWHM**, y guardado |
-| **Configuración MCA** | arriba, la **franja del datapath** con los colores del panorama: la tasa de cada tramo (pulsos λ̂, disparos, ventanas, cerradas, al histograma) y, bajo cada etapa, lo que se pierde (re-armado, sin ranura, publicador, colisiones) y lo que se corta (amplitud, discriminador, bin lleno), con el total perdido estimado; bajo el preprocesamiento, la leyenda de la pestaña. Abajo, los parámetros del slot 7 en tres columnas, una por función (preprocesamiento; disparo y ranuras; publicación), todos a la vista; el grupo con el foco o el ratón se resalta en la franja, y un clic en un bloque lleva a sus controles. Nada pide parar el MCA: un cambio con cuentas en el histograma marca su etapa y avisa que lo acumulado mezcla dos configuraciones, con «Borrar» |
-| **Mapa 2D (PSD)** | amplitud × factor de forma y la FOM. **Aparece sólo si el bitstream lo trae** (bit `CAP_HIST_H_PSD` de `CAPS`) |
-| **Integración** | ruteo del datapath y control global del slot 6. **Aparece sólo si el bitstream trae `integration_cfg`** |
-| **Pulsos** | **las capturas del osciloscopio** en una de dos vistas —**pulso** (la última, con persistencia de las anteriores) o **mapa de calor** (todas superpuestas y alineadas en el disparo, como un diagrama de ojo)— y, atada en el tiempo, **la tasa instantánea** de ese momento. **Aparece si el bitstream trae el osciloscopio** |
-| **Configuración OSC** | arriba, la **franja del osciloscopio** (entrada, diezmado, disparo, captura en BRAM, con la tasa de disparos y el estado de sus FSM) y, con el bitstream del ring, **la del ring** debajo: el estímulo (el disparo de arriba o el generador de eventos), la ventana, el ring en la DDR y el lector, con las cuentas de la corrida y sus dos pérdidas (DROP_BUSY, DROP_FULL). Abajo, los registros del osciloscopio por etapa y la adquisición del ring a una carpeta **de la placa** (/dev/shm, la SD o un montaje de red), con Iniciar y Parar. El disparo del ADC del ring usa el umbral de la etapa Disparo. La adquisición sigue aunque se cierre la GUI |
+| **Messages** | cada operación y cada error con hora. Es lo que permite reconstruir qué pasó cuando el síntoma llega tarde y desfigurado |
+| **Spectrum** | el histograma 1D, umbrales, exposición, la tasa de entrada, contadores con el **tiempo muerto en total o desglosado por etapa**, **la lista de picos detectados con su FWHM**, y guardado |
+| **MCA settings** | arriba, la **franja del datapath** con los colores del panorama: la tasa de cada tramo (pulsos λ̂, disparos, ventanas, cerradas, al histograma) y, bajo cada etapa, lo que se pierde (re-armado, sin ranura, publicador, colisiones) y lo que se corta (amplitud, discriminador, bin lleno), con el total perdido estimado; bajo el preprocesamiento, la leyenda de la pestaña. Abajo, los parámetros del slot 7 en tres columnas, una por función (preprocesamiento; disparo y ranuras; publicación), todos a la vista; el grupo con el foco o el ratón se resalta en la franja, y un clic en un bloque lleva a sus controles. Nada pide parar el MCA: un cambio con cuentas en el histograma marca su etapa y avisa que lo acumulado mezcla dos configuraciones, con «Clear» |
+| **2D map (PSD)** | amplitud × factor de forma y la FOM. **Aparece sólo si el bitstream lo trae** (bit `CAP_HIST_H_PSD` de `CAPS`) |
+| **Integration** | ruteo del datapath y control global del slot 6. **Aparece sólo si el bitstream trae `integration_cfg`** |
+| **Pulses** | **las capturas del osciloscopio** en una de dos vistas —**pulso** (la última, con persistencia de las anteriores) o **mapa de calor** (todas superpuestas y alineadas en el disparo, como un diagrama de ojo)— y, atada en el tiempo, **la tasa instantánea** de ese momento. **Aparece si el bitstream trae el osciloscopio** |
+| **OSC settings** | arriba, la **franja del osciloscopio** (entrada, diezmado, disparo, captura en BRAM, con la tasa de disparos y el estado de sus FSM) y, con el bitstream del ring, **la del ring** debajo: el estímulo (el disparo de arriba o el generador de eventos), la ventana, el ring en la DDR y el lector, con las cuentas de la corrida y sus dos pérdidas (DROP_BUSY, DROP_FULL). Abajo, los registros del osciloscopio por etapa y la adquisición del ring a una carpeta **de la placa** (/dev/shm, la SD o un montaje de red), con «Start» y «Stop». El disparo del ADC del ring usa el umbral de la etapa Disparo. La adquisición sigue aunque se cierre la GUI |
 | **Multitrigger** | máscaras OR con los bits nombrados, `trigger_shield`, y qué fuente disparó |
-| **Generador** | el generador de pulsos (`gen_pulsos`, slot 2) y el **lazo digital**, para probar el MCA sin el Rigol: tasa, amplitudes con sus pesos, τ_d, base y ruido, arrancar y parar, y la Mq para el trapecio. **Aparece sólo si el bitstream lo trae**. Con el lazo prendido, la barra superior lo avisa en rojo |
+| **Generator** | el generador de pulsos (`gen_pulsos`, slot 2) y el **lazo digital**, para probar el MCA sin el Rigol: tasa, amplitudes con sus pesos, τ_d, base y ruido, arrancar y parar, y la Mq para el trapecio. **Aparece sólo si el bitstream lo trae**. Con el lazo prendido, el aviso rojo va en la esquina de las pestañas |
 
 En la barra superior van la IP, el puerto, el canal (IN1/IN2), el estimador
 (pico o integral de carga), la decimación y el período de refresco.
-`Placa → Cargar bitstream del MCA…` reprograma la PL.
+`Board → Load MCA bitstream…` reprograma la PL.
 
 ### Cuándo se puede tocar cada parámetro
 
@@ -228,11 +230,11 @@ Y que hay que seguir respetando al tocarlo:
 - [x] Pestaña de configuración del MCA: los 24 campos, con readback, en tres
       columnas por función y con la franja del datapath (tasas y pérdidas).
 - [x] Pestaña de Integración: ruteo de taps y control global del slot 6.
-- [x] Pestañas del osciloscopio («Pulsos», con pulso o mapa de calor y la curva de
-      tasa; «Configuración OSC», por etapa con su franja) y del Multitrigger.
+- [x] Pestañas del osciloscopio («Pulses», con pulso o mapa de calor y la curva de
+      tasa; «OSC settings», por etapa con su franja) y del Multitrigger.
 - [x] Descubrimiento de bases por el registro `SLOTS` en vez de hardcodearlas.
-- [x] El event_ring (slot 2), como la fila del camino a DDR de «Configuración
-      OSC»: una adquisición a archivos de la placa, probada en placa
+- [x] El event_ring (slot 2), como la fila del camino a DDR de «OSC
+      settings»: una adquisición a archivos de la placa, probada en placa
       (`make verificar-placa-ring-app`).
 - [ ] **Ninguna de las tres pestañas nuevas está probada contra la placa.** El
       simulado no simula el slot 6 ni el RTL del osciloscopio, así que sus
@@ -270,7 +272,7 @@ La deuda conocida del código está listada al final de
 
 ---
 
-## La pestaña Pulsos, y por qué son dos gráficos
+## La pestaña Pulses, y por qué son dos gráficos
 
 Con el histograma solo, un fotopico corrido puede ser el umbral, la línea de
 base, la forma del pulso o el apilamiento, y no hay forma de distinguirlos desde

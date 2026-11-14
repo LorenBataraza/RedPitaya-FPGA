@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pestaña «Pulsos»: las capturas del osciloscopio y la tasa del momento.
+"""Pestaña «Pulses»: las capturas del osciloscopio y la tasa del momento.
 
 Es la pestaña que contesta *por qué* el espectro salió como salió. Con el
 histograma solo, un fotopico corrido puede ser el umbral, la línea de base, la
@@ -26,7 +26,7 @@ umbral. Por separado, ninguna de las dos lo dice.
 misma**: los dos caminos tienen tiempos muertos distintos, y la distancia entre
 las curvas ES la pérdida del camino lento.
 
-La configuración del osciloscopio (y del ring) está en «Configuración OSC».
+La configuración del osciloscopio (y del ring) está en «OSC settings».
 """
 
 import time
@@ -234,21 +234,21 @@ class PanelPulsos(QWidget):
         self._fosforo = []
 
         self.ax_tasa.grid(True, alpha=0.3)
-        self.ax_tasa.set_xlabel('segundos')
-        self.ax_tasa.set_ylabel('eventos/s')
+        self.ax_tasa.set_xlabel('seconds')
+        self.ax_tasa.set_ylabel('events/s')
         (self.linea_mca,) = self.ax_tasa.plot([], [], color=COLOR_TASA_MCA,
-                                              lw=1.2, label='MCA (aceptados)')
+                                              lw=1.2, label='MCA (accepted)')
         (self.linea_mca_avg,) = self.ax_tasa.plot([], [], color=COLOR_TASA_MCA,
-                                                  lw=0.9, ls=':', label='MCA (media)')
+                                                  lw=0.9, ls=':', label='MCA (mean)')
         (self.linea_osc,) = self.ax_tasa.plot([], [], color=COLOR_TASA_OSC,
-                                              lw=1.0, label='OSC (disparos)')
+                                              lw=1.0, label='OSC (triggers)')
         self.ax_tasa.legend(loc='upper left', fontsize=8)
         self._lineas_marca = []
 
         self.canvas = FigureCanvas(self.fig)
         self.barra = NavigationToolbar(self.canvas, self)
 
-        self.lbl_captura = QLabel('sin capturas')
+        self.lbl_captura = QLabel('no captures')
         pie = QHBoxLayout()
         pie.addWidget(self.barra)
         pie.addStretch(1)
@@ -267,8 +267,8 @@ class PanelPulsos(QWidget):
         v.setContentsMargins(6, 0, 6, 0)
         v.addWidget(self._grupo_captura())
         v.addWidget(self._grupo_vista())
-        nota = QLabel('El disparo, el diezmado y la calibración se configuran en '
-                      '«Configuración OSC».')
+        nota = QLabel('The trigger, the decimation and the calibration are set in '
+                      '«OSC settings».')
         nota.setWordWrap(True)
         nota.setStyleSheet('color: #777;')
         v.addWidget(nota)
@@ -290,7 +290,7 @@ class PanelPulsos(QWidget):
         return f
 
     def _grupo_captura(self):
-        g = QGroupBox('Captura')
+        g = QGroupBox('Capture')
         f = self._forma(g)
 
         self.spn_pre = QSpinBox()
@@ -298,24 +298,24 @@ class PanelPulsos(QWidget):
         self.spn_pre.setValue(256)
         self.spn_pre.setSingleStep(64)
         self.spn_pre.setToolTip(
-            'Muestras ANTES del disparo. El disparo queda en esta posición del '
-            'array y en t=0 del gráfico.')
+            'Samples BEFORE the trigger. The trigger sits at this position of the '
+            'array and at t=0 of the plot.')
 
         self.spn_post = QSpinBox()
         self.spn_post.setRange(16, N_BUF)
         self.spn_post.setValue(1024)
         self.spn_post.setSingleStep(64)
         self.spn_post.setToolTip(
-            f'Muestras DESPUÉS del disparo. pre+post no puede pasar de {N_BUF}, '
-            f'que es el buffer del canal.')
+            f'Samples AFTER the trigger. pre+post cannot exceed {N_BUF}, the '
+            f'channel buffer.')
 
-        self.btn_capturar = QPushButton('Capturar')
+        self.btn_capturar = QPushButton('Capture')
         self.btn_capturar.clicked.connect(self._capturar)
-        self.chk_continuo = QCheckBox('continuo')
+        self.chk_continuo = QCheckBox('continuous')
         self.chk_continuo.setToolTip(
-            'Refresca solo mientras esta pestaña está VISIBLE: son hasta 16384 '
-            'muestras por canal y no se pagan de fondo. Con el mapa de calor pide '
-            f'una cada {CONTINUO_MAPA_MS} ms; con el pulso, cada '
+            'Refreshes only while this tab is VISIBLE: up to 16384 samples per '
+            'channel are not paid for in the background. With the heat map it asks '
+            f'for one every {CONTINUO_MAPA_MS} ms; with the pulse, every '
             f'{CONTINUO_PULSO_MS} ms.')
 
         fila = QHBoxLayout()
@@ -327,48 +327,48 @@ class PanelPulsos(QWidget):
 
         # Fila que ocupa las dos columnas: en la del campo, un botón más una
         # casilla no entran y la casilla queda cortada contra el borde.
-        f.addRow('pre (muestras)', self.spn_pre)
-        f.addRow('post (muestras)', self.spn_post)
+        f.addRow('pre (samples)', self.spn_pre)
+        f.addRow('post (samples)', self.spn_post)
         f.addRow(caja)
         return g
 
     def _grupo_vista(self):
-        g = QGroupBox('Vista')
+        g = QGroupBox('View')
         f = self._forma(g)
         self.cmb_vista = QComboBox()
-        self.cmb_vista.addItem('pulso', VISTA_PULSO)
-        self.cmb_vista.addItem('mapa de calor', VISTA_MAPA)
+        self.cmb_vista.addItem('pulse', VISTA_PULSO)
+        self.cmb_vista.addItem('heat map', VISTA_MAPA)
         self.cmb_vista.setToolTip(
-            'Pulso: la última captura, con las anteriores en gris.\n'
-            'Mapa de calor: todas las capturas superpuestas y alineadas en el '
-            'disparo; el color es cuántas pasan por cada punto. Como un diagrama de '
-            'ojo: muestra la dispersión de la forma y el apilamiento.')
+            'Pulse: the last capture, with the previous ones in grey.\n'
+            'Heat map: all captures overlaid and aligned on the trigger; the colour '
+            'is how many pass through each point. Like an eye diagram: it shows the '
+            'spread of the shape and the pile-up.')
         self.cmb_vista.currentIndexChanged.connect(self._cambio_vista)
-        f.addRow('vista', self.cmb_vista)
+        f.addRow('view', self.cmb_vista)
 
-        self.chk_fosforo = QCheckBox('persistencia')
+        self.chk_fosforo = QCheckBox('persistence')
         self.chk_fosforo.setChecked(True)
         self.chk_fosforo.setToolTip(
-            f'Deja las últimas {PERSISTENCIA} capturas dibujadas en gris. Es lo '
-            f'que muestra la dispersión de forma y los pulsos apilados, que en '
-            f'una traza sola no se ven.')
+            f'Keeps the last {PERSISTENCIA} captures drawn in grey. It shows the '
+            f'spread of the shape and the piled-up pulses, which a single trace '
+            f'does not show.')
         self.chk_fosforo.toggled.connect(self._redibujar_forma)
         f.addRow(self.chk_fosforo)
 
         self.cmb_canal_mapa = QComboBox()
         self.cmb_canal_mapa.addItems(['IN1', 'IN2'])
         self.cmb_canal_mapa.currentIndexChanged.connect(self._redibujar_forma)
-        f.addRow('canal del mapa', self.cmb_canal_mapa)
-        self.btn_borrar_mapa = QPushButton('Empezar de nuevo')
-        self.btn_borrar_mapa.setToolTip('Borra las trazas acumuladas en los mapas.')
+        f.addRow('map channel', self.cmb_canal_mapa)
+        self.btn_borrar_mapa = QPushButton('Start over')
+        self.btn_borrar_mapa.setToolTip('Clears the traces accumulated in the maps.')
         self.btn_borrar_mapa.clicked.connect(self.borrar_mapa)
         f.addRow(self.btn_borrar_mapa)
         self.lbl_mapa = QLabel('—')
         self.lbl_mapa.setWordWrap(True)
         self.lbl_mapa.setToolTip(
-            'Una captura que devuelve el mismo disparo que la anterior (no hubo uno '
-            'nuevo entre las dos) no se suma al mapa: contaría dos veces el mismo '
-            'pulso.')
+            'A capture that returns the same trigger as the previous one (there was '
+            'no new one in between) is not added to the map: it would count the same '
+            'pulse twice.')
         f.addRow(self.lbl_mapa)
         self._form_vista = f
         self._cambio_vista()
@@ -413,14 +413,14 @@ class PanelPulsos(QWidget):
         self.spn_pre.setRange(0, n_buf - 1)
         self.spn_post.setRange(16, n_buf)
         self.spn_post.setToolTip(
-            f'Muestras DESPUÉS del disparo. pre+post no puede pasar de {n_buf}, '
-            f'que es el buffer del canal.')
+            f'Samples AFTER the trigger. pre+post cannot exceed {n_buf}, the '
+            f'channel buffer.')
 
     def _capturar(self):
         pre, post = self.spn_pre.value(), self.spn_post.value()
         if pre + post > self.n_buf:
-            self.log.emit(f'la ventana pedida ({pre}+{post}) no entra en el '
-                          f'buffer de {self.n_buf} muestras')
+            self.log.emit(f'the requested window ({pre}+{post}) does not fit in the '
+                          f'{self.n_buf}-sample buffer')
             return
         self._pedida = time.monotonic()
         self.pedir_captura.emit(pre, post)
@@ -461,7 +461,7 @@ class PanelPulsos(QWidget):
         n = datos.shape[-1]
         us = n / self.fs_hz * 1e6
         self.lbl_captura.setText(
-            f'{n} muestras · dec {self.dec} · {us:.1f} us · wp {meta.get("wp", 0)}')
+            f'{n} samples · dec {self.dec} · {us:.1f} us · wp {meta.get("wp", 0)}')
         self._redibujar_forma()
         self._redibujar_tasa()
 
@@ -562,7 +562,7 @@ class PanelPulsos(QWidget):
 
         self.ax_forma.relim()
         self.ax_forma.autoscale_view()
-        self.ax_forma.set_xlabel(f'microsegundos desde el disparo (dec {self.dec})')
+        self.ax_forma.set_xlabel(f'microseconds from the trigger (dec {self.dec})')
 
     def _dibujar_mapa(self):
         for ln in self.lineas_ch:
@@ -574,8 +574,8 @@ class PanelPulsos(QWidget):
         if m is None:
             if self._imagen is not None:
                 self._imagen.set_visible(False)
-            self.ax_forma.set_title('mapa de calor: todavía sin capturas', fontsize=9)
-            self.lbl_mapa.setText('sin trazas')
+            self.ax_forma.set_title('heat map: no captures yet', fontsize=9)
+            self.lbl_mapa.setText('no traces')
             return
         H, (m0, m1), (v_lo, v_hi) = m
         extent = (m0 / self.fs_hz * 1e6, m1 / self.fs_hz * 1e6, v_lo, v_hi)
@@ -595,15 +595,15 @@ class PanelPulsos(QWidget):
         self._imagen.set_visible(True)
         self.ax_forma.set_xlim(extent[0], extent[1])
         self.ax_forma.set_ylim(v_lo, v_hi)
-        self.ax_forma.set_xlabel(f'microsegundos desde el disparo (dec {self.dec})')
+        self.ax_forma.set_xlabel(f'microseconds from the trigger (dec {self.dec})')
         self.ax_forma.set_title(
-            f'IN{canal + 1}: {mapa.n} trazas superpuestas · hasta {int(H.max())} por '
-            'celda (escala log)', fontsize=9)
-        texto = f'{mapa.n} trazas en el mapa'
+            f'IN{canal + 1}: {mapa.n} traces overlaid · up to {int(H.max())} per '
+            'cell (log scale)', fontsize=9)
+        texto = f'{mapa.n} traces in the map'
         if mapa.agregadas > mapa.n:
-            texto += f' (las últimas {mapa.max_trazas})'
+            texto += f' (the last {mapa.max_trazas})'
         if self.repetidas:
-            texto += f'; {self.repetidas} capturas sin disparo nuevo, no sumadas'
+            texto += f'; {self.repetidas} captures without a new trigger, not added'
         self.lbl_mapa.setText(texto)
 
     def _eje_us(self, n, pre):

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pestaña «Configuración OSC»: los registros del osciloscopio y, con su bitstream, el
+"""Pestaña «OSC settings»: los registros del osciloscopio y, con su bitstream, el
 ring, por etapa del dato.
 
 Arriba, la franja (`diagrama_osc.py`): el osciloscopio en una fila (entrada,
@@ -7,7 +7,7 @@ diezmado, disparo, captura en BRAM) y el ring en otra (el estímulo, la ventana,
 ring en la DDR, el lector y los archivos), con los disparos y las pérdidas del ring.
 Abajo, los controles por etapa, con el color de su bloque; el grupo con el foco o el
 ratón se resalta en la franja y un clic en un bloque lleva a sus controles
-(`panel_etapas.py`). La vista de las capturas está en la pestaña «Pulsos».
+(`panel_etapas.py`). La vista de las capturas está en la pestaña «Pulses».
 
 Los campos del OSC son de `API/osciloscope.py` (`BLOQUE = 'osc'`): la ventana los
 rutea a `osc.set`. Se escriben en caliente; los marcados con · reinician la captura
@@ -91,100 +91,100 @@ class PanelConfigOsc(PanelPorEtapas):
     # ---------- el osciloscopio ----------
 
     def _grupo_entrada(self):
-        g = self._grupo('entrada', 'Entrada')
+        g = self._grupo('entrada', 'Input')
         f = self._forma(g)
         for ch in (0, 1):
             self._fila(f, f'calib_off_ch{ch}', f'offset IN{ch + 1}',
                        self._spin(f'calib_off_ch{ch}', -8192, 8191, RIESGO,
-                                  'Offset de calibración, en cuentas. Mal puesto '
-                                  'corre la línea de base y con ella todo el '
-                                  'espectro.'))
-            self._fila(f, f'calib_gain_ch{ch}', f'ganancia IN{ch + 1}',
+                                  'Calibration offset, in counts. Set wrong, it '
+                                  'shifts the baseline and with it the whole '
+                                  'spectrum.'))
+            self._fila(f, f'calib_gain_ch{ch}', f'gain IN{ch + 1}',
                        self._spin(f'calib_gain_ch{ch}', 0, 0xFFFF, RIESGO,
-                                  'Ganancia de calibración. 0x8000 es la unidad: '
-                                  'con 0 no entra señal.'))
-        self._fila(f, 'filt_bypass', 'saltear el filtro',
+                                  'Calibration gain. 0x8000 is unity: with 0 no '
+                                  'signal gets in.'))
+        self._fila(f, 'filt_bypass', 'skip filter',
                    self._spin('filt_bypass', 0, 0xF, CORTA,
-                              'Un bit por canal: saltea el filtro de entrada. '
+                              'One bit per channel: bypasses the input filter. '
                               'Bit 0 = IN1, bit 1 = IN2.'))
         return g
 
     def _grupo_diezmado(self):
-        g = self._grupo('diezmado', 'Diezmado')
+        g = self._grupo('diezmado', 'Decimation')
         f = self._forma(g)
         for ch in (0, 1):
             self._fila(f, f'dec_ch{ch}', f'factor IN{ch + 1}',
                        self._combo(f'dec_ch{ch}', [(str(d), d) for d in DEC_LEGAL],
                                    CORTA,
-                                   'Sólo estos seis valores son legales. Cambiarlo '
-                                   'estira la ventana en tiempo real y reinicia la '
-                                   'captura en curso.'))
+                                   'Only these six values are legal. Changing it '
+                                   'stretches the window in real time and restarts '
+                                   'the capture in progress.'))
         for ch in (0, 1):
-            f.addRow(self._check(f'avg_en_ch{ch}', f'promediar IN{ch + 1}', CORTA,
-                                 'Promedia las muestras descartadas por el diezmado '
-                                 'en vez de tirarlas.'))
+            f.addRow(self._check(f'avg_en_ch{ch}', f'average IN{ch + 1}', CORTA,
+                                 'Averages the samples dropped by the decimation '
+                                 'instead of discarding them.'))
         return g
 
     def _grupo_disparo(self):
-        g = self._grupo('disparo', 'Disparo')
+        g = self._grupo('disparo', 'Trigger')
         f = self._forma(g)
         # El umbral es de 14 bits CON SIGNO: un pulso negativo dispara con el
         # umbral negativo, y por eso el rango no arranca en cero.
         for ch in (0, 1):
-            self._fila(f, f'thr_ch{ch}', f'umbral IN{ch + 1}',
+            self._fila(f, f'thr_ch{ch}', f'threshold IN{ch + 1}',
                        self._spin(f'thr_ch{ch}', -8192, 8191, CALIENTE,
-                                  f'Umbral de disparo del canal {ch}, en cuentas '
-                                  f'de ADC. {ADC_CNT_PER_V} cuentas = 1 V en LV.'))
+                                  f'Trigger threshold of channel {ch}, in ADC '
+                                  f'counts. {ADC_CNT_PER_V} counts = 1 V in LV.'))
         for ch in (0, 1):
-            self._fila(f, f'hyst_ch{ch}', f'histéresis IN{ch + 1}',
+            self._fila(f, f'hyst_ch{ch}', f'hysteresis IN{ch + 1}',
                        self._spin(f'hyst_ch{ch}', 0, 16383, CALIENTE,
-                                  'Cuánto tiene que volver la señal antes de '
-                                  'admitir otro disparo. Muy baja, el ruido '
-                                  'dispara de más.'))
+                                  'How far the signal has to come back before '
+                                  'another trigger is allowed. Too low, noise '
+                                  'triggers too often.'))
         # En volts, en una fila propia: como campo de un QFormLayout no entra.
         self.lbl_thr_v = QLabel('—')
         f.addRow(self.lbl_thr_v)
-        self._fila(f, 'deb_len', 'antirrebote',
+        self._fila(f, 'deb_len', 'debounce',
                    self._spin('deb_len', 0, 0xFFFFF, CORTA,
-                              'Ciclos de ADC que el disparo queda inhibido tras '
-                              'uno. El reset del RTL son 62500 = 500 us.'))
+                              'ADC cycles the trigger stays inhibited after one. '
+                              'The RTL reset value is 62500 = 500 us.'))
         for campo in ('thr_ch0', 'thr_ch1', 'hyst_ch0'):
             self._controles[campo][0].valueChanged.connect(self._refrescar_umbral)
         return g
 
     def _grupo_bram(self):
-        g = self._grupo('bram', 'Captura BRAM')
+        g = self._grupo('bram', 'BRAM capture')
         f = self._forma(g)
         for ch in (0, 1):
-            self._fila(f, f'dly_ch{ch}', f'retardo IN{ch + 1}',
+            self._fila(f, f'dly_ch{ch}', f'delay IN{ch + 1}',
                        self._spin(f'dly_ch{ch}', 0, N_BUF, CORTA,
-                                  'Muestras a capturar DESPUÉS del disparo antes de '
-                                  'cerrar. Es tiempo muerto real: mientras corre, '
-                                  'no se actualiza wp_trig.'))
+                                  'Samples to capture AFTER the trigger before '
+                                  'closing. It is real dead time: while it runs, '
+                                  'wp_trig is not updated.'))
         self.lbl_fsm = QLabel('—')
         self.lbl_wp = QLabel('—')
         self.lbl_we = QLabel('—')
-        self.lbl_fsm.setToolTip('El estado de las dos FSM: la de escritura del ADC y '
-                                'la del disparo.')
-        self.lbl_wp.setToolTip('El puntero de escritura de IN1: el actual y el del '
-                               'último disparo.')
-        self.lbl_we.setToolTip('Disparos acumulados por canal (we_cnt).')
+        self.lbl_fsm.setToolTip('The state of the two FSMs: the ADC write one and the '
+                                'trigger one.')
+        self.lbl_wp.setToolTip('The write pointer of IN1: the current one and the one '
+                               'at the last trigger.')
+        self.lbl_we.setToolTip('Accumulated triggers per channel (we_cnt).')
         f.addRow('FSM', self.lbl_fsm)
         f.addRow('wp IN1', self.lbl_wp)
-        f.addRow('disparos', self.lbl_we)
+        f.addRow('triggers', self.lbl_we)
         self.lbl_base = QLabel('—')
         self.lbl_base.setToolTip(
-            'Dirección física del bloque, resuelta por el registro SLOTS del slot 6. '
-            'Si no coincide con la constante, este bitstream tiene otra topología — y '
-            'verlo acá es cómo se diagnostica.')
-        f.addRow('base del bloque', self.lbl_base)
+            'Physical address of the block, resolved by the SLOTS register of slot 6. '
+            'If it does not match the constant, this bitstream has another topology — '
+            'and seeing it here is how that gets diagnosed.')
+        f.addRow('block base', self.lbl_base)
 
         self.btn_reset = QPushButton('Reset')
-        self.btn_reset.setToolTip('Resetea las dos FSM del OSC y destraba adc_trg_dis.')
+        self.btn_reset.setToolTip('Resets both OSC FSMs and releases adc_trg_dis.')
         self.btn_reset.clicked.connect(lambda: self.pedir_ctrl.emit('reset'))
-        self.btn_sw = QPushButton('Disparo por software')
-        self.btn_sw.setToolTip('Fuerza una captura sin esperar señal. Sirve para '
-                               'confirmar que el camino a BRAM funciona.')
+        self.btn_sw = QPushButton('Software trigger')
+        self.btn_sw.setToolTip('Forces a capture without waiting for a signal. It '
+                               'confirms that the path to BRAM works.')
         self.btn_sw.clicked.connect(lambda: self.pedir_ctrl.emit('sw_trig'))
         fila = QHBoxLayout()
         fila.setContentsMargins(0, 0, 0, 0)
@@ -200,10 +200,10 @@ class PanelConfigOsc(PanelPorEtapas):
     def _armar_ring(self):
         r = self.ring = PanelRing(self, embebido=True)
         r.hide()
-        r.grp_estimulo.setTitle('Estímulo del ring')
-        r.grp_ventana.setTitle('Ventana del ring')
-        r.grp_destino.setTitle('Lector y archivos')
-        r.grp_estado.setTitle('Estado del ring')
+        r.grp_estimulo.setTitle('Ring stimulus')
+        r.grp_ventana.setTitle('Ring window')
+        r.grp_destino.setTitle('Reader and files')
+        r.grp_estado.setTitle('Ring status')
         self._adoptar(r.grp_estimulo, 'disparo')
         self._adoptar(r.grp_ventana, 'ventana')
         self._adoptar(r.grp_destino, 'archivos')
@@ -284,10 +284,10 @@ class PanelConfigOsc(PanelPorEtapas):
 
         est = info.get('status', {})
         if 'adc_state' in est:
-            self.lbl_fsm.setText(f"ADC {est['adc_state']} · disparo "
+            self.lbl_fsm.setText(f"ADC {est['adc_state']} · trigger "
                                  f"{est.get('trg_state', '—')}")
         if 'wp_cur_ch0' in est:
-            self.lbl_wp.setText(f"{est['wp_cur_ch0']} · al disparo "
+            self.lbl_wp.setText(f"{est['wp_cur_ch0']} · trig "
                                 f"{est.get('wp_trig_ch0', '—')}")
         if 'we_cnt_ch0' in est:
             self.lbl_we.setText(f"IN1 {est['we_cnt_ch0']} · IN2 "

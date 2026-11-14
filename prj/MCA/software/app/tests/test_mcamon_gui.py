@@ -95,7 +95,7 @@ def test_conecta_y_toma_la_geometria_del_hardware():
             assert v.panel_espectro.n_canales == n, f'h_aw={h_aw}'
             assert v.panel_espectro.h_aw == h_aw
             assert 'MCA2' in v.lbl_estado.text()
-            assert v.btn_conectar.text() == 'Desconectar'
+            assert v.btn_conectar.text() == 'Disconnect'
         _con_gui(cuerpo, h_aw=h_aw)
 
 
@@ -144,14 +144,14 @@ def test_la_pestana_2d_aparece_porque_el_bitstream_la_trae():
         assert v.info['has_2d'] is True
         assert v.panel_mapa is not None
         titulos = [v.tabs.tabText(i) for i in range(v.tabs.count())]
-        assert titulos == ['Mensajes', 'Espectro', 'Configuración MCA',
-                           'Mapa 2D (PSD)', 'Pulsos', 'Configuración OSC',
-                           'Multitrigger', 'Generador']
+        assert titulos == ['Messages', 'Spectrum', 'MCA settings',
+                           '2D map (PSD)', 'Pulses', 'OSC settings',
+                           'Multitrigger', 'Generator']
         # La de Integración NO está: el MCA falso no simula el slot 6, y la
         # pestaña se crea sólo si el bitstream lo trae. Las del osciloscopio, el
         # Multitrigger y el generador SÍ: el simulador incluye los bloques, que es
         # lo que permite desarrollarlas sin placa. El ring no tiene pestaña: va
-        # dentro de «Configuración OSC».
+        # dentro de «OSC settings».
         assert v.panel_integracion is None
         assert v.info.get('has_integracion') is False
         assert v.info.get('has_osc') is True
@@ -185,14 +185,14 @@ def test_los_contadores_y_las_tasas_se_llenan():
                         float(v.panel_espectro.lbl_rate_avg.text()) > 0)
         assert v.panel_espectro.contadores['accepted'] > 0
         assert v.panel_espectro.baseline is not None
-        assert 'aceptados' in v.panel_espectro.lbl_contadores.text()
+        assert 'accepted' in v.panel_espectro.lbl_contadores.text()
         v.sig_parar.emit()
     _con_gui(cuerpo)
 
 
 def test_el_tiempo_muerto_va_en_total_y_se_desglosa_a_pedido():
     """Por defecto un solo `muerto` (deadtime_real_s, no la ocupación); con
-    «detalle», una fila por etapa con su tiempo y sus disparos."""
+    «detail», una fila por etapa con su tiempo y sus disparos."""
     def cuerpo(app, v):
         p = v.panel_espectro
         v.sig_start.emit(0.0, True)
@@ -200,12 +200,12 @@ def test_el_tiempo_muerto_va_en_total_y_se_desglosa_a_pedido():
         v.sig_parar.emit()
         assert _esperar(app, lambda: not p.btn_stop.isEnabled())
         texto = p.lbl_contadores.text()
-        assert 'muerto' in texto and 'sin ranura' not in texto
+        assert 'dead' in texto and 'no slot' not in texto
         assert f"{p.contadores['deadtime_real_s']:7.3f}" in texto
 
         p.chk_detalle.setChecked(True)
         texto = p.lbl_contadores.text()
-        for etapa in ('veto', 'sin ranura', 'publicador', 're-armado', 'vivo',
+        for etapa in ('veto', 'no slot', 'publisher', 're-arm', 'live',
                       'total'):
             assert etapa in texto, etapa
         # La fila del total trae realtime y cross.
@@ -213,7 +213,7 @@ def test_el_tiempo_muerto_va_en_total_y_se_desglosa_a_pedido():
         assert str(p.contadores['cross']) in total
 
         p.chk_detalle.setChecked(False)
-        assert 'sin ranura' not in p.lbl_contadores.text()
+        assert 'no slot' not in p.lbl_contadores.text()
     _con_gui(cuerpo)
 
 
@@ -231,9 +231,9 @@ def test_el_maximo_de_ranuras_lo_dice_la_placa():
 def test_la_exposicion_para_sola():
     def cuerpo(app, v):
         v.sig_start.emit(0.5, True)
-        assert _esperar(app, lambda: 'restan' in v.panel_espectro.lbl_restante.text())
+        assert _esperar(app, lambda: 'left' in v.panel_espectro.lbl_restante.text())
         assert _esperar(app, lambda:
-                        v.panel_espectro.lbl_restante.text() == 'detenido',
+                        v.panel_espectro.lbl_restante.text() == 'stopped',
                         timeout=10.0), 'la exposición no paró sola'
     _con_gui(cuerpo)
 
@@ -243,16 +243,16 @@ def test_el_disparo_de_la_gui_se_arma_y_vuelve():
     `mca.disparo`) y el estado releído vuelve a la etiqueta y a los spins."""
     def cuerpo(app, v):
         p = v.panel_espectro
-        assert _esperar(app, lambda: 'SIN DISPARO' in p.lbl_disparo.text()), \
+        assert _esperar(app, lambda: 'NO TRIGGER' in p.lbl_disparo.text()), \
             'al conectar no se leyó el estado del disparo'
         p.spn_thr.setValue(900)
         p.spn_hyst.setValue(200)
         p.btn_armar.click()
-        assert _esperar(app, lambda: p.lbl_disparo.text().startswith('armado')
+        assert _esperar(app, lambda: p.lbl_disparo.text().startswith('armed')
                         and 'thr=900' in p.lbl_disparo.text()), \
             'el disparo armado no volvió del servidor'
         p.btn_desarmar.click()
-        assert _esperar(app, lambda: 'SIN DISPARO' in p.lbl_disparo.text())
+        assert _esperar(app, lambda: 'NO TRIGGER' in p.lbl_disparo.text())
     _con_gui(cuerpo)
 
 
@@ -267,7 +267,7 @@ def test_el_disparo_con_polo_cero_no_se_muestra_como_pendiente():
             'pendiente': {'L': 8, 'G': 4, 'thr': 600, 'hyst': 300},
             'polo_cero': {'k': 2, 'm': 1, 'thr': 353, 'mq': 3885}})
         texto = p.lbl_disparo.text()
-        assert 'polo-cero' in texto and 'mq=3885' in texto and 'thr=353' in texto
+        assert 'pole-zero' in texto and 'mq=3885' in texto and 'thr=353' in texto
         assert 'L=8' not in texto
         assert p.spn_thr.value() == 777
     _con_gui(cuerpo)
@@ -293,7 +293,7 @@ def test_cambiar_pre_dly_avisa_si_se_mira_el_trapecio():
     A.mca_configure(t.h, sel_1d='trapecio')
     mensajes.clear()
     Trabajador.escribir_campo(t, 'pre_dly', 24)
-    assert len(mensajes) == 2 and 'ventanas del trapecio' in mensajes[1]
+    assert len(mensajes) == 2 and 'trapezoid windows' in mensajes[1]
     t.h.close()
 
 
@@ -550,7 +550,7 @@ def test_mapa_2d_solo_se_lee_cuando_se_ve():
 def test_desconectar_y_volver_a_conectar():
     def cuerpo(app, v):
         v.sig_desconectar.emit()
-        assert _esperar(app, lambda: v.btn_conectar.text() == 'Conectar')
+        assert _esperar(app, lambda: v.btn_conectar.text() == 'Connect')
         assert not v.panel_espectro.btn_start.isEnabled()
         v.info = {}
         v.sig_conectar.emit('127.0.0.1', v.spn_port.value())
@@ -611,7 +611,7 @@ def test_el_rango_del_eje_sigue_al_zoom():
         pc.configurar_geometria(8192, 13)
         pc.actualizar_config({'h_aw': 13, 'zoom_1d_z': 0, 'zoom_1d_k': 0})
         assert '0 …' in pc.lbl_rango.text()
-        assert '8192 canales' in pc.lbl_rango.text()
+        assert '8192 channels' in pc.lbl_rango.text()
 
         pc.actualizar_config({'h_aw': 13, 'zoom_1d_z': 2, 'zoom_1d_k': 1})
         texto = pc.lbl_rango.text()
@@ -756,7 +756,7 @@ def test_la_pestana_mca_va_en_tres_columnas_con_la_leyenda_en_la_franja():
         assert len(x['segmentacion'] | x['estadisticos']) == 1, x
         assert len(x['publicacion']) == 1, x          # eje, discriminador, histograma
         assert min(x['entrada']) < min(x['segmentacion']) < min(x['publicacion'])
-        assert not [w for w in p.findChildren(QLabel) if 'Nada pide parar' in w.text()]
+        assert not [w for w in p.findChildren(QLabel) if 'nothing needs the MCA stopped' in w.text()]
         assert p.diagrama.LEYENDA
         # todo a la vista, sin scroll, en la ventana de siempre
         assert p.scroll.verticalScrollBar().maximum() == 0
@@ -999,14 +999,14 @@ def test_la_vista_de_pulsos_junta_un_mapa_de_calor():
         assert p._mapas[0].n == p._mapas[1].n == 3
         assert p._imagen is not None and p._imagen.get_visible()
         assert not p.lineas_ch[0].get_visible()
-        assert '3 trazas' in p.lbl_mapa.text()
+        assert '3 traces' in p.lbl_mapa.text()
 
         pre, datos = p._trazas[-1]
         meta = {'pre': pre, 'dec': 1, 'fs_hz': 125e6, 'wp': 1234}
         p.actualizar_traza(meta, datos)
         p.actualizar_traza(meta, datos)               # el mismo disparo
         assert p._mapas[0].n == 4 and p.repetidas == 1
-        assert 'sin disparo nuevo' in p.lbl_mapa.text()
+        assert 'without a new trigger' in p.lbl_mapa.text()
 
         pedidas = []
         p.pedir_captura.connect(lambda a, b: pedidas.append((a, b)))
@@ -1210,7 +1210,7 @@ def test_la_mq_del_generador_va_al_trapecio():
 
 def _ring_visible(app, v, carpeta):
     p = v.panel_ring
-    assert p is not None, 'sin el ring en «Configuración OSC»'
+    assert p is not None, 'sin el ring en «OSC settings»'
     v.tabs.setCurrentWidget(v.panel_config_osc)
     p.ed_carpeta.setText(carpeta)
     return p
@@ -1240,7 +1240,7 @@ def test_la_pestana_del_ring_corre_con_el_generador_y_cierra_las_cuentas():
             assert p.ultimo['stats']['n_written'] == hw['hw_ev_cnt']
             run_dir = p.ultimo['run_dir']
             assert run_dir.startswith(tmp) and archivos_de_corrida(run_dir)
-            assert p.lbl_estado.text().startswith('parado')
+            assert p.lbl_estado.text().startswith('stopped')
             assert p.btn_iniciar.isEnabled()
             fl = v.panel_config_osc.diagrama.flujo
             assert fl['disparos'] == 2000 and fl['capturados'] == hw['hw_ev_cnt']
@@ -1271,7 +1271,7 @@ def test_el_ring_avisa_en_la_pestana_lo_que_no_puede_iniciar():
     def cuerpo(app, v):
         p = _ring_visible(app, v, 'datos')
         p.btn_iniciar.click()
-        assert 'absoluto' in p.lbl_error.text()
+        assert 'absolute' in p.lbl_error.text()
         p.ed_carpeta.setText('/no/existe/esta/carpeta')
         p.btn_iniciar.click()
         assert _esperar(app, lambda: 'no existe' in p.lbl_error.text())

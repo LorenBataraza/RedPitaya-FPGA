@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """El datapath del osciloscopio y del ring en una franja: el índice de la pestaña
-«Configuración OSC», y los disparos y las pérdidas del ring.
+«OSC settings», y los disparos y las pérdidas del ring.
 
 Los bloques siguen el panorama del scope con el ring
 (docs/osc/figuras/panorama_rp_scope_mt_com_ring.tex), con sus colores: azul el
@@ -8,7 +8,7 @@ acondicionamiento, amarillo el disparo, verde la captura en BRAM y naranja el ca
 a DDR. Dos filas:
 
 - **arriba, el osciloscopio**: entrada (calibración y filtro), diezmado, disparo y la
-  captura en BRAM, que es lo que muestra la pestaña «Pulsos». En la flecha del
+  captura en BRAM, que es lo que muestra la pestaña «Pulses». En la flecha del
   disparo a la BRAM va la tasa de disparos (Δ`we_cnt`/Δt), y bajo la BRAM el estado
   de sus dos FSM;
 - **abajo, el ring** (sólo con su bitstream): el disparo baja a la ventana, o la
@@ -29,40 +29,41 @@ from app.franja import (AMARILLO, AZUL, GRIS, GRIS_CORTE, GRIS_LEYENDA, NARANJA,
 
 # (clave, título, qué hace, color), en el orden del dato.
 ETAPAS_OSC = (
-    ('entrada', 'Entrada', 'offset, ganancia\nfiltro', AZUL),
-    ('diezmado', 'Diezmado', 'factor\ncon o sin promedio', AZUL),
-    ('disparo', 'Disparo', 'umbral, histéresis\nantirrebote', AMARILLO),
-    ('bram', 'Captura BRAM', 'anillo de 2^RSZ\nretardo post-disparo', VERDE),
+    ('entrada', 'Input', 'offset, gain\nfilter', AZUL),
+    ('diezmado', 'Decimation', 'factor\nand averaging', AZUL),
+    ('disparo', 'Trigger', 'threshold, hysteresis\ndebounce', AMARILLO),
+    ('bram', 'BRAM capture', 'ring of 2^RSZ\npost-trigger delay', VERDE),
 )
 ETAPAS_RING = (
-    ('generador', 'Generador', 'de eventos\n(sin señal)', AMARILLO),
-    ('ventana', 'Ventana', 'pre + post\nde los dos canales', NARANJA),
-    ('ddr', 'Ring en DDR', 'slots\ncon créditos', NARANJA),
-    ('archivos', 'Lector y archivos', 'lotes en RAM\ncarpeta, formato', NARANJA),
+    ('generador', 'Generator', 'of events\n(no signal)', AMARILLO),
+    ('ventana', 'Window', 'pre + post\nof both channels', NARANJA),
+    ('ddr', 'Ring in DDR', 'slots\nwith credits', NARANJA),
+    ('archivos', 'Reader and files', 'batches in RAM\nfolder, format', NARANJA),
 )
 ETAPAS = ETAPAS_OSC + ETAPAS_RING
 COLOR = {clave: color for clave, _t, _d, color in ETAPAS}
 
 AYUDA = {
-    'entrada': 'La calibración de cada canal (offset y ganancia) y el filtro de '
-               'entrada, que se puede saltear por canal.',
-    'diezmado': 'El factor de diezmado (sólo seis valores legales) y si promedia las '
-                'muestras que descarta. Estira la ventana en tiempo real.',
-    'disparo': 'El disparo por flanco del ADC: umbral, histéresis y el antirrebote. '
-               'Es del multitrigger, por el puente de los registros del scope. Con '
-               'el ring, también dispara sus ventanas.',
-    'bram': 'El anillo en BRAM de cada canal y su FSM: después del disparo escribe '
-            'el retardo y para. Es lo que lee la pestaña «Pulsos».',
-    'generador': 'El generador de eventos del ring: dispara solo, periódico o '
-                 'Poisson, y llena cada slot con un patrón conocido. Sirve para medir '
-                 'el camino a disco sin señal.',
-    'ventana': 'Por cada disparo, pre + post muestras de los dos canales.\n'
-               'Pérdida: DROP_BUSY, el disparo llegó con la captura todavía '
-               'escribiendo la ventana anterior.',
-    'ddr': 'El ring de slots en la DDR, con créditos: el lector libera los que ya '
-           'leyó.\nPérdida: DROP_FULL, no había slot libre (el lector no daba abasto).',
-    'archivos': 'En la placa, el lector de libmca saca los slots en lotes y la sesión '
-                'los escribe en archivos, en la carpeta elegida.',
+    'entrada': 'The calibration of each channel (offset and gain) and the input '
+               'filter, which can be bypassed per channel.',
+    'diezmado': 'The decimation factor (only six legal values) and whether it averages '
+                'the samples it drops. It stretches the window in real time.',
+    'disparo': 'The ADC edge trigger: threshold, hysteresis and debounce. It belongs '
+               'to the multitrigger, through the bridge of the scope registers. With '
+               'the ring, it also triggers its windows.',
+    'bram': 'The BRAM ring of each channel and its FSM: after the trigger it writes '
+            'the delay and stops. It is what the «Pulses» tab reads.',
+    'generador': 'The ring\'s event generator: it triggers by itself, periodic or '
+                 'Poisson, and fills each slot with a known pattern. It measures the '
+                 'path to disk without a signal.',
+    'ventana': 'For each trigger, pre + post samples of both channels.\n'
+               'Loss: DROP_BUSY, the trigger arrived while the capture was still '
+               'writing the previous window.',
+    'ddr': 'The ring of slots in DDR, with credits: the reader frees the ones it has '
+           'read.\nLoss: DROP_FULL, there was no free slot (the reader could not keep '
+           'up).',
+    'archivos': 'On the board, the libmca reader takes the slots out in batches and '
+                'the session writes them to files, in the chosen folder.',
 }
 
 
@@ -113,12 +114,12 @@ class DiagramaOsc(Franja):
     AYUDA = AYUDA
 
     LEYENDA = (
-        (('·', GRIS_LEYENDA), (' reinicia la captura en curso    ', GRIS_LEYENDA),
-         ('⚠', GRIS_LEYENDA), (' mal puesto, no llega ningún disparo', GRIS_LEYENDA)),
-        (('rojo', ROJO_PERDIDA), (': disparo perdido    ', GRIS_LEYENDA),
-         ('gris', GRIS_CORTE), (': estado', GRIS_LEYENDA)),
+        (('·', GRIS_LEYENDA), (' restarts the capture in progress    ', GRIS_LEYENDA),
+         ('⚠', GRIS_LEYENDA), (' set wrong, no trigger gets through', GRIS_LEYENDA)),
+        (('red', ROJO_PERDIDA), (': lost trigger    ', GRIS_LEYENDA),
+         ('grey', GRIS_CORTE), (': status', GRIS_LEYENDA)),
     )
-    LEYENDA_RING = (('El ring toma su configuración al iniciar.', GRIS_LEYENDA),)
+    LEYENDA_RING = (('The ring takes its settings when it starts.', GRIS_LEYENDA),)
 
     def __init__(self, parent=None):
         self._hay_ring = False
@@ -189,10 +190,10 @@ class DiagramaOsc(Franja):
         f_tit, f_chico, fmc, lc, h, y0, y1 = self._medidas()
         x_ent = fmc.horizontalAdvance('ADC') + 22.0
         ancho_s = max(fmc.horizontalAdvance(t) for t in (
-            'a la vista', 'perdidos 9.99 %', '99.9 k de 9.99 M', '999 999 escritos',
-            '9999 archivos', 'a la carpeta')) + 12.0
+            'to the view', 'lost 9.99 %', '99.9 k of 9.99 M', '999 999 written',
+            '9999 files', 'to the folder')) + 12.0
         hueco = max(fmc.horizontalAdvance(t) for t in (
-            'capturados', 'disparos', '9.99 M', '999 k/s')) + 16.0
+            'captured', 'triggers', '9.99 M', '999 k/s')) + 16.0
         x_s = self.width() - 6.0 - ancho_s
         ancho = max(60.0, (x_s - hueco - x_ent - 3 * hueco) / 4)
         self._cajas = {}
@@ -242,11 +243,11 @@ class DiagramaOsc(Franja):
         for a, b in zip(claves, claves[1:]):
             self._flecha(p, c[a].right(), ym, c[b].left(), ym, texto)
         if o.get('tasa') is not None:
-            en_flecha(c['disparo'], c['bram'], ym, 'disparos', _tasa(o['tasa']))
+            en_flecha(c['disparo'], c['bram'], ym, 'triggers', _tasa(o['tasa']))
         else:
-            en_flecha(c['disparo'], c['bram'], ym, 'disparos')
+            en_flecha(c['disparo'], c['bram'], ym, 'triggers')
         self._flecha(p, c['bram'].right(), ym, salida_osc.left(), ym, texto)
-        caja_gris(salida_osc, ['a la vista', '«Pulsos»'])
+        caja_gris(salida_osc, ['to the view', '«Pulses»'])
         for clave, titulo, desc, color in ETAPAS_OSC:
             self._bloque(p, clave, titulo, desc, color, c[clave], f_tit, f_chico)
 
@@ -255,9 +256,9 @@ class DiagramaOsc(Franja):
         if o:
             filas = []
             if o.get('we_cnt') is not None:
-                filas.append(f"IN1: {_cuenta(o['we_cnt'])} disparos")
+                filas.append(f"IN1: {_cuenta(o['we_cnt'])} triggers")
             if o.get('adc_state') is not None:
-                filas.append(f"FSM: ADC {o['adc_state']} · disparo {o.get('trg_state')}")
+                filas.append(f"FSM: ADC {o['adc_state']} · trigger {o.get('trg_state')}")
             for k, s in enumerate(filas):
                 rotulo(rb.left() + 2, yb + k * lc, s, GRIS_CORTE, centro=False,
                        ancho_max=salida_osc.right() - rb.left() - 4)
@@ -293,9 +294,9 @@ class DiagramaOsc(Franja):
         self._flecha(p, rg.right(), ym2, rv.left(), ym2,
                      activo if gen else inactivo, punteada=not gen)
         if fl:
-            s = f"disparos {_cuenta(fl['disparos'])}"
+            s = f"triggers {_cuenta(fl['disparos'])}"
             if gen:
-                en_flecha(rg, rv, ym2, 'disparos', _cuenta(fl['disparos']))
+                en_flecha(rg, rv, ym2, 'triggers', _cuenta(fl['disparos']))
             else:
                 rotulo(rv.center().x() + 6, y_codo - 3, s, centro=False,
                        ancho_max=x_d - rv.center().x() - 10)
@@ -304,15 +305,15 @@ class DiagramaOsc(Franja):
         self._flecha(p, c['ddr'].right(), ym2, c['archivos'].left(), ym2, texto)
         self._flecha(p, c['archivos'].right(), ym2, salida_ring.left(), ym2, texto)
         if fl:
-            en_flecha(rv, c['ddr'], ym2, 'capturados', _cuenta(fl['capturados']))
-            en_flecha(c['ddr'], c['archivos'], ym2, 'leídos', _cuenta(fl['leidos']))
-            caja_gris(salida_ring, ['a la carpeta',
-                                    f"{_cuenta(fl['escritos'])} escritos",
-                                    f"{fl['archivos']} archivos"])
+            en_flecha(rv, c['ddr'], ym2, 'captured', _cuenta(fl['capturados']))
+            en_flecha(c['ddr'], c['archivos'], ym2, 'read', _cuenta(fl['leidos']))
+            caja_gris(salida_ring, ['to the folder',
+                                    f"{_cuenta(fl['escritos'])} written",
+                                    f"{fl['archivos']} files"])
         else:
-            en_flecha(rv, c['ddr'], ym2, 'capturados')
-            en_flecha(c['ddr'], c['archivos'], ym2, 'leídos')
-            caja_gris(salida_ring, ['a la carpeta'])
+            en_flecha(rv, c['ddr'], ym2, 'captured')
+            en_flecha(c['ddr'], c['archivos'], ym2, 'read')
+            caja_gris(salida_ring, ['to the folder'])
 
         for clave, titulo, desc, color in ETAPAS_RING:
             self._bloque(p, clave, titulo, desc, color, c[clave], f_tit, f_chico)
@@ -332,15 +333,15 @@ class DiagramaOsc(Franja):
             return f' · {_pct(x, N)}' if N > 0 else ''
 
         debajo = {
-            'ventana': [(f"captura ocupada {_cuenta(fl['ocupada'])}{pct(fl['ocupada'])}",
+            'ventana': [(f"capture busy {_cuenta(fl['ocupada'])}{pct(fl['ocupada'])}",
                          ROJO_PERDIDA)],
-            'ddr': [(f"ring lleno {_cuenta(fl['lleno'])}{pct(fl['lleno'])}",
+            'ddr': [(f"ring full {_cuenta(fl['lleno'])}{pct(fl['lleno'])}",
                      ROJO_PERDIDA)]
-                   + ([(f"sin leer {_cuenta(fl['sin_leer'])} de "
+                   + ([(f"unread {_cuenta(fl['sin_leer'])} of "
                         f"{_cuenta(fl['n_slots'])}", GRIS_CORTE)] if fl['n_slots'] else []),
-            'archivos': [(('lectura ' + _tasa(self._tasa_lectura)) if
+            'archivos': [(('reading ' + _tasa(self._tasa_lectura)) if
                           self._tasa_lectura is not None else '', GRIS_CORTE),
-                         ('corriendo' if fl['corriendo'] else 'parado', GRIS_CORTE)],
+                         ('running' if fl['corriendo'] else 'stopped', GRIS_CORTE)],
         }
         orden = [e[0] for e in ETAPAS_RING]
         for clave, filas in debajo.items():
@@ -352,6 +353,6 @@ class DiagramaOsc(Franja):
                        ancho_max=sig - r.left() - 6)
         if N > 0:
             rotulo(salida_ring.center().x(), yb2,
-                   f"perdidos {_pct(fl['perdidos'], N)}", ROJO_PERDIDA)
+                   f"lost {_pct(fl['perdidos'], N)}", ROJO_PERDIDA)
             rotulo(salida_ring.center().x(), yb2 + lc,
-                   f"{_cuenta(fl['perdidos'])} de {_cuenta(N)}", ROJO_PERDIDA)
+                   f"{_cuenta(fl['perdidos'])} of {_cuenta(N)}", ROJO_PERDIDA)

@@ -637,7 +637,7 @@ app-placa: exige-gui app-servidor-remoto  ## servidor + GUI, SIN tocar el genera
 verificar-placa-lazo: app-servidor-remoto  ## (P) la app con el generador por el lazo digital, sin el Rigol
 	$(PY) app/tests/placa/e2e_lazo_app.py --host $(IP_PITAYA) --port $(PUERTO_PLACA)
 
-# El ring de «Configuración OSC», con el bitstream del ring cargado (c1875919 o posterior): tres
+# El ring de «OSC settings», con el bitstream del ring cargado (c1875919 o posterior): tres
 # corridas desde la pestaña, sin pantalla (el generador con N, Poisson sin fin con el
 # ring lleno, el disparo del ADC por el lazo), y que al parar se lea todo lo capturado.
 # Borra sus corridas de la placa; con ARGS=--guardar quedan.

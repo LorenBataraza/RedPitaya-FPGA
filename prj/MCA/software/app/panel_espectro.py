@@ -84,15 +84,15 @@ class PanelEspectro(QWidget):
         self.fig = Figure(figsize=(7.0, 4.6), tight_layout=True)
         self.ax = self.fig.add_subplot(111)
         self.ax.grid(True, alpha=0.3)
-        self.ax.set_xlabel('canal')
-        self.ax.set_ylabel('cuentas')
+        self.ax.set_xlabel('channel')
+        self.ax.set_ylabel('counts')
         (self.linea,) = self.ax.step([0], [0], where='post',
                                      color=COLOR_ESPECTRO, lw=1.2)
         self.canvas = FigureCanvas(self.fig)
         self.canvas.mpl_connect('motion_notify_event', self._sobre_grafico)
         self.barra = NavigationToolbar(self.canvas, self)
 
-        self.chk_log = QCheckBox('escala log')
+        self.chk_log = QCheckBox('log scale')
         self.chk_log.toggled.connect(self._redibujar)
         self.cmb_rebin = QComboBox()
         self.cmb_rebin.addItems(str(r) for r in REBIN)
@@ -102,7 +102,7 @@ class PanelEspectro(QWidget):
         pie.addWidget(self.barra)
         pie.addStretch(1)
         pie.addWidget(self.chk_log)
-        pie.addWidget(QLabel('agrupar bins'))
+        pie.addWidget(QLabel('group bins'))
         pie.addWidget(self.cmb_rebin)
 
         w = QWidget()
@@ -152,26 +152,26 @@ class PanelEspectro(QWidget):
         bajo_cursor.addWidget(QLabel('→'))
         bajo_cursor.addWidget(self.lbl_bin_cuentas)
         bajo_cursor.addStretch(1)
-        f.addRow('bin / cuentas', bajo_cursor)
-        f.addRow('cuentas totales', self.lbl_total)
-        f.addRow('entrada inst., 1/s', self.lbl_rate_inst)
-        f.addRow('entrada media, 1/s', self.lbl_rate_avg)
+        f.addRow('bin / counts', bajo_cursor)
+        f.addRow('total counts', self.lbl_total)
+        f.addRow('input inst., 1/s', self.lbl_rate_inst)
+        f.addRow('input mean, 1/s', self.lbl_rate_avg)
         # La tasa de los pulsos que llegan, no la de los aceptados: ésa queda en
         # la curva de la pestaña Pulsos. La cuenta está en `arribos_y_tiempo` del
         # servidor.
-        ayuda = ('Pulsos que llegan por segundo, corregido por tiempo muerto:\n'
+        ayuda = ('Pulses arriving per second, corrected for dead time:\n'
                  '(cross − lost_veto) / (real − veto − t_rearm).\n'
-                 'Cuenta también los que se perdieron por no haber ranura. '
-                 't_rearm sale del denominador porque un pulso que llega con el '
-                 'disparo sin re-armar no se puede contar.\n'
-                 'inst.: entre dos lecturas (200 ms); media: toda la corrida.')
+                 'It also counts the ones lost for lack of a slot. t_rearm leaves '
+                 'the denominator because a pulse arriving while the trigger is '
+                 'not re-armed cannot be counted.\n'
+                 'inst.: between two reads (200 ms); mean: the whole run.')
         for lbl in (self.lbl_rate_inst, self.lbl_rate_avg):
             lbl.setToolTip(ayuda)
             f.labelForField(lbl).setToolTip(ayuda)
         return g
 
     def _grupo_umbral(self):
-        g = QGroupBox('disparo y ventana')
+        g = QGroupBox('trigger and window')
         f = QFormLayout(g)
 
         # El disparo por pendiente del multitrigger: s = suma de L muestras
@@ -181,24 +181,25 @@ class PanelEspectro(QWidget):
         self.spn_thr = QSpinBox(minimum=0, maximum=(1 << 18) - 1, value=600)
         self.spn_hyst = QSpinBox(minimum=0, maximum=(1 << 18) - 1, value=300)
         for spn, ayuda in (
-                (self.spn_l, 'Muestras de cada suma de la pendiente.'),
-                (self.spn_g, 'Separación entre las dos sumas.'),
-                (self.spn_thr, 'Umbral sobre la pendiente s (un escalón de alto '
-                               'A da s = L·A). Lo medido en placa con el pulso '
-                               'de la campaña: 600.'),
-                (self.spn_hyst, 'Re-arma cuando s baja de thr − hyst: es lo que '
-                                'deja disparar sobre la cola de otro pulso.')):
+                (self.spn_l, 'Samples in each sum of the slope.'),
+                (self.spn_g, 'Gap between the two sums.'),
+                (self.spn_thr, 'Threshold on the slope s (a step of height A '
+                               'gives s = L·A). Measured on the board with the '
+                               'campaign pulse: 600.'),
+                (self.spn_hyst, 'Re-arms when s drops below thr − hyst: it is '
+                                'what allows triggering on the tail of another '
+                                'pulse.')):
             spn.setToolTip(ayuda)
         fila = QHBoxLayout()
         fila.addWidget(QLabel('L'))
         fila.addWidget(self.spn_l)
         fila.addWidget(QLabel('G'))
         fila.addWidget(self.spn_g)
-        f.addRow('pendiente', fila)
-        f.addRow('umbral (s)', self.spn_thr)
-        f.addRow('histéresis (s)', self.spn_hyst)
-        self.btn_armar = QPushButton('Armar disparo')
-        self.btn_desarmar = QPushButton('Desarmar')
+        f.addRow('slope', fila)
+        f.addRow('threshold (s)', self.spn_thr)
+        f.addRow('hysteresis (s)', self.spn_hyst)
+        self.btn_armar = QPushButton('Arm trigger')
+        self.btn_desarmar = QPushButton('Disarm')
         self.btn_armar.clicked.connect(lambda: self._disparo(True))
         self.btn_desarmar.clicked.connect(lambda: self._disparo(False))
         fila = QHBoxLayout()
@@ -206,19 +207,19 @@ class PanelEspectro(QWidget):
         fila.addWidget(self.btn_desarmar)
         f.addRow(fila)
         self.lbl_disparo = QLabel('—')
-        f.addRow('estado', self.lbl_disparo)
+        f.addRow('status', self.lbl_disparo)
 
-        self.chk_ventana = QCheckBox('ventana de amplitud')
+        self.chk_ventana = QCheckBox('amplitude window')
         self.chk_ventana.toggled.connect(self._cambio_ventana)
         self.spn_amp_min = self._spin(0, 0xFFFF, 'amp_min')
         self.spn_amp_max = self._spin(0, 0xFFFF, 'amp_max')
         f.addRow(self.chk_ventana)
-        f.addRow('mín', self.spn_amp_min)
-        f.addRow('máx', self.spn_amp_max)
+        f.addRow('min', self.spn_amp_min)
+        f.addRow('max', self.spn_amp_max)
         return g
 
     def _grupo_exposicion(self):
-        g = QGroupBox('tiempo de exposición (vivo)')
+        g = QGroupBox('exposure time (live)')
         v = QVBoxLayout(g)
 
         self.spn_h = QSpinBox()
@@ -235,14 +236,14 @@ class PanelEspectro(QWidget):
             fila.addWidget(QLabel(unidad))
         v.addLayout(fila)
 
-        self.chk_sin_limite = QCheckBox('sin límite (parar a mano)')
+        self.chk_sin_limite = QCheckBox('no limit (stop by hand)')
         v.addWidget(self.chk_sin_limite)
         self.lbl_restante = QLabel('—')
         v.addWidget(self.lbl_restante)
 
-        self.btn_start = QPushButton('Iniciar')
-        self.btn_stop = QPushButton('Detener')
-        self.btn_clear = QPushButton('Reiniciar cuentas')
+        self.btn_start = QPushButton('Start')
+        self.btn_stop = QPushButton('Stop')
+        self.btn_clear = QPushButton('Clear counts')
         self.btn_start.clicked.connect(self._start)
         self.btn_stop.clicked.connect(self.pedir_stop)
         self.btn_clear.clicked.connect(self._clear)
@@ -262,12 +263,12 @@ class PanelEspectro(QWidget):
         no se sabe. Los dos números que interesan de un fotopico —dónde cae y
         cuán ancho es— salen igual, y salen para todos a la vez.
         """
-        g = QGroupBox('picos detectados')
+        g = QGroupBox('detected peaks')
         v = QVBoxLayout(g)
 
         self.tabla_picos = QTableWidget(0, 5)
         self.tabla_picos.setHorizontalHeaderLabels(
-            ['canal', 'FWHM', 'res %', 'cuentas', 'área'])
+            ['channel', 'FWHM', 'res %', 'counts', 'area'])
         self.tabla_picos.verticalHeader().setVisible(False)
         self.tabla_picos.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.tabla_picos.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -285,7 +286,7 @@ class PanelEspectro(QWidget):
         self.tabla_picos.itemSelectionChanged.connect(self._ir_al_pico)
         v.addWidget(self.tabla_picos)
 
-        self.lbl_picos = QLabel('sin espectro')
+        self.lbl_picos = QLabel('no spectrum')
         self.lbl_picos.setWordWrap(True)
         v.addWidget(self.lbl_picos)
 
@@ -298,31 +299,32 @@ class PanelEspectro(QWidget):
         self.spn_suavizado.setValue(3)
         self.spn_suavizado.setSingleStep(2)
         self.spn_suavizado.setToolTip(
-            'Canales de la media móvil con la que se buscan los máximos.\n\n'
-            'Sin suavizar, en un histograma de Poisson casi cualquier canal es '
-            'un máximo local de sus vecinos. Subirlo agrupa picos angostos; '
-            'bajarlo separa más, a costa de encontrar estructura que es ruido.')
+            'Channels of the moving average used to look for maxima.\n\n'
+            'Without smoothing, in a Poisson histogram almost any channel is a '
+            'local maximum of its neighbours. Raising it merges narrow peaks; '
+            'lowering it separates more, at the cost of finding structure that is '
+            'noise.')
 
         self.spn_prominencia = QDoubleSpinBox()
         self.spn_prominencia.setRange(0.1, 100.0)
         self.spn_prominencia.setValue(5.0)
         self.spn_prominencia.setSuffix(' %')
         self.spn_prominencia.setToolTip(
-            'Prominencia mínima, como porcentaje de la del pico mayor.\n\n'
-            'Se filtra por prominencia y no por altura: un hombro sobre un fondo '
-            'alto es un pico, y un rizo sobre el fotopico no lo es. Bajarlo '
-            'saca picos más chicos — hasta el piso de ruido de conteo, que es '
-            'un segundo criterio y no se puede desactivar desde acá.')
+            'Minimum prominence, as a percentage of that of the largest peak.\n\n'
+            'It filters by prominence and not by height: a shoulder on a high '
+            'background is a peak, and a ripple on the photopeak is not. Lowering '
+            'it brings out smaller peaks — down to the counting-noise floor, which '
+            'is a second criterion and cannot be turned off from here.')
 
         for w in (self.spn_suavizado, self.spn_prominencia):
             w.setKeyboardTracking(False)
             w.valueChanged.connect(self._recalcular_picos)
 
-        f.addRow('suavizado', self.spn_suavizado)
-        f.addRow('prominencia mín.', self.spn_prominencia)
+        f.addRow('smoothing', self.spn_suavizado)
+        f.addRow('min. prominence', self.spn_prominencia)
         v.addLayout(f)
 
-        self.chk_marcar = QCheckBox('marcar en el gráfico')
+        self.chk_marcar = QCheckBox('mark on the plot')
         self.chk_marcar.setChecked(True)
         self.chk_marcar.toggled.connect(self._redibujar)
         v.addWidget(self.chk_marcar)
@@ -331,10 +333,10 @@ class PanelEspectro(QWidget):
     def _grupo_contadores(self):
         """Los contadores propios del MCA: son los que dicen si la medida vale.
 
-        Por defecto, el tiempo muerto en total; con «detalle», desglosado por
+        Por defecto, el tiempo muerto en total; con «detail», desglosado por
         etapa (ver `_desglose`).
         """
-        g = QGroupBox('contadores y tiempos')
+        g = QGroupBox('counters and times')
         v = QVBoxLayout(g)
         # Un bloque monoespaciado en vez de una grilla de QLabel: entran los
         # nueve números sin truncar ninguna etiqueta y ocupa cuatro renglones.
@@ -342,10 +344,10 @@ class PanelEspectro(QWidget):
         self.lbl_contadores.setFont(QFont('monospace', 9))
         self.lbl_contadores.setTextInteractionFlags(Qt.TextSelectableByMouse)
         v.addWidget(self.lbl_contadores)
-        self.chk_detalle = QCheckBox('detalle')
+        self.chk_detalle = QCheckBox('detail')
         self.chk_detalle.setToolTip(
-            'Desglosa el tiempo muerto y los disparos por etapa: veto, sin '
-            'ranura, publicador, re-armado del disparo y vivo.')
+            'Breaks down dead time and triggers by stage: veto, no slot, '
+            'publisher, trigger re-arm and live.')
         self.chk_detalle.toggled.connect(lambda _v: self._pintar_contadores(
             self.contadores, self.baseline if self.baseline is not None else '—'))
         v.addWidget(self.chk_detalle)
@@ -372,16 +374,16 @@ class PanelEspectro(QWidget):
         muerto = s('deadtime_real_s')
         pct = 100.0 * muerto / medido if medido > 1e-9 else 0.0
         texto = (
-            f"aceptados   {n('accepted'):>9}   perdidos  "
+            f"accepted    {n('accepted'):>9}   lost      "
             f"{n('lost_active') + n('dropped'):>7}\n"
-            f"rech. ampl. {n('rej_amp'):>9}   apilados  {n('pileup'):>7}\n"
-            f"rech. forma {n('rej_psd'):>9}   base      {baseline:>7}\n"
-            f"real {s('realtime_s'):7.3f} s  vivo {s('livetime_s'):7.3f} s\n"
-            f"muerto {muerto:7.3f} s ({pct:.1f} %)"
+            f"rej. ampl.  {n('rej_amp'):>9}   piled-up  {n('pileup'):>7}\n"
+            f"rej. shape  {n('rej_psd'):>9}   baseline  {baseline:>7}\n"
+            f"real {s('realtime_s'):7.3f} s  live {s('livetime_s'):7.3f} s\n"
+            f"dead {muerto:7.3f} s ({pct:.1f} %)"
             # Sólo si hay veto: un bitstream sin él lee 0 y no hace falta
             # ocupar la línea.
             + (f"  veto {s('vetotime_s'):5.3f} s" if s('vetotime_s') else '')
-            + ('  [VETADO]' if cnt.get('vetoed') else ''))
+            + ('  [VETOED]' if cnt.get('vetoed') else ''))
         if self.chk_detalle.isChecked():
             texto += '\n\n' + self._desglose(cnt)
         self.lbl_contadores.setText(texto)
@@ -410,17 +412,17 @@ class PanelEspectro(QWidget):
         lost_busy = max(0, n('cross') - n('open') - n('lost_active')
                         - n('lost_veto'))
         filas = (('veto', s('vetotime_s'), n('lost_veto')),
-                 ('sin ranura', s('t_win_s'), n('lost_active')),
-                 ('publicador', s('t_div_s'), lost_busy),
-                 ('re-armado', s('t_rearm_s'), None),
-                 ('vivo', s('livetime_s'), n('open')),
+                 ('no slot', s('t_win_s'), n('lost_active')),
+                 ('publisher', s('t_div_s'), lost_busy),
+                 ('re-arm', s('t_rearm_s'), None),
+                 ('live', s('livetime_s'), n('open')),
                  ('total', s('realtime_s'), n('cross')))
-        lineas = [f"{'':11}{'tiempo':>10} {'disparos':>10}"]
+        lineas = [f"{'':11}{'time':>10} {'triggers':>10}"]
         for nombre, t, k in filas:
             lineas.append(f"{nombre:<11}{t:8.3f} s {'—' if k is None else k:>10}")
         # Lo que se descartó DESPUÉS de abrir una ranura: colisiones de lectura
         # y barrido de borrado. Está en `perdidos` pero no es un disparo perdido.
-        lineas.append(f"{'descartes al publicar':<22}"
+        lineas.append(f"{'dropped on publish':<22}"
                       f"{max(0, n('dropped') - lost_busy):>10}")
         return '\n'.join(lineas)
 
@@ -428,10 +430,10 @@ class PanelEspectro(QWidget):
         g = QGroupBox()
         h = QHBoxLayout(g)
         for texto, ayuda, slot in (
-                ('Guardar', 'espectro + metadata en csv, npz o json',
+                ('Save', 'spectrum + metadata in csv, npz or json',
                  self._guardar_archivo),
-                ('Cargar', 'releer un espectro guardado', self._cargar_archivo),
-                ('Imagen', 'png, pdf o svg del gráfico', self._guardar_imagen)):
+                ('Load', 'reread a saved spectrum', self._cargar_archivo),
+                ('Image', 'png, pdf or svg of the plot', self._guardar_imagen)):
             b = QPushButton(texto)
             b.setToolTip(ayuda)
             b.clicked.connect(slot)
@@ -473,21 +475,21 @@ class PanelEspectro(QWidget):
             # son de la pendiente, así que no se tocan.
             z = est.get('polo_cero') or {}
             self.lbl_disparo.setText(
-                f"armado con polo-cero: k={z.get('k')} m={z.get('m')} "
+                f"armed with pole-zero: k={z.get('k')} m={z.get('m')} "
                 f"thr={z.get('thr')} mq={z.get('mq')}"
-                + ('' if est.get('we_keep') else ' (sin we_keep!)')
-                + '. «Armar disparo» lo cambia a pendiente')
+                + ('' if est.get('we_keep') else ' (no we_keep!)')
+                + '. «Arm trigger» switches it to slope')
         elif est.get('armado'):
             self.lbl_disparo.setText(
-                f"armado: L={p.get('L')} G={p.get('G')} thr={p.get('thr')} "
+                f"armed: L={p.get('L')} G={p.get('G')} thr={p.get('thr')} "
                 f"hyst={p.get('hyst')}" + ('' if est.get('we_keep')
-                                            else ' (sin we_keep!)'))
+                                            else ' (no we_keep!)'))
             self.spn_l.setValue(int(p.get('L', 8)))
             self.spn_g.setValue(int(p.get('G', 4)))
             self.spn_thr.setValue(int(p.get('thr', 600)))
             self.spn_hyst.setValue(int(p.get('hyst', 300)))
         else:
-            self.lbl_disparo.setText('SIN DISPARO: el MCA no abre ventanas')
+            self.lbl_disparo.setText('NO TRIGGER: the MCA opens no windows')
 
     def set_conectado(self, conectado, running=False):
         for w in (self.btn_clear, self.spn_thr, self.spn_hyst, self.spn_l,
@@ -551,11 +553,11 @@ class PanelEspectro(QWidget):
         exp = est.get('exposure') or {}
         restante = exp.get('left_s')
         if est.get('running') and restante is not None:
-            self.lbl_restante.setText(f'restan {restante:.1f} s de tiempo vivo')
+            self.lbl_restante.setText(f'{restante:.1f} s of live time left')
         elif est.get('running'):
-            self.lbl_restante.setText('corriendo, sin límite')
+            self.lbl_restante.setText('running, no limit')
         else:
-            self.lbl_restante.setText('detenido')
+            self.lbl_restante.setText('stopped')
         self.set_conectado(True, running=bool(est.get('running')))
 
     def actualizar_espectro(self, hist, meta=None):
@@ -708,10 +710,10 @@ class PanelEspectro(QWidget):
                     it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                     if truncado:
                         it.setToolTip(
-                            'El pico no baja a media altura antes de que se '
-                            'acabe el eje, así que su ancho no está definido.\n'
-                            'Pasa con medio pico contra el canal 0 y con el '
-                            'escalón de apilamiento contra el tope de escala.')
+                            'The peak does not drop to half height before the '
+                            'axis ends, so its width is undefined.\n'
+                            'It happens with half a peak against channel 0 and '
+                            'with the pile-up step against full scale.')
                     self.tabla_picos.setItem(fila, col, it)
             if canal_sel is not None:
                 self._seleccionar_canal(canal_sel)
@@ -719,15 +721,15 @@ class PanelEspectro(QWidget):
             self.tabla_picos.blockSignals(False)
 
         if self.hist is None:
-            self.lbl_picos.setText('sin espectro')
+            self.lbl_picos.setText('no spectrum')
         elif not self.picos:
             self.lbl_picos.setText(
-                'ningún pico por encima del ruido de conteo')
+                'no peak above the counting noise')
         else:
             n = len(self.picos)
             self.lbl_picos.setText(
-                f"{n} pico{'s' if n != 1 else ''} · FWHM y resolución en "
-                f"canales del eje actual")
+                f"{n} peak{'s' if n != 1 else ''} · FWHM and resolution in "
+                f"channels of the current axis")
 
     def _canal_seleccionado(self):
         filas = self.tabla_picos.selectionModel().selectedRows() \
@@ -760,24 +762,24 @@ class PanelEspectro(QWidget):
                          min(float(self.n_canales), canal + margen))
         self.canvas.draw_idle()
         self.log.emit(
-            f"pico en canal {p['canal']:.1f}: " +
-            ('FWHM no definido (truncado por el borde del eje)' if p['truncado']
-             else f"FWHM {p['fwhm']:.2f} canales, "
-                  f"resolución {p['resolucion_pct']:.2f} %") +
-            f", área {p['area']:.0f} cuentas")
+            f"peak at channel {p['canal']:.1f}: " +
+            ('FWHM undefined (truncated by the edge of the axis)' if p['truncado']
+             else f"FWHM {p['fwhm']:.2f} channels, "
+                  f"resolution {p['resolucion_pct']:.2f} %") +
+            f", area {p['area']:.0f} counts")
 
     # ---------- archivo ----------
 
     def _guardar_archivo(self):
         if self.hist is None:
-            QMessageBox.information(self, 'Guardar', 'todavía no hay espectro')
+            QMessageBox.information(self, 'Save', 'there is no spectrum yet')
             return
-        formatos = {'CSV con metadata (*.csv)': ('.csv', mca_write_file_histogram),
+        formatos = {'CSV with metadata (*.csv)': ('.csv', mca_write_file_histogram),
                     'NumPy (*.npz)': ('.npz', mca_save_file_binary),
                     'JSON (*.json)': ('.json', mca_save_file_json),
                     'N42.42 (*.n42)': ('.n42', mca_save_file_n42)}
         ruta, filtro = QFileDialog.getSaveFileName(
-            self, 'Guardar espectro', 'espectro.csv', ';;'.join(formatos))
+            self, 'Save spectrum', 'espectro.csv', ';;'.join(formatos))
         if not ruta:
             return
         # Manda la extensión que se escribió; sin una conocida, el filtro elegido.
@@ -790,21 +792,21 @@ class PanelEspectro(QWidget):
         try:
             guardar(self.hist, ruta, meta=self.meta)
         except Exception as e:                                   # noqa: BLE001
-            QMessageBox.critical(self, 'Guardar', f'{type(e).__name__}: {e}')
+            QMessageBox.critical(self, 'Save', f'{type(e).__name__}: {e}')
             return
-        self.log.emit(f'espectro guardado en {ruta} '
-                      f'({len(self.meta)} claves de metadata)')
+        self.log.emit(f'spectrum saved to {ruta} '
+                      f'({len(self.meta)} metadata keys)')
 
     def _cargar_archivo(self):
         ruta, _ = QFileDialog.getOpenFileName(
-            self, 'Cargar espectro', '',
-            'Espectros (*.csv *.npz *.json *.n42);;Todos (*)')
+            self, 'Load spectrum', '',
+            'Spectra (*.csv *.npz *.json *.n42);;All (*)')
         if not ruta:
             return
         try:
             hist, meta = mca_load_file(ruta)
         except Exception as e:                                   # noqa: BLE001
-            QMessageBox.critical(self, 'Cargar', f'{type(e).__name__}: {e}')
+            QMessageBox.critical(self, 'Load', f'{type(e).__name__}: {e}')
             return
         self.configurar_geometria(hist.size, int(meta.get('h_shift', 0) or 0),
                                   h_aw=meta.get('h_aw'))
@@ -815,19 +817,19 @@ class PanelEspectro(QWidget):
         self.zoom_z = int(meta.get('zoom_1d_z', 0) or 0)
         self.zoom_k = int(meta.get('zoom_1d_k', 0) or 0)
         if 'zoom_1d_z' not in meta:
-            self.log.emit(f'{os.path.basename(ruta)}: sin zoom en la metadata, '
-                          'se asume fondo de escala')
+            self.log.emit(f'{os.path.basename(ruta)}: no zoom in the metadata, '
+                          'full scale assumed')
         self.actualizar_espectro(hist, meta)
-        self.log.emit(f'cargado {ruta}: {hist.size} canales, '
-                      f'{int(hist.sum())} cuentas')
+        self.log.emit(f'loaded {ruta}: {hist.size} channels, '
+                      f'{int(hist.sum())} counts')
         if meta.get('n42_n_espectros', 1) > 1:
-            self.log.emit(f"{os.path.basename(ruta)}: trae "
-                          f"{meta['n42_n_espectros']} espectros, se muestra el primero")
+            self.log.emit(f"{os.path.basename(ruta)}: has "
+                          f"{meta['n42_n_espectros']} spectra, showing the first")
 
     def _guardar_imagen(self):
         ruta, _ = QFileDialog.getSaveFileName(
-            self, 'Guardar imagen', 'espectro.png',
+            self, 'Save image', 'espectro.png',
             'PNG (*.png);;PDF (*.pdf);;SVG (*.svg)')
         if ruta:
             self.fig.savefig(ruta, dpi=150)
-            self.log.emit(f'imagen guardada en {ruta}')
+            self.log.emit(f'image saved to {ruta}')

@@ -30,30 +30,30 @@ from app.franja import (AMARILLO, AZUL, GRIS, GRIS_CORTE, GRIS_LEYENDA,  # noqa:
 
 # (clave, título, qué hace, color). El orden es el del dato.
 ETAPAS = (
-    ('entrada', 'Entrada', 'canal, decim.\nretardo', AZUL),
-    ('base', 'Base', 'seguidor\no fija', AZUL),
-    ('trapecio', 'Trapecios', 'k, m, M', AZUL),
-    ('segmentacion', 'Disparo', 'asigna\nla ranura', AMARILLO),
-    ('estadisticos', 'Ranuras', 'compuertas', VERDE),
-    ('publicacion', 'Publicación', 'eje, discr.\nhistograma', NARANJA),
+    ('entrada', 'Input', 'channel, dec.\ndelay', AZUL),
+    ('base', 'Baseline', 'tracker\nor fixed', AZUL),
+    ('trapecio', 'Trapezoids', 'k, m, M', AZUL),
+    ('segmentacion', 'Trigger', 'assigns\nthe slot', AMARILLO),
+    ('estadisticos', 'Slots', 'gates', VERDE),
+    ('publicacion', 'Publication', 'axis, discr.\nhistogram', NARANJA),
 )
 COLOR = {clave: color for clave, _t, _d, color in ETAPAS}
 
 AYUDA = {
-    'entrada': 'El canal (IN1/IN2), la decimación propia del MCA y el retardo '
-               'de la muestra respecto del disparo.',
-    'base': 'La línea de base que se resta: un seguidor IIR quieto durante las '
-            'ventanas, o un valor fijo.',
-    'trapecio': 'El banco de trapecios con polo-cero: un filtro continuo que '
-                'comparten las ranuras.',
-    'segmentacion': 'El disparo llega del multitrigger (se arma en Espectro); el '
-                    'asignador le da la ranura libre de menor índice.\n'
-                    'Pérdidas: el re-armado del disparo (estimada con λ̂), sin '
-                    'ranura libre, y esperando al publicador.',
-    'estadisticos': 'Cada ranura mide su ventana: pico, integrales, largo. La '
-                    'ventana de amplitud (en Espectro) descarta al cerrar.',
-    'publicacion': 'De la ventana cerrada al histograma: qué feature va al eje, el '
-                   'zoom, el discriminador y el histograma.',
+    'entrada': 'The channel (IN1/IN2), the MCA\'s own decimation and the delay of '
+               'the sample relative to the trigger.',
+    'base': 'The baseline that is subtracted: an IIR tracker held still during the '
+            'windows, or a fixed value.',
+    'trapecio': 'The pole-zero trapezoid bank: a continuous filter shared by the '
+                'slots.',
+    'segmentacion': 'The trigger comes from the multitrigger (armed in Spectrum); the '
+                    'allocator gives it the lowest free slot.\n'
+                    'Losses: trigger re-arm (estimated with λ̂), no free slot, '
+                    'and waiting for the publisher.',
+    'estadisticos': 'Each slot measures its window: peak, integrals, length. The '
+                    'amplitude window (in Spectrum) discards on close.',
+    'publicacion': 'From the closed window to the histogram: which feature goes to '
+                   'the axis, the zoom, the discriminator and the histogram.',
 }
 
 
@@ -138,15 +138,17 @@ class DiagramaMCA(Franja):
     # hueco más ancho que los de la señal.
     FLECHAS_CON_TASA = {('segmentacion', 'estadisticos'): 'ventanas',
                         ('estadisticos', 'publicacion'): 'cerradas'}
+    # Lo que se lee en esas flechas.
+    ROTULOS = {'ventanas': 'windows', 'cerradas': 'closed'}
 
     # La leyenda: lo que dicen las marcas de los controles y los colores de abajo.
     LEYENDA = (
-        (('Todo vale en caliente: nada pide parar el MCA.', GRIS_LEYENDA),),
+        (('Everything applies live: nothing needs the MCA stopped.', GRIS_LEYENDA),),
         (('●', NARANJA_MARCA),
-         (' cambiado con cuentas: mezcla dos configuraciones', GRIS_LEYENDA)),
-        (('⚠ mal puesto, no llega ningún evento', GRIS_LEYENDA),),
-        (('rojo', ROJO_PERDIDA), (': llegó y no se midió   ', GRIS_LEYENDA),
-         ('gris', GRIS_CORTE), (': descartado a propósito', GRIS_LEYENDA)),
+         (' changed with counts: mixes two configurations', GRIS_LEYENDA)),
+        (('⚠ set wrong, no event gets through', GRIS_LEYENDA),),
+        (('red', ROJO_PERDIDA), (': arrived and not measured   ', GRIS_LEYENDA),
+         ('grey', GRIS_CORTE), (': discarded on purpose', GRIS_LEYENDA)),
     )
 
     def __init__(self, parent=None):
@@ -183,11 +185,11 @@ class DiagramaMCA(Franja):
         h = fmt.height() + 2 * lc + 10.0
         x_ent = fmc.horizontalAdvance('999 k/s') + 18.0
         ancho_h = max(fmc.horizontalAdvance(t) for t in (
-            'al histograma', 'perdidos 9.99 %', '99.9 k de 9.99 M',
-            '(estimado con λ)')) + 12.0
+            'to histogram', 'lost 9.99 %', '99.9 k of 9.99 M',
+            '(estimated with λ)')) + 12.0
         hueco_s = 22.0
-        hueco_e = max(fmc.horizontalAdvance(t) for t in ('999 k/s', 'ventanas',
-                                                          'cerradas')) + 16.0
+        hueco_e = max(fmc.horizontalAdvance(t) for t in ('999 k/s', 'windows',
+                                                          'closed')) + 16.0
         claves = [e[0] for e in ETAPAS]
         huecos = [hueco_e if (a, b) in self.FLECHAS_CON_TASA else hueco_s
                   for a, b in zip(claves, claves[1:])]
@@ -223,7 +225,7 @@ class DiagramaMCA(Franja):
         # --- la entrada: los pulsos que llegan (λ̂) ---
         r0 = self._cajas['entrada']
         flecha(4, ym, r0.left(), ym)
-        rotulo(x_ent / 2, ym - 5, 'pulsos')
+        rotulo(x_ent / 2, ym - 5, 'pulses')
         if fl:
             rotulo(x_ent / 2, ym + fmc.ascent() + 4, _tasa(tasas['pulsos']))
 
@@ -235,14 +237,14 @@ class DiagramaMCA(Franja):
             nombre = self.FLECHAS_CON_TASA.get((a, b))
             if nombre:
                 xc = (ra.right() + rb.left()) / 2
-                rotulo(xc, ym - 5, nombre)
+                rotulo(xc, ym - 5, self.ROTULOS[nombre])
                 if fl:
                     rotulo(xc, ym + fmc.ascent() + 4, _tasa(tasas[nombre]))
 
         # --- el disparo, que baja del multitrigger a la segmentación ---
         rs = self._cajas['segmentacion']
         flecha(rs.center().x(), 2, rs.center().x(), y0)
-        s = 'disparos del multitrigger'
+        s = 'multitrigger triggers'
         if fl:
             s += '   ' + _tasa(tasas['disparos'])
         rotulo(rs.center().x() + 7, fmc.ascent() + 2, s, centro=False)
@@ -254,19 +256,19 @@ class DiagramaMCA(Franja):
         p.setBrush(GRIS)
         p.drawRoundedRect(caja_h, 3, 3)
         p.setBrush(Qt.NoBrush)
-        lineas = ['al histograma'] + ([_tasa(tasas['al_histograma'])] if fl else [])
+        lineas = ['to histogram'] + ([_tasa(tasas['al_histograma'])] if fl else [])
         y = caja_h.center().y() - (len(lineas) * lc) / 2 + fmc.ascent()
         for k, s in enumerate(lineas):
             rotulo(caja_h.center().x(), y + k * lc, s, Qt.black)
         if fl and fl['cuentas']['pulsos'] > 0:
             yb = y0 + h + 4 + fmc.ascent()
             rotulo(caja_h.center().x(), yb,
-                   f"perdidos {_pct(fl['perdidos'], fl['cuentas']['pulsos'])}",
+                   f"lost {_pct(fl['perdidos'], fl['cuentas']['pulsos'])}",
                    ROJO_PERDIDA)
             rotulo(caja_h.center().x(), yb + lc,
-                   f"{_cuenta(fl['perdidos'])} de {_cuenta(fl['cuentas']['pulsos'])}",
+                   f"{_cuenta(fl['perdidos'])} of {_cuenta(fl['cuentas']['pulsos'])}",
                    ROJO_PERDIDA)
-            rotulo(caja_h.center().x(), yb + 2 * lc, '(estimado con λ)', GRIS_CORTE)
+            rotulo(caja_h.center().x(), yb + 2 * lc, '(estimated with λ)', GRIS_CORTE)
 
         # --- los bloques ---
         for clave, titulo, desc, color in ETAPAS:
@@ -287,19 +289,19 @@ class DiagramaMCA(Franja):
             return f' · {_pct(x, N)}' if N > 0 else ''
 
         debajo = {
-            'segmentacion': [(f"re-armado ≈{_cuenta(c['rearmado'])}{pct(c['rearmado'])}",
+            'segmentacion': [(f"re-arm ≈{_cuenta(c['rearmado'])}{pct(c['rearmado'])}",
                               ROJO_PERDIDA),
-                             (f"sin ranura {_cuenta(c['sin_ranura'])}"
+                             (f"no slot {_cuenta(c['sin_ranura'])}"
                               f"{pct(c['sin_ranura'])}", ROJO_PERDIDA),
-                             (f"publicador {_cuenta(c['publicador'])}"
+                             (f"publisher {_cuenta(c['publicador'])}"
                               f"{pct(c['publicador'])}", ROJO_PERDIDA)]
-                            + ([(f"vetados {_cuenta(c['veto'])}", GRIS_CORTE)]
+                            + ([(f"vetoed {_cuenta(c['veto'])}", GRIS_CORTE)]
                                if c['veto'] else []),
-            'estadisticos': [(f"fuera de ampl. {_cuenta(c['fuera_amplitud'])}",
+            'estadisticos': [(f"out of ampl. {_cuenta(c['fuera_amplitud'])}",
                               GRIS_CORTE)],
             'publicacion': [(f"discrim. {_cuenta(c['discriminador'])}", GRIS_CORTE),
-                            (f"bin lleno {_cuenta(c['bin_lleno'])}", GRIS_CORTE),
-                            (f"colisiones {_cuenta(c['colisiones'])}", ROJO_PERDIDA)],
+                            (f"full bin {_cuenta(c['bin_lleno'])}", GRIS_CORTE),
+                            (f"collisions {_cuenta(c['colisiones'])}", ROJO_PERDIDA)],
         }
         claves_orden = [e[0] for e in ETAPAS]
         for clave, filas in debajo.items():

@@ -76,22 +76,21 @@ factores; que la lista encuentre el pico donde el simulador lo puso y le mida
 el FWHM que le corresponde; que guardar y
 recargar dé el mismo array en los tres formatos; que el mapa 2D **sólo se lea
 con su pestaña visible**; que el tiempo muerto se muestre en total
-(`deadtime_real_s`, no la ocupación) y se desglose por etapa con «detalle»; que
+(`deadtime_real_s`, no la ocupación) y se desglose por etapa con «detail»; que
 el tope de ranuras sea el `n_acc_max` de la placa; que la pestaña del generador
 aplique y relea, avise un error sin diálogo modal, lleve su Mq al trapecio, y que
-prender el lazo muestre el aviso arriba y lleve la tasa del generador al
-espectro; que el ring de «Configuración OSC» corra con el generador de eventos y
-cierre EV_CNT + DROP_BUSY + DROP_FULL = N con archivos en la carpeta nueva y la
-franja con las mismas cuentas, que corra sin fin hasta «Parar», que avise en la
+prender el lazo muestre el aviso y lleve la tasa del generador al espectro; que el
+ring de «OSC settings» corra con el generador de eventos y cierre EV_CNT + DROP_BUSY + DROP_FULL = N con archivos en la carpeta nueva y la
+franja con las mismas cuentas, que corra sin fin hasta «Stop», que avise en la
 pestaña una carpeta inválida, y que la ocupación no se muestre llena por una resta
 negativa; que la franja del ring cierre sus cuentas, que sus grupos sean etapas de
 la franja (el del estímulo pasa del disparo al generador) y que su disparo del ADC
-use el umbral de la etapa Disparo; que la franja de «Configuración MCA» cierre sus
+use el umbral de la etapa Disparo; que la franja de «MCA settings» cierre sus
 cuentas (cada tramo, cada pérdida y el total perdido sobre λ̂·T), que un cambio con
 cuentas en el histograma marque su etapa y muestre el aviso de mezcla, que se vaya
 al borrar desde cualquier pestaña, que la franja siga al ratón y lleve a los
 controles, y que las tres columnas entren sin scroll con el aviso a la vista; que el
-mapa de calor de «Pulsos» sume cada traza por su línea, se agrande, empiece de nuevo
+mapa de calor de «Pulses» sume cada traza por su línea, se agrande, empiece de nuevo
 con otra ventana y reste las que salen, que no sume dos veces el mismo disparo y que
 el continuo no pida con una captura en vuelo; y que desconectar y volver a conectar
 funcione.
@@ -99,7 +98,7 @@ funcione.
 La pestaña 2D tiene su propia prueba porque aparece o desaparece según lo que
 publique `CAPS`, y eso es una decisión que se toma en tiempo de conexión. Lo
 mismo la de Integración con `has_integracion`, las del osciloscopio y el
-Multitrigger con `has_osc` / `has_mtrg`, y el ring dentro de «Configuración OSC» con
+Multitrigger con `has_osc` / `has_mtrg`, y el ring dentro de «OSC settings» con
 `has_ring`.
 
 Las dos últimas agregan cuatro cosas más: que una captura **viaje como binario y
@@ -223,7 +222,7 @@ make rigol-off
 | `API/tests/placa/diag_mca_hw.py` | placa | el camino de lectura palabra a palabra sigue intacto |
 | `API/tests/test_compat_api.py` | PC | que nada público de `API/mca.py` cambió, contra un baseline congelado |
 | `app/tests/placa/e2e_lazo_app.py` (`make verificar-placa-lazo`) | PC contra el servidor de la placa | la app con el generador de pulsos por el **lazo digital**, sin el Rigol: λ̂ contra la tasa del generador, las dos líneas del espectro (dónde caen y cuánto pesa cada una), el teselado y el modo con N pulsos. Deja el generador parado y el lazo apagado |
-| `app/tests/placa/e2e_ring_app.py` (`make verificar-placa-ring-app`) | PC contra el servidor de la placa, con el bitstream del ring | el **ring de «Configuración OSC»** manejado como un usuario, en tres corridas: el generador de eventos con N (EV + DROP_BUSY + DROP_FULL = N), Poisson sin fin con el ring lleno al parar, y el disparo del ADC con `gen_pulsos` por el lazo. En las tres, que al parar se lea todo: leídos = EV_CNT, nada sin leer, sin error y sin destrabar el ring. Borra sus corridas de la placa |
+| `app/tests/placa/e2e_ring_app.py` (`make verificar-placa-ring-app`) | PC contra el servidor de la placa, con el bitstream del ring | el **ring de «OSC settings»** manejado como un usuario, en tres corridas: el generador de eventos con N (EV + DROP_BUSY + DROP_FULL = N), Poisson sin fin con el ring lleno al parar, y el disparo del ADC con `gen_pulsos` por el lazo. En las tres, que al parar se lea todo: leídos = EV_CNT, nada sin leer, sin error y sin destrabar el ring. Borra sus corridas de la placa |
 
 `e2e_lazo_app.py` pasó en la placa el 2026-11-13 (cce7b66b, 20 de 20). Con una
 ranura, a 20 000/s y con el 6.1 % de tiempo muerto: λ̂ = 19 964/s (−0.18 %),

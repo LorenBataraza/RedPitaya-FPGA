@@ -22,9 +22,9 @@ class PanelLog(QWidget):
         self.texto.setMaximumBlockCount(5000)
         self.texto.setFont(QFont('monospace', 9))
 
-        limpiar = QPushButton('Limpiar')
+        limpiar = QPushButton('Clear')
         limpiar.clicked.connect(self.texto.clear)
-        guardar = QPushButton('Guardar log…')
+        guardar = QPushButton('Save log…')
         guardar.clicked.connect(self._guardar)
 
         botones = QHBoxLayout()
@@ -48,9 +48,9 @@ class PanelLog(QWidget):
         self.agregar(mensaje, nivel='ERROR')
 
     def _guardar(self):
-        ruta, _ = QFileDialog.getSaveFileName(self, 'Guardar log',
-                                              'mcamon.log', 'Texto (*.log *.txt)')
+        ruta, _ = QFileDialog.getSaveFileName(self, 'Save log',
+                                              'mcamon.log', 'Text (*.log *.txt)')
         if ruta:
             with open(ruta, 'w') as f:
                 f.write(self.texto.toPlainText())
-            self.info(f'log guardado en {ruta}')
+            self.info(f'log saved to {ruta}')

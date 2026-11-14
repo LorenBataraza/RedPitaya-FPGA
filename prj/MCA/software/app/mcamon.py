@@ -29,7 +29,7 @@ from PyQt5.QtCore import (QMetaObject, QObject, Qt, QThread, QTimer,
 from PyQt5.QtWidgets import (QAction, QApplication, QComboBox, QDoubleSpinBox,
                              QHBoxLayout, QInputDialog, QLabel, QLineEdit,
                              QMainWindow, QMessageBox, QPushButton, QSpinBox,
-                             QTabWidget, QVBoxLayout, QWidget)
+                             QSizePolicy, QTabWidget, QVBoxLayout, QWidget)
 
 import API.mca as A
 from API.mca_net import PORT_DEFAULT
@@ -51,6 +51,36 @@ REFRESCO_ESPECTRO_S = 1.0
 # =============================================================================
 # Hilo del socket
 # =============================================================================
+
+class EtiquetaRecortada(QLabel):
+    """Un QLabel que, si no entra, corta el final con «…» y deja el texto entero
+    en el tooltip. Es el estado de la barra de arriba: no tiene que ensanchar la
+    ventana."""
+
+    def __init__(self, texto=''):
+        super().__init__()
+        self._completo = ''
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.setMinimumWidth(120)
+        self.setText(texto)
+
+    def setText(self, texto):
+        self._completo = texto
+        self.setToolTip(texto)
+        self._recortar()
+
+    def text(self):
+        return self._completo
+
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev)
+        self._recortar()
+
+    def _recortar(self):
+        corto = self.fontMetrics().elidedText(self._completo, Qt.ElideRight,
+                                              max(0, self.width() - 2))
+        QLabel.setText(self, corto)
+
 
 class Trabajador(QObject):
     """Dueño único del `MCARemote`. Vive en su propio QThread."""
@@ -97,13 +127,13 @@ class Trabajador(QObject):
         try:
             self.h = MCARemote.connect(host, port, timeout=15.0)
         except Exception as e:                                   # noqa: BLE001
-            self.fallo.emit(f'no se pudo conectar a {host}:{port} — '
+            self.fallo.emit(f'could not connect to {host}:{port} — '
                             f'{type(e).__name__}: {e}')
             return
         info = self.h.info
         self.conectado.emit(info)
         if not info.get('presente'):
-            self.aviso.emit('conectado, pero no hay MCA: ' +
+            self.aviso.emit('connected, but there is no MCA: ' +
                             str(info.get('error')))
             return
         self._leer_config()
@@ -125,7 +155,7 @@ class Trabajador(QObject):
             except OSError:
                 pass
             self.h = None
-            self.desconectado.emit('desconectado')
+            self.desconectado.emit('disconnected')
 
     def _caido(self, e):
         """Un error de transporte no se reintenta: se cae la conexión."""
@@ -159,7 +189,7 @@ class Trabajador(QObject):
         except OSError as e:
             self._caido(e)
         except Exception as e:                                   # noqa: BLE001
-            self.fallo.emit(f'lectura: {type(e).__name__}: {e}')
+            self.fallo.emit(f'read: {type(e).__name__}: {e}')
 
     def _leer_config(self):
         try:
@@ -176,9 +206,9 @@ class Trabajador(QObject):
         try:
             self.h._pedir('ctrl.start', seconds=(segundos or None),
                           clear_first=borrar_antes)
-            self.aviso.emit(f'medición iniciada'
-                            + (f', {segundos:.3f} s de tiempo vivo'
-                               if segundos else ', sin límite'))
+            self.aviso.emit(f'acquisition started'
+                            + (f', {segundos:.3f} s of live time'
+                               if segundos else ', no limit'))
             self._tic_estado()
         except Exception as e:                                   # noqa: BLE001
             self.fallo.emit(f'start: {type(e).__name__}: {e}')
@@ -189,7 +219,7 @@ class Trabajador(QObject):
             return
         try:
             self.h.stop()
-            self.aviso.emit('medición detenida')
+            self.aviso.emit('acquisition stopped')
             self._tic_estado()
             self._tic_espectro()
         except Exception as e:                                   # noqa: BLE001
@@ -201,7 +231,7 @@ class Trabajador(QObject):
             return
         try:
             self.h.clear()
-            self.aviso.emit('cuentas, histogramas y relojes reiniciados')
+            self.aviso.emit('counts, histograms and clocks cleared')
             self._tic_estado()
             self._tic_espectro()
         except Exception as e:                                   # noqa: BLE001
@@ -234,8 +264,8 @@ class Trabajador(QObject):
         cfg = A.mca_get_config(self.h)
         trap = {A.FEATURES['trapecio'], A.FEATURES['forma']}
         if cfg['n_formas'] > 1 or {cfg['sel_1d'], cfg['sel_2dx'], cfg['sel_2dy']} & trap:
-            self.aviso.emit('pre_dly movió las ventanas del trapecio: hay que volver '
-                            'a calcular trap_off (off = c + pre_dly + 2)')
+            self.aviso.emit('pre_dly moved the trapezoid windows: trap_off has to be '
+                            'recomputed (off = c + pre_dly + 2)')
 
     # ---------- integración (slot 6) ----------
     #
@@ -260,17 +290,17 @@ class Trabajador(QObject):
     def set_ruteo(self, consumidor, tap, enable):
         self._pedir_integracion('integracion.set_route', consumidor=consumidor,
                                 tap=int(tap), enable=bool(enable))
-        self.aviso.emit(f'ruteo {consumidor} -> tap {tap}')
+        self.aviso.emit(f'route {consumidor} -> tap {tap}')
 
     @pyqtSlot()
     def reset_ruteos(self):
         self._pedir_integracion('integracion.reset_routes')
-        self.aviso.emit('ruteos de vuelta a nativo')
+        self.aviso.emit('routes back to native')
 
     @pyqtSlot(str)
     def ctrl_integracion(self, que):
         self._pedir_integracion('integracion.ctrl', que=que)
-        self.aviso.emit(f'control global: {que}')
+        self.aviso.emit(f'global control: {que}')
 
     # ---------- osciloscopio y multitrigger ----------
     #
@@ -325,7 +355,7 @@ class Trabajador(QObject):
     def set_mascara(self, canal, mascara):
         self._pedir_osc('mtrg.set', self.mtrg_info,
                         fields={f'or_mask_ch{int(canal)}': int(mascara)})
-        self.aviso.emit(f'máscara ch{canal} = {mascara:#010x}')
+        self.aviso.emit(f'mask ch{canal} = {mascara:#010x}')
 
     @pyqtSlot(dict)
     def disparo(self, args):
@@ -335,15 +365,15 @@ class Trabajador(QObject):
         try:
             self.disparo_info.emit(self.h.pedir('mca.disparo', **args))
             if args.get('armar') is not None:
-                self.aviso.emit('disparo del MCA armado' if args['armar']
-                                else 'disparo del MCA desarmado')
+                self.aviso.emit('MCA trigger armed' if args['armar']
+                                else 'MCA trigger disarmed')
         except Exception as e:                                   # noqa: BLE001
             self.fallo.emit(f'mca.disparo: {type(e).__name__}: {e}')
 
     @pyqtSlot(bool)
     def armar_mtrg(self, armar):
         self._pedir_osc('mtrg.arm' if armar else 'mtrg.disarm', self.mtrg_info)
-        self.aviso.emit('disparo armado' if armar else 'disparo desarmado')
+        self.aviso.emit('trigger armed' if armar else 'trigger disarmed')
 
     # ---------- el generador de pulsos ----------
 
@@ -354,19 +384,19 @@ class Trabajador(QObject):
     @pyqtSlot(dict)
     def configurar_gen(self, cfg):
         self._pedir_osc('gen.configurar', self.gen_info, cfg=cfg)
-        self.aviso.emit(f"generador configurado: {cfg.get('tasa', 0):.6g} /s, "
-                        f"{len(cfg.get('lineas') or ())} amplitud(es)")
+        self.aviso.emit(f"generator configured: {cfg.get('tasa', 0):.6g} /s, "
+                        f"{len(cfg.get('lineas') or ())} amplitude(s)")
 
     @pyqtSlot(str)
     def ctrl_gen(self, que):
         self._pedir_osc('gen.ctrl', self.gen_info, que=que)
-        self.aviso.emit(f'generador: {que}')
+        self.aviso.emit(f'generator: {que}')
 
     @pyqtSlot(bool)
     def lazo_gen(self, on):
         self._pedir_osc('gen.lazo', self.gen_info, on=bool(on))
-        self.aviso.emit('lazo digital PRENDIDO: la entrada es el generador' if on
-                        else 'lazo digital apagado: la entrada es el ADC')
+        self.aviso.emit('digital loopback ON: the input is the generator' if on
+                        else 'digital loopback off: the input is the ADC')
 
     # ---------- el event_ring ----------
     #
@@ -396,7 +426,7 @@ class Trabajador(QObject):
     def iniciar_ring(self, kw):
         info = self._pedir_ring('ring.iniciar', **kw)
         if info is not None:
-            self.aviso.emit(f"ring: corrida en {info.get('run_dir')} "
+            self.aviso.emit(f"ring: run in {info.get('run_dir')} "
                             f"({info.get('fs')}), {info.get('n_slots')} slots")
             self.leer_ring()
 
@@ -405,8 +435,8 @@ class Trabajador(QObject):
         fin = self._pedir_ring('ring.parar')
         if fin is not None:
             st = fin.get('stats') or {}
-            self.aviso.emit(f"ring: parado, {st.get('n_read', 0)} leídos, "
-                            f"{st.get('n_written', 0)} escritos en {fin.get('run_dir')}")
+            self.aviso.emit(f"ring: stopped, {st.get('n_read', 0)} read, "
+                            f"{st.get('n_written', 0)} written to {fin.get('run_dir')}")
             self.ring_info.emit(fin)
 
     @pyqtSlot(float)
@@ -424,11 +454,11 @@ class Trabajador(QObject):
         if self.h is None:
             return
         try:
-            self.aviso.emit(f'cargando {ruta} — la PL queda inaccesible unos segundos')
+            self.aviso.emit(f'loading {ruta} — the PL is unreachable for a few seconds')
             info = self.h.load_bitstream(ruta or None)
             self.conectado.emit(info)
             self._leer_config()
-            self.aviso.emit('bitstream cargado')
+            self.aviso.emit('bitstream loaded')
         except Exception as e:                                   # noqa: BLE001
             self.fallo.emit(f'load_bitstream: {type(e).__name__}: {e}')
 
@@ -487,23 +517,26 @@ class Mcamon(QMainWindow):
 
         self.tabs = QTabWidget()
         self.tabs.setTabPosition(QTabWidget.South)
+        # El aviso del lazo, en la esquina de las pestañas: se ve desde cualquiera y
+        # no ensancha la barra de arriba, que ya está justa a 1240 px.
+        self.tabs.setCornerWidget(self.lbl_lazo, Qt.BottomRightCorner)
         self.panel_log = PanelLog()
         self.panel_espectro = PanelEspectro()
         self.panel_config = PanelConfigMCA()
         self.panel_mapa = None
         # La de Integración se crea al conectarse, si el bitstream trae el
-        # slot 6: mismo criterio que la del mapa 2D. Las del osciloscopio («Pulsos»
-        # y «Configuración OSC») y la del Multitrigger, igual, según `has_osc` /
-        # `has_mtrg`; el ring va dentro de «Configuración OSC», según `has_ring`.
+        # slot 6: mismo criterio que la del mapa 2D. Las del osciloscopio («Pulses»
+        # y «OSC settings») y la del Multitrigger, igual, según `has_osc` /
+        # `has_mtrg`; el ring va dentro de «OSC settings», según `has_ring`.
         self.panel_integracion = None
         self.panel_pulsos = None
         self.panel_config_osc = None
         self.panel_ring = None          # el embebido en panel_config_osc, o None
         self.panel_mtrg = None
         self.panel_gen = None           # según `has_pulsos`
-        self.tabs.addTab(self.panel_log, 'Mensajes')
-        self.tabs.addTab(self.panel_espectro, 'Espectro')
-        self.tabs.addTab(self.panel_config, 'Configuración MCA')
+        self.tabs.addTab(self.panel_log, 'Messages')
+        self.tabs.addTab(self.panel_espectro, 'Spectrum')
+        self.tabs.addTab(self.panel_config, 'MCA settings')
         self.tabs.setCurrentWidget(self.panel_espectro)
         self.tabs.currentChanged.connect(self._cambio_pestana)
         v.addWidget(self.tabs, 1)
@@ -520,23 +553,23 @@ class Mcamon(QMainWindow):
         self.panel_config.pedir_clear.connect(self.sig_borrar)
         self.panel_config.log.connect(self.panel_log.info)
 
-        # El modo continuo del osciloscopio. Sólo dispara con la pestaña «Pulsos»
+        # El modo continuo del osciloscopio. Sólo dispara con la pestaña «Pulses»
         # VISIBLE y la casilla marcada: una captura son hasta 16384 muestras por
         # canal y no se pagan de fondo, igual que el mapa 2D.
         self._t_traza = QTimer(self, interval=500)
         self._t_traza.timeout.connect(self._tic_traza)
-        # El estado del OSC y del ring, con «Configuración OSC» visible: son unas
+        # El estado del OSC y del ring, con «OSC settings» visible: son unas
         # lecturas de registros y los contadores de la sesión, no los datos.
         self._t_config_osc = QTimer(self, interval=500)
         self._t_config_osc.timeout.connect(self._tic_config_osc)
 
-        acc = QAction('Cargar bitstream del MCA…', self)
+        acc = QAction('Load MCA bitstream…', self)
         acc.triggered.connect(self._cargar_bitstream)
-        self.menuBar().addMenu('&Placa').addAction(acc)
+        self.menuBar().addMenu('&Board').addAction(acc)
         self.accion_bitstream = acc
 
     def _barra_superior(self, host, port):
-        self.btn_conectar = QPushButton('Conectar')
+        self.btn_conectar = QPushButton('Connect')
         self.btn_conectar.clicked.connect(self._alternar_conexion)
         self.ed_host = QLineEdit(host)
         self.ed_host.setFixedWidth(140)
@@ -550,7 +583,7 @@ class Mcamon(QMainWindow):
             lambda i: self._campo_si_conectado('channel', i))
 
         self.cmb_estimador = QComboBox()
-        self.cmb_estimador.addItems(['pico', 'integral'])
+        self.cmb_estimador.addItems(['peak', 'integral'])
         self.cmb_estimador.currentIndexChanged.connect(
             lambda i: self._campo_si_conectado('amp_src', i))
 
@@ -567,11 +600,14 @@ class Mcamon(QMainWindow):
         self.spn_refresco.setSuffix(' s')
         self.spn_refresco.valueChanged.connect(self.sig_refresco)
 
-        self.lbl_estado = QLabel('sin conectar')
+        # Se corta en vez de ensanchar la ventana: entero, el texto la llevaba a
+        # más de 1240 px. Entero, en el tooltip.
+        self.lbl_estado = EtiquetaRecortada('not connected')
         # Con el lazo digital el MCA mide el generador y no la entrada. Tiene que
         # verse desde cualquier pestaña: un espectro tomado así sin darse cuenta
         # parece una medición.
-        self.lbl_lazo = QLabel('LAZO DIGITAL: la entrada es el generador')
+        self.lbl_lazo = QLabel('DIGITAL LOOPBACK')
+        self.lbl_lazo.setToolTip('The MCA input is the pulse generator, not the ADC.')
         self.lbl_lazo.setStyleSheet('color: white; background: #c0392b; '
                                     'font-weight: bold; padding: 2px 6px;')
         self.lbl_lazo.setVisible(False)
@@ -580,17 +616,16 @@ class Mcamon(QMainWindow):
         for w in (self.btn_conectar, self.ed_host, QLabel(':'), self.spn_port):
             h.addWidget(w)
         h.addSpacing(16)
-        h.addWidget(QLabel('canal'))
+        h.addWidget(QLabel('channel'))
         h.addWidget(self.cmb_canal)
-        h.addWidget(QLabel('estimador'))
+        h.addWidget(QLabel('estimator'))
         h.addWidget(self.cmb_estimador)
-        h.addWidget(QLabel('decimación'))
+        h.addWidget(QLabel('decimation'))
         h.addWidget(self.spn_dec)
-        h.addWidget(QLabel('refresco'))
+        h.addWidget(QLabel('refresh'))
         h.addWidget(self.spn_refresco)
-        h.addStretch(1)
-        h.addWidget(self.lbl_lazo)
-        h.addWidget(self.lbl_estado)
+        h.addSpacing(12)
+        h.addWidget(self.lbl_estado, 1)
         return h
 
     def _arrancar_hilo(self):
@@ -654,8 +689,8 @@ class Mcamon(QMainWindow):
     # ---------- reacciones ----------
 
     def _alternar_conexion(self):
-        if self.btn_conectar.text() == 'Conectar':
-            self.panel_log.info(f'conectando a {self.ed_host.text()}…')
+        if self.btn_conectar.text() == 'Connect':
+            self.panel_log.info(f'connecting to {self.ed_host.text()}…')
             self.sig_conectar.emit(self.ed_host.text().strip(),
                                    self.spn_port.value())
         else:
@@ -663,37 +698,37 @@ class Mcamon(QMainWindow):
 
     def _al_conectar(self, info):
         self.info = info
-        self.btn_conectar.setText('Desconectar')
+        self.btn_conectar.setText('Disconnect')
         if not info.get('presente'):
-            self.lbl_estado.setText('conectado — SIN MCA')
+            self.lbl_estado.setText('connected — NO MCA')
             self.panel_espectro.set_conectado(False)
-            self.panel_log.error('no hay MCA en el bitstream cargado: ' +
+            self.panel_log.error('the loaded bitstream has no MCA: ' +
                                  str(info.get('error')))
             QMessageBox.warning(
-                self, 'Sin MCA',
-                'El servidor respondió pero no encuentra el MCA:\n\n'
+                self, 'No MCA',
+                'The server answered but cannot find the MCA:\n\n'
                 f"{info.get('error')}\n\n"
-                'En el bitstream del scope el slot 7 es un stub. Usá '
-                'Placa → Cargar bitstream del MCA.')
+                'In the scope bitstream slot 7 is a stub. Use '
+                'Board → Load MCA bitstream.')
             return
 
         n = info['n_channels']
         self.lbl_estado.setText(
-            f"MCA2 · {n} canales · {info.get('n_acc_max', '?')} ranuras · "
-            + (f"banco de {info['n_formas_max']} formas · "
+            f"MCA2 · {n} channels · {info.get('n_acc_max', '?')} slots · "
+            + (f"bank of {info['n_formas_max']} shapes · "
                if info.get('n_formas_max') else '')
-            + ('disparo con polo-cero · ' if info.get('has_pz') else '')
-            + ('simulado' if info.get('fake') else 'placa'))
+            + ('pole-zero trigger · ' if info.get('has_pz') else '')
+            + ('simulated' if info.get('fake') else 'board'))
         self.panel_espectro.configurar_geometria(n)
         self.panel_espectro.set_conectado(True, running=info.get('running', False))
         self.panel_config.configurar_geometria(n, info.get('h_aw'))
         self.panel_config.configurar_mca(info)
         self.panel_config.set_conectado(True)
         if not info.get('has_disparo'):
-            self.panel_log.error('no está la región del multitrigger: sin el '
-                                 'disparo el MCA no abre ventanas')
+            self.panel_log.error('the multitrigger region is missing: without its '
+                                 'trigger the MCA opens no windows')
         self.panel_log.info(
-            f"conectado: {n} canales, mapa 2D {'sí' if info.get('has_2d') else 'no'}, "
+            f"connected: {n} channels, 2D map {'yes' if info.get('has_2d') else 'no'}, "
             f"PL {info.get('fpga_state')}")
         self._sincronizar_pestana_mapa(bool(info.get('has_2d')),
                                        tuple(info.get('map2d_shape') or (0, 0)))
@@ -704,13 +739,13 @@ class Mcamon(QMainWindow):
                                        bool(info.get('has_gen')))
         self._sincronizar_pestana_generador(bool(info.get('has_pulsos')))
         if info.get('ring_corriendo'):
-            self.panel_log.info('hay una adquisición del ring corriendo en la placa')
+            self.panel_log.info('a ring acquisition is running on the board')
         for nota in info.get('bases_notas') or ():
             self.panel_log.info(f'bases: {nota}')
 
     def _al_desconectar(self, _motivo):
-        self.btn_conectar.setText('Conectar')
-        self.lbl_estado.setText('sin conectar')
+        self.btn_conectar.setText('Connect')
+        self.lbl_estado.setText('not connected')
         self.panel_espectro.set_conectado(False)
         self.panel_config.set_conectado(False)
         for panel in (self.panel_integracion, self.panel_pulsos,
@@ -719,13 +754,13 @@ class Mcamon(QMainWindow):
                 panel.set_conectado(False)
         self.lbl_lazo.setVisible(False)
         self._t_config_osc.stop()
-        self.panel_log.info('desconectado')
+        self.panel_log.info('disconnected')
 
     def _al_estado(self, est):
         self.panel_espectro.actualizar_estado(est)
         # La franja del datapath: tasas, pérdidas y si se borró el histograma.
         self.panel_config.actualizar_estado(est)
-        # La curva de tasa de «Pulsos» se alimenta del `status` del MCA, que ya
+        # La curva de tasa de «Pulses» se alimenta del `status` del MCA, que ya
         # llega cada 200 ms: no cuesta ninguna lectura extra.
         if self.panel_pulsos is not None:
             self.panel_pulsos.actualizar_estado(est)
@@ -770,7 +805,7 @@ class Mcamon(QMainWindow):
         if hay_2d and self.panel_mapa is None:
             self.panel_mapa = PanelMapa2D(forma)
             self.panel_mapa.log.connect(self.panel_log.info)
-            self.tabs.addTab(self.panel_mapa, 'Mapa 2D (PSD)')
+            self.tabs.addTab(self.panel_mapa, '2D map (PSD)')
         elif hay_2d:
             self.panel_mapa.configurar_geometria(forma)
         elif self.panel_mapa is not None:
@@ -793,7 +828,7 @@ class Mcamon(QMainWindow):
             self.panel_integracion.pedir_ruteo.connect(self.sig_ruteo)
             self.panel_integracion.pedir_reset_ruteos.connect(self.sig_reset_ruteos)
             self.panel_integracion.pedir_ctrl.connect(self.sig_ctrl_integracion)
-            self.tabs.addTab(self.panel_integracion, 'Integración')
+            self.tabs.addTab(self.panel_integracion, 'Integration')
             self.panel_integracion.set_conectado(True)
             self.sig_pedir_integracion.emit()
         elif hay_integracion:
@@ -815,8 +850,8 @@ class Mcamon(QMainWindow):
                                   hay_gen=False):
         """Existen si el bitstream trae el bloque, igual que las otras.
 
-        Del osciloscopio son dos: «Pulsos», la vista de las capturas, y
-        «Configuración OSC», sus registros por etapa y, con el bitstream del ring, el
+        Del osciloscopio son dos: «Pulses», la vista de las capturas, y
+        «OSC settings», sus registros por etapa y, con el bitstream del ring, el
         ring como la fila del camino a DDR. El Multitrigger es otra pestaña para el
         mismo slot físico a propósito: el osciloscopio clásico y el multitrigger son
         dos APIs sobre la misma región, y juntarlas escondería eso.
@@ -825,7 +860,7 @@ class Mcamon(QMainWindow):
             self.panel_pulsos = PanelPulsos()
             self.panel_pulsos.log.connect(self.panel_log.info)
             self.panel_pulsos.pedir_captura.connect(self.sig_capturar)
-            self.tabs.addTab(self.panel_pulsos, 'Pulsos')
+            self.tabs.addTab(self.panel_pulsos, 'Pulses')
         elif not hay_osc and self.panel_pulsos is not None:
             self.tabs.removeTab(self.tabs.indexOf(self.panel_pulsos))
             self.panel_pulsos.deleteLater()
@@ -839,7 +874,7 @@ class Mcamon(QMainWindow):
             self.panel_config_osc.log.connect(self.panel_log.info)
             self.panel_config_osc.pedir_campo.connect(self.sig_campo_osc)
             self.panel_config_osc.pedir_ctrl.connect(self.sig_ctrl_osc)
-            self.tabs.addTab(self.panel_config_osc, 'Configuración OSC')
+            self.tabs.addTab(self.panel_config_osc, 'OSC settings')
         elif not hay_cfg and self.panel_config_osc is not None:
             self.tabs.removeTab(self.tabs.indexOf(self.panel_config_osc))
             self.panel_config_osc.deleteLater()
@@ -889,7 +924,7 @@ class Mcamon(QMainWindow):
             self.panel_gen.pedir_lazo.connect(self.sig_gen_lazo)
             self.panel_gen.pedir_refresco.connect(self.sig_pedir_gen)
             self.panel_gen.pedir_campo_mca.connect(self.sig_campo)
-            self.tabs.addTab(self.panel_gen, 'Generador')
+            self.tabs.addTab(self.panel_gen, 'Generator')
         elif not hay and self.panel_gen is not None:
             self.tabs.removeTab(self.tabs.indexOf(self.panel_gen))
             self.panel_gen.deleteLater()
@@ -898,7 +933,7 @@ class Mcamon(QMainWindow):
             self.panel_gen.set_conectado(True)
             self.sig_pedir_gen.emit()
 
-    # ---------- el event_ring, dentro de «Configuración OSC» ----------
+    # ---------- el event_ring, dentro de «OSC settings» ----------
 
     def _al_ring(self, e):
         if self.panel_config_osc is not None:
@@ -944,7 +979,7 @@ class Mcamon(QMainWindow):
             self.sig_pedir_osc.emit()
 
     def _tic_config_osc(self):
-        """Con «Configuración OSC» visible: el estado del OSC y el del ring."""
+        """Con «OSC settings» visible: el estado del OSC y el del ring."""
         if self.info.get('has_osc'):
             self.sig_pedir_osc.emit()
         if self.panel_ring is not None:
@@ -973,21 +1008,21 @@ class Mcamon(QMainWindow):
     def _cargar_bitstream(self):
         if not self.info:
             QMessageBox.information(self, 'Bitstream',
-                                    'primero hay que conectarse al servidor')
+                                    'connect to the server first')
             return
         ruta, ok = QInputDialog.getText(
-            self, 'Cargar bitstream',
-            'Ruta del .bit.bin EN LA PITAYA:',
+            self, 'Load bitstream',
+            'Path of the .bit.bin ON THE PITAYA:',
             text=self.info.get('bitstream', '/root/mca_red_pitaya.bit.bin'))
         if not ok or not ruta.strip():
             return
         r = QMessageBox.question(
-            self, 'Cargar bitstream',
-            f'Se va a reprogramar la PL con:\n\n{ruta}\n\n'
-            'El servidor cierra sus mapeos antes de hacerlo. Cualquier otro '
-            'proceso con /dev/mem abierto (un kernel de Jupyter, por ejemplo) '
-            'puede dejar el puerto GP0 trabado hasta reiniciar la placa.\n\n'
-            '¿Seguir?')
+            self, 'Load bitstream',
+            f'The PL is going to be reprogrammed with:\n\n{ruta}\n\n'
+            'The server closes its mappings first. Any other process with '
+            '/dev/mem open (a Jupyter kernel, for instance) can leave the GP0 '
+            'port stuck until the board is rebooted.\n\n'
+            'Continue?')
         if r == QMessageBox.Yes:
             self.sig_bitstream.emit(ruta.strip())
 
@@ -1009,7 +1044,7 @@ def main():
     p.add_argument('--host', default='10.73.28.27')
     p.add_argument('--port', type=int, default=PORT_DEFAULT)
     p.add_argument('--conectar', action='store_true',
-                   help='conectar al arrancar, sin apretar el botón')
+                   help='connect at startup, without pressing the button')
     a = p.parse_args()
 
     app = QApplication(sys.argv)

@@ -398,7 +398,7 @@ make app-demo      # servidor con un MCA simulado + GUI, todo en la PC
 
 En la barra de arriba van la IP, el puerto, el canal (IN1/IN2), el estimador
 (pico o integral de carga), la decimación y el período de refresco.
-`Placa → Cargar bitstream del MCA…` reprograma la PL sin salir.
+`Board → Load MCA bitstream…` reprograma la PL sin salir.
 
 > **La pestaña del mapa 2D aparece sólo si el bitstream la trae.** El cliente
 > lee las capacidades del hardware al conectarse (bit `CAP_HIST_H_PSD`) y arma

@@ -21,7 +21,7 @@ slot libre: el lector no daba abasto). Con ellas, EV_CNT + DROP_BUSY + DROP_FULL
 disparos. Docs: `docs/event_ring/` y `docs/API/adquisicion_de_eventos.md`.
 
 Aparece sólo con el bitstream del ring: el del MCA no lo trae. En la app va
-**embebido** en la pestaña «Configuración OSC» (`panel_config_osc.py`), como la fila
+**embebido** en la pestaña «OSC settings» (`panel_config_osc.py`), como la fila
 del camino a DDR de su franja: la pestaña acomoda los grupos (`grp_estimulo`,
 `grp_ventana`, `grp_destino`, `caja_control`) y le da el umbral y la histéresis de
 su etapa Disparo (`usar_disparo_de`), que son los registros que el ring escribe al
@@ -34,8 +34,8 @@ import time
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox,
                              QHBoxLayout, QLabel, QLineEdit, QProgressBar,
-                             QPushButton, QScrollArea, QSpinBox, QVBoxLayout,
-                             QWidget)
+                             QPushButton, QScrollArea, QSizePolicy, QSpinBox,
+                             QVBoxLayout, QWidget)
 
 FS_HZ = 125e6
 INT32_MAX = (1 << 31) - 1
@@ -44,9 +44,9 @@ VENTANA_MAX = 0x7FF                      # PRE y POST son de 11 bits
 # red, y 16 MB en /dev/shm, que en la placa tiene 231 MB en total.
 MARGEN_SHM_MB = 16.0
 
-MOTIVOS = {'disk': 'se llenó el disco (quedó el margen)',
-           'source': 'el lector terminó solo',
-           'error': 'se cayó un hilo de la sesión'}
+MOTIVOS = {'disk': 'the disk filled up (down to the margin)',
+           'source': 'the reader ended by itself',
+           'error': 'a session thread died'}
 
 
 def margen_para(carpeta, margen_mb):
@@ -105,11 +105,11 @@ class PanelRing(QWidget):
         v = QVBoxLayout(self.caja_control)
         v.setContentsMargins(0, 0, 0, 0)
         fila = QHBoxLayout()
-        self.btn_iniciar = QPushButton('Iniciar')
-        self.btn_iniciar.setToolTip('Arma el ring y la sesión, y empieza a escribir en '
-                                    'una carpeta nueva.')
-        self.btn_parar = QPushButton('Parar')
-        self.btn_parar.setToolTip('Para la sesión y el ring; escribe lo que quedaba.')
+        self.btn_iniciar = QPushButton('Start')
+        self.btn_iniciar.setToolTip('Arms the ring and the session, and starts writing to '
+                                    'a new folder.')
+        self.btn_parar = QPushButton('Stop')
+        self.btn_parar.setToolTip('Stops the session and the ring; writes what was left.')
         self.btn_iniciar.clicked.connect(self._iniciar)
         self.btn_parar.clicked.connect(self.pedir_parar)
         fila.addWidget(self.btn_iniciar)
@@ -164,102 +164,106 @@ class PanelRing(QWidget):
         return f
 
     def _grupo_ventana(self):
-        g = QGroupBox('Ventana')
+        g = QGroupBox('Window')
         f = self._forma(g)
         self.spn_pre = QSpinBox(minimum=0, maximum=VENTANA_MAX, value=8)
         self.spn_post = QSpinBox(minimum=1, maximum=VENTANA_MAX, value=24)
-        self.spn_pre.setToolTip('Muestras antes del disparo (8 ns cada una).')
-        self.spn_post.setToolTip('Muestras desde el disparo.')
-        f.addRow('antes, muestras', self.spn_pre)
-        f.addRow('después, muestras', self.spn_post)
+        self.spn_pre.setToolTip('Samples before the trigger (8 ns each).')
+        self.spn_post.setToolTip('Samples from the trigger on.')
+        f.addRow('before, samples', self.spn_pre)
+        f.addRow('after, samples', self.spn_post)
         self.cmb_canales = QComboBox()
-        self.cmb_canales.addItem('IN1 e IN2', 2)
+        self.cmb_canales.addItem('IN1 and IN2', 2)
         self.cmb_canales.addItem('IN1', 1)
-        self.cmb_canales.setToolTip('Los que se guardan. El ring escribe siempre los '
-                                    'dos, así que el slot y la tasa no cambian.')
-        f.addRow('canales', self.cmb_canales)
+        self.cmb_canales.setToolTip('The ones that are saved. The ring always writes '
+                                    'both, so the slot and the rate do not change.')
+        f.addRow('channels', self.cmb_canales)
         return g
 
     def _grupo_estimulo(self):
-        g = QGroupBox('Estímulo')
+        g = QGroupBox('Stimulus')
         f = self._forma(g)
         self.cmb_estimulo = QComboBox()
-        self.cmb_estimulo.addItem('disparo del ADC', 'disparo')
-        self.cmb_estimulo.addItem('generador de eventos', 'generador')
+        self.cmb_estimulo.addItem('ADC trigger', 'disparo')
+        self.cmb_estimulo.addItem('event generator', 'generador')
         self.cmb_estimulo.setToolTip(
-            'Disparo del ADC: la ventana es la señal de la entrada. Generador de '
-            'eventos: dispara solo y cada slot trae un patrón conocido, para medir el '
-            'camino a disco sin señal.')
+            'ADC trigger: the window is the input signal. Event generator: it '
+            'triggers by itself and each slot carries a known pattern, to measure the '
+            'path to disk without a signal.')
         self.cmb_estimulo.currentIndexChanged.connect(self._cambio_estimulo)
-        f.addRow('fuente', self.cmb_estimulo)
+        f.addRow('source', self.cmb_estimulo)
 
         self.spn_thr = QDoubleSpinBox(decimals=3, minimum=-1.0, maximum=1.0,
                                       value=0.1, singleStep=0.01)
         self.spn_hyst = QDoubleSpinBox(decimals=3, minimum=0.0, maximum=1.0,
                                        value=0.02, singleStep=0.005)
-        self.spn_thr.setToolTip('Flanco positivo del ADC, en volts.')
-        self.spn_hyst.setToolTip('Re-arma cuando la señal baja de umbral − histéresis.')
-        f.addRow('umbral, V', self.spn_thr)
-        f.addRow('histéresis, V', self.spn_hyst)
+        self.spn_thr.setToolTip('Rising edge of the ADC, in volts.')
+        self.spn_hyst.setToolTip('Re-arms when the signal drops below threshold − hysteresis.')
+        f.addRow('threshold, V', self.spn_thr)
+        f.addRow('hysteresis, V', self.spn_hyst)
         # Embebido, el umbral es el de la etapa Disparo: una sola vez en la pestaña.
         self.lbl_disparo = QLabel('—')
+        self.lbl_disparo.setWordWrap(True)
         self.lbl_disparo.setToolTip(
-            'Al iniciar, el ring arma el disparo del ADC con el umbral y la histéresis '
-            'de la etapa Disparo (IN1): son los mismos registros.')
-        f.addRow('umbral', self.lbl_disparo)
+            'On start, the ring arms the ADC trigger with the threshold and hysteresis '
+            'of the Trigger stage (IN1): they are the same registers.')
+        f.addRow('threshold', self.lbl_disparo)
 
         self.cmb_modo = QComboBox()
-        self.cmb_modo.addItem('periódico', False)
+        self.cmb_modo.addItem('periodic', False)
         self.cmb_modo.addItem('Poisson', True)
         self.cmb_modo.currentIndexChanged.connect(self._cambio_estimulo)
         self.spn_tasa = QDoubleSpinBox(decimals=0, minimum=1.0, maximum=FS_HZ / 2,
                                        value=100e3, singleStep=10e3)
-        self.spn_tasa.setToolTip('Disparos por segundo del generador.')
-        self.spn_dt_min = QSpinBox(minimum=2, maximum=0xFFFF, value=2)
-        self.spn_dt_min.setToolTip('Ciclos mínimos entre disparos (Poisson).')
+        self.spn_tasa.setToolTip('Generator triggers per second.')
+        self.spn_dt_min = QSpinBox(minimum=2, maximum=0xFFFF, value=2, suffix=' cyc')
+        self.spn_dt_min.setToolTip('Minimum cycles between triggers (Poisson).')
         self.spn_n = QSpinBox(minimum=0, maximum=INT32_MAX, value=0)
-        self.spn_n.setSpecialValueText('sin fin')
-        self.spn_n.setToolTip('Cuántos disparos; al llegar, el generador para (la '
-                              'sesión sigue hasta «Parar»).')
-        f.addRow('modo', self.cmb_modo)
-        f.addRow('tasa, 1/s', self.spn_tasa)
-        f.addRow('separación mín., ciclos', self.spn_dt_min)
-        f.addRow('disparos', self.spn_n)
+        self.spn_n.setSpecialValueText('endless')
+        self.spn_n.setToolTip('How many triggers; once reached, the generator stops '
+                              '(the session goes on until «Stop»).')
+        f.addRow('mode', self.cmb_modo)
+        f.addRow('rate, 1/s', self.spn_tasa)
+        f.addRow('min. gap', self.spn_dt_min)
+        f.addRow('triggers', self.spn_n)
         self._form_estimulo = f
         self._cambio_estimulo()
         return g
 
     def _grupo_destino(self):
-        g = QGroupBox('Destino (en la placa)')
+        g = QGroupBox('Destination (on the board)')
         f = self._forma(g)
         self.ed_carpeta = QLineEdit('/dev/shm')
-        self.ed_carpeta.setMinimumWidth(220)
+        self.ed_carpeta.setMinimumWidth(160)
         self.ed_carpeta.setToolTip(
-            'Una carpeta que exista en la placa: la corrida va en una subcarpeta nueva, '
-            'ring_<fecha>_<hora>. /dev/shm es RAM (231 MB, se pierde al apagar); la SD '
-            'o un montaje de red guardan.')
-        f.addRow('carpeta', self.ed_carpeta)
+            'A folder that exists on the board: the run goes in a new subfolder, '
+            'ring_<date>_<time>. /dev/shm is RAM (231 MB, lost at power-off); the SD '
+            'card or a network mount keep it.')
+        f.addRow('folder', self.ed_carpeta)
         self.cmb_formato = QComboBox()
         self.cmb_formato.addItem('NumPy (.npz)', 'npz')
         self.cmb_formato.addItem('LH5 (HDF5)', 'lh5')
-        f.addRow('formato', self.cmb_formato)
+        f.addRow('format', self.cmb_formato)
         self.spn_ram = QDoubleSpinBox(decimals=0, minimum=8, maximum=256, value=64)
-        self.spn_ram.setToolTip('Memoria de la sesión para los eventos en vuelo.')
+        self.spn_ram.setToolTip('Session memory for the events in flight.')
         f.addRow('RAM, MB', self.spn_ram)
         self.spn_margen = QDoubleSpinBox(decimals=0, minimum=0, maximum=10000, value=0)
-        self.spn_margen.setSpecialValueText('automático')
+        self.spn_margen.setSpecialValueText('automatic')
         self.spn_margen.setToolTip(
-            'Lo que la sesión deja libre en el disco: se para sola por debajo. '
-            f'Automático: {MARGEN_SHM_MB:.0f} MB en /dev/shm, 200 MB en otro lado.')
-        f.addRow('margen, MB', self.spn_margen)
+            'What the session leaves free on the disk: it stops by itself below it. '
+            f'Automatic: {MARGEN_SHM_MB:.0f} MB in /dev/shm, 200 MB elsewhere.')
+        f.addRow('margin, MB', self.spn_margen)
         return g
 
     def _grupo_estado(self):
-        g = QGroupBox('Estado')
+        g = QGroupBox('Status')
         f = self._forma(g)
         self.lbl_estado = QLabel('—')
         self.lbl_run_dir = QLabel('—')
         self.lbl_run_dir.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        # Un camino largo no ensancha la columna: se corta, y entero va en el tooltip.
+        self.lbl_run_dir.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.lbl_run_dir.setMinimumWidth(170)
         self.lbl_disparos = QLabel('—')
         self.lbl_generados = QLabel('—')
         self.lbl_ev = QLabel('—')
@@ -271,19 +275,19 @@ class PanelRing(QWidget):
         self.bar_ring = QProgressBar()
         self.bar_ring.setFormat('%v / %m slots')
         self.bar_ring.setMinimumWidth(200)
-        self.bar_ring.setToolTip('Los slots escritos en la DDR que el lector todavía no '
-                                 'leyó. Lleno, cada disparo nuevo es un DROP_FULL.')
-        f.addRow('estado', self.lbl_estado)
-        f.addRow('corrida', self.lbl_run_dir)
-        f.addRow('disparos', self.lbl_disparos)
-        f.addRow('generados', self.lbl_generados)
-        f.addRow('capturados (EV_CNT)', self.lbl_ev)
-        f.addRow('captura ocupada (DROP_BUSY)', self.lbl_busy)
-        f.addRow('ring lleno (DROP_FULL)', self.lbl_full)
-        f.addRow('leídos', self.lbl_leidos)
-        f.addRow('escritos', self.lbl_escritos)
-        f.addRow('lectura, eventos/s', self.lbl_tasa)
-        f.addRow('sin leer en la DDR', self.bar_ring)
+        self.bar_ring.setToolTip('The slots written to DDR that the reader has not read '
+                                 'yet. Full, every new trigger is a DROP_FULL.')
+        f.addRow('status', self.lbl_estado)
+        f.addRow('run', self.lbl_run_dir)
+        f.addRow('triggers', self.lbl_disparos)
+        f.addRow('generated', self.lbl_generados)
+        f.addRow('captured (EV_CNT)', self.lbl_ev)
+        f.addRow('capture busy (DROP_BUSY)', self.lbl_busy)
+        f.addRow('ring full (DROP_FULL)', self.lbl_full)
+        f.addRow('read', self.lbl_leidos)
+        f.addRow('written', self.lbl_escritos)
+        f.addRow('reading, events/s', self.lbl_tasa)
+        f.addRow('unread in DDR', self.bar_ring)
         self._form_estado = f
         self._ver_generados(False)
         return g
@@ -319,8 +323,8 @@ class PanelRing(QWidget):
     def mostrar_disparo(self):
         if self.fuente_disparo is not None:
             thr, hyst = self.fuente_disparo()
-            self.lbl_disparo.setText(f'{thr:+.3f} V, histéresis {hyst:.3f} V\n'
-                                     '(los de la etapa Disparo, IN1)')
+            self.lbl_disparo.setText(f'{thr:+.3f} V, hysteresis {hyst:.3f} V\n'
+                                     '(those of the Trigger stage, IN1)')
 
     def estimulo(self):
         """'disparo' o 'generador': lo que dispara las ventanas."""
@@ -340,8 +344,8 @@ class PanelRing(QWidget):
         una nueva por corrida, con la fecha y la hora de esta máquina."""
         carpeta = self.ed_carpeta.text().strip()
         if not carpeta.startswith('/'):
-            raise ValueError(f'carpeta {carpeta!r}: tiene que ser un camino absoluto '
-                             'de la placa')
+            raise ValueError(f'folder {carpeta!r}: it has to be an absolute path on '
+                             'the board')
         nombre = time.strftime('ring_%Y%m%d_%H%M%S', time.localtime(ahora))
         kw = {'run_dir': os.path.join(carpeta, nombre),
               'pre': int(self.spn_pre.value()), 'post': int(self.spn_post.value()),
@@ -364,8 +368,8 @@ class PanelRing(QWidget):
         try:
             kw = self.argumentos()
         except ValueError as e:
-            self.lbl_error.setText(f'no se inició: {e}')
-            self.log.emit(f'ring: no se inició: {e}')
+            self.lbl_error.setText(f'not started: {e}')
+            self.log.emit(f'ring: not started: {e}')
             return
         self.lbl_error.setText('')
         self._prev = None
@@ -382,11 +386,11 @@ class PanelRing(QWidget):
         stats = e.get('stats') or {}
         hw = e.get('hw') or e.get('hw_final') or {}
         if corriendo:
-            texto = 'corriendo'
+            texto = 'running'
         elif e.get('stats') is None:
-            texto = 'sin adquisición'
+            texto = 'no acquisition'
         else:
-            texto = 'parado'
+            texto = 'stopped'
         motivo = e.get('motivo')
         if motivo:
             texto += f': {MOTIVOS.get(motivo, motivo)}'
@@ -397,7 +401,7 @@ class PanelRing(QWidget):
             # columna, y partido en las barras no se lee.
             fs = f" ({e['fs']})" if e.get('fs') else ''
             padre, nombre = os.path.split(os.path.normpath(e['run_dir']))
-            self.lbl_run_dir.setText(f'{nombre}\nen {padre}{fs}')
+            self.lbl_run_dir.setText(f'{nombre}\nin {padre}{fs}')
             self.lbl_run_dir.setToolTip(e['run_dir'])
 
         if hw:
@@ -413,7 +417,7 @@ class PanelRing(QWidget):
             self.lbl_disparos.setText(_n(disp))
             self._ver_generados(gen is not None)
             if gen is not None:
-                self.lbl_generados.setText(_n(gen) + (' (terminó)' if hw.get(
+                self.lbl_generados.setText(_n(gen) + (' (finished)' if hw.get(
                     'hw_gen_terminado') else ''))
             self.lbl_ev.setText(_n(ev))
             self.lbl_busy.setText(_n(busy) + pct(busy))
@@ -431,7 +435,7 @@ class PanelRing(QWidget):
             leidos = int(stats.get('n_read', 0))
             self.lbl_leidos.setText(_n(leidos))
             self.lbl_escritos.setText(f"{_n(stats.get('n_written', 0))} "
-                                      f"({int(stats.get('chunks', 0))} archivos)")
+                                      f"({int(stats.get('chunks', 0))} files)")
             ahora = time.monotonic()
             if corriendo and self._prev is not None and ahora > self._prev[0]:
                 tasa = (leidos - self._prev[1]) / (ahora - self._prev[0])
@@ -439,7 +443,7 @@ class PanelRing(QWidget):
                 self.lbl_tasa.setText(f'{tasa:.4g}')
             elif not corriendo and stats.get('rate_ev_s') is not None:
                 self.tasa_lectura = float(stats['rate_ev_s'])
-                self.lbl_tasa.setText(f"{stats['rate_ev_s']:.4g} (media)")
+                self.lbl_tasa.setText(f"{stats['rate_ev_s']:.4g} (mean)")
             self._prev = (ahora, leidos) if corriendo else None
         self._set_corriendo(corriendo)
 

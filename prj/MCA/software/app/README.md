@@ -64,15 +64,15 @@ app/
 ├── mca_server.py     ← corre en la Pitaya: expone API/mca.py por TCP
 ├── mcamon.py         ← corre en la PC: ventana, barra superior, hilo del socket
 ├── panel_espectro.py      ← el histograma 1D, los contadores y el tiempo muerto
-├── panel_config_mca.py   ← «Configuración MCA»: los registros por etapa, el aviso de mezcla
+├── panel_config_mca.py   ← «MCA settings»: los registros por etapa, el aviso de mezcla
 ├── diagrama_mca.py       ← su franja: etapas, tasas, pérdidas y la leyenda
-├── panel_config_osc.py   ← «Configuración OSC»: el osciloscopio por etapa y el ring
+├── panel_config_osc.py   ← «OSC settings»: el osciloscopio por etapa y el ring
 ├── diagrama_osc.py       ← su franja: el osciloscopio arriba, el ring abajo
 ├── panel_etapas.py       ← la base de las dos: grupos por etapa, foco, ratón y clic
 ├── franja.py             ← la base de las dos franjas: colores, bloques, flechas
 ├── panel_mapa2d.py       ← amplitud × forma, y la FOM
 ├── panel_integracion.py  ← el ruteo del datapath (slot 6)
-├── panel_pulsos.py       ← «Pulsos»: pulso o mapa de calor, y la curva de tasa
+├── panel_pulsos.py       ← «Pulses»: pulso o mapa de calor, y la curva de tasa
 ├── panel_multitrigger.py ← máscaras OR, shield y snapshot
 ├── panel_generador.py    ← el generador de pulsos y el lazo digital
 ├── panel_ring.py         ← el ring: una adquisición a archivos de la placa (va embebido)
@@ -87,7 +87,7 @@ app/
         ├── call_red.py       ← `call` contra la placa
         ├── e2e_rigol_app.py  ← (P,R) el lazo completo, con pulsos reales
         ├── e2e_lazo_app.py   ← (P) el generador por el lazo digital
-        └── e2e_ring_app.py   ← (P) el ring de «Configuración OSC», tres corridas
+        └── e2e_ring_app.py   ← (P) el ring de «OSC settings», tres corridas
 ```
 
 El protocolo y el handle remoto viven en `API/`, no acá:
