@@ -1105,6 +1105,134 @@ def test_las_casillas_del_multitrigger_arman_la_mascara():
     _con_gui(cuerpo)
 
 
+def test_la_franja_del_multitrigger_lee_las_fuentes_y_el_shield():
+    """Las cuentas de la franja del Multitrigger, sin Qt: los bits del servidor en
+    filas por fuente (sin los canales que el bitstream no trae), la máscara que usa
+    cada canal con y sin indep_mode, el shield en palabras, lo mal puesto, y lo que
+    el MCA ve del disparo."""
+    from API.multitrigger import (BIT_ADC_P0, BIT_SLOPE_P0, BITS_OR_MASK,
+                                  BITS_SHIELD_DST, BITS_SHIELD_SRC)
+    from app.diagrama_mt import (describir_escudo, diagnostico, filas_mascara,
+                                 flujo_mt, mascaras_efectivas)
+    bits = [[n, int(v), a] for n, v, a in BITS_OR_MASK]
+    b_src = [[n, int(v), a] for n, v, a in BITS_SHIELD_SRC]
+    b_dst = [[n, int(v), a] for n, v, a in BITS_SHIELD_DST]
+
+    filas, ocultos = filas_mascara(bits, n_ch=2)
+    assert [r for _f, r, _p in filas] == [
+        'software', 'level IN1', 'slope IN1', 'pole-zero IN1', 'level IN2',
+        'slope IN2', 'pole-zero IN2', 'external DIO0', 'generator (ASG)']
+    # Los canales 2 y 3 y la cadena de otro scope no están en este bitstream.
+    fuera = {n for n, v, _a in bits if ocultos & v}
+    assert {'adc_p2', 'slope_n3', 'pz_p3', 'trig_ch0'} <= fuera
+    assert not fuera & {'sw', 'adc_p0', 'slope_n1', 'pz_p1', 'ext_p', 'asg_n'}
+
+    cfg = {'or_mask_ch0': BIT_SLOPE_P0, 'or_mask_ch1': BIT_ADC_P0}
+    assert mascaras_efectivas(cfg, 2, indep=0) == [BIT_SLOPE_P0, BIT_SLOPE_P0]
+    assert mascaras_efectivas(cfg, 2, indep=0b10) == [BIT_SLOPE_P0, BIT_ADC_P0]
+    assert mascaras_efectivas(cfg, 2, indep=None) == [BIT_SLOPE_P0, BIT_ADC_P0]
+
+    assert 'IN1 at once: hardware re-arm' in describir_escudo(1, 1, 0, b_src, b_dst)
+    assert '125 cycles (1 µs) later' in describir_escudo(1, 1, 125, b_src, b_dst)
+    veto = describir_escudo(0x40, 0x10, 0, b_src, b_dst)
+    assert 'while DIO0 is high' in veto and 're-arms no channel' in veto
+    assert describir_escudo(0, 0, 0, b_src, b_dst).startswith('Off')
+
+    # El disparo del MCA como lo deja multitrigger_armar_mca: IN2 repite la máscara
+    # de IN1 (sin indep_mode) y no se re-arma, pero el evento no pierde nada.
+    pend = {'en': True, 'L': 8, 'G': 4, 'thr': 600, 'hyst': 300}
+    info = {'bits': bits, 'bits_shield_dst': b_dst, 'n_ch': 2, 'indep': 0,
+            'config': {'or_mask_ch0': BIT_SLOPE_P0, 'or_mask_ch1': 0,
+                       'shield_src': 1, 'shield_dst': 1, 'shield_dur': 0},
+            'status': {'flags': 0x30},
+            'canales': [{'pendiente': pend, 'polo_cero': None},
+                        {'pendiente': dict(pend, en=False), 'polo_cero': None}]}
+    d = diagnostico(info)
+    assert not [t for avisos in d.values() for t, grave in avisos if grave], d
+    assert ('IN2 uses the mask of IN1', False) in d['mascara']
+    # El veto por nivel de DIO0 deja de re-armar IN1: se para tras el primero.
+    info['config'].update(shield_src=0x40, shield_dst=0x10)
+    assert diagnostico(info)['escudo'] == [('IN1 stops after its first trigger', True)]
+    # La pendiente en la máscara pero apagada; la máscara vacía.
+    info['canales'][0]['pendiente'] = dict(pend, en=False)
+    assert diagnostico(info)['fuentes'] == [('slope IN1 is in a mask but off', True)]
+    info['config'].update(or_mask_ch0=0)
+    assert ('no source in any mask: nothing triggers', True) in \
+        diagnostico(info)['mascara']
+
+    f = flujo_mt({'realtime_s': 2.0, 'cross': 1000, 'lost_veto': 10,
+                  'vetotime_s': 0.5, 't_rearm_s': 0.1})
+    assert f['tasa'] == 500 and f['vetados'] == 10
+    assert abs(f['frac_veto'] - 0.25) < 1e-12
+    assert abs(f['frac_rearmado'] - 0.05) < 1e-12
+
+
+def test_la_pestana_del_multitrigger_va_por_etapas_y_sigue_al_disparo_del_mca():
+    """Armar el disparo del MCA desde Spectrum se ve en el Multitrigger: la pendiente
+    de IN1 en la máscara y en las fuentes, el shield re-armando IN1. El shield se
+    escribe con casillas con nombre y se describe en palabras; la franja marca lo mal
+    puesto, sigue al ratón y lleva a los controles; los botones de las fuentes llevan
+    a las otras pestañas, y todo entra sin scroll en la ventana de siempre."""
+    from PyQt5.QtCore import QEvent, QPoint, Qt
+    from PyQt5.QtTest import QTest
+    from API.multitrigger import BIT_SLOPE_P0
+
+    def graves(p):
+        return [t for avisos in p.diagrama.diagnostico().values()
+                for t, grave in avisos if grave]
+
+    def cuerpo(app, v):
+        v.resize(1240, 860)
+        v.show()
+        p = v.panel_mtrg
+        v.tabs.setCurrentWidget(p)
+        assert _esperar(app, lambda: p._casillas_escudo['shield_src'])
+        v.panel_espectro.btn_armar.click()
+        assert _esperar(app, lambda: p._casillas[(0, BIT_SLOPE_P0)].isChecked()), \
+            'el disparo del MCA no se ve en la máscara'
+        assert 'L 8' in p._lbl_fuente[(0, 'pendiente')].text()
+        assert 'hardware re-arm' in p.lbl_escudo.text()
+        assert graves(p) == []
+        # Sin los canales 2 y 3: ni columnas en la máscara ni casillas en el shield.
+        assert {ch for ch, _v in p._casillas} == {0, 1}
+        assert [c.text() for _v, c in p._casillas_escudo['shield_src']] == \
+            ['IN1', 'IN2', 'DIO0 ↑', 'DIO0 ↓', 'DIO0 level']
+
+        # El veto por nivel con las casillas: el shield deja de re-armar IN1.
+        src = {c.text(): c for _v, c in p._casillas_escudo['shield_src']}
+        dst = {c.text(): c for _v, c in p._casillas_escudo['shield_dst']}
+        src['DIO0 level'].setChecked(True)
+        src['IN1'].setChecked(False)
+        dst['veto the MCA'].setChecked(True)
+        dst['re-arm IN1'].setChecked(False)
+        assert _esperar(app, lambda: p._info['config']['shield_src'] == 0x40
+                        and p._info['config']['shield_dst'] == 0x10)
+        assert graves(p) == ['IN1 stops after its first trigger']
+        assert 're-arms no channel' in p.lbl_escudo.text()
+        p.aplicar_escudo(1, 1, 0)
+        assert _esperar(app, lambda: p._info['config']['shield_src'] == 1
+                        and p._info['config']['shield_dst'] == 1 and not graves(p))
+
+        app.sendEvent(p._grupos['escudo'][0], QEvent(QEvent.Enter))
+        assert p.diagrama.resaltada == 'escudo'
+        app.sendEvent(p._grupos['escudo'][0], QEvent(QEvent.Leave))
+        centro = p.diagrama.caja('mascara').center()
+        QTest.mouseClick(p.diagrama, Qt.LeftButton,
+                         pos=QPoint(int(centro.x()), int(centro.y())))
+        assert p.diagrama.resaltada == 'mascara'
+
+        assert p.scroll.verticalScrollBar().maximum() == 0
+        assert p.scroll.horizontalScrollBar().maximum() == 0
+        assert v.width() == 1240
+
+        p.btn_ir_osc.click()
+        assert v.tabs.currentWidget() is v.panel_config_osc
+        p.btn_ir_espectro.click()
+        assert v.tabs.currentWidget() is v.panel_espectro
+        v.sig_disparo.emit({'ch': 0, 'armar': False})
+    _con_gui(cuerpo)
+
+
 def test_los_campos_de_los_paneles_existen_en_su_bloque():
     """Un nombre mal escrito sólo se notaría al tocar el control.
 

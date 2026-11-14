@@ -237,8 +237,9 @@ class ServidorMCA:
         self.bases, self.notas_bases = {}, []
         if self.fake:
             self.osc = FakeOsc(n_buf=1 << self.fake_rsz, rate_hz=1000.0)
-            self.mt = FakeMultiTrigger()
+            # Las dos fachadas sobre los mismos registros, como en la placa.
             self.mtr = FakeMtRegion(osc=self.osc)
+            self.mt = FakeMultiTrigger(region=self.mtr)
             self.bases = {'osc': SCOPE_PHYS, 'mtrg': MTRG_PHYS}
             self.notas_bases = ['osc/mtrg simulados (--fake)']
             return
@@ -768,14 +769,44 @@ class ServidorMCA:
 
     def op_mtrg_get(self):
         mt = self._mt()
-        from API.multitrigger import BITS_OR_MASK
-        return {'config': multitrigger_get_config(mt),
-                'status': multitrigger_get_status(mt),
-                # Los nombres de los bits viajan con el dato: el cliente dibuja
-                # las casillas con lo que diga el servidor en vez de tener su
-                # propia copia de la lista, que es como se desincronizan.
-                'bits': [[n, int(v), a] for n, v, a in BITS_OR_MASK],
-                'base': int(self.bases.get('mtrg', 0))}
+        from API.multitrigger import BITS_OR_MASK, BITS_SHIELD_DST, BITS_SHIELD_SRC
+        r = {'config': multitrigger_get_config(mt),
+             'status': multitrigger_get_status(mt),
+             # Los nombres de los bits viajan con el dato: el cliente dibuja
+             # las casillas con lo que diga el servidor en vez de tener su
+             # propia copia de la lista, que es como se desincronizan.
+             'bits': [[n, int(v), a] for n, v, a in BITS_OR_MASK],
+             'bits_shield_src': [[n, int(v), a] for n, v, a in BITS_SHIELD_SRC],
+             'bits_shield_dst': [[n, int(v), a] for n, v, a in BITS_SHIELD_DST],
+             'base': int(self.bases.get('mtrg', 0))}
+        r.update(self._fuentes_mtrg())
+        return r
+
+    # `indep_mode` del OSC, en su bloque canónico (osc_cfg.sv, CANON_BASE + 0x014).
+    # Sin su bit, `mt_cfg` le da a ese canal la máscara del canal 0. No está en la
+    # tabla de registros de libmca: sólo lo lee la pestaña del Multitrigger.
+    R_INDEP_OSC = 0x01014
+
+    def _fuentes_mtrg(self):
+        """Lo que la pestaña del multitrigger muestra de sus fuentes: cuántos
+        canales trae (`CAPS`), el disparo por pendiente y el de polo-cero de cada uno
+        (región propia), y el `indep_mode` del scope, que decide si un canal usa su
+        propia máscara o la del canal 0. Sin la región propia, nada."""
+        if self.mtr is None:
+            return {}
+        from API.multitrigger import R3_CAPS
+        n_ch = int(self.mtr.r32(R3_CAPS) & 0xF) or 2
+        hay_slope, hay_pz = self.mtr.has_slope(), self.mtr.has_pz()
+        canales = [{'pendiente': self.mtr.get_slope(ch) if hay_slope else None,
+                    'polo_cero': self.mtr.get_pz(ch) if hay_pz else None}
+                   for ch in range(min(n_ch, 4))]
+        indep = None
+        if self.osc is not None:
+            try:
+                indep = int(self.osc.r32(self.R_INDEP_OSC)) & 0xF
+            except Exception:                                   # noqa: BLE001
+                indep = None
+        return {'n_ch': n_ch, 'canales': canales, 'indep': indep}
 
     def op_mtrg_set(self, fields):
         mt = self._mt()

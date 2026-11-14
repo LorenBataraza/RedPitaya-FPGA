@@ -562,6 +562,10 @@ class Mcamon(QMainWindow):
         # lecturas de registros y los contadores de la sesión, no los datos.
         self._t_config_osc = QTimer(self, interval=500)
         self._t_config_osc.timeout.connect(self._tic_config_osc)
+        # El estado del multitrigger (snapshot, flags, shield), con su pestaña
+        # visible: cuatro registros.
+        self._t_mtrg = QTimer(self, interval=500)
+        self._t_mtrg.timeout.connect(self.sig_pedir_mtrg.emit)
 
         acc = QAction('Load MCA bitstream…', self)
         acc.triggered.connect(self._cargar_bitstream)
@@ -754,10 +758,15 @@ class Mcamon(QMainWindow):
                 panel.set_conectado(False)
         self.lbl_lazo.setVisible(False)
         self._t_config_osc.stop()
+        self._t_mtrg.stop()
         self.panel_log.info('disconnected')
 
     def _al_estado(self, est):
         self.panel_espectro.actualizar_estado(est)
+        # Lo que el MCA ve del disparo (tasa, veto, re-armado), en la franja del
+        # multitrigger.
+        if self.panel_mtrg is not None:
+            self.panel_mtrg.actualizar_estado(est)
         # La franja del datapath: tasas, pérdidas y si se borró el histograma.
         self.panel_config.actualizar_estado(est)
         # La curva de tasa de «Pulses» se alimenta del `status` del MCA, que ya
@@ -905,15 +914,27 @@ class Mcamon(QMainWindow):
             self.panel_mtrg.pedir_mascara.connect(self.sig_mascara)
             self.panel_mtrg.pedir_armar.connect(self.sig_armar)
             self.panel_mtrg.pedir_refresco.connect(self.sig_pedir_mtrg)
+            self.panel_mtrg.ir_a.connect(self._ir_a_pestana)
             self.tabs.addTab(self.panel_mtrg, 'Multitrigger')
         elif not hay_mtrg and self.panel_mtrg is not None:
             self.tabs.removeTab(self.tabs.indexOf(self.panel_mtrg))
             self.panel_mtrg.deleteLater()
             self.panel_mtrg = None
         if self.panel_mtrg is not None:
+            self.panel_mtrg.configurar(hay_ring=hay_ring)
             self.panel_mtrg.set_conectado(True)
             self.sig_pedir_mtrg.emit()
         self._cambio_pestana()
+
+    def _ir_a_pestana(self, destino):
+        """Los botones de las fuentes del Multitrigger: el umbral de nivel está en
+        la etapa Trigger de «OSC settings» y el disparo del MCA en «Spectrum»."""
+        if destino == 'osc' and self.panel_config_osc is not None:
+            self.tabs.setCurrentWidget(self.panel_config_osc)
+            self.panel_config_osc._ir_a_etapa('disparo')
+        elif destino == 'espectro':
+            self.tabs.setCurrentWidget(self.panel_espectro)
+            self.panel_espectro.spn_thr.setFocus(Qt.OtherFocusReason)
 
     # ---------- pestaña del generador de pulsos ----------
 
@@ -956,6 +977,8 @@ class Mcamon(QMainWindow):
             self.panel_pulsos.actualizar_osc(info)
         if self.panel_config_osc is not None:
             self.panel_config_osc.actualizar_osc(info)
+        if self.panel_mtrg is not None:
+            self.panel_mtrg.actualizar_osc(info)
 
     def _al_mtrg(self, info):
         if self.panel_mtrg is not None:
@@ -1005,6 +1028,13 @@ class Mcamon(QMainWindow):
             self._t_config_osc.start()
         elif not cfg_visible and self._t_config_osc.isActive():
             self._t_config_osc.stop()
+        mtrg_visible = (self.panel_mtrg is not None and
+                        self.tabs.currentWidget() is self.panel_mtrg)
+        if mtrg_visible and not self._t_mtrg.isActive():
+            self.sig_pedir_mtrg.emit()
+            self._t_mtrg.start()
+        elif not mtrg_visible and self._t_mtrg.isActive():
+            self._t_mtrg.stop()
 
     # ---------- bitstream ----------
 

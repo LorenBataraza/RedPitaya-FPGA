@@ -33,7 +33,8 @@ GRIS_LEYENDA = QColor(110, 110, 110)
 def _tasa(x):
     """1.23 k/s, 45.6 /s: tres cifras, con prefijo."""
     for div, pre in ((1e6, 'M'), (1e3, 'k')):
-        if abs(x) >= div:
+        # 999.7 redondea a «1e+03» con tres cifras: ya es el prefijo de arriba.
+        if abs(x) >= div * 0.9995:
             return f'{x / div:.3g} {pre}/s'
     return f'{x:.3g} /s'
 

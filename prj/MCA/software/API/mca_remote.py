@@ -758,22 +758,32 @@ class FakeOsc(Osciloscope):
 
 class FakeMultiTrigger(MultiTrigger):
     """Registros del multitrigger que retienen lo escrito, y un snapshot fijo. La
-    lógica es la de libmca, que llega acá por el backend de callbacks."""
+    lógica es la de libmca, que llega acá por el backend de callbacks.
+
+    Con `region` (un `FakeMtRegion`) lee y escribe los registros de esa región, como
+    en la placa, donde las dos fachadas son la misma región: lo que arma el disparo
+    del MCA se ve en las máscaras, y FLAGS sale del scope. Sola, retiene lo suyo."""
 
     _DEFAULTS = {R_SHIELD_CFG: 0, R_SHIELD_RUN: 0, R_FLAGS: 0,
                  R_OR_MASK_CH0: 0xFFFFFFFF, R_OR_MASK_CH1: 0xFFFFFFFF}
 
-    def __init__(self):
+    def __init__(self, region=None):
         super().__init__(None, -1)
         self._reg = dict(self._DEFAULTS)
+        self._region = region
 
     def r32(self, off):
         if off == R_TRIG_SNAP:           # snapshot: sw + flanco positivo ch0
             return 0b11
+        if self._region is not None:
+            return self._region.r32(off)
         return self._reg.get(off, 0)
 
     def w32(self, off, v):
-        self._reg[off] = int(v) & 0xFFFFFFFF
+        if self._region is not None:
+            self._region.w32(off, v)
+        else:
+            self._reg[off] = int(v) & 0xFFFFFFFF
 
 
 class FakeMtRegion(MtRegion):

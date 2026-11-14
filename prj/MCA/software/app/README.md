@@ -73,7 +73,8 @@ app/
 ├── panel_mapa2d.py       ← amplitud × forma, y la FOM
 ├── panel_integracion.py  ← el ruteo del datapath (slot 6)
 ├── panel_pulsos.py       ← «Pulses»: pulso o mapa de calor, y la curva de tasa
-├── panel_multitrigger.py ← máscaras OR, shield y snapshot
+├── panel_multitrigger.py ← «Multitrigger»: fuentes, máscaras OR, evento y shield, por etapa
+├── diagrama_mt.py        ← su franja: el disparo, el lazo del shield y lo mal puesto
 ├── panel_generador.py    ← «Generator»: el generador por etapa y el lazo digital
 ├── diagrama_gen.py       ← su franja: disparos, amplitud, forma y salida
 ├── panel_ring.py         ← el ring: una adquisición a archivos de la placa (va embebido)

@@ -64,7 +64,7 @@ MCA falso vea la tasa del generador (y 0 con el generador parado).
 
 ## 3. La GUI — `app/tests/test_mcamon_gui.py`
 
-Cincuenta y una pruebas con `QT_QPA_PLATFORM=offscreen`, así que corren en CI y por ssh. No
+Cincuenta y tres pruebas con `QT_QPA_PLATFORM=offscreen`, así que corren en CI y por ssh. No
 prueban estética: prueban **el hilo del socket, las señales entre hilos y el
 guardado**, que es donde una GUI se rompe de verdad.
 
@@ -94,8 +94,14 @@ al borrar desde cualquier pestaña, que la franja siga al ratón y lleve a los
 controles, y que las tres columnas entren sin scroll con el aviso a la vista; que el
 mapa de calor de «Pulses» sume cada traza por su línea, se agrande, empiece de nuevo
 con otra ventana y reste las que salen, que no sume dos veces el mismo disparo y que
-el continuo no pida con una captura en vuelo; y que desconectar y volver a conectar
-funcione.
+el continuo no pida con una captura en vuelo; que la franja del Multitrigger arme
+las filas de la máscara con los bits del servidor (sin los canales que el
+bitstream no trae), use la máscara de IN1 en IN2 sin `indep_mode`, diga el shield
+en palabras y marque lo que deja sin disparos (el veto por nivel de DIO0 deja de
+re-armar IN1) sin alarmar por IN2 repitiendo a IN1; que armar el disparo del MCA
+desde «Spectrum» se vea en la máscara, en las fuentes y en el shield, que el shield
+se escriba con sus casillas, que la franja siga al ratón y lleve a los controles, y
+que la pestaña entre sin scroll; y que desconectar y volver a conectar funcione.
 
 La pestaña 2D tiene su propia prueba porque aparece o desaparece según lo que
 publique `CAPS`, y eso es una decisión que se toma en tiempo de conexión. Lo

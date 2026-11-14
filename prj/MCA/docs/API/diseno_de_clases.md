@@ -221,7 +221,7 @@ programa.
 |---|---|---|---|
 | `FakeMCA` | `MCA` | hereda de `MCA` y entrega un **modelo del mapa de registros** del MCA2 como callbacks de C (el backend `bus_callback` de [`libmca.md`](libmca.md) §2): la lógica que corre contra el simulador es la misma de C que corre en la placa | [`mca_remote.py`](../../software/API/mca_remote.py) |
 | `FakeOsc` | `Osciloscope` | hereda y entrega un dict de registros como callbacks de C, con la geometría en el mapa canónico. La captura es simulada | ídem |
-| `FakeMultiTrigger` | `MultiTrigger` | hereda y entrega un dict de registros como callbacks de C: la lógica es la de libmca | ídem |
+| `FakeMultiTrigger` | `MultiTrigger` | hereda y entrega un dict de registros como callbacks de C: la lógica es la de libmca. Con `region=` (un `FakeMtRegion`) usa los registros de esa región, como en la placa, donde las dos fachadas son la misma región: así lo usa el servidor con `--fake` | ídem |
 | `FakeMtRegion` | `MtRegion` | ídem, con el `we_keep` que sale del `FakeOsc` | ídem |
 | `FakeSource` | una fuente ([`adquisicion_de_eventos.md`](adquisicion_de_eventos.md) §1) | un reloj nominal y un pulso con ruido; cumple la interfaz sin heredar | [`sources.py`](../../software/API/osciloscope_store/sources.py) |
 

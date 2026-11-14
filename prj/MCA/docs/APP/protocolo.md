@@ -107,7 +107,7 @@ La lista viva es el dict `_OPS` de
 | `osc.set` | `fields` | el `get` de vuelta |
 | `osc.ctrl` | `que` | `reset` o `sw_trig`, y el `get` de vuelta |
 | `osc.capture` | `pre`, `post` | **binario** `float32[2, pre+post]` en volts |
-| `mtrg.get` | — | `config`, `status`, los nombres de los bits, `base` |
+| `mtrg.get` | — | `config`, `status`, los nombres de los bits de la máscara (`bits`) y del shield (`bits_shield_src`, `bits_shield_dst`), `base`; con la región propia, `n_ch`, `canales` (la pendiente y el polo-cero de cada uno) e `indep` (el `indep_mode` del OSC) |
 | `mtrg.set` | `fields` | el `get` de vuelta |
 | `mtrg.arm` | `mask_ch0`, `mask_ch1`, `thr`, `hyst`, `delay`, `auto_rearm` | el `get` de vuelta |
 | `mtrg.disarm` | — | el `get` de vuelta |
