@@ -17,13 +17,18 @@ que un canal del scope se re-dispare con su propia cola, y darle al MCA un
 
 ![Panorama de trigger_shield](../../mt/figuras/panorama_trigger_shield.svg)
 
-*Hay un solo contador para todos los destinos. Con una fuente de nivel
-(`ext_lvl`) el escudo dispara cada ciclo que la línea está alta y cada disparo
-recarga `dur`: el veto dura la línea más `dur` ciclos. Los canales que no están
-en `dst` siguen al clear de software (`sw_clr`) sin cambio. `NOMBRE=valor`:
-parámetros con que lo instancia `mt_event_logic`.*
+*Una fila por registro. `src_fire` es el OR de las fuentes habilitadas que
+disparan. Con `src_fire`, `cnt` carga `dur`; si no, mientras `active`, cuenta
+hacia abajo, y `vence` (`active` y `cnt ≤ 1`) termina el holdoff. El pulso
+`clr_q` re-arma los destinos al vencer, o al disparar si `dur = 0`. Hay un solo
+contador para todos los destinos. Con una fuente de nivel (`ext_lvl`) el escudo
+dispara cada ciclo que la línea está alta y cada disparo recarga `dur`: el veto
+dura la línea más `dur` ciclos. Los canales que no están en `dst` siguen al
+clear de software sin cambio. Nombres sin cable (`src_fire`, `active`, `vence`,
+`dst[N]`): la señal del mismo nombre, que se dibuja una sola vez donde nace.
+`NOMBRE=valor`: parámetros con que lo instancia `mt_event_logic`.*
 
-*Por dentro:* el contador de holdoff, el pulso de re-arm, el veto al MCA y el mux por canal. Fuente TikZ en [`panorama_trigger_shield.tex`](../../mt/figuras/panorama_trigger_shield.tex).
+*Por dentro:* `src_fire`, el contador de holdoff, `active`, el pulso de re-arm, el veto al MCA y el mux por canal. Fuente TikZ en [`panorama_trigger_shield.tex`](../../mt/figuras/panorama_trigger_shield.tex).
 
 Lo que lo hace más que un holdoff por canal es que **fuentes y destinos son
 vectores independientes**:

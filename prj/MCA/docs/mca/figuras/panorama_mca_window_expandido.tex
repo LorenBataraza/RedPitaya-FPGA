@@ -1,0 +1,333 @@
+% Panorama de MCA_WINDOW EXPANDIDO, a nivel de operación, en el estilo de
+% event_window_capture del OSC: el disparo y el asignador son compuertas; las
+% marcas, contadores con su +1; la muestra, una resta y un máximo; la
+% contabilidad, compuertas y contadores con su habilitación. Las ranuras y el
+% banco de trapecios quedan como submódulos.
+% Las redes con nombre (disparo, veto, puede, esperan, abre...) se conectan por
+% nombre: el trazo corto que entra a un pin lleva el nombre de la red. Las que
+% vienen de las ranuras (libre, abierta, cerrada, cierra...) son vectores de un
+% bit por ranura.
+% Fuente: modulos/mca/rtl/mca_window.sv, instanciado por mca_pulse_feature como
+% en rtl/mine/tops/mca_red_pitaya_top.sv (3 ranuras, 3 formas).
+% Estilo: docs/figuras/estilo_tikz.tex; los colores por función, los mismos de
+% panorama_mca_top.tex. El borde grueso es el límite del módulo.
+% El epígrafe no va en la figura: está en panorama_mca_window_expandido.txt.
+%
+% Compilar:   pdflatex panorama_mca_window_expandido.tex
+%             pdftocairo -svg panorama_mca_window_expandido.pdf panorama_mca_window_expandido.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+\tikzset{
+  pre/.style     = {bloque=azul!35, param={azul!35}{azul!12}},
+  varios/.style  = {double copy shadow={shadow xshift=2pt, shadow yshift=-2pt}},
+  op/.style      = {oper, font=\scriptsize},
+  caja/.style    = {desp, inner sep=2pt, minimum height=0.5cm},
+  reg/.style     = {registro=#1, minimum height=0.55cm, font=\scriptsize\ttfamily},
+  reg/.default   = 1.15cm,
+  cnt/.style     = {registro=1.85cm, minimum height=0.5cm, font=\scriptsize\ttfamily},
+  fondo f/.style = {draw=black!45, dashed, line width=0.5pt, rounded corners=3pt, fill=#1},
+  rotf/.style    = {font=\scriptsize\itshape, black!75, inner sep=2pt},
+  red/.style     = {font=\scriptsize\ttfamily, inner sep=1pt},
+  chico/.style   = {font=\tiny, inner sep=1pt, align=center},
+  y3/.style      = {logic gate input sep=0.2cm},
+}
+% \red[largo]{pin}{nombre}: la red que entra a un pin, por nombre, desde la izquierda
+\newcommand{\red}[3][0.3]{\draw[flujo] ($(#2)+(-#1,0)$) node[left, red] {#3} -- (#2);}
+% \redab[largo]{pin}{nombre}: la misma, desde abajo
+\newcommand{\redab}[3][0.4]{\draw[flujo] ($(#2)+(0,-#1)$) node[below, red] {#3} -- (#2);}
+% \redar[largo]{pin}{nombre}: la misma, desde arriba
+\newcommand{\redar}[3][0.4]{\draw[flujo] ($(#2)+(0,#1)$) node[above, red] {#3} -- (#2);}
+% \redsal[largo]{pin}{nombre}: la red que sale de un pin hacia la derecha
+\newcommand{\redsal}[3][0.3]{\draw[flujo] (#2) -- ($(#2)+(#1,0)$) node[right, red] {#3};}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\def\xin{-0.3}    % donde arrancan las entradas
+\def\xout{19.75}  % donde terminan las salidas
+\def\ytop{14.5}   % de donde bajan las de configuración
+
+% ============================================================ las regiones ===
+\node[fondo f=amarillo!22, fit={(0.35,8.55) (5.75,13.55)}] (fdsp) {};
+\node[fondo f=amarillo!22, fit={(6.15,8.55) (13.95,13.55)}] (fasg) {};
+\node[fondo f=amarillo!22, fit={(14.35,8.55) (19.05,13.55)}] (fmar) {};
+\node[fondo f=azul!10, fit={(0.35,5.15) (5.15,7.95)}] (fmue) {};
+\node[fondo f=azul!10, fit={(0.35,-0.2) (5.15,4.65)}] (ftrp) {};
+\node[fondo f=verde!14, fit={(5.55,-2.45) (7.95,0.7)}] (fumb) {};
+\node[fondo f=grisr!45, fit={(11.85,1.75) (19.05,7.95)}] (fcon) {};
+\node[fondo f=grisr!45, fit={(11.85,-0.75) (19.05,1.35)}] (fbas) {};
+\node[rotf, anchor=north west] at (fdsp.north west) {disparo};
+\node[rotf, anchor=north west] at (fasg.north west) {asignador};
+\node[rotf, anchor=north west] at (fmar.north west) {marcas que se cargan al abrir};
+\node[rotf, anchor=north west] at (fmue.north west) {la muestra, relativa a la base};
+\node[rotf, anchor=north west] at (ftrp.north west) {banco de trapecios y región de la meseta};
+\node[rotf, anchor=north west] at (fumb.north west) {ventana de amplitud};
+\node[rotf, anchor=north west] at (fcon.north west) {contabilidad};
+\node[rotf, anchor=north west] at (fbas.north west) {hacia la línea de base};
+
+% =============================================================== disparo ===
+% el flanco: trig_i en alto y trig_q todavía en bajo
+\node[puerta y=ni, anchor=input 1] (edg) at (2.4,12.75) {};
+\node[reg=0.95cm] (tq) at (1.45,11.8) {trig\_q};
+\draw[flujo] (\xin,12.75) node[left, sen] {trig\_i} -- (edg.input 1);
+\draw[flujo] (0.75,12.75) |- (tq.west);
+\punto{0.75,12.75}
+\draw[flujo] (tq.east) -| ($(edg.input 2)+(-0.2,0)$) -- (edg.input 2);
+% flanco o pendiente
+\node[puerta o, anchor=input 1] (oeo) at (4.0,0 |- edg.output) {};
+\draw[flujo] (edg.output) -- (oeo.input 1);
+\coordinate (je) at ($(edg.output)!0.35!(oeo.input 1)$);
+\punto{je}
+% pendiente: un flanco entre dos muestras válidas espera a la siguiente
+\node[reg=1.25cm] (pend) at (2.85,9.65) {trig\_pend};
+\node[chico, anchor=north] at (pend.south) {1: flanco $\wedge\neg$val;\; 0: val};
+\draw[flujo] (je) -- (je |- 0,10.3) -| (pend.north);
+\draw[flujo] (pend.east) -| ($(oeo.input 2)+(-0.25,0)$) -- (oeo.input 2);
+% disparo = (flanco o pendiente), con muestra válida y en marcha
+\node[puerta y=nnn, y3, anchor=input 1] (dsp) at (4.9,11.45) {};
+\draw[flujo] (oeo.output) -- ++(0.15,0) |- (dsp.input 1);
+\red{dsp.input 2}{val}
+\red{dsp.input 3}{run}
+\draw[flujo] (dsp.output) -- ++(0.12,0) -- ++(0,-0.6) node[below, red] {disparo};
+
+% ============================================================= asignador ===
+% habilitadas: las cfg_n_acc primeras
+\node[caja] (hab) at (7.0,12.95) {las \texttt{n\_acc}\\ primeras};
+\draw[ctrl] (7.0,\ytop) node[above, sen, black!80] {cfg\_n\_acc\_i} -- (hab.north);
+% ocupada = no libre, o reservada en el ciclo anterior
+\node[puerta o=in, anchor=input 1] (ocu) at (6.95,11.0) {};
+\red{ocu.input 1}{libre}
+\red{ocu.input 2}{reserva\_q}
+% libre habilitada = habilitada y no ocupada
+\node[puerta y=ni, anchor=input 2] (lib) at ($(ocu.output)+(0.35,0)$) {};
+\draw[flujo] (ocu.output) -- (lib.input 2);
+\draw[flujo] (hab.east) -| ($(lib.input 1)+(-0.2,0)$) -- (lib.input 1);
+\node[chico, anchor=south] at ($(hab.east)+(0.32,0)$) {habil};
+% puede: alguna libre; sel: la de menor índice
+\node[op, anchor=west] (pue) at ($(lib.output)+(0.45,0)$) {$\neq0$};
+\draw[flujo] (lib.output) -- (pue.west);
+\coordinate (jl) at ($(lib.output)!0.4!(pue.west)$);
+\punto{jl}
+\draw[flujo] (pue.east) -- ++(0.5,0);
+\node[chico, anchor=south] at ($(pue.east)+(0.25,0.02)$) {puede};
+\node[caja, anchor=west] (pri) at ($(jl |- 0,9.85)+(0.2,0)$) {menor\\ índice};
+\draw[flujo] (jl) |- (pri.west);
+\node[caja, anchor=west] (oh) at ($(pri.east)+(0.2,0)$) {$1 \ll$ sel};
+\draw[flujo] (pri.east) -- (oh.west);
+% abre = disparo, sin veto, con alguna libre; perdido = disparo, sin veto, sin libre
+\node[puerta y=nin, y3, anchor=input 1] (abr) at (11.2,12.15) {};
+\red{abr.input 1}{disparo}
+\red{abr.input 2}{veto}
+\red{abr.input 3}{puede}
+\node[puerta y=nii, y3, anchor=input 1] (per) at (11.2,13.25) {};
+\red{per.input 1}{disparo}
+\red{per.input 2}{veto}
+\red{per.input 3}{puede}
+% la ranura que abre: un solo bit, el de sel, si abre
+\node[puerta y, anchor=input 2] (aoh) at ($(oh.east)+(0.3,0)$) {};
+\draw[flujo] (oh.east) -- (aoh.input 2);
+\draw[flujo] (abr.output) -- ++(0.2,0) coordinate (ja) -- (ja |- 0,10.55) -| ($(aoh.input 1)+(-0.15,0)$) -- (aoh.input 1);
+\node[chico, anchor=west] at ($(ja)+(0.05,0.1)$) {abre};
+% la decisión, registrada junto con la muestra
+\node[reg=1.05cm] (rper) at (13.35,0 |- per.output) {perdido\_q};
+\node[reg=1.05cm] (rabr) at (13.35,10.05) {abre\_q};
+\node[reg=1.05cm] (rres) at (13.35,9.3) {reserva\_q};
+\draw[flujo] (per.output) -- (rper.west);
+\draw[flujo] (aoh.output) -- ++(0.12,0) coordinate (jo) |- (rabr.west);
+\draw[flujo] (jo) |- (rres.west);
+\punto{jo}
+% esperan: alguna cerrada entre las habilitadas
+\node[puerta y, anchor=input 1] (esp) at (7.3,9.05) {};
+\red{esp.input 1}{cerrada}
+\red{esp.input 2}{habil}
+\node[op] (espn) at (8.6,0 |- esp.output) {$\neq0$};
+\draw[flujo] (esp.output) -- (espn.west);
+\draw[flujo] (espn.east) -- ++(0.3,0) node[right, red] {esperan};
+
+% ================================================================ marcas ===
+% muestras desde el disparo anterior: +1 por muestra válida, cero en el disparo
+\node[reg=1.4cm] (des) at (15.35,12.55) {desde\_disp};
+\node[op] (dmas) at (16.8,12.55) {$+1$};
+\draw[flujo] (des.east) -- (dmas.west);
+\draw[flujo] (dmas.north) |- ($(des.north)+(0,0.3)$) -- (des.north);
+\node[chico, anchor=south west] at ($(des.north)+(0.05,0.32)$) {satura; 0 con el disparo};
+\node[reg=1.3cm] (dtp) at (18.3,12.55) {dt\_prev\_q};
+\draw[flujo] (dmas.east) -- (dtp.west);
+\node[chico, anchor=north] at (dtp.south) {se carga con el disparo};
+% cuántas había abiertas cuando se decidió
+\node[op] (cue) at (16.8,11.0) {$\Sigma$};
+\draw[flujo] ($(cue.west)+(-0.3,0)$) node[left, red, align=right] {abierta $\vee$\\ reserva\_q} -- (cue.west);
+\node[reg=1.3cm] (otr) at (18.3,11.0) {otras\_q};
+\draw[flujo] (cue.east) -- (otr.west);
+\node[chico, anchor=north] at (otr.south) {satura a 4 b};
+% el número de ventana, con cada apertura
+\node[reg=1.4cm] (wid) at (15.35,9.4) {win\_id};
+\node[op] (wmas) at (16.8,9.4) {$+1$};
+\draw[flujo] (wid.east) -- (wmas.west);
+\draw[flujo] (wmas.north) |- ($(wid.north)+(0,0.3)$) -- (wid.north);
+\node[chico, anchor=south] at ($(wid.north)+(0,0.32)$) {con \texttt{abre}};
+\node[reg=1.3cm] (wiq) at (18.3,9.4) {win\_id\_q};
+\draw[flujo] (wmas.east) -- (wiq.west);
+
+% ================================================================ muestra ===
+\node[op] (res) at (1.85,6.65) {$-$};
+\node[op] (max) at (3.0,6.65) {max};
+\node[cte] (cer) at (3.0,5.9) {0};
+\draw[flujo] (cer) -- (max.south);
+\draw[flujo, ancho=14, ancho en=0.35] (\xin,6.65) node[left, sen] {dat\_i} -- (res.west);
+\draw[flujo, ancho=14, ancho en=0.4] (\xin,5.6) node[left, sen] {baseline\_i} -- (res.south |- 0,5.6) -- (res.south);
+\draw[flujo] (res.east) -- node[chico, above] {$x$} (max.west);
+\node[reg=0.95cm, minimum height=1.15cm] (xq) at (4.4,6.35) {xc\_q\\ x\_q\\ val\_q};
+\draw[flujo] (max.east) -- node[chico, above] {$x_c$} (xq.west |- max.east);
+\coordinate (jx) at ($(res.east)!0.4!(max.west)$);
+\draw[flujo] (jx) |- (xq.west |- 0,6.3);
+\punto{jx}
+\draw[flujo] (\xin,7.45) node[left, sen] {val\_i} -- (4.4,7.45) -- (xq.north);
+
+% ===================================================== trapecios y meseta ===
+\node[pre, text width=2.0cm, varios] (trp) at (2.75,3.6)
+  {\blk{mca\_trap {\normalfont$\times$} 3}{}\nodepart{two}$k$, $l$, \texttt{sh} propios;\\ $M$ común};
+\draw[flujo, anchov=15, ancho en=0.75] (4.4,0 |- xq.south) -- node[sen, right, pos=0.45] {x\_q} (4.4,3.9) -- (trp.east |- 0,3.9);
+\draw[flujo] (\xin,3.6) node[left, sen, align=right] {cfg\_trap\_k/l\_i\\ cfg\_trap\_sh/mq\_i} -- (trp.west);
+% la región de la meseta en el marco de la ranura: ini = off + 8, fin = ini + 2^lw
+\node[op] (ini) at (2.0,1.95) {$+$};
+\node[cte] (ocho) at (2.0,2.65) {8};
+\draw[flujo] (ocho) -- (ini.north);
+\draw[flujo] (\xin,1.95) node[left, sen] {cfg\_trap\_off\_i} -- (ini.west);
+\node[caja] (pot) at (1.45,0.45) {$1 \ll \mathtt{lw}$};
+\draw[flujo] (\xin,0.45) node[left, sen] {cfg\_trap\_lw\_i} -- (pot.west);
+\coordinate (ji) at (2.75,1.95);
+\node[op] (fin) at (2.75,1.2) {$+$};
+\draw[flujo] (ji) -- (fin.north);
+\draw[flujo] (pot.east) -| (fin.south);
+\node[reg=0.85cm] (rini) at (4.4,1.95) {ini};
+\node[reg=0.85cm] (rfin) at (4.4,1.2) {fin};
+\draw[flujo] (ini.east) -- (rini.west);
+\punto{ji}
+\draw[flujo] (fin.east) -- (rfin.west);
+\node[chico, anchor=north] at ($(rfin.south)+(0,-0.05)$) {uno por forma;\\ satura};
+
+% ================================================== ventana de amplitud ===
+\node[caja] (smin) at (6.2,0.05) {$\ll$ s};
+\node[op] (mas1) at (6.2,-0.7) {$+1$};
+\node[caja] (smax) at (6.2,-1.38) {$\ll$ s};
+\node[op] (men1) at (6.2,-2.05) {$-1$};
+\node[reg=0.85cm] (rmin) at (7.35,0.05) {min\_q};
+\node[reg=0.85cm] (rmax) at (7.35,-2.05) {max\_q};
+\draw[flujo] (smin.west) ++(-0.3,0) node[left, red] {min} -- (smin.west);
+\draw[flujo] (mas1.west) ++(-0.3,0) node[left, red] {max} -- (mas1.west);
+\draw[flujo] (mas1.south) -- (smax.north);
+\draw[flujo] (smax.south) -- (men1.north);
+\draw[flujo] (smin.east) -- (rmin.west);
+\draw[flujo] (men1.east) -- (rmax.west);
+\node[chico, anchor=north] at ($(rmin.south)+(0,-0.12)$) {una vez,\\ para las 3};
+
+% ================================================================ ranuras ===
+\node[bloque=verde!20, varios, text width=2.5cm, minimum height=9.7cm,
+      path picture={\fill[verde!55] (path picture bounding box.north west) rectangle
+        ([yshift=-0.5cm]path picture bounding box.north east);
+        \draw[line width=0.6pt] ([yshift=-0.5cm]path picture bounding box.north west) --
+        ([yshift=-0.5cm]path picture bounding box.north east);}]
+  (slt) at (9.85,2.9) {};
+\node[anchor=north, font=\scriptsize, inner sep=0pt] at ([yshift=-0.14cm]slt.north)
+  {\texttt{\bfseries mca\_slot} $\times$ 3};
+\node[font=\scriptsize, align=center, text width=2.5cm] at ([yshift=0.3cm]slt.center)
+  {abre con \texttt{abre\_q}[$k$]\\ y guarda las marcas\\[8pt]
+   cierra sola, cuando\\ \texttt{len} llega a la\\ \texttt{gate\_long} que\\ retuvo al abrir\\[8pt]
+   queda cerrada hasta\\ \texttt{libera\_i}[$k$]};
+% entradas: la muestra, los trapecios, sus ventanas y la de amplitud
+\draw[flujo, ancho=14, ancho en=0.75] (xq.east |- 0,6.35) -- (slt.west |- 0,6.35);
+\node[chico, anchor=south] at (6.2,6.4) {xc\_q, val\_q};
+\draw[flujo] (trp.east |- 0,3.35) -- node[chico, above, pos=0.15] {3$\times$18} (slt.west |- 0,3.35);
+\draw[flujo] (rini.east) -- (slt.west |- rini.east);
+\draw[flujo] (rfin.east) -- (slt.west |- rfin.east);
+\draw[flujo] (rmin.east) -- (slt.west |- rmin.east);
+\draw[flujo] (rmax.east) -- (slt.west |- rmax.east);
+% de arriba: la configuración y la decisión del asignador
+\draw[ctrl, cruce] (\xin,4.9) node[left, sen, black!80, align=right] {cfg\_gate\_*\_i\\ cfg\_amp\_*\_i} -- (slt.west |- 0,4.9);
+\draw[line width=0.8pt] (rper.east) -- (14.12,0 |- rper.east) -- (14.12,8.15);
+\draw[line width=0.8pt] (rabr.east) -- (14.12,0 |- rabr.east);
+\punto{14.12,0 |- rabr.east}
+\draw[flujo] (14.12,8.15) -- (10.4,8.15) -- (10.4,0 |- slt.north);
+\node[chico, anchor=south west] at (10.45,8.18) {abre\_q, perdido\_q, marcas};
+\draw[line width=0.8pt] (18.3,0 |- wiq.south) -- (18.3,8.3) -- (14.12,8.3);
+\punto{14.12,8.3}
+% salidas: el resultado de cada ranura y su estado
+\draw[flujo, ancho=3$\times$295, ancho en=0.08] (slt.east |- 0,-1.15) -- (\xout,-1.15) node[right, sen, align=left]
+  {resultados\\[-1pt]\normalfont\tiny pico, $Q$, mesetas, marcas};
+\draw[flujo] (slt.east |- 0,-1.75) -- (\xout,-1.75) node[right, sen] {acepta\_o};
+\draw[ctrl] (\xout,-2.3) node[right, sen] {libera\_i} -- (slt.east |- 0,-2.3);
+\draw[flujo] ($(slt.east)+(0,2.15)$) -- ++(0.3,0) node[right, red, align=left] {estado de\\ las ranuras};
+
+% ============================================================ contabilidad ===
+% los casilleros del tiempo muerto: sin ranura libre, y por qué
+\node[puerta y=ii, anchor=input 1] (dwi) at (13.05,7.35) {};
+\red{dwi.input 1}{puede}
+\red{dwi.input 2}{esperan}
+\node[puerta y=in, anchor=input 1] (ddi) at (13.05,6.45) {};
+\red{ddi.input 1}{puede}
+\red{ddi.input 2}{esperan}
+\draw[flujo] (dwi.output) -- (\xout,0 |- dwi.output) node[right, sen] {dt\_win\_o};
+\draw[flujo] (ddi.output) -- (\xout,0 |- ddi.output) node[right, sen] {dt\_div\_o};
+\node[op] (nocu) at (13.3,5.55) {$\Sigma$};
+\red{nocu.west}{ocupada}
+\draw[flujo] (nocu.east) -- (\xout,0 |- nocu.east) node[right, sen] {n\_ocup\_o};
+% cada disparo, a exactamente un contador
+\node[cnt] (ccr) at (14.75,4.55) {CNT\_CROSS};
+\node[cnt] (cop) at (14.75,3.95) {CNT\_OPEN};
+\node[cnt] (clv) at (14.75,3.35) {LOST\_VETO};
+\node[cnt] (cla) at (14.75,2.75) {LOST\_ACTIVE};
+\node[cnt] (clb) at (14.75,2.15) {LOST\_BUSY};
+\red{ccr.west}{disparo}
+\red{cop.west}{abre}
+\red{clv.west}{disparo$\wedge$veto}
+\red{cla.west}{perdido$\wedge$dt\_win}
+\red{clb.west}{perdido$\wedge$dt\_div}
+% cada cierre: se suman, porque pueden cerrar varias en el mismo ciclo
+\node[cnt] (cto) at (17.65,4.55) {CNT\_TOTAL};
+\node[cnt] (crj) at (17.65,3.95) {REJ\_AMP};
+\node[cnt] (cpi) at (17.65,3.35) {PILEUP};
+\node[chico, anchor=north, align=left] at (17.65,3.0)
+  {$+\Sigma$ cierra\\ $+\Sigma$ cierra $\wedge\,\neg$acepta\\ $+\Sigma$ cierra $\wedge$ solapada};
+\node[chico, anchor=north] at (14.75,1.85) {cada uno: $+1$ por disparo};
+\draw[ctrl, cruce] (16.2,7.7) node[above, sen, black!80] {cnt\_clr\_i} -- (16.2,0 |- ccr.north);
+\draw[flujo] (cto.east) -- (\xout,0 |- cto.east) node[right, sen] {cnt\_*\_o};
+
+% ============================================================ hacia la base ===
+% se sigue la base sólo si ninguna mide, ninguna está reservada y nadie abre
+\node[op] (nab) at (13.1,0.75) {$\neq0$};
+\red{nab.west}{abierta}
+\node[op] (nre) at (13.1,0.05) {$\neq0$};
+\red{nre.west}{reserva\_q}
+\node[puerta y=iii, y3, anchor=input 1] (trk) at (14.1,0.75) {};
+\draw[flujo] (nab.east) -- (trk.input 1);
+\draw[flujo] (nre.east) -| ($(trk.input 2)+(-0.2,0)$) -- (trk.input 2);
+\draw[flujo] ($(trk.input 3)+(-0.42,-0.42)$) node[below, red] {abre} |- (trk.input 3);
+\draw[flujo] (trk.output) -- (\xout,0 |- trk.output) node[right, sen] {bl\_track\_o};
+\node[op] (ncie) at (16.55,0.05) {$\neq0$};
+\red{ncie.west}{cierra}
+\draw[flujo] (ncie.east) -- (\xout,0 |- ncie.east) node[right, sen] {cierra\_o};
+\node[op] (nest) at (16.55,-0.5) {$\neq0$};
+\red{nest.west}{estancada}
+\draw[flujo] (nest.east) -- (\xout,0 |- nest.east) node[right, sen] {bl\_stale\_set\_o};
+
+% ============================================================== el límite ===
+\node[contenedor, fit={(0.15,13.8) (19.3,-2.75)}] (lim) {};
+\node[titulo, anchor=south west, inner sep=2pt, align=left] at (lim.north west)
+  {\texttt{\bfseries mca\_window}\;\; {\scriptsize\itshape expandido}\\
+   \prm{N\_ACC=3 & N\_FORMAS=3 & DW=14 & QW=32\\ LEN\_W=16 & AMP\_W=16 & PUB\_IDW=16 & NW=4\\
+        TW=18 & TNW=8 & TDAW=10 & TMW=20}};
+\node[sen, anchor=east, align=right] at (\xin,13.55)
+  {veto\_i $\to$ veto\\ cfg\_run\_i $\to$ run};
+
+% ================================================================= leyenda ===
+\leyenda{0.2,-3.5}{amarillo!22/segmentación, azul!10/línea de base y conformado,
+  verde!14/estadísticos, grisr!45/contabilidad, grisr/registro}{}
+
+\end{tikzpicture}
+\end{document}

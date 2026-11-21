@@ -24,18 +24,23 @@ nombre. El stub viejo quedó como
 
 ## Estructura
 
-![Panorama de event_ring_top](figuras/panorama_event_ring_top.svg)
+![Panorama de event_ring_top|1106](figuras/panorama_event_ring_top.svg)
 
-*El PS no lee ningún registro por evento: polea el footer del próximo slot en
-DDR y publica `RD_SLOT` una vez por lote. Sin créditos el writer se frena y el
-descarte ocurre arriba, en la captura, por evento entero. `NOMBRE=valor`:
-parámetros con que el padre instancia el bloque (se omiten los que sólo pasan el
-del padre sin cambio).*
+*El PS no lee ningún registro por evento: lee `WR_SLOT` una vez por lote, valida
+el footer de cada slot en DDR y publica `RD_SLOT` una vez por lote. Sin créditos
+el writer se frena y el descarte ocurre arriba, en la captura, por evento entero.
+Cada bloque dice la función del submódulo; cómo la hace está en su panorama.
+`gen_eventos` es un submódulo más del top: corre con `running`, tiene sus
+registros en `0x100` del slot y, apagado, es un paso directo de la entrada.
+Las redes con nombre se conectan por nombre; en MAYÚSCULAS, los registros.
+`NOMBRE=valor`: parámetros con que el padre instancia el bloque (se omiten los
+que sólo pasan el del padre sin cambio).*
 
-El evento baja de izquierda a derecha: la captura saca una ventana pre + post
-del pre-buffer, el stage la guarda entera (o la rechaza entera, con `accept` en
-el SOF), el writer la serializa en un slot y el `axi_wr_fifo` la escribe en DDR
-por HP2. Arriba, lo que frena al writer sin perder datos: los **créditos**
+El evento baja de izquierda a derecha. El generador de patrones de prueba deja
+pasar la entrada o la reemplaza por disparos y un dato conocido. El segmentador
+(la captura) saca una ventana pre + post, el buffer elástico (el stage) la guarda
+entera o la rechaza entera, con `accept` en el SOF, el empaquetador (el writer)
+la arma en un slot y el `axi_wr_fifo` la escribe en DDR por HP2, en ráfagas. Arriba, lo que frena al writer sin perder datos: los **créditos**
 contra el `RD_SLOT` que publica el PS. Abajo, la contrapresión del FIFO, la FSM
 global y los registros. La fuente es
 [`figuras/panorama_event_ring_top.tex`](figuras/panorama_event_ring_top.tex)
@@ -116,7 +121,7 @@ comparando las dos mitades, sin depender de que "0" sea un valor especial.
 | --------------- | --- | ------------ | ---------------------------------------------------------------------------------------------------------------- |
 | `0x00`          | RW  | `CTRL`       | `[0]` run, `[1]` clr (autolimpiante)                                                                             |
 | `0x00`          | R   |              | `{gst[2:1], run[0]}`                                                                                             |
-| `0x04`          | R   | `STATUS`     | `[2:0]` estado, `[4]` no_credit, `[5]` err_cfg, `[6]` err_slot_ovf, `[7]` fifo_ovf                               |
+| `0x04`          | R   | `STATUS`     | `[1:0]` estado, `[4]` no_credit, `[5]` err_cfg, `[6]` err_slot_ovf, `[7]` fifo_ovf                               |
 | `0x08`          | RW  | `SLOT_BASE`  | dirección física de DDR. **Latchea sólo en STOPPED**                                                             |
 | `0x0C`          | RW  | `RING_SZ`    | bytes. **Latchea sólo en STOPPED**                                                                               |
 | `0x10`          | RW  | `SLOT_SHIFT` | `log2(bytes/slot)`. **Latchea sólo en STOPPED**                                                                  |

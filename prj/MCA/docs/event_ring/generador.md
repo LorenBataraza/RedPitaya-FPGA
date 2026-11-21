@@ -269,6 +269,8 @@ make campana-etapas-ring-remoto OUT=datos/etapas_<fecha> ETAPAS=A,B,C ARGS="--ca
 | `copia` | `medir('copia')`, si se la pide: separa el costo de copiar del de verificar |
 | B | `medir('verificar')` |
 | C | `AdquisicionRing` (`RingSource` con el generador y `AcquisitionSession`, npz o LH5) a `--destino`; después lee los archivos y los verifica en numpy con las reglas de B. Con `--red`, la sesión corre en el servidor de la placa (abajo) |
+| D0 | el ring por red, sin disco (siempre con `--red`): la placa manda los slots desde C (`EmisionRing`) y la PC los recibe y los descarta. Es el techo de la placa y la red juntas ([`salida_por_red.md`](salida_por_red.md), «El ring por red») |
+| D | lo mismo guardando: el stream a `ring_*.bin` en la PC, `convertir` a la sesión y la verificación de C. Las cuentas del stream (`EV_CNT`, los descartes de las cabeceras) también tienen que cerrar |
 
 - **Las ventanas por defecto** son las seis de la simulación del RTL
   (`figuras/tiempos/geometrias.txt`), con su `slot_shift`.
@@ -285,7 +287,7 @@ make campana-etapas-ring-remoto OUT=datos/etapas_<fecha> ETAPAS=A,B,C ARGS="--ca
 
 - **La cuenta cierra:** `EV_CNT + DROP_BUSY + DROP_FULL = GEN_CNT = N`, y se consumió
   todo lo escrito.
-- **B y C no tienen errores.**
+- **B, C y D no tienen errores.**
 - **`DROP_BUSY` es el que predice el tiempo muerto de la captura.** Un disparo que cae a
   menos de `2·(pre + post) + 3` ciclos de la marca del último aceptado se descarta. Un
   descarte no extiende ese tiempo.
@@ -456,6 +458,10 @@ etapa. Comando: `--ventanas 8+24 --modos periodico --sin-techo --n 1e8 --seg-max
    están hechos y probados sin placa (arriba); falta correrla en la placa, contra las
    mismas tres ventanas que la SD y `/dev/shm`. LH5: la placa tiene h5py 3.6; falta
    correrla, por la red y contra la SD.
+7. **El ring por red, D0 y D** (libmca 0.12.0, [`salida_por_red.md`](salida_por_red.md)):
+   hechos y probados sin placa el 2026-11-14. Falta medirlos en la placa: primero
+   `make bench-tcp-placa` (TCP solo), después `make campana-etapas-ring-por-red`, con la
+   PC cableada a la red de la placa.
 
 ## Dónde está
 

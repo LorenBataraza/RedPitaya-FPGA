@@ -1,13 +1,13 @@
-En estilo datapath, para una hoja A4. Las entradas bajan por arriba; la muestra
-baja por la columna de la entrada, cruza `mca_pulse_feature` (la base, la
-ventana y la publicación) y cae en el bus de features, del que cuelgan los ejes,
-el discriminador y los histogramas. Los números sobre las flechas son anchos en
-bits. El color es la función del bloque (la leyenda). El banco de trapecios va
-como preprocesamiento: es un filtro sobre toda la señal, compartido por las
-ranuras, y lo que es de cada pulso es la suma en su ventana. Nombre en
-monoespaciada, con encabezado: submódulo con archivo propio; en romana y en un
-solo tono: lógica escrita en el módulo que lo contiene. Gris con triángulo:
-registro del RTL. **Dn**: decisión configurable por registro; cada una tiene su
-figura de opciones en `figuras/decisiones/`. `NOMBRE=valor`: parámetros con que
-el padre instancia el bloque (se omiten los que sólo pasan el del padre sin
+En estilo datapath, para una hoja A4. Las entradas bajan por arriba. La muestra
+entra con el canal ya elegido, decimada y retrasada: el mux de canal, la
+decimación y `mca_delay`, que están en `mca_top`, no se dibujan. Cruza
+`mca_pulse_feature` (la base, la ventana y la publicación) y cae en el bus de
+features, del que cuelgan los ejes, el discriminador y los histogramas. Los
+números sobre las flechas son anchos en bits. El color es la función del bloque
+(la leyenda). El banco de trapecios va con la línea de base: es un filtro sobre
+toda la señal, compartido por las ranuras, y lo que es de cada pulso es la suma
+en su ventana. Nombre en monoespaciada, con encabezado: submódulo con archivo
+propio; en romana y en un solo tono: lógica escrita en el módulo que lo
+contiene. Gris con triángulo: registro del RTL. `NOMBRE=valor`: parámetros con
+que el padre instancia el bloque (se omiten los que sólo pasan el del padre sin
 cambio).

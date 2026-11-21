@@ -1,5 +1,10 @@
-Hay un solo contador para todos los destinos. Con una fuente de nivel
-(`ext_lvl`) el escudo dispara cada ciclo que la línea está alta y cada disparo
-recarga `dur`: el veto dura la línea más `dur` ciclos. Los canales que no están
-en `dst` siguen al clear de software (`sw_clr`) sin cambio. `NOMBRE=valor`:
-parámetros con que lo instancia `mt_event_logic`.
+Una fila por registro. `src_fire` es el OR de las fuentes habilitadas que
+disparan. Con `src_fire`, `cnt` carga `dur`; si no, mientras `active`, cuenta
+hacia abajo, y `vence` (`active` y `cnt ≤ 1`) termina el holdoff. El pulso
+`clr_q` re-arma los destinos al vencer, o al disparar si `dur = 0`. Hay un solo
+contador para todos los destinos. Con una fuente de nivel (`ext_lvl`) el escudo
+dispara cada ciclo que la línea está alta y cada disparo recarga `dur`: el veto
+dura la línea más `dur` ciclos. Los canales que no están en `dst` siguen al
+clear de software sin cambio. Nombres sin cable (`src_fire`, `active`, `vence`,
+`dst[N]`): la señal del mismo nombre, que se dibuja una sola vez donde nace.
+`NOMBRE=valor`: parámetros con que lo instancia `mt_event_logic`.

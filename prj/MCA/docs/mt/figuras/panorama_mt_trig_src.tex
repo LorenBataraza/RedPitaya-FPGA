@@ -1,11 +1,17 @@
-% Panorama de MT_TRIG_SRC: la selección y el enmascarado de UN canal. Concatena
-% las 25 fuentes en un vector, lo enmascara con la OR-mask (set_trig_src) y con
-% el protect (adc_trg_dis), y registra el OR del resultado. El disparo se
-% realimenta: engancha el protect y, en single-shot, limpia la máscara. El
-% borde grueso es el límite del módulo; lo que lo cruza son sus puertos, sólo
-% con el nombre.
+% Panorama de MT_TRIG_SRC: la selección y el enmascarado de UN canal, en el
+% estilo de panorama_mt.tex. Concatena las 29 fuentes en un vector de 32 b (acá
+% sí: la concatenación es de este módulo), lo enmascara con la máscara OR
+% (set_trig_src) y con el disable (adc_trg_dis), y registra el OR del resultado.
+% Con el armado de cada fuente en vez de su pulso sale puede_o: el canal puede
+% disparar ya. El disparo se realimenta: engancha el disable y, en single-shot,
+% limpia la máscara (la línea «disparo», rotulada en vez de dibujada).
 % Fuente: modulos/mt/rtl/mt_trig_src.sv. Estilo: docs/figuras/estilo_tikz.tex.
-% El epígrafe no va en la figura: está en panorama_mt_trig_src.txt y en el doc que la incluye.
+%
+% EL COLOR ES LA FUNCIÓN, como en panorama_mt.tex: azul detección (el disparo
+% por software, estirado a la próxima muestra), amarillo selección, gris
+% registros. Las operaciones van con su símbolo.
+% El epígrafe no va en la figura: está en panorama_mt_trig_src.txt y en el doc
+% que la incluye.
 %
 % Compilar:   pdflatex panorama_mt_trig_src.tex
 %             pdftocairo -svg panorama_mt_trig_src.pdf panorama_mt_trig_src.svg
@@ -16,69 +22,100 @@
 \usepackage{lmodern}
 \usepackage[none]{hyphenat}
 \input{../../figuras/estilo_tikz.tex}
-
-\tikzset{logica/.style = {etapa=amarillo!40, text width=3.0cm}}
+\tikzset{
+  detlog/.style = {etapa=azul!15},
+  ry/.style     = {puerta y=#1, fill=amarillo, minimum height=0.55cm, minimum width=0.5cm},
+  ry/.default   = nn,
+  ro/.style     = {puerta o, fill=amarillo, minimum height=0.55cm, minimum width=0.5cm},
+  chico/.style  = {font=\tiny, inner sep=1pt, align=center},
+}
+% «disparo»: la salida del registro adc_trig, realimentada. Se rotula en vez de
+% dibujarla para no cruzar las salidas. #1 = punta de la flecha, #2 = de dónde.
+\newcommand{\disparo}[2]{\draw[ctrl] #2 node[chico, black!80, above] {disparo} -- #1;}
 
 \begin{document}
 \begin{tikzpicture}[fondo]
 
-\def\xin{-0.6}    % donde arrancan las entradas
-\def\xout{16.4}   % donde terminan las salidas
-\def\ytop{6.4}    % de donde bajan las de control
+\def\xin{-0.15}   % donde arrancan las entradas
+\def\xout{13.0}  % donde terminan las salidas
+\def\xb{4.0}      % la concatenación
 
 % ================================================================ bloques ===
-\node[logica, text width=2.4cm, minimum height=1.3cm] (sw) at (2.2,2.75)
-  {\etq{SW estirado}{\texttt{trig\_sw} espera a la\\ próxima muestra válida}};
-\node[logica, minimum height=1.6cm] (msk) at (7.6,4.1)
-  {\etq{máscara \texttt{set\_trig\_src}}{carga con \texttt{set\_trg\_new};\\ la limpia \texttt{rst\_do}, y en\\ single-shot \texttt{dly\_do} o el disparo}};
-\node[logica, text width=3.5cm, minimum height=1.6cm] (and) at (7.6,0.6)
-  {\etq{enmascarado}{\texttt{hit = fuentes \& máscara}\\ \texttt{\& !adc\_trg\_dis}\\[1pt] \texttt{trig\_comb = |hit}}};
-\node[logica, minimum height=1.4cm] (pro) at (7.6,-2.8)
-  {\etq{\emph{protect} \texttt{adc\_trg\_dis}}{se engancha con el disparo;\\ lo limpia \texttt{trig\_dis\_clr}}};
-\node[comp, text width=1.6cm, minimum height=1.0cm] (ff) at (11.6,0.6)
-  {\etq{registro}{\texttt{adc\_trig}}};
+\node[detlog, text width=3.2cm] (sw) at (1.95,1.4)
+  {\etq{SW}{un disparo por escritura,\\ en la muestra válida siguiente}};
+\node[registro=2.1cm] (msk) at (6.2,2.45) {máscara\\[-1pt] \texttt{set\_trig\_src}};
+\node[registro=1.6cm] (dis) at (6.2,-3.0) {disable\\[-1pt] \texttt{adc\_trg\_dis}};
+\node[ry=ni] (y1) at (8.35,1.0) {};
+\node[ry] (y2) at (9.4,-0.35) {};
+\node[ro] (o2) at (10.25,-0.35) {};
+\node[registro=1.4cm] (ff) at (11.65,-0.35) {\texttt{adc\_trig}};
+\node[ry] (y3) at (9.4,-1.75) {};
+\node[ro] (o3) at (10.25,-1.75) {};
 
 % ============================================================== el límite ===
-\node[contenedor, fit={(0.55,5.55) (14.0,-3.95)}] (lim) {};
-\node[titulo, anchor=south west, inner sep=2pt, align=left] at (lim.north west)
-  {\texttt{\bfseries mt\_trig\_src}\;\; {\scriptsize\itshape uno por canal}\\ \prm{CHN=GV & SRC\_W=32}};
+\node[contenedor, fit={(0.1,3.55) (12.65,-3.75)}] (lim) {};
+\node[titulo] at (0.1,3.55)
+  {\texttt{\bfseries mt\_trig\_src}\;\; {\scriptsize\itshape uno por canal}\\[1pt] \prm{CHN=GV}};
 
 % ============================================================ las fuentes ===
-\def\xb{4.3}     % el bus de 25 fuentes
-\draw[line width=2.0pt] (\xb,3.3) -- (\xb,-1.45);
-\node[sen, anchor=south] at (\xb,3.3) {25 fuentes};
-\draw[flujo] (\xin,3.05) node[left, sen] {adc\_trig\_sw\_i} -- (sw.west |- 0,3.05);
-\draw[ctrl] (\xin,2.45) node[left, sen, black!80] {dly\_valp\_i} -- (sw.west |- 0,2.45);
-\draw[flujo] (sw.east) -- node[sen, below, pos=0.5] {0} (\xb,0 |- sw.east);
-\draw[flujo, ancho=8, ancho en=0.35] (\xin,1.35) node[left, sen] {adc\_trig\_p/n\_i} -- node[sen, below, pos=0.75] {1--8} (\xb,1.35);
-\draw[flujo, ancho=4, ancho en=0.35] (\xin,0.55) node[left, sen, align=right] {ext\_trig\_p/n\_i\\ asg\_trig\_p/n\_i} -- node[sen, below, pos=0.75] {9--12} (\xb,0.55);
-\draw[flujo, ancho=4, ancho en=0.35] (\xin,-0.25) node[left, sen] {trig\_ch\_i} -- node[sen, below, pos=0.75] {13--16} (\xb,-0.25);
-\draw[flujo, ancho=8, ancho en=0.35] (\xin,-1.05) node[left, sen] {slope\_p/n\_i} -- node[sen, below, pos=0.75] {17--24} (\xb,-1.05);
-\draw[flujo, ancho=32, ancho en=0.5] (\xb,0.6) -- (and.west);
+\draw[line width=2.0pt] (\xb,1.7) -- (\xb,-2.25);
+\node[sen, anchor=north] at (\xb,-2.25) {29--31: 0};
+\draw[flujo] (\xin,1.55) node[left, sen] {adc\_trig\_sw\_i} -- (sw.west |- 0,1.55);
+\draw[ctrl] (\xin,1.1) node[left, sen, black!80] {dly\_valp\_i} -- (sw.west |- 0,1.1);
+\draw[flujo] (sw.east) -- node[sen, below, pos=0.6] {0} (\xb,0 |- sw.east);
+\draw[flujo, ancho=8, ancho en=0.3] (\xin,0.45) node[left, sen] {adc\_trig\_p/n\_i}
+  -- node[sen, below, pos=0.82] {1--8} (\xb,0.45);
+\draw[flujo, ancho=2, ancho en=0.3] (\xin,-0.05) node[left, sen] {ext\_trig\_p/n\_i}
+  -- node[sen, below, pos=0.82] {9--10} (\xb,-0.05);
+\draw[flujo, ancho=2, ancho en=0.3] (\xin,-0.55) node[left, sen] {asg\_trig\_p/n\_i}
+  -- node[sen, below, pos=0.82] {11--12} (\xb,-0.55);
+\draw[flujo, ancho=4, ancho en=0.3] (\xin,-1.05) node[left, sen] {trig\_ch\_i}
+  -- node[sen, below, pos=0.82] {13--16} (\xb,-1.05);
+\draw[flujo, ancho=8, ancho en=0.3] (\xin,-1.55) node[left, sen] {slope\_p/n\_i}
+  -- node[sen, below, pos=0.82] {17--24} (\xb,-1.55);
+\draw[flujo, ancho=4, ancho en=0.3] (\xin,-2.05) node[left, sen] {pz\_p\_i}
+  -- node[sen, below, pos=0.82] {25--28} (\xb,-2.05);
 
-% ============================================================ control ======
-\draw[ctrl] (6.6,\ytop) node[above left, sen, black!80, align=right] {set\_trg\_src\_i\\ set\_trg\_new\_i} -- (6.6,0 |- msk.north);
-\draw[ctrl] (8.6,\ytop) node[above right, sen, black!80, align=left] {adc\_rst\_do\_i, adc\_dly\_do\_i\\ adc\_we\_keep\_i} -- (8.6,0 |- msk.north);
-\draw[ctrl] (\xin,-2.8) node[left, sen, black!80] {trig\_dis\_clr\_i} -- (pro.west);
+% ================================================= la máscara y el disable ===
+\draw[flujo, ancho=32, ancho en=0.45] (5.45,4.15) node[above left, sen, xshift=6pt] {set\_trg\_src\_i} -- (5.45,0 |- msk.north);
+\draw[ctrl] (6.2,4.15) node[above right, sen, black!80, xshift=-6pt] {set\_trg\_new\_i}
+  -- node[chico, black!80, left, pos=0.8] {carga} (6.2,0 |- msk.north);
+\disparo{(6.95,0 |- msk.north)}{(6.95,3.3)}
+\draw[ctrl] (\xin,2.45) node[left, sen, black!80, align=right]
+  {adc\_rst\_do\_i\\ adc\_dly\_do\_i\\ adc\_we\_keep\_i} -- node[chico, black!80, above, pos=0.85] {limpia} (msk.west);
+\draw[ctrl] (\xin,-3.0) node[left, sen, black!80] {trig\_dis\_clr\_i}
+  -- node[chico, black!80, above, pos=0.85] {limpia} (dis.west);
+\disparo{(dis.north)}{(6.2,-2.2)}
 
-% ============================================================ adentro ======
-\draw[flujo, anchov=32, ancho en=0.45] (msk.south) -- (and.north);
-\draw[flujo] (pro.north) -- (and.south);
-\draw[flujo] (and.east) -- node[sen, above, pos=0.45] {trig\_comb} (ff.west);
+% --- la máscara viva: la máscara, salvo con el disable enganchado ---
+\punto{7.45,2.45}
+\draw[flujo] (7.45,2.45) |- (y1.input 1);
+\draw[flujo, ancho=32, ancho en=0.25] (\xb,0 |- y2.input 2) -- (y2.input 2);
+\punto{7.7,-3.0}
+\draw[flujo, cruce] (7.7,-3.0) |- (y1.input 2);
+\draw[flujo] (y1.output) -- (8.85,0 |- y1.output);
+\punto{8.85,1.0}
+\draw[flujo] (8.85,1.0) |- (y2.input 1);
+\draw[flujo] (8.85,1.0) |- (y3.input 1);
 
-% --- el disparo se realimenta ---
-\coordinate (jt) at (13.0,0.6);
-\punto{jt}
-\draw[flujo] (jt) -- (13.0,4.5) -- node[sen, above, pos=0.5] {disparo} (msk.east |- 0,4.5);
-\draw[flujo] (jt) -- (13.0,-2.45) -- node[sen, above, pos=0.5] {disparo} (pro.east |- 0,-2.45);
+% --- fuentes y máscara: el disparo ---
+\draw[flujo] (y2.output) -- ($(o2.input 1)!0.5!(o2.input 2)$);
+\draw[flujo] (o2.output) -- (ff.west);
+\draw[flujo] (ff.east) -- (\xout,0 |- ff.east) node[right, sen] {adc\_trig\_o};
+\punto{12.5,-0.35}
+\draw[ctrl] (12.5,-0.35) -- (12.5,0.25) node[chico, black!80, above] {disparo};
 
-% --- salidas: sólo el nombre ---
-\draw[flujo] (ff.east) -- (\xout,0.6) node[right, sen] {adc\_trig\_o};
-\draw[flujo, ancho=32, ancho en=0.82, cruce] (msk.east |- 0,3.7) -- (\xout,3.7) node[right, sen] {trg\_state\_o};
-\draw[flujo, cruce] (pro.east |- 0,-3.15) -- (\xout,-3.15) node[right, sen] {adc\_trg\_dis\_o};
+% --- con el armado de cada fuente en vez de su pulso: puede ---
+\draw[flujo, ancho=32, ancho en=0.3] (9.0,-4.3) node[below, sen] {armado\_i} |- (y3.input 2);
+\draw[flujo] (y3.output) -- ($(o3.input 1)!0.5!(o3.input 2)$);
+\draw[flujo] (o3.output) -- (\xout,0 |- o3.output) node[right, sen] {puede\_o};
+
+% --- salidas de los registros ---
+\draw[flujo, ancho=32, ancho en=0.75] (msk.east) -- (\xout,0 |- msk.east) node[right, sen] {trg\_state\_o};
+\draw[flujo] (dis.east) -- (\xout,0 |- dis.east) node[right, sen] {adc\_trg\_dis\_o};
 
 % ================================================================= leyenda ===
-\leyenda{-2.6,-4.8}{amarillo!40/lógica del canal, grisr/registro}{}
+\leyenda{0.2,-5.15}{azul!15/detección, amarillo/selección, grisr/registros}{}
 
 \end{tikzpicture}
 \end{document}

@@ -1,10 +1,14 @@
 Dónde se frena y dónde se descarta en el `event_ring` cuando algo no alcanza.
 Sólo la captura descarta: el trigger y las muestras le llegan sin ready, así que
 no puede frenarlos, y el evento que no puede tomar lo pierde entero y lo cuenta
-(flecha roja). El stage, el writer y el `axi_wr_fifo` sólo bloquean: las flechas
-de vuelta son la contrapresión, que sube hasta la captura sin perder nada.
-(1) Sin slots libres en DDR, `credit_ok = 0` y el writer espera en `W_IDLE`.
-(2) Con el FIFO casi lleno, `wr_rdy = 0` y el writer espera a mitad de slot.
+(flecha roja). El stage y el writer sólo bloquean: las flechas de vuelta son la
+contrapresión, que sube hasta la captura sin perder nada. El `axi_wr_fifo` no
+frena por sí mismo, y si se lo empujara lleno descartaría: lo frena el top, que
+calcula `wr_rdy` con su propia cuenta de ocupación, `fifo_occ`.
+(1) El PS lee los slots de la DDR y devuelve los créditos escribiendo `RD_SLOT`
+por GP0; la PL no lee la DDR. Si `WR_SLOT − RD_SLOT` llega a `N`, no hay slots
+libres, `credit_ok = 0` y el writer espera en `W_IDLE`.
+(2) Con `fifo_occ ≥ 248`, `wr_rdy = 0` y el writer espera a mitad de slot.
 Frenado el writer, deja de leer el stage (`rd`) y el stage se llena. (3) Si la
 ventana entera no entra en el stage, `s_accept = 0` y la captura descarta el
 evento en `DROP_FULL`. (4) Si el trigger cae mientras la captura todavía drena

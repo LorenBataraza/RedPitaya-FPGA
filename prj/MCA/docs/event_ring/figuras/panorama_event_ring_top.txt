@@ -1,5 +1,9 @@
-El PS no lee ningún registro por evento: polea el footer del próximo slot en DDR
-y publica `RD_SLOT` una vez por lote. Sin créditos el writer se frena y el
-descarte ocurre arriba, en la captura, por evento entero. `NOMBRE=valor`:
-parámetros con que el padre instancia el bloque (se omiten los que sólo pasan el
-del padre sin cambio).
+El PS no lee ningún registro por evento: lee `WR_SLOT` una vez por lote, valida
+el footer de cada slot en DDR y publica `RD_SLOT` una vez por lote. Sin créditos
+el writer se frena y el descarte ocurre arriba, en la captura, por evento entero.
+Cada bloque dice la función del submódulo; cómo la hace está en su panorama.
+`gen_eventos` es un submódulo más del top: corre con `running`, tiene sus
+registros en `0x100` del slot y, apagado, es un paso directo de la entrada.
+Las redes con nombre se conectan por nombre; en MAYÚSCULAS, los registros.
+`NOMBRE=valor`: parámetros con que el padre instancia el bloque (se omiten los
+que sólo pasan el del padre sin cambio).

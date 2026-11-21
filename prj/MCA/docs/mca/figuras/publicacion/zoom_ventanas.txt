@@ -1,0 +1,7 @@
+El zoom de un eje, para el espectro 1D (feature de 16 bits, 8192 canales). (a)
+En el nivel $z$ el rango de la feature se parte en $2^z$ ventanas iguales y
+alineadas, y la ventana $k$ ocupa el histograma entero. Con $z = 2$ y $k = 1$,
+un evento adentro cae en el bin proporcional, y los de afuera saturan en el
+primer y en el último canal. (b) La misma cuenta en bits: los $z$ bits altos se
+comparan con $k$, los 13 siguientes son el bin y el resto se descarta. Basta un
+comparador y un mux, sin restas ni productos.

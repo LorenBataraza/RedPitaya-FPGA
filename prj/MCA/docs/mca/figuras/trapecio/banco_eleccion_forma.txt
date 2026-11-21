@@ -1,0 +1,8 @@
+Cómo se elige la forma que sale en `F_TRAP`. Por cada forma f, dos comparaciones dicen
+si su ventana queda libre de vecinos: el disparo anterior tiene que estar al menos
+antes$_f$ muestras atrás (`F_DTPREV`) y el siguiente, al menos después$_f$ muestras
+adelante (`F_DTNEXT`); la Y da $v_f$. La prioridad toma la primera forma válida, de la
+más larga a la más corta, y su índice $f^*$ elige la suma $S_{f^*}$, que el
+corrimiento por lw convierte en el promedio sobre la meseta. Si ninguna es válida, el
+pulso queda marcado: `F_TRAP` = 0 y `F_FORMA` = `0xFFFF`. Se omiten la habilitación de
+cada forma (`n_formas`) y la comprobación de que la meseta se completó.

@@ -19,7 +19,8 @@ y de las figuras D13: pulsos exponenciales de τ = 50 muestras, k = 32, m = 16,
 pico y la integral en función de la separación, con parámetros de la placa. El
 §8 compara el trapecio con la otra manera de hacerlo: restar en cada ranura la
 cola del pulso anterior. El §9 lo compara con la deconvolución sola (Jordanov,
-MWD), que es el trapecio con k = 1.
+MWD), que es el trapecio con k = 1. El §10 explica por qué hay otro trapecio,
+corto, en el multitrigger.
 
 ---
 
@@ -28,14 +29,14 @@ MWD), que es el trapecio con k = 1.
 **Lo que gana.** Los números son los de la placa (§7: τ = 250, k = 64, m = 48),
 salvo donde se dice otra cosa.
 
-| Beneficio | Por qué | Cuánto |
-|---|---|---|
-| **separa pulsos apilados** | la huella de cada pulso dura 2k+m−1 muestras, por larga que sea la cola: el cero de M se come el polo (§1) | el segundo de un par mide limpio desde Δt ≈ 95 (0.76 µs); el pico y la integral, desde ≈ 1280 (10 µs) (§7). En la placa, a 1 µs de otro y sobre el 61 % de su cola: 2409.05 ± 0.98, contra 2409.08 ± 1.02 aislado |
-| **cuida a los dos pulsos del par** | al primero lo cuida la huella finita; al segundo, la ventana corta al principio del pulso (96 muestras) en vez de toda la compuerta (384) | a 100 kcps, 86 % de pulsos limpios, contra 29 % del pico o la integral y 73 % de la integral menos la cola (§7) |
-| **promedia el ruido** | el trapecio promedia del orden de k muestras de entrada: σ baja como 1/√k | 0.12 % para un pulso solo, contra 0.6 % del pico. La integral sola da 0.07 %, pero se contamina con cualquier vecino |
-| **tolera el disparo y la subida** | la meseta es plana: da lo mismo dónde cae la ventana mientras esté adentro | la latencia del disparo varía de 6 a 9 ciclos (§3); la subida, mientras m > t_c |
-| **sabe si midió limpio** | es lineal y exacto en enteros, y `F_DTPREV` y `F_DTNEXT` dan el Δt de cada evento | el discriminador corta evento por evento (§4) |
-| **es barato** | uno solo sirve a todas las ranuras, y la forma recursiva cuesta lo mismo con cualquier k y m | tres BRAM18 y una multiplicación por forma |
+| Beneficio                          | Por qué                                                                                                                                   | Cuánto                                                                                                                                                                                                            |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **separa pulsos apilados**         | la huella de cada pulso dura 2k+m−1 muestras, por larga que sea la cola: el cero de M se come el polo (§1)                                | el segundo de un par mide limpio desde Δt ≈ 95 (0.76 µs); el pico y la integral, desde ≈ 1280 (10 µs) (§7). En la placa, a 1 µs de otro y sobre el 61 % de su cola: 2409.05 ± 0.98, contra 2409.08 ± 1.02 aislado |
+| **cuida a los dos pulsos del par** | al primero lo cuida la huella finita; al segundo, la ventana corta al principio del pulso (96 muestras) en vez de toda la compuerta (384) | a 100 kcps, 86 % de pulsos limpios, contra 29 % del pico o la integral y 73 % de la integral menos la cola (§7)                                                                                                   |
+| **promedia el ruido**              | el trapecio promedia del orden de k muestras de entrada: σ baja como 1/√k                                                                 | 0.12 % para un pulso solo, contra 0.6 % del pico. La integral sola da 0.07 %, pero se contamina con cualquier vecino                                                                                              |
+| **tolera el disparo y la subida**  | la meseta es plana: da lo mismo dónde cae la ventana mientras esté adentro                                                                | la latencia del disparo varía de 6 a 9 ciclos (§3); la subida, mientras m > t_c                                                                                                                                   |
+| **sabe si midió limpio**           | es lineal y exacto en enteros, y `F_DTPREV` y `F_DTNEXT` dan el Δt de cada evento                                                         | el discriminador corta evento por evento (§4)                                                                                                                                                                     |
+| **es barato**                      | uno solo sirve a todas las ranuras, y la forma recursiva cuesta lo mismo con cualquier k y m                                              | tres BRAM18 y una multiplicación por forma                                                                                                                                                                        |
 
 **Los parámetros.** El detalle está en
 [`register_map_mca.md`](register_map_mca.md) §El conformado trapezoidal.
@@ -128,7 +129,7 @@ $$S(z) = 16\,A\,(1+M)\;\frac{1 - a_M\,z^{-1}}{1 - a\,z^{-1}}\;B_k(z)\,B_l(z)$$
 
 Si el cero cae sobre el polo ($a_M = a$), la fracción vale 1 y la cola
 desaparece de la cuenta. Despejando M:
-
+i
 $$\frac{M}{1+M} = e^{-1/\tau} \quad\Longleftrightarrow\quad M = \frac{1}{e^{1/\tau}-1} \approx \tau - \tfrac12$$
 
 Eso es todo lo que significa «cancelación polo-cero». Lo que queda es
@@ -252,6 +253,37 @@ Y una condición que no es del trapecio: **B tiene que tener ranura.** Con
 
 ## 3. Dónde está cada cosa en el RTL
 
+![El trapecio y su meseta, registro por registro](figuras/datapath_trap_meseta.svg)
+
+*`mca_trap` registro por registro, y cómo su salida se convierte en `F_TRAP`.
+Arriba, el trapecio en dos filas. La regla de cada fila cuenta muestras
+válidas: todos los registros avanzan con `val`, así que la latencia es de 8
+muestras, sea cual sea la decimación. Las tres líneas de retardo son memorias
+circulares con un solo puntero de escritura (`wp`): cada una lee en `wp − k` o
+en `wp − l`, y la tercera vuelve a retrasar por k lo que sale de la de l.
+`cnt` cuenta las muestras desde el `clr` y dice qué tomas existen ya; una que
+todavía no existe lee 0, que es la convención v[<0] = 0 del modelo. `d3` es la
+doble diferencia v[n] − v[n−k] − v[n−l] + v[n−k−l], calculada con una sola
+suma de tres términos. `p4` la integra, `r5` le suma M·d para cancelar el polo
+de la cola (`Mq` = 16·M, por eso `p4` se corre 4 bits) y `s6` integra otra vez.
+`clr` pone en cero el puntero, `cnt` y toda la cuenta; en la figura se marca en
+los integradores, porque ahí un estado inconsistente deja un escalón
+permanente. Abajo está la meseta. `off` se cuenta en muestras del trapecio
+desde el disparo y el trapecio llega 8 muestras tarde, así que `mca_window`
+traslada la ventana [off, off + 2^lw) al marco de la ranura como [ini, fin).
+Las dos saturan a 16 bits: una ventana que no entra nunca se completa. Cada
+`mca_slot` suma el trapecio mientras acumula y `ini ≤ len < fin` (`len`:
+muestras desde el disparo), y cuenta cuántas muestras sumó; al abrir, las dos
+vuelven a cero. Las tres formas suman en paralelo, y al publicar `mca_publish`
+toma la forma `f*` de la ranura que publica (la elección está en la Fig.
+`banco_eleccion_forma`). `F_TRAP` es esa suma corrida lw bits (el promedio
+sobre la meseta), saturada a 16 bits, y vale 0 si la cuenta no llegó a 2^lw (la
+compuerta cerró antes) o si el pulso quedó `marcado`. Nombres sin cable (`k`,
+`wp`, `fk1`, `ini`, `len`, `f*`…): la señal del mismo nombre, que se dibuja una
+sola vez donde nace o viene de otra figura. `NOMBRE=valor`: parámetros con que
+lo instancia `mca_window`. Fuente:
+[`datapath_trap_meseta.tex`](figuras/datapath_trap_meseta.tex).*
+
 | Qué | Dónde | Cómo |
 |---|---|---|
 | **un solo trapecio**, sobre la muestra registrada | [`mca_window.sv:317`](../../modulos/mca/rtl/mca_window.sv#L317) | `mca_trap` sobre `x_q`, la muestra menos la base, con signo (las ranuras usan la saturada a ≥ 0; el trapecio necesita el signo para que el FIR sea exacto) |
@@ -276,10 +308,10 @@ El trapecio no lo sabe: entrega el mismo número esté limpio o no. Lo que lo di
 son las **marcas de solape** que la ranura publica junto con `F_TRAP`, que
 miden justamente el Δt de §2:
 
-| Feature | Qué cuenta | Dónde | Para quién es Δt |
-|---|---|---|---|
-| `F_DTPREV` (6) | muestras desde el disparo **anterior**, haya abierto ranura o no; `0xFFFF` si no hubo o satura | [`mca_window.sv:263-270`](../../modulos/mca/rtl/mca_window.sv#L263-L270) | para **B**: su Δt con A |
-| `F_DTNEXT` (7) | muestras desde la apertura hasta el **siguiente** disparo dentro de la compuerta; `0xFFFF` si no hubo | [`mca_slot.sv:315-316`](../../modulos/mca/rtl/mca_slot.sv#L315-L316) | para **A**: su Δt con B |
+| Feature        | Qué cuenta                                                                                            | Dónde                                                                    | Para quién es Δt        |
+| -------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | ----------------------- |
+| `F_DTPREV` (6) | muestras desde el disparo **anterior**, haya abierto ranura o no; `0xFFFF` si no hubo o satura        | [`mca_window.sv:263-270`](../../modulos/mca/rtl/mca_window.sv#L263-L270) | para **B**: su Δt con A |
+| `F_DTNEXT` (7) | muestras desde la apertura hasta el **siguiente** disparo dentro de la compuerta; `0xFFFF` si no hubo | [`mca_slot.sv:315-316`](../../modulos/mca/rtl/mca_slot.sv#L315-L316)     | para **A**: su Δt con B |
 
 Con las dos, la condición de §2 se escribe evento por evento:
 
@@ -656,6 +688,93 @@ usan 3.
 
 ---
 
+## 10. Un trapecio en el multitrigger y otro en el MCA
+
+El mismo `mca_trap` aparece dos veces. En el MCA es el banco de formas que mide
+`F_TRAP`. En el multitrigger es una fuente de disparo,
+[`mt_pz_trig`](../mt/disparo_polo_cero.md). Los dos usan la misma cuenta y el
+mismo `Mq`; lo que cambia es el trabajo, y con él la escala. Es la arquitectura
+clásica de **canal rápido y canal lento** (*fast* y *slow filter*): un filtro
+corto para saber cuándo y cuántos pulsos hay, y uno largo para medir cuánto vale
+cada uno.
+
+| | multitrigger ([`mt_pz_trig.sv`](../../modulos/mt/rtl/mt_pz_trig.sv)) | MCA ([`mca_window.sv`](../../modulos/mca/rtl/mca_window.sv)) |
+|---|---|---|
+| forma | k = 2, m = 1 | el banco: 64/48, 32/24 y 8/8 |
+| para qué | **detectar** cada pulso y su instante | **medir** la amplitud |
+| huella, 2k+m−1 | 4 muestras | 175 con la 64/48 |
+| ruido, σ·√(2/k) | ≈ σ | ≈ 0.18·σ con la 64/48 |
+| entrada | la muestra cruda del tap, sin restar la base | la muestra menos la base de `mca_baseline` |
+| salida | un pulso de un ciclo, del Schmitt | la meseta sumada en la ventana (`F_TRAP`) |
+
+### En el multitrigger: que cada pulso dispare, a la misma distancia de su pie
+
+El trapecio reemplaza al disparo por pendiente, que no cancela el polo. Los
+números son los de [`disparo_polo_cero.md`](../mt/disparo_polo_cero.md):
+
+| | pendiente (L = 8, G = 4) | polo-cero (k = 2, m = 1) |
+|---|---|---|
+| dos disparos para un par 1 → 0.6, desde (placa) | 24 muestras | 10 |
+| un pulso de 0.04 en la cola de otro, desde (placa) | 400 | 9 |
+| latencia hasta `trig_i`, A = 8000 → 100 (simulado) | 7 → 14 ciclos | 12 → 14 |
+
+- **La pendiente queda ciega en la cola.** Sobre la cola de un pulso grande es
+  negativa durante cientos de muestras, y uno chico encima no llega al umbral.
+  Con el polo-cero, cada pulso vuelve a cero a las ~5 muestras, apoyado en cero
+  aunque haya cola debajo.
+- **La pendiente funde pares** a menos de ~2L + G muestras en un solo disparo.
+- **El instante corre menos con la amplitud:** 2 ciclos, contra 7 de la
+  pendiente.
+
+No mejora solo la determinación del inicio del evento: hace que **cada pulso
+dispare, aun apilado, y siempre a la misma distancia de su pie**.
+
+### En el MCA: el ruido y la cola, no la continua
+
+**El trapecio del MCA no compensa la línea de base continua.** Esa la resta
+antes `mca_baseline` (§8): el banco recibe x = dat − base
+([`mca_window.sv:154`](../../modulos/mca/rtl/mca_window.sv#L154)). Y tiene que
+restarla antes, porque el polo-cero deja pasar la continua. Una entrada
+constante D da 16·D·k·l, y un pulso de alto D da 16·D·k·(1+M) (§1). Cada cuenta
+de base sin restar corre la amplitud l/(1+M) cuentas:
+
+| | l/(1+M), con M ≈ 250 |
+|---|---|
+| multitrigger, 2/1 | 0.012: la base de la placa (~5 cuentas) no se nota |
+| MCA, 64/48 | 0.45: 10 cuentas de base correrían la amplitud 4.5 |
+
+Lo que sí hace el banco:
+
+1. **Promedia el ruido**, que baja como σ·√(2/k) (§9). Por eso conviene una k
+   larga.
+2. **Saca la cola de los pulsos anteriores** con el término `Mq·d` (§1, §8). Esa
+   es la «base» que se mueve con el apilamiento, no la continua.
+3. **Tolera la subida y el jitter del disparo** con la meseta, si m es mayor
+   que t_c más el jitter (§3, §5).
+
+### Por qué no alcanza con uno
+
+- **El corto no mide.** Con k = 2 el ruido es ≈ σ, unas 5.6 veces el de la
+  64/48.
+- **El largo no dispara.** Con 175 muestras de huella y 64 de subida, dos
+  pulsos a 20 muestras dan un solo trapecio con dos escalones, y el cruce del
+  umbral corre con la amplitud a lo largo de la subida.
+- **Y se necesitan entre sí:**
+  - **Las distancias del banco vienen del multitrigger.** El banco elige la
+    forma con `F_DTPREV` y `F_DTNEXT`, que son distancias entre disparos del
+    multitrigger (§4). Si el disparo fundiera un par, el MCA lo mediría con la
+    64/48 como si estuviera solo: contaminado y sin marca.
+  - **La meseta corta depende del disparo.** Como el disparo corre 2 ciclos
+    con la amplitud, la ventana de cada forma cae siempre en el mismo lugar de
+    la meseta, y la meseta puede ser corta: m = 8 en la 8/8.
+
+En resumen: **en el multitrigger es el canal rápido** (cuándo y cuántos pulsos);
+**en el MCA, el canal lento** (cuánto mide cada uno). El polo-cero hace en los
+dos lo mismo: que la cola de un pulso no afecte al siguiente, ni a su disparo ni
+a su medida.
+
+---
+
 ## Verificación
 
 - [`tb_mca_trap`](../../modulos/mca/sim/tb_mca_trap.sv): la salida de
@@ -676,5 +795,7 @@ estimadores).
 
 **Relacionados →** [`vista_general_mca.md`](vista_general_mca.md) §2.5 (D13),
 [`register_map_mca.md`](register_map_mca.md) §El conformado trapezoidal (cómo
-elegir k, m, M y la ventana), y el datasheet de
-[`mca_trap`](../datasheet/datasheet_mca_trap.md).
+elegir k, m, M y la ventana), el datasheet de
+[`mca_trap`](../datasheet/datasheet_mca_trap.md), y
+[`disparo_polo_cero.md`](../mt/disparo_polo_cero.md) (el trapecio corto del
+multitrigger, §10).

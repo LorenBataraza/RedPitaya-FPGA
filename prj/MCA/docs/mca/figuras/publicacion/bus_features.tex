@@ -38,19 +38,29 @@
 \node[font=\scriptsize, align=center] at (mx) {N:1};
 \draw[flujo, ancho=$N\times$] ([xshift=3.6mm]ran.east |- mx-in) -- (mx-in);
 
-\node[registro=1.6cm, align=center] (cola) at (1.55,-5.15)
-  {cola de índices\\[-1pt]{\tiny orden de cierre}};
+% la cola de índices: una FIFO de N_ACC lugares con el número de cada ranura
+% cerrada; la cabeza (a la derecha) es la que cerró primero. Ejemplo: cerró la
+% 2 y después la 0; el lugar libre es el próximo en llenarse.
+\node[registro=1.5cm, minimum height=0.55cm] (cola) at (1.55,-5.15) {};
+\foreach \x in {1.3,1.8} \draw[line width=0.5pt] (\x,-4.875) -- (\x,-5.425);
+\node[font=\scriptsize, black!45] at (1.05,-5.12) {--};
+\node[font=\scriptsize\ttfamily] at (1.55,-5.12) {0};
+\node[font=\scriptsize\ttfamily] at (2.05,-5.12) {2};
+\node[font=\tiny, align=center, anchor=north] at (1.55,-5.5)
+  {cola de índices\\[-1pt]N\_ACC lugares, en orden de cierre};
 \node[registro=0.9cm] (cur) at (4.75,-5.15) {\texttt{cur}};
-\draw[ctrl] (cola) -- (cur);
+\draw[ctrl] (cola.east) -- node[above, font=\tiny, align=center] {cabeza, o la que\\[-2pt] cierra si está vacía} (cur);
 \draw[ctrl] (cur) -- (mx-sel);
-\draw[ctrl] (ran.south -| 1.55,0) -- node[right, font=\tiny, align=left] {\texttt{acepta}} (cola);
+\draw[ctrl] (ran.south -| 1.05,0) -- node[right, font=\tiny, align=left] {\texttt{acepta}:\\[-1pt]entra su número} (1.05,-4.875);
+% al terminar, la ranura cur queda libre y su número sale de la cola
+\draw[ctrl] (cur.east) -- ++(0.45,0) |- (0.3,-6.25) -- node[left, font=\tiny\ttfamily, pos=0.5] {libera} (0.3,-3.3);
 
 %--------------------------------------------------------------- divisores ---
 \node[datos, text width=2.7cm, minimum height=1.25cm] (div) at (6.75,0.55)
   {\blk{mca\_div\_restore $\times$ 2}{$Q_\mathrm{cola}/Q_\mathrm{tot}$ y pico$/Q_\mathrm{tot}$\\
    16 ciclos, en paralelo}};
 \node[etapa=naranja!55, text width=1.95cm, minimum height=0.75cm] (ft) at (7.3,-3.05)
-  {\texttt{feat\_trap}\\[-1pt]{\tiny la forma por \texttt{dt\_*};\\ suma$\gg$lw, 0 si incompleta}};
+  {\texttt{feat\_trap}\\[-1pt]{\tiny la forma por \texttt{dt\_*};\\ suma$\gg$lw; 0 si la cuenta\\ $\neq 2^{lw}$ (meseta incompleta)}};
 
 %------------------------------------------------------------ los 16 carriles ---
 \carril{0}{azul!25}{F\_PEAK}
@@ -73,7 +83,9 @@
         ([yshift=1.6mm]path picture bounding box.south) --
         ([xshift=1.1mm]path picture bounding box.south);}] (bus) {};
 \node[font=\scriptsize, anchor=south, align=center] at (bus.north)
-  {\texttt{ev\_feat}: 16 $\times$ 16 b, un registro\\[-1pt]{\tiny se carga entero en \texttt{div\_valid}}};
+  {\texttt{ev\_feat}: un registro de 256 b\\[-1pt]{\tiny 16 campos de 16 b}};
+% la carga: una sola habilitación para los 16 campos
+\draw[ctrl] (10.0,-5.0) node[below, font=\tiny] {en: \texttt{div\_valid}} -- (10.0,-4.5);
 
 % de dónde sale cada grupo: llaves a la izquierda
 \draw[llave] (9.3,0.3) -- (9.3,-0.3) coordinate[midway] (g01);
@@ -101,9 +113,17 @@
 \coordinate (b) at (12.55,0);
 \draw[line width=1.6pt] (b |- 0,0.25) -- (b |- 0,-4.35);
 \draw[flujo, line width=1.2pt] (bus.east |- 0,-1.6) -- (b |- 0,-1.6);
+\node[font=\tiny, align=center, anchor=north, fill=white, inner sep=1pt] at (12.85,-4.4)
+  {los 256 b\\[-2pt]en paralelo};
 
-\node[comp, text width=2.4cm, minimum height=0.95cm, anchor=west] (disc) at (13.0,-0.05)
-  {\blk{mca\_discriminator}{una feature en [min, max]}};
+% el discriminador tiene su propio mux: elige la feature igual que un eje
+\node[comp, text width=1.3cm, minimum height=0.8cm, anchor=west] (disc) at (13.0,-0.05)
+  {mux 16:1\\[-1pt]{\tiny\ttfamily cfg\_discr\_sel}};
+\node[comp, text width=1.15cm, minimum height=0.8cm, anchor=west, font=\scriptsize] (dcmp) at (14.75,-0.05)
+  {\mbox{$f \ge \min$}\\[-1pt]\mbox{$f \le \max$}};
+\draw[flujo] (disc) -- (dcmp);
+\node[grupo, fit=(disc)(dcmp), inner sep=3pt] (gdisc) {};
+\node[font=\tiny\ttfamily, anchor=south west, inner sep=1pt] at (gdisc.north west) {mca\_discriminator};
 \foreach \n/\s/\y in {1d/sel\_1d/-1.45, 2dx/sel\_2dx/-2.6, 2dy/sel\_2dy/-3.75} {
   \node[comp, text width=1.15cm, minimum height=0.8cm, anchor=west] (m\n) at (13.0,\y)
     {mux 16:1\\[-1pt]{\tiny\ttfamily cfg\_\s}};
@@ -117,9 +137,13 @@
 % compuertas van antes del registro de pipeline, que registra todo junto.
 \node[circle, draw=black, line width=0.5pt, inner sep=1pt, font=\tiny] (y1) at (16.85,-0.05) {\&};
 \node[circle, draw=black, line width=0.5pt, inner sep=1pt, font=\tiny] (y2) at (17.55,-0.05) {\&};
-\draw[ctrl] (disc.east) -- node[above, font=\tiny\ttfamily] {discr\_ok} (y1);
-\draw[ctrl] (16.85,0.5) node[above, font=\tiny\ttfamily, anchor=south east, xshift=4pt] {ev\_valid} -- (y1.north);
-\draw[ctrl] (17.55,0.5) node[above, font=\tiny\ttfamily, anchor=south west, xshift=-4pt] {ev\_psd\_ok} -- (y2.north);
+\draw[ctrl] (dcmp.east) -- node[below, font=\tiny\ttfamily, pos=0.55] {discr\_ok} (y1);
+% los dos indicadores del evento, registrados en el mismo flanco que el bus
+\node[registro=0.8cm, minimum height=0.5cm, font=\tiny\ttfamily] (rv) at (16.75,1.05) {ev\_valid};
+\node[registro=0.8cm, minimum height=0.5cm, font=\tiny\ttfamily] (rp) at (17.75,1.05) {ev\_psd\_ok};
+\node[font=\tiny, anchor=south] at ($(rv.north)!0.5!(rp.north)$) {en: \texttt{div\_valid}};
+\draw[ctrl] (16.85,0 |- rv.south) -- (y1.north);
+\draw[ctrl] (17.55,0 |- rp.south) -- (y2.north);
 \coordinate (jy) at (17.15,-0.05);
 \draw[ctrl] (y1.east) -- (y2.west);
 \fill[black!65] (jy) circle (1.1pt);
@@ -141,7 +165,7 @@
 \draw[flujo] (pipe.east |- 0,-3.75) -- node[above, font=\tiny] {bin y} (h2.west |- 0,-3.75);
 
 %------------------------------------------------------------------- notas ---
-\leyenda{0.4,-6.35}{azul!25/sale directo de la ranura, verde!40/de los divisores,
+\leyenda{0.4,-6.75}{azul!25/sale directo de la ranura, verde!40/de los divisores,
   naranja!55/calculada al armar, grisr/campo de bits, white/reservada}{}
 
 \end{tikzpicture}

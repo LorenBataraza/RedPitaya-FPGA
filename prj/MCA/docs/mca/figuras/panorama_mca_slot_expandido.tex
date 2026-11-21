@@ -1,0 +1,367 @@
+% Panorama de MCA_SLOT EXPANDIDO, a nivel de operación, en el estilo de
+% panorama_mca_window_expandido: las compuertas y el estado son compuertas y
+% comparadores; cada acumulador, un sumador, su mux de carga y su registro con
+% la habilitación escrita arriba; la ventana de amplitud, las dos sombras con
+% su signo y el pico que quedaría.
+% Las redes con nombre (abre, acumula, cierre, abierta, len, peak...) se
+% conectan por nombre: el trazo corto que entra a un pin lleva el nombre de la
+% red. Las que terminan en _i son puertos de entrada.
+% La ventana del pico se dibuja como max(peak, x_c) contra [min, max]; el RTL
+% lo escribe como cuatro comparaciones en paralelo, que es lo mismo.
+% Fuente: modulos/mca/rtl/mca_slot.sv, instanciado por mca_window como en
+% rtl/mine/tops/mca_red_pitaya_top.sv (3 formas del banco).
+% Estilo: docs/figuras/estilo_tikz.tex; los colores por función, los mismos de
+% panorama_mca_slot.tex. El borde grueso es el límite del módulo.
+% El epígrafe no va en la figura: está en panorama_mca_slot_expandido.txt.
+%
+% Compilar:   pdflatex panorama_mca_slot_expandido.tex
+%             pdftocairo -svg panorama_mca_slot_expandido.pdf panorama_mca_slot_expandido.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+\tikzset{
+  op/.style      = {oper, font=\scriptsize},
+  caja/.style    = {desp, inner sep=2pt, minimum height=0.5cm},
+  reg/.style     = {registro=#1, minimum height=0.55cm, font=\scriptsize\ttfamily},
+  reg/.default   = 1.15cm,
+  fondo f/.style = {draw=black!45, dashed, line width=0.5pt, rounded corners=3pt, fill=#1},
+  rotf/.style    = {font=\scriptsize\itshape, black!75, inner sep=2pt},
+  red/.style     = {font=\scriptsize\ttfamily, inner sep=1pt},
+  chico/.style   = {font=\tiny, inner sep=1pt, align=center},
+  y3/.style      = {logic gate input sep=0.2cm},
+  y2/.style      = {logic gate input sep=0.2cm},
+}
+% \red[largo]{pin}{nombre}: la red que entra a un pin, por nombre, desde la izquierda
+\newcommand{\red}[3][0.3]{\draw[flujo] ($(#2)+(-#1,0)$) node[left, red] {#3} -- (#2);}
+% \redab[largo]{pin}{nombre}: la misma, desde abajo
+\newcommand{\redab}[3][0.3]{\draw[flujo] ($(#2)+(0,-#1)$) node[below, red] {#3} -- (#2);}
+% \redar[largo]{pin}{nombre}: la misma, desde arriba
+\newcommand{\redar}[3][0.3]{\draw[flujo] ($(#2)+(0,#1)$) node[above, red] {#3} -- (#2);}
+% \redsal[largo]{pin}{nombre}: la red que sale de un pin hacia la derecha
+\newcommand{\redsal}[3][0.3]{\draw[flujo] (#2) -- ($(#2)+(#1,0)$) node[right, red] {#3};}
+% \sal{pin}{puerto}: la salida, hasta el borde
+\newcommand{\sal}[2]{\draw[flujo] (#1) -- (\xout,0 |- #1) node[right, sen] {#2};}
+% \mux2{nombre}{centro}{alto}: el mux de carga, con 0 arriba y 1 abajo
+\newcommand{\muxdos}[3]{\muxdec{#1}{#2}{#3}
+  \node[chico, anchor=west] at ($(#1-in)+(0.04,{#3/2-0.25})$) {0};
+  \node[chico, anchor=west] at ($(#1-in)+(0.04,{-#3/2+0.25})$) {1};}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\def\xin{-0.3}    % donde arrancan las entradas
+\def\xout{19.75}  % donde terminan las salidas
+\def\ytop{15.45}  % de donde bajan las de configuración
+
+% ============================================================ las regiones ===
+\node[fondo f=amarillo!22, fit={(0.35,10.8) (11.9,14.65)}] (fcmp) {};
+\node[fondo f=amarillo!22, fit={(12.3,10.8) (19.05,14.65)}] (fest) {};
+\node[fondo f=verde!14, fit={(0.35,3.95) (11.9,10.4)}] (fven) {};
+\node[fondo f=verde!14, fit={(12.3,8.3) (19.05,10.4)}] (fpic) {};
+\node[fondo f=verde!14, fit={(12.3,5.55) (19.05,7.9)}] (fcar) {};
+\node[fondo f=verde!14, fit={(12.3,3.95) (19.05,5.3)}] (famp) {};
+\node[fondo f=verde!14, fit={(0.35,1.6) (19.05,3.55)}] (fmes) {};
+\node[fondo f=grisr!45, fit={(0.35,-3.3) (19.05,1.2)}] (fmar) {};
+\node[rotf, anchor=north west] at (fcmp.north west) {compuertas};
+\node[rotf, anchor=north west] at (fest.north west) {estado};
+\node[rotf, anchor=north east] at (fven.north east) {ventana de amplitud};
+\node[rotf, anchor=north west] at (fpic.north west) {pico};
+\node[rotf, anchor=north west] at (fcar.north west) {cargas};
+\node[rotf, anchor=north west] at (famp.north west) {amplitud a publicar};
+\node[rotf, anchor=north east] at (fmes.north east) {meseta, una por forma ($\times$3)};
+\node[rotf, anchor=north west] at (fmar.north west) {marcas de solape};
+
+% ============================================================ compuertas ===
+% abre: el asignador eligió esta ranura y la muestra es válida
+\node[puerta y, y2, anchor=input 1] (gab) at (1.15,13.95) {};
+\draw[flujo] (\xin,0 |- gab.input 1) node[left, sen] {abre\_i} -- (gab.input 1);
+\draw[flujo] (\xin,0 |- gab.input 2) node[left, sen] {val\_i} -- (gab.input 2);
+\redsal{gab.output}{abre}
+% len: muestras desde el disparo
+\node[reg=0.9cm] (rlen) at (3.6,13.75) {len};
+\node[op] (lmas) at (4.85,13.75) {$+1$};
+\draw[flujo] (rlen.east) -- (lmas.west);
+\draw[flujo] (lmas.north) |- ($(rlen.north)+(0,0.3)$) -- (rlen.north);
+\node[chico, anchor=south west] at ($(rlen.north)+(0.1,0.32)$) {1 con \texttt{abre}; $+1$ con \texttt{acumula}};
+% las compuertas, retenidas al abrir
+\node[reg=1.0cm] (rgs) at (3.6,12.65) {g\_short};
+\node[reg=1.0cm] (rgl) at (3.6,11.65) {g\_long};
+\draw[ctrl] (\xin,0 |- rgs.west) node[left, sen, black!80] {cfg\_gate\_short\_i} -- (rgs.west);
+\draw[ctrl] (\xin,0 |- rgl.west) node[left, sen, black!80] {cfg\_gate\_long\_i} -- (rgl.west);
+\node[chico, anchor=north] at (rgl.south) {se cargan con \texttt{abre}};
+\node[op] (ges) at (4.85,12.65) {$\geq$};
+\node[op] (gel) at (4.85,11.65) {$\geq$};
+\draw[flujo] (rgs.east) -- (ges.west);
+\draw[flujo] (rgl.east) -- (gel.west);
+\redar{ges.north}{len}
+\redab{gel.south}{len}
+% cierre, acumula, in_tail y estancada
+\node[puerta y=nnn, y3, anchor=input 1] (gci) at (7.7,14.3) {};
+\node[puerta y=nni, y3, anchor=input 1] (gac) at (7.7,13.25) {};
+\node[puerta y, y2, anchor=input 1] (git) at (7.7,12.3) {};
+\node[puerta y=nin, y3, anchor=input 1] (gst) at (7.7,11.6) {};
+\red[0.45]{gci.input 1}{abierta}
+\red[0.45]{gci.input 2}{val\_i}
+\red[0.45]{gac.input 1}{abierta}
+\red[0.45]{gac.input 2}{val\_i}
+\red[0.45]{gac.input 3}{cierre}
+\red[0.45]{git.input 1}{abierta}
+\red[0.45]{gst.input 1}{abierta}
+\red[0.45]{gst.input 2}{val\_i}
+\draw[flujo] (gel.east) -- (5.75,0 |- gel.east) coordinate (jgl);
+\draw[flujo] (jgl) |- (gci.input 3);
+\draw[flujo] (jgl) |- (gst.input 3);
+\draw[flujo, cruce] (ges.east) -- (6.1,0 |- ges.east) |- (git.input 2);
+\redsal{gci.output}{cierre}
+\redsal{gac.output}{acumula}
+\redsal{git.output}{in\_tail}
+\redsal{gst.output}{estancada}
+
+\begin{scope}[xshift=0.9cm]\def\xout{18.85}
+% ================================================================ estado ===
+\node[registro=1.0cm, minimum height=1.5cm, font=\scriptsize\ttfamily] (rest) at (12.9,13.25) {est};
+\red{rest.west |- 0,13.7}{abre}
+\red{rest.west |- 0,13.25}{cierre}
+\red{rest.west |- 0,12.8}{amp\_ok}
+\draw[ctrl] (12.9,\ytop) node[above, sen, black!80] {libera\_i} -- (rest.north);
+\node[chico, anchor=north west, align=left] at (11.55,12.3)
+  {\textsc{libre} $\to$ \textsc{abierta}: \texttt{abre}\\
+   \textsc{abierta} $\to$ \textsc{cerrada}: \texttt{cierre} $\wedge$ \texttt{amp\_ok}\\
+   \textsc{abierta} $\to$ \textsc{libre}: \texttt{cierre} $\wedge\,\neg$\texttt{amp\_ok}\\
+   \textsc{cerrada} $\to$ \textsc{libre}: \texttt{libera\_i}};
+\node[caja, minimum width=1.5cm] (dli) at (14.9,13.8) {$=$ \textsc{libre}};
+\node[caja, minimum width=1.5cm] (dab) at (14.9,13.25) {$=$ \textsc{abierta}};
+\node[caja, minimum width=1.5cm] (dce) at (14.9,12.7) {$=$ \textsc{cerrada}};
+\foreach \d in {dli, dab, dce} \draw[flujo] (rest.east |- \d.west) -- (\d.west);
+\sal{dli.east}{libre\_o}
+\sal{dab.east}{abierta\_o}
+\node[chico, anchor=south] at ($(dab.east)+(0.45,0.02)$) {abierta};
+\sal{dce.east}{cerrada\_o}
+\node[puerta y, y2, anchor=input 1] (gacp) at (16.75,11.95) {};
+\red{gacp.input 1}{cierre}
+\red{gacp.input 2}{amp\_ok}
+\sal{gacp.output}{acepta\_o}
+\draw[flujo] (16.6,11.3) node[left, red] {cierre} -- (\xout,11.3) node[right, sen] {cierra\_o};
+\draw[flujo] (16.6,10.95) node[left, red] {estancada} -- (\xout,10.95) node[right, sen] {estancada\_o};
+\draw[flujo] (16.6,14.45) node[left, red] {len} -- (\xout,14.45) node[right, sen] {len\_o};
+
+\end{scope}
+
+% ==================================================== ventana de amplitud ===
+% el pico que quedaría con esta muestra, contra [min, max]
+\draw[flujo] (1.25,9.85) node[left, red] {xc\_i} -- (3.05,9.85);
+\node[op] (pmx) at (2.2,9.25) {max};
+\draw[flujo] (2.2,9.85) -- (pmx.north);
+\punto{2.2,9.85}
+\red[0.45]{pmx.west}{peak}
+\muxdos{mc}{(3.5,9.55)}{1.05}
+\draw[flujo] (pmx.east) -- (mc-in |- pmx.east);
+\redab[0.2]{mc-sel}{abierta}
+\draw[flujo] (mc-out) -- (4.2,0 |- mc-out) coordinate (jmc);
+\node[op] (cmn) at (4.85,9.85) {$\geq$};
+\node[op] (cmx) at (4.85,9.2) {$\leq$};
+\draw[flujo] (jmc) |- (cmn.west);
+\draw[flujo] (jmc) |- (cmx.west);
+\punto{jmc}
+\redar[0.2]{cmn.north}{cfg\_amp\_min\_i}
+\redab[0.2]{cmx.south}{cfg\_amp\_max\_i}
+\node[puerta y, y2, anchor=input 1] (gpk) at (5.95,9.665) {};
+\draw[flujo] (cmn.east) -| ($(gpk.input 1)+(-0.2,0)$) -- (gpk.input 1);
+\draw[flujo] (cmx.east) -| ($(gpk.input 2)+(-0.2,0)$) -- (gpk.input 2);
+\node[reg=1.2cm] (rpk) at (7.75,0 |- gpk.output) {peak\_ok\_r};
+\draw[flujo] (gpk.output) -- (rpk.west);
+
+% sombra del mínimo: d_min = Q - min_q, con Q la carga hasta esta muestra
+\node[op] (s1) at (2.2,8.0) {$+$};
+\node[op] (s2) at (2.2,7.0) {$+$};
+\red[0.45]{s1.west}{xc\_i}
+\redar[0.2]{s1.north}{$-$min\_q\_i}
+\red[0.45]{s2.west}{d\_min}
+\draw[flujo] ($(s2.south)+(0,-0.2)$) node[right, red] {xc\_i} -- (s2.south);
+\muxdos{ma}{(3.5,7.5)}{1.55}
+\draw[flujo] (s1.east) -- (ma-in |- s1.east);
+\draw[flujo] (s2.east) -- (ma-in |- s2.east);
+\redab{ma-sel}{abierta}
+\node[reg=0.95cm] (rdmin) at (5.2,8.0) {d\_min};
+\draw[flujo] (ma-out) -- (4.2,0 |- ma-out) coordinate (jma) |- (rdmin.west);
+\redsal[0.2]{rdmin.east}{d\_min}
+\node[op] (sga) at (5.2,7.05) {$\geq0$};
+\draw[flujo] (jma) |- (sga.west);
+\punto{jma}
+\node[puerta y=ni, y2, anchor=input 1] (gfu) at (5.85,0 |- sga.east) {};
+\draw[flujo] (sga.east) -- (gfu.input 1);
+\redab[0.3]{gfu.input 2}{min\_fuera\_i}
+\node[reg=1.2cm] (rgm) at (7.75,0 |- gfu.input 1) {ge\_min\_r};
+\draw[flujo] (gfu.output) -- (rgm.west |- gfu.output);
+
+% sombra del máximo: d_max = max_q - Q
+\node[op] (s3) at (2.2,5.6) {$+$};
+\node[op] (s4) at (2.2,4.6) {$+$};
+\red[0.45]{s3.west}{max\_q\_i}
+\draw[flujo] ($(s3.north)+(0,0.2)$) node[right, red] {$-$xc\_i} -- (s3.north);
+\red[0.45]{s4.west}{d\_max}
+\redab[0.2]{s4.south}{$-$xc\_i}
+\muxdos{mb}{(3.5,5.1)}{1.55}
+\draw[flujo] (s3.east) -- (mb-in |- s3.east);
+\draw[flujo] (s4.east) -- (mb-in |- s4.east);
+\redab{mb-sel}{abierta}
+\node[reg=0.95cm] (rdmax) at (5.2,5.6) {d\_max};
+\draw[flujo] (mb-out) -- (4.2,0 |- mb-out) coordinate (jmb) |- (rdmax.west);
+\redsal[0.2]{rdmax.east}{d\_max}
+\node[op] (sgb) at (5.2,4.65) {$\geq0$};
+\draw[flujo] (jmb) |- (sgb.west);
+\punto{jmb}
+\node[reg=1.2cm] (rlm) at (7.75,4.65) {le\_max\_r};
+\draw[flujo] (sgb.east) -- (rlm.west);
+\node[chico, anchor=north west, align=left] at (6.3,6.25)
+  {\texttt{d\_min}, \texttt{d\_max}: en \texttt{abre} $\vee$ \texttt{acumula}\\
+   $x_c$ suma sólo con \texttt{val\_i}\\ los \texttt{*\_r}, en cada ciclo};
+
+% amp_ok: por el pico, su ventana; por la integral, las dos sombras (o el techo saturado)
+\node[puerta o, y2, anchor=input 2] (gsa) at (8.6,0 |- rlm.east) {};
+\draw[flujo] (rlm.east) -- (gsa.input 2);
+\draw[flujo] ($(gsa.input 1)+(-0.15,0.35)$) node[above, red] {sat\_ok\_i} |- (gsa.input 1);
+\node[puerta y, y2, anchor=input 1] (gin) at (9.45,0 |- rgm.east) {};
+\draw[flujo] (rgm.east) -- (gin.input 1);
+\draw[flujo] (gsa.output) -| ($(gin.input 2)+(-0.15,0)$) -- (gin.input 2);
+\muxdos{ms}{(10.95,7.75)}{1.6}
+\draw[flujo] (rpk.east) -| ($(ms-in)+(-0.25,0.55)$) -- (ms-in |- 0,8.3);
+\draw[flujo] (gin.output) -- (ms-in |- gin.output);
+\redab[0.85]{ms-sel}{cfg\_amp\_src\_i}
+\draw[flujo] (ms-out) -- ++(0.2,0) |- ++(0.15,0.75) node[above left, red, xshift=2pt] {amp\_ok};
+
+\begin{scope}[xshift=0.9cm]\def\xout{18.85}
+% =================================================================== pico ===
+\node[op] (gpt) at (12.5,9.45) {$>$};
+\red{gpt.west}{xc\_i}
+\redab[0.25]{gpt.south}{peak}
+\node[puerta y, y2, anchor=input 2] (gnp) at ($(gpt.east)+(0.3,0)$) {};
+\draw[flujo] (gpt.east) -- (gnp.input 2);
+\draw[flujo] ($(gnp.input 1)+(-0.25,0.35)$) node[above, red] {acumula} |- (gnp.input 1);
+\redsal{gnp.output}{nuevo}
+\node[reg=1.1cm] (rpi) at (16.0,9.8) {peak};
+\node[reg=1.1cm] (rtp) at (16.0,9.0) {t\_peak};
+\red{rpi.west}{xc\_i}
+\red{rtp.west}{len}
+\node[chico, anchor=south] at ($(rpi.north)+(0,0.03)$) {en: \texttt{abre} $\vee$ \texttt{nuevo}};
+\node[chico, anchor=north] at ($(rtp.south)+(0,-0.03)$) {en: \texttt{nuevo}; 0 con \texttt{abre}};
+\sal{rpi.east}{peak\_o}
+\node[chico, anchor=south] at ($(rpi.east)+(0.5,0.02)$) {peak};
+\sal{rtp.east}{t\_peak\_o}
+
+% ================================================================= cargas ===
+\node[op] (qa) at (12.9,7.35) {$+$};
+\red{qa.west}{xc\_i}
+\redar[0.2]{qa.north}{q\_tot}
+\muxdos{mq}{(13.9,7.1)}{1.0}
+\draw[flujo] (qa.east) -- (mq-in |- qa.east);
+\draw[flujo] (13.25,6.85) node[left, red] {xc\_i} -- (mq-in |- 0,6.85);
+\redab[0.2]{mq-sel}{abre}
+\node[reg=1.1cm] (rqt) at (16.0,0 |- mq-out) {q\_tot};
+\draw[flujo] (mq-out) -- (rqt.west);
+\node[chico, anchor=south] at ($(rqt.north)+(0,0.03)$) {en: \texttt{abre} $\vee$ \texttt{acumula}};
+\sal{rqt.east}{q\_tot\_o}
+\node[chico, anchor=south] at ($(rqt.east)+(0.5,0.02)$) {q\_tot};
+\node[op] (qb) at (12.9,6.35) {$+$};
+\red{qb.west}{xc\_i}
+\redab[0.2]{qb.south}{q\_tail}
+\node[reg=1.1cm] (rqc) at (16.0,6.35) {q\_tail};
+\draw[flujo] (qb.east) -- (rqc.west);
+\node[chico, anchor=north] at ($(rqc.south)+(0,-0.03)$) {en: \texttt{abre} $\vee$ (\texttt{acumula} $\wedge$ \texttt{in\_tail}); 0 con \texttt{abre}};
+\sal{rqc.east}{q\_tail\_o}
+
+% ===================================================== amplitud a publicar ===
+\node[caja] (qsh) at (12.6,4.75) {$\gg$ s};
+\red{qsh.west}{q\_tot}
+\redab[0.2]{qsh.south}{cfg\_q\_shift\_i}
+\node[satur] (sat) at (13.7,4.75) {};
+\draw[flujo] (qsh.east) -- (sat.west);
+\node[chico, anchor=north] at (sat.south) {a \texttt{0xFFFF}};
+\draw[flujo] (sat.east) -- (14.5,0 |- sat.east) coordinate (jsa);
+\muxdos{mp}{(16.0,4.75)}{1.0}
+\draw[flujo] (jsa) |- (mp-in |- 0,4.5);
+\punto{jsa}
+\draw[flujo] (15.35,5.0) node[left, red] {peak} -- (mp-in |- 0,5.0);
+\draw[flujo] ($(mp-sel)+(0.3,-0.3)$) node[right, red] {cfg\_amp\_src\_i} -| (mp-sel);
+\sal{mp-out}{amp\_sel\_o}
+\draw[flujo] (jsa) |- (\xout,4.25) node[right, sen] {amp\_int\_o};
+
+\end{scope}
+
+% ======================================================= meseta, por forma ===
+\node[op] (mi) at (2.6,2.95) {$\geq$};
+\node[op] (mf) at (2.6,2.2) {$<$};
+\red{mi.west}{len}
+\red{mf.west}{len}
+\redar[0.2]{mi.north}{}
+\node[red, anchor=west] at ($(mi.north)+(0.08,0.12)$) {trap\_ini\_i};
+\redab[0.2]{mf.south}{}
+\node[red, anchor=west] at ($(mf.south)+(0.08,-0.12)$) {trap\_fin\_i};
+\node[puerta y=nnn, y3, anchor=input 2] (gme) at (5.0,2.57) {};
+\draw[flujo] (mi.east) -| ($(gme.input 1)+(-0.25,0)$) -- (gme.input 1);
+\draw[flujo] (mf.east) -| ($(gme.input 3)+(-0.25,0)$) -- (gme.input 3);
+\red[0.6]{gme.input 2}{acumula}
+\redsal{gme.output}{en\_meseta}
+\node[op] (ma2) at (9.0,2.95) {$+$};
+\red{ma2.west}{trap\_i}
+\redab[0.2]{ma2.south}{}
+\node[red, anchor=west] at ($(ma2.south)+(0.08,-0.12)$) {suma};
+\node[op] (mc2) at (11.2,2.2) {$+1$};
+\red{mc2.west}{cuenta}
+\node[reg=1.1cm] (rsu) at (13.6,2.95) {suma};
+\node[reg=1.1cm] (rcu) at (13.6,2.2) {cuenta};
+\draw[flujo] (ma2.east) -- (rsu.west);
+\draw[flujo] (mc2.east) -- (rcu.west);
+\node[chico, anchor=south] at ($(rsu.north)+(0,0.03)$) {en: \texttt{en\_meseta}; 0 con \texttt{abre}};
+\sal{rsu.east}{trap\_sum\_o}
+\sal{rcu.east}{trap\_n\_o}
+
+% ========================================================= marcas de solape ===
+% durante la medición: otro disparo adentro, el primero fija dt_next
+\node[reg=1.1cm] (rad) at (5.0,0.5) {adentro};
+\node[reg=1.1cm] (rdn) at (5.0,-0.65) {dt\_next};
+\node[reg=1.1cm] (rpe) at (5.0,-1.8) {perdido};
+\red{rad.west}{1}
+\red{rdn.west}{len}
+\red{rpe.west}{1}
+\node[chico, anchor=south] at ($(rad.north)+(0,0.03)$) {en: \texttt{acumula} $\wedge$ \texttt{disparo\_i}; 0 con \texttt{abre}};
+\node[chico, anchor=south] at ($(rdn.north)+(0,0.03)$) {en: \texttt{acumula} $\wedge$ \texttt{disparo\_i} $\wedge$ \texttt{dt\_next} $=$ máx; máx con \texttt{abre}};
+\node[chico, anchor=south] at ($(rpe.north)+(0,0.03)$) {en: \texttt{acumula} $\wedge$ \texttt{perdido\_i}; 0 con \texttt{abre}};
+% al abrir: el contexto del disparo, que dejó el asignador
+\node[reg=1.1cm] (rwi) at (11.0,-0.05) {win\_id};
+\node[reg=1.1cm] (rdp) at (11.0,-1.2) {dt\_prev};
+\node[reg=1.1cm] (rot) at (11.0,-2.35) {otras};
+\red{rwi.west}{win\_id\_i}
+\red{rdp.west}{dt\_prev\_i}
+\red{rot.west}{otras\_i}
+\node[chico, anchor=south] at ($(rwi.north)+(0,0.03)$) {se cargan con \texttt{abre}};
+\sal{rad.east}{adentro\_o}
+\sal{rdn.east}{dt\_next\_o}
+\sal{rpe.east}{perdido\_o}
+\sal{rwi.east}{win\_id\_o}
+\sal{rdp.east}{dt\_prev\_o}
+\sal{rot.east}{otras\_o}
+% solapada: alguna abierta al abrir, o un disparo adentro
+\node[op] (nzo) at (14.6,-2.85) {$\neq0$};
+\red{nzo.west}{otras}
+\node[puerta o, y2, anchor=input 2] (gso) at ($(nzo.east)+(0.3,0)$) {};
+\draw[flujo] (nzo.east) -- (gso.input 2);
+\red[0.9]{gso.input 1}{adentro}
+\sal{gso.output}{solapada\_o}
+
+% ============================================================== el límite ===
+\node[contenedor, fit={(0.15,14.9) (19.3,-3.55)}] (lim) {};
+\node[titulo, anchor=south west, inner sep=2pt, align=left] at (lim.north west)
+  {\texttt{\bfseries mca\_slot}\;\; {\scriptsize\itshape expandido}\\
+   \prm{DW=14 & QW=32 & AMP\_W=16 & LEN\_W=16\\ PUB\_IDW=16 & NW=4 & TW=18 & TNW=8\\ NF=3}};
+
+% ================================================================= leyenda ===
+\leyenda{0.2,-4.3}{amarillo!22/segmentación, verde!14/estadísticos,
+  grisr!45/contabilidad, grisr/registro}{}
+
+\end{tikzpicture}
+\end{document}

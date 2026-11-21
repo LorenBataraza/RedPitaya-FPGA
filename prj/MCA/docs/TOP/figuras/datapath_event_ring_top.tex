@@ -1,0 +1,14 @@
+% El datapath de event_ring_red_pitaya_top, el top de integración con el ring:
+% sin ecualizador (EN_FILT=0), sin captura del OSC a DDR (EN_AXI=0) y sin las
+% marcas numeradas. El dibujo está en datapath_top_cuerpo.tex, compartido con
+% datapath_top.tex (los dos tops). Epígrafe: datapath_event_ring_top.txt.
+%
+% Compilar:   pdflatex datapath_event_ring_top.tex
+%             pdftocairo -svg datapath_event_ring_top.pdf datapath_event_ring_top.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\newif\ifring \ringtrue
+\input{datapath_top_cuerpo.tex}

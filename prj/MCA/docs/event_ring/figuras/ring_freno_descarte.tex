@@ -5,7 +5,8 @@
 % las de vuelta, la contrapresión. Sólo la captura descarta, porque su entrada
 % no tiene ready.
 % Los números son las filas de la tabla de logica_de_captura_y_axi.md §5.6. Los
-% créditos en sí (wr_slot, rd_slot sobre el ring) están en ring_creditos.tex.
+% créditos en sí (wr_slot, rd_slot sobre el ring) están en ring_creditos.tex. El
+% crédito vuelve por GP0 (RD_SLOT, que escribe el PS), no desde la DDR.
 % El epígrafe no va en la figura: está en ring_freno_descarte.txt y en el doc
 % que la incluye.
 % Fuente: modulos/event_ring/rtl/event_ring_top.sv (credit_ok, wr_rdy),
@@ -47,7 +48,9 @@
 \node[descarta] at ([yshift=1.5pt]cap.north east) {descarta};
 \node[bloquea]  at ([yshift=1.5pt]stg.north east) {bloquea};
 \node[bloquea]  at ([yshift=1.5pt]wrt.north east) {bloquea};
-\node[bloquea]  at ([yshift=1.5pt]fif.north east) {bloquea};
+% el axi_wr_fifo no frena: descartaría si se lo empujara lleno. Lo frena el top
+% con su sombra fifo_occ, que da wr_rdy
+\node[bloquea, anchor=north east] at ([yshift=-1.5pt]fif.south east) {lo frena el top};
 
 \draw[flujo] (tr) -- node[below, font=\scriptsize\itshape, inner sep=2pt] {sin ready} (cap);
 \draw[flujo] (cap) -- (stg);
@@ -56,12 +59,21 @@
 \draw[flujo] (fif) -- (ddr);
 
 % contrapresión: hacia atrás, sin perder nada
-\draw[contra] (ddr.south) -- ++(0,-0.9) -| (wrt.south);
-\node[marca] at (12.65,-1.43) {1};
-\node[sen, anchor=north, inner sep=2pt] at (12.65,-1.59) {credit\_ok = 0};
+% los créditos no vienen de la DDR: la PL no la lee. El PS lee los slots y
+% publica RD_SLOT por GP0; la PL compara contra su propio WR_SLOT
+\node[comp, text width=1.6cm, minimum height=1.05cm] (ps) at (16,-2.55)
+  {\etq{PS}{lee los slots}};
+\node[etapa=naranja!25, text width=2.3cm, minimum height=1.05cm] (cre) at (12.65,-2.55)
+  {\etq{créditos}{\texttt{WR\_SLOT} $-$ \texttt{RD\_SLOT}\\ $<$ $N$}};
+\draw[flujo, naranja!60!black] (ddr.south) -- node[sen, right, black, inner sep=2pt] {lee el lote} (ps.north);
+\draw[flujo, rojo!65!black] (ps.west) -- node[sen, above, black, inner sep=2pt] {RD\_SLOT}
+  node[sen, below, black, inner sep=2pt] {por GP0} (cre.east);
+\draw[contra] (cre.west) -| ([xshift=3mm]wrt.south);
+\node[marca] at (10.55,-2.55) {1};
+\node[sen, anchor=north, inner sep=2pt] at (10.55,-2.71) {credit\_ok = 0};
 \draw[contra] ([xshift=-3mm]fif.north) -- ++(0,0.42) -| (wrt.north);
 \node[marca] at (10.95,0.95) {2};
-\node[sen, anchor=south, inner sep=2pt] at (10.95,1.12) {wr\_rdy = 0};
+\node[sen, anchor=south, inner sep=2pt, align=center] at (10.95,1.12) {wr\_rdy = 0\\ fifo\_occ $\geq$ 248};
 \draw[contra] ([xshift=-5mm]wrt.south) -- ++(0,-0.55) -| ([xshift=5mm]stg.south);
 \node[sen, anchor=north, inner sep=2pt] at (7.35,-1.1) {rd};
 \draw[contra] ([xshift=-5mm]stg.south) -- ++(0,-0.55) -| ([xshift=4mm]cap.south);

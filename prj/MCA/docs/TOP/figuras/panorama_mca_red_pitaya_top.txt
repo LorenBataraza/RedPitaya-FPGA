@@ -2,3 +2,10 @@ Los pines físicos quedan en el borde. Control: GP0 → `sys_bus`. Datos: `i_sco
 → HP → DDR, sin pasar por el ARM. `NOMBRE=valor`: parámetros con que el padre
 instancia el bloque (se omiten los que sólo pasan el del padre sin cambio). En
 `integration_cfg` se muestran 4 de sus 21.
+Las etiquetas con reloj marcan los bloques que no corren en `adc_clk`, o que
+podrían confundirse: `axi_master` está dentro del PS pero corre en `adc_clk`.
+`CDC` marca los cruces que necesitan sincronizador: el interconnect, uno por
+slot, entre `fclk[0]` y `adc_clk`, que tienen la misma frecuencia nominal pero
+salen de osciladores distintos, y los puertos GP0 y HP, que cruza el propio PS.
+`gen_pulsos` (slot 2, `0x4021_0000`) maneja el DAC, la fuente ASG del
+multitrigger y, con `digital_loop[0]`, la entrada de la cadena en lugar del ADC.

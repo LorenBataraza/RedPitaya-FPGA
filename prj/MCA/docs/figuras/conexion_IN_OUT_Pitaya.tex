@@ -1,6 +1,8 @@
 % Generación interna con las interfaces externas: gen_pulsos escribe en dac_a
 % (la entrada del DAC que dejó libre el ASG), los pulsos salen por OUT1, vuelven
-% por un coaxial RG-58 con SMA macho en las dos puntas y entran por IN1. Con
+% por un coaxial RG-58 con SMA macho en las dos puntas y entran por IN1 a través de
+% una T con un terminador de 50 Ω (IN1 es de 1 MΩ: sin la carga, el coaxial
+% refleja y resuena). Con
 % digital_loop[0] = 0 el mux toma el ADC; el lazo digital (en gris) es la
 % generación interna sin la parte analógica.
 % Colores de la placa: los de movimiento_de_datos.svg (modo claro de
@@ -120,8 +122,17 @@
 \node[nota, pastilla, anchor=north east, align=right] at (10.3,0.36) {SMA\\hembra};
 \draw[black!55, line width=0.4pt] (11.12,0.7) -- (11.12,0.33);
 \node[nota, anchor=north west, align=left] at (11.0,0.33) {SMA\\macho};
-\draw[coax] (11.75,1.0) -- (12.6,1.0) -- (12.6,-1.2) -- (11.75,-1.2);
-\node[font=\scriptsize, text=tinta, anchor=west, align=left] at (12.85,-0.1)
+% la T en IN1: el cuerpo horizontal entre el plug y el cable, y la rama de abajo
+% con el terminador de 50 Ω
+\draw[line width=0.5pt, fill=black!20] (11.75,-1.36) rectangle (12.55,-1.04);
+\draw[line width=0.5pt, fill=black!20] (11.99,-1.36) rectangle (12.31,-1.75);
+\draw[line width=0.5pt, fill=black!30] (11.93,-1.75) rectangle (12.37,-2.05);
+\draw[line width=0.5pt, fill=black!45] (11.99,-2.05) rectangle (12.31,-2.45);
+\node[font=\scriptsize, text=tinta, anchor=west, align=left] at (12.5,-2.2)
+  {\textbf{terminador}\\50\,$\Omega$};
+\node[nota, anchor=north west] at (12.6,-1.4) {T};
+\draw[coax] (11.75,1.0) -- (13.0,1.0) -- (13.0,-1.2) -- (12.55,-1.2);
+\node[font=\scriptsize, text=tinta, anchor=west, align=left] at (13.25,-0.1)
   {\textbf{coaxial RG-58}\\50\,$\Omega$};
 
 \end{tikzpicture}

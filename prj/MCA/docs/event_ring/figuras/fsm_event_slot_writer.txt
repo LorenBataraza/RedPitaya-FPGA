@@ -1,8 +1,9 @@
 Sin crédito el writer se queda en `W_IDLE` con `no_credit` = 1. Se frena y no
 descarta: la contrapresión sube a la stage, y si hay que descartar, la captura
-descarta el evento entero (§4.4). En `W_HDR`, `W_DATA`, `W_PAD` y `W_FOOT` cada
-palabra espera que el `axi_wr_fifo` la acepte (`wr_rdy`): la contrapresión del
-FIFO también frena, no descarta. El slot se cierra recién cuando el FIFO acepta
+descarta el evento entero (§4.4). `W_HDR`, `W_DATA`, `W_PAD` y `W_FOOT` son la
+transferencia, el grupo punteado: avanzan igual, de a una palabra que se sostiene
+hasta que el `axi_wr_fifo` la acepta (`wr_rdy`), así que la contrapresión del FIFO
+también frena, no descarta. El slot se cierra recién cuando el FIFO acepta
 el footer, y ahí suben `WR_SLOT` y `SEQ`. Si la ventana no entra en el slot, por
 una geometría mal configurada, el evento se trunca y el slot se cierra con su
 footer y `err_slot_ovf` prendido: es preferible a pisar el slot siguiente. El

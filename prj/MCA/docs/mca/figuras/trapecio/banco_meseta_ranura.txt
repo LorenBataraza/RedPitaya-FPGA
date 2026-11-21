@@ -1,0 +1,9 @@
+Un par de pulsos a 60 muestras, con el banco de tres formas, visto desde la ranura que
+abre el disparo de A. Hay un trapecio por forma para toda la señal (en gris, la salida;
+A y B por separado, en negro y a trazos), y la ranura suma cada uno sobre su propia
+ventana (los rectángulos, $S_0$ a $S_2$) mientras su compuerta está abierta. Las tres
+sumas corren en paralelo. La de la 8/8 termina antes de que llegue B, cuando todavía no
+se sabe si un vecino va a caer en las ventanas largas: `F_DTNEXT` recién es definitivo
+al cerrar la compuerta, y ahí se elige. La 64/48 no cumple, porque B entra en su
+ventana; de las dos que cumplen se publica la más larga, la 32/24. Lo genera
+`figuras_banco.py` con el golden model.

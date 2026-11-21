@@ -1,0 +1,12 @@
+Datapath del TOP de integración con el ring (`event_ring_red_pitaya_top`). Hay
+UNA sola cadena de acondicionado por canal --calibración, diezmado, retardo--
+con cuatro nodos (A a D). El ecualizador no está (`EN_FILT=0`), así que B es la
+muestra calibrada, y tampoco la captura del OSC a DDR (`EN_AXI=0`): la cadena
+termina en D. El OSC, el multitrigger y el MCA tienen cada uno su
+`dsp_tap_mux` 4:1, que elige en runtime con su `ROUTE_*`; cada entrada lleva su
+código de tap (0 a 3) y la letra del nodo, y la 0 es el nodo nativo, el valor de
+reset. El `event_ring` no tiene selector: toma lo mismo que el MCA (`mca_dat`).
+A la izquierda, el lazo digital: con `digital_loop[0]` la cadena toma los pulsos
+de `gen_pulsos` en lugar del ADC. Abajo, lo que el multitrigger da a los otros
+consumidores: el flanco `trig` a los tres, y `veto` y `trig_arm`, niveles, sólo
+al MCA.

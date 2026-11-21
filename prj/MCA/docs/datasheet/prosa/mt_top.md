@@ -19,8 +19,9 @@
 **Qué hace.** Es el **multitrigger entero** detrás de un solo borde: de las
 muestras del tap MTRG y las entradas externas a `trigger_event`, más los
 registros del slot 3. Adentro están el disparo de nivel
-([`rp_adc_trig`](../../../../../rtl/classic/rp_adc_trig.v), de Red Pitaya) y el de
-pendiente ([`mt_slope_trig`](../datasheet_mt_slope_trig.md)) de cada canal, el
+([`rp_adc_trig`](../../../../../rtl/classic/rp_adc_trig.v), de Red Pitaya), el de
+pendiente ([`mt_slope_trig`](../datasheet_mt_slope_trig.md)) y el de polo-cero
+([`mt_pz_trig`](../datasheet_mt_pz_trig.md)) de cada canal, el
 debounce externo ([`rp_ext_trig`](../../../../../rtl/classic/rp_ext_trig.v)), la
 lógica de evento ([`mt_event_logic`](../datasheet_mt_event_logic.md)) y el
 esclavo del bus ([`mt_cfg`](../datasheet_mt_cfg.md)).
@@ -28,14 +29,21 @@ esclavo del bus ([`mt_cfg`](../datasheet_mt_cfg.md)).
 
 ![Panorama de mt_top](../../mt/figuras/panorama_mt.svg)
 
-*El borde grueso es el límite de `mt_top`; lo que lo cruza son sus puertos. Las
-franjas numeradas son las tres partes del texto de `register_map_mt.md`. El
-recuadro punteado es la jerarquía del RTL: `mt_event_logic` instancia
-`mt_trig_src` (uno por canal) y `trigger_shield`. `NOMBRE=valor`: parámetros con
-que el padre instancia el bloque (se omiten los que sólo pasan el del padre sin
-cambio).*
+*En estilo datapath, para una hoja A4, como el de `mca_top`. El borde grueso es
+el límite de `mt_top`; lo que lo cruza son sus puertos: las entradas por la
+izquierda y las salidas por la derecha. El color es la función del bloque (la
+leyenda). Cada fuente llega por su propia línea a `mt_trig_src`, que es el que
+las concatena; el snapshot toma las mismas líneas por su lado, en la barra con
+un punto por fuente. Los flancos de `rp_ext_trig` salen del módulo por
+`trig_ext_asg_o` y vuelven por `trig_ext_asg_i`: el top los une. `adc_trig`
+sale de `mt_trig_src` hacia el escudo y hacia el OR: es la misma señal. Nombre
+en monoespaciada, con encabezado: submódulo con archivo propio. Gris con
+triángulo: registro del RTL. Los recuadros punteados son la jerarquía del RTL:
+`mt_event_logic` instancia los `mt_trig_src`, el escudo y el snapshot, y los
+tres disparos se instancian por canal. Los números sobre las flechas son anchos
+en bits.*
 
-*Por dentro:* las tres partes del texto de
+*Por dentro:* qué hace cada bloque, por función, en
 [`register_map_mt.md`](../../mt/register_map_mt.md#panorama), con la tabla de
 puertos y de dónde viene cada uno. Fuente TikZ en
 [`panorama_mt.tex`](../../mt/figuras/panorama_mt.tex).

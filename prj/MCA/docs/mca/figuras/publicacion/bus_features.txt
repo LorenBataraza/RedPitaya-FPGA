@@ -1,14 +1,9 @@
 El bus de features de `mca_publish`, y quién lo consume en `mca_top`. Cada
-ranura cerrada guarda su resultado hasta `libera`: pico, $Q_\mathrm{tot}$ y
-$Q_\mathrm{cola}$, amplitud elegida e integral, largo y $t_\mathrm{sub}$,
-`dt_prev` y `dt_next`, las marcas de solape, la suma y la cuenta de la meseta y
-`win_id`. El publicador atiende la más vieja de la cola de índices y `cur` elige
-sus operandos. Las llaves agrupan las ranuras del bus por origen; el color dice
-cuál (la leyenda). Contrato: cada ranura del bus es un `uint16` con fondo de
-escala `0xFFFF`. Las acotadas (pico, PSD, trapecio) van alineadas a la
-izquierda; los contadores (`F_LEN`, `F_TRISE`, `F_DT*`) y `F_INVW`, sin
-normalizar. El índice es fijo: lo comparten el selector de eje (D9) y el
-discriminador (D10). Además del bus, el publicador saca `ev_valid` (un ciclo),
-`ev_amp`, `ev_psd` y `ev_psd_ok`. El `inc` del 1D es `ev_valid` y el
-discriminador; el del 2D exige además `ev_psd_ok`. Los dos pasan por el registro
-de pipeline junto con los índices.
+ranura cerrada guarda su resultado hasta `libera`; la cola de índices guarda
+sólo el número de cada ranura cerrada, en orden de cierre (en el ejemplo cerró
+la 2 y después la 0), y `cur` toma la cabeza. Con `cur`, un mux N:1 elige los
+operandos de esa ranura. `ev_feat` es un único registro de 256 b, 16 campos de
+16 b que se cargan todos en el mismo flanco (`div_valid`), junto con `ev_valid`
+y `ev_psd_ok`: todo lo que sale es del mismo evento. Las llaves agrupan los
+campos por origen; el color dice cuál. Los 256 b salen en paralelo, y cada
+consumidor elige su campo con su propio mux 16:1, el discriminador incluido.

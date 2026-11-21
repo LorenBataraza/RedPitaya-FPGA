@@ -1,10 +1,12 @@
-% Panorama de EVENT_WINDOW_CAPTURE: la primera etapa del event_ring. Un solo
-% buffer circular guarda el pre-trigger y de él sale la ventana entera; la FSM
-% decide en el ciclo del trigger si la ventana entra (m_accept) y la emite como
-% un stream de 16 b con los canales intercalados. El borde grueso es el límite
-% del módulo; lo que lo cruza son sus puertos, sólo con el nombre.
+% Panorama de EVENT_WINDOW_CAPTURE: la primera etapa del event_ring, a nivel de
+% operación. El flanco y la decisión del trigger son compuertas; los punteros,
+% contadores con su +1; el pre-buffer, una memoria con un puerto de escritura y
+% uno de lectura; el serializador, un registro de palabra y un mux por canal.
+% Las redes con nombre (acepta, drain, ch_last, word_val...) se conectan por
+% nombre: el trazo corto que entra a un pin lleva el nombre de la red.
+% El borde grueso es el límite del módulo; lo que lo cruza son sus puertos.
 % Fuente: modulos/event_ring/rtl/event_window_capture.sv.
-% Estilo: docs/figuras/estilo_tikz.tex.
+% Estilo: docs/figuras/estilo_tikz.tex (símbolos de operación al final).
 % El epígrafe no va en la figura: está en panorama_event_window_capture.txt y en
 % los docs que la incluyen.
 %
@@ -18,87 +20,271 @@
 \usepackage[none]{hyphenat}
 \input{../../figuras/estilo_tikz.tex}
 
-\tikzset{logica/.style = {etapa=naranja!25, text width=2.6cm}}
+\tikzset{
+  op/.style      = {oper, font=\scriptsize},
+  caja/.style    = {desp, inner sep=2pt, minimum height=0.5cm},
+  reg/.style     = {registro=#1, minimum height=0.6cm, font=\scriptsize\ttfamily},
+  reg/.default   = 0.95cm,
+  y3/.style      = {puerta y=nnn, logic gate input sep=0.16cm},
+  fondo f/.style = {draw=black!45, dashed, line width=0.5pt, rounded corners=3pt,
+                    fill=#1},
+  rotf/.style    = {font=\scriptsize\itshape, black!75, inner sep=2pt},
+  red/.style     = {font=\scriptsize\ttfamily, inner sep=1pt},
+  chico/.style   = {font=\tiny, inner sep=1pt, align=center},
+}
+% \red[largo]{pin}{nombre}: la red que entra a un pin, por nombre, desde la izquierda
+\newcommand{\red}[3][0.5]{\draw[flujo] ($(#2)+(-#1,0)$) node[left, red] {#3} -- (#2);}
+% \redab[largo]{pin}{nombre}: la misma, desde abajo
+\newcommand{\redab}[3][0.45]{\draw[flujo] ($(#2)+(0,-#1)$) node[below, red] {#3} -- (#2);}
+% \redsal[largo]{pin}{nombre}: la red que sale de un pin hacia la derecha
+\newcommand{\redsal}[3][0.45]{\draw[flujo] (#2) -- ($(#2)+(#1,0)$) node[right, red] {#3};}
 
 \begin{document}
 \begin{tikzpicture}[fondo]
 
-\def\xin{-0.6}    % donde arrancan las entradas
-\def\xout{14.6}   % donde terminan las salidas
-\def\ytop{6.3}    % de donde bajan las de control
+\def\xin{-0.7}     % donde arrancan las entradas de la izquierda
+\def\xout{16.2}    % donde terminan las salidas
+\def\ytop{8.35}    % de donde bajan las entradas de arriba
 
-% ================================================================ bloques ===
-% --- arriba: lo que viaja con la ventana ---
-\node[registro, text width=3.2cm, inner ysep=5pt] (met) at (10.6,4.0)
-  {\etq{metadatos}{\texttt{ts}, \texttt{snapshot},\\ \texttt{nsamp} = \texttt{pre} + \texttt{post}\\ se cargan al aceptar}};
+% ================================================================ fondos ====
+\node[fondo f=amarillo!40, fit={(0.55,1.85) (8.75,4.75)}] (fdec) {};
+\node[fondo f=grisr!45, fit={(10.35,4.55) (14.45,7.35)}] (fmet) {};
+\node[fondo f=azul!10, fit={(0.55,-4.55) (9.15,0.95)}] (fptr) {};
+\node[fondo f=naranja!18, fit={(9.3,-1.55) (13.55,0.55)}] (fpid) {};
+\node[fondo f=naranja!18, fit={(7.55,-8.6) (15.05,-2.75)}] (fser) {};
+\node[fondo f=grisr!35, fit={(0.55,-8.6) (7.25,-4.75)}] (fcnt) {};
+\node[rotf, anchor=north west] at (fdec.north west) {flanco y decisión};
+\node[rotf, anchor=north west] at (fmet.north west) {metadatos};
+\node[rotf, anchor=north west] at (fptr.north west) {punteros y pre-buffer};
+\node[rotf, anchor=north east] at (fpid.north east) {pedir palabra};
+\node[rotf, anchor=south east] at (fser.south east) {serializador};
+\node[rotf, anchor=south west] at (fcnt.south west) {contadores de la ventana};
 
-% --- en el medio: el trigger y la decisión ---
-\node[logica, text width=2.3cm] (flc) at (2.4,1.6)
-  {\etq{flanco}{\texttt{trig\_i} $\wedge$ $\neg$\texttt{trig\_d}:\\ un flanco, un trigger}};
-\node[logica, text width=3.9cm, minimum height=1.6cm] (fsm) at (7.75,1.6)
-  {\etq{FSM de ventana}{\textsc{idle} $\to$ \textsc{drain} $\to$ \textsc{tail}\\
-   acepta o descarta entero,\\ en el ciclo del trigger\\[1pt]
-   {\tiny cuenta \texttt{samp\_left} y \texttt{ch\_idx}}}};
-\node[logica, text width=3.0cm, minimum height=1.35cm] (ptr) at (6.0,-1.15)
-  {\etq{punteros}{\texttt{wr\_ptr}: $+1$ por \texttt{dv}\\
-   \texttt{rd\_ptr} $\leftarrow$ \texttt{wr\_ptr} $-$ \texttt{pre}\\
-   \texttt{rd\_avail}: \texttt{rd\_ptr} $\neq$ \texttt{wr\_ptr}}};
+% ======================================================= flanco y decisión ===
+\node[reg=0.85cm] (trd) at (1.75,2.95) {trig\_d};
+\node[puerta y=ni] (g1) at (2.95,3.7) {};
+\node[y3] (g2) at (5.1,3.7) {};
+\node[puerta y] (g3) at (6.75,4.3) {};
+\node[puerta y=ni] (g4) at (6.75,3.3) {};
+\node[puerta y] (g5) at (6.75,2.4) {};
+\node[reg=1.3cm] (dfull) at (7.95,3.3) {drop\_full};
+\node[reg=1.3cm] (dbusy) at (7.95,2.4) {drop\_busy};
 
-% --- abajo: el camino de la muestra ---
-\node[logica, text width=2.3cm] (sx) at (2.4,-3.6)
-  {\etq{extensión de signo}{14 $\to$ 16 b,\\ canal por canal}};
-\node[memoria, text width=2.9cm, minimum height=1.5cm] (buf) at (6.0,-3.6)
-  {\etq{pre-buffer circular}{$2^{\mathtt{PRE\_AW}}\times 32$ b $=$ 2048\\ se escribe siempre;\\ de acá sale la ventana}};
-\node[logica, text width=2.7cm, minimum height=1.5cm] (ser) at (10.95,-3.6)
-  {\etq{serializador}{\texttt{word\_r}, un canal por ciclo:\\ ch0[$k$], ch1[$k$], ch0[$k$+1]\ldots\\ marca \texttt{sof} y \texttt{eof}}};
+% trig_i: el flanco es trig_i y no trig_d
+\coordinate (j1) at (0.95,0 |- g1.input 1);
+\draw[flujo] (\xin,0 |- g1.input 1) node[left, sen] {trig\_i} -- (g1.input 1);
+\punto{j1}
+\draw[flujo] (j1) |- (trd.west);
+\draw[flujo] (trd.east) -- (2.4,0 |- trd.east) |- (g1.input 2);
+\coordinate (j2) at (3.6,3.7);
+\draw[flujo] (g1.output) -- node[sen, above, pos=0.42] {trig\_edge} (g2.input 2);
+\punto{j2}
+% el trigger se acepta sólo en IDLE y con accept_trig_i
+\draw[flujo] (\xin,4.45) node[left, sen] {accept\_trig\_i} -- (4.6,4.45) |- (g2.input 1);
+\red[0.45]{g2.input 3}{idle}
+% hay lugar o no: m_accept_i se mira sólo en ese ciclo
+\coordinate (j3) at (5.8,3.7);
+\draw[flujo] (g2.output) -- node[sen, above, pos=0.6] {tr} (j3);
+\punto{j3}
+\draw[flujo] (j3) |- (g3.input 2);
+\draw[flujo] (j3) |- (g4.input 1);
+\draw[flujo, cruce] (6.25,\ytop) node[above, sen] {m\_accept\_i} -- (6.25,0 |- g3.input 1)
+  -- (g3.input 1);
+\draw[flujo, cruce] (6.25,0 |- g3.input 1) |- (g4.input 2);
+\punto{6.25,0 |- g3.input 1}
+% un trigger con la ventana en vuelo
+\draw[flujo] (j2) |- (g5.input 1);
+\red[0.45]{g5.input 2}{busy}
+\draw[flujo] (g4.output) -- (dfull.west);
+\draw[flujo] (g5.output) -- (dbusy.west);
+\draw[flujo] (dfull.east) -- (\xout,0 |- dfull.east) node[right, sen] {drop\_full\_o};
+\draw[flujo] (dbusy.east) -- (\xout,0 |- dbusy.east) node[right, sen] {drop\_busy\_o};
+
+% ============================================================ metadatos ====
+\node[reg=1.25cm] (mts) at (13.7,6.85) {m\_ts};
+\node[reg=1.25cm] (msn) at (13.7,6.0) {m\_snap};
+\node[reg=1.25cm] (mns) at (13.7,5.15) {m\_nsamp};
+\node[op] (sum) at (11.5,5.15) {$+$};
+\draw[flujo] (12.75,\ytop) node[above, sen] {ts\_i} |- (mts.west);
+\draw[flujo] (12.2,\ytop+0.4) node[above, sen] {snapshot\_i} |- (msn.west);
+\draw[flujo] (11.5,\ytop) node[above, sen] {pre\_i} -- (sum.north);
+\draw[flujo] (10.7,\ytop) node[above, sen] {post\_i} |- (sum.west);
+\draw[flujo] (sum.east) -- (mns.west);
+\draw[flujo] (mts.east) -- (\xout,0 |- mts.east) node[right, sen] {m\_ts\_o};
+\draw[flujo] (msn.east) -- (\xout,0 |- msn.east) node[right, sen] {m\_snap\_o};
+\draw[flujo] (mns.east) -- (\xout,0 |- mns.east) node[right, sen] {m\_nsamp\_o};
+% se cargan los tres con acepta
+\node[grupo, fit={(12.95,4.75) (14.45,7.25)}, inner sep=0pt] (gmet) {};
+\coordinate (jac) at (9.65,0 |- g3.output);
+\draw[flujo] (g3.output) -- node[sen, above, pos=0.55] {acepta} (13.7,0 |- g3.output)
+  -- node[chico, right, pos=0.5] {en} (gmet.south);
+\punto{jac}
+
+% ========================================================= FSM de ventana ===
+\node[etapa=grisr!70, text width=2.5cm, minimum height=1.05cm] (fsm) at (9.65,1.35)
+  {\etq{FSM de ventana}{\textsc{idle} $\to$ \textsc{drain}\\ $\to$ \textsc{tail} $\to$ \textsc{idle}\\[-1pt] {\tiny $\neg$run\_i: a \textsc{idle}}}};
+\draw[flujo, cruce] (jac) -- (fsm.north);
+\draw[ctrl, cruce] (9.0,\ytop) node[above, sen, black!80] {run\_i} -- (9.0,0 |- fsm.north);
+\red[0.45]{fsm.west}{fin}
+\redsal[0.4]{$(fsm.east)+(0,0.3)$}{idle}
+\redsal[0.4]{fsm.east}{drain}
+\redsal[0.4]{$(fsm.east)+(0,-0.3)$}{busy = $\neg$idle}
+
+% ================================================= punteros y pre-buffer ====
+% wr_ptr: +1 por cada muestra
+\node[reg=1.1cm] (wrp) at (1.95,-0.5) {wr\_ptr};
+\node[op] (inw) at (1.95,0.45) {$+1$};
+\coordinate (jw) at (2.85,-0.5);
+\draw[flujo] (wrp.east) -- (jw);
+\punto{jw}
+\draw[flujo] (jw) |- (inw.east);
+\draw[flujo] (inw.west) -- (1.05,0.45) |- (wrp.west);
+\draw[ctrl] (\xin,-1.3) node[left, sen, black] {dv\_i} -| node[chico, left, pos=0.8] {en} (wrp.south);
+% rd_ptr: al aceptar, pre muestras atrás; después +1 por palabra leída
+\node[op] (res) at (4.05,-0.5) {$-$};
+\draw[flujo] (jw) -- (res.west);
+\draw[flujo] (4.05,0.2) node[above, red] {pre\_i} -- (res.north);
+\muxdec{mr}{(5.3,-0.75)}{1.1}
+\node[font=\tiny] at ($(mr-in)+(0.13,0.25)$) {1};
+\node[font=\tiny] at ($(mr-in)+(0.13,-0.25)$) {0};
+\draw[flujo] (res.east) -- (mr-in |- res.east);
+\node[reg=1.1cm] (rdp) at (6.65,-0.75) {rd\_ptr};
+\draw[flujo] (mr-out) -- (rdp.west);
+\node[chico, anchor=north] at ($(rdp.south)+(0,-0.05)$) {en: acepta $\vee$ do\_read};
+\coordinate (jr) at (7.55,-0.75);
+\draw[flujo] (rdp.east) -- (jr);
+\punto{jr}
+\node[op] (inr) at (4.45,-1.95) {$+1$};
+\draw[flujo] (jr) -- (7.55,-1.95) -- (inr.east);
+\punto{7.55,-1.95}
+\draw[flujo] (inr.north) |- (mr-in |- 0,-1.0);
+\redab[0.4]{mr-sel}{acepta}
+% hay palabra para leer mientras rd_ptr no alcance a wr_ptr
+\node[op] (neq) at (8.55,-1.35) {$\neq$};
+\draw[flujo] (jr) -- (8.55,-0.75) -- (neq.north);
+\redab[0.4]{neq.south}{wr\_ptr}
+% el pre-buffer: se escribe siempre, se lee desde rd_ptr
+\node[caja, text width=1.55cm] (sx) at (1.75,-3.55)
+  {extensión de signo\\ \{$x_{13}^{\,2}$, $x$\} $\times 2$};
+\node[memoria=azul!35, text width=2.0cm, minimum height=1.45cm] (buf) at (5.45,-3.55)
+  {\etq{pre\_buf}{$2^{11} \times 32$ b\\ esc.: run $\wedge$ dv}};
+\draw[flujo, ancho=28, ancho en=0.45] (\xin,0 |- sx.west) node[left, sen] {dat\_i} -- (sx.west);
+\draw[flujo, ancho=32] (sx.east) -- (buf.west);
+\draw[flujo] (jw) -- (2.85,-2.45) -| node[sen, right, pos=0.75] {wr} (4.55,0 |- buf.north);
+\draw[flujo] (7.55,-1.95) -- (7.55,-2.45) -| node[sen, left, pos=0.75] {rd} (6.35,0 |- buf.north);
+
+% ============================================================ pedir palabra ===
+% want_word = drain ∧ samp_left≠0 ∧ (¬word_val ∨ ch_last);  do_read = want_word ∧ rd_avail
+\node[puerta o=in] (o1) at (10.35,0.25) {};
+\node[op, font=\tiny] (nz) at (10.55,-0.85) {$\neq 0$};
+\node[y3] (a1) at (11.55,-0.25) {};
+\node[puerta y] (a2) at (12.75,-0.55) {};
+\red[0.45]{o1.input 1}{word\_val}
+\red[0.45]{o1.input 2}{ch\_last}
+\red[0.3]{nz.west}{samp\_left}
+\draw[flujo] (o1.output) -- (11.05,0 |- o1.output) |- (a1.input 1);
+\red[0.45]{a1.input 2}{drain}
+\draw[flujo] (nz.east) -- (11.05,0 |- nz.east) |- (a1.input 3);
+\draw[flujo] (a1.output) -- (12.2,0 |- a1.output) |- (a2.input 1);
+\draw[flujo] (neq.east) -- node[sen, below, pos=0.5] {rd\_avail} (12.2,0 |- neq.east) |- (a2.input 2);
+\redsal[0.35]{a2.output}{do\_read}
+
+% ============================================================= serializador ===
+\node[reg=1.1cm] (wr) at (8.55,-3.55) {word\_r};
+\draw[flujo, ancho=32, ancho en=0.4] (buf.east) -- (wr.west);
+\node[chico, anchor=north] at ($(wr.south)+(0,-0.03)$) {en: do\_read};
+\muxdec{ms}{(10.55,-3.55)}{1.15}
+\node[font=\tiny] at ($(ms-in)+(0.13,0.25)$) {0};
+\node[font=\tiny] at ($(ms-in)+(0.13,-0.25)$) {1};
+\coordinate (jwr) at (9.35,-3.55);
+\draw[flujo] (wr.east) -- (jwr);
+\draw[flujo] (jwr) |- node[chico, above, pos=0.75] {[15:0]} (ms-in |- 0,-3.3);
+\draw[flujo] (jwr) |- node[chico, below, pos=0.75] {[31:16]} (ms-in |- 0,-3.8);
+\node[reg=1.1cm] (mdat) at (14.15,-3.55) {m\_dat};
+\draw[flujo, ancho=16, ancho en=0.5] (ms-out) -- (mdat.west);
+\draw[flujo] (mdat.east) -- (\xout,0 |- mdat.east) node[right, sen] {m\_dat\_o};
+
+% ch_idx: elige el canal, un ciclo cada uno
+\node[reg=1.0cm] (chi) at (10.55,-4.95) {ch\_idx};
+\node[caja] (mod) at (9.05,-4.95) {$+1$ mód $N_\mathrm{CH}$};
+\coordinate (jc) at (10.55,-4.42);
+\draw[flujo] (chi.north) -- (ms-sel);
+\punto{jc}
+\draw[flujo] (jc) -| (mod.north);
+\draw[flujo] (mod.east) -- (chi.west);
+\node[chico, anchor=north] at ($(chi.south)+(0,-0.03)$) {en: word\_val};
+\node[caja, font=\scriptsize] (cl) at (12.0,-4.95) {$=N_{\mathrm{CH}}{-}1$};
+\node[op, font=\tiny] (c0) at (12.1,-7.5) {$=\!0$};
+\coordinate (jc2) at (11.25,-4.95);
+\draw[flujo] (chi.east) -- (cl.west);
+\punto{jc2}
+\draw[flujo] (jc2) |- (c0.west);
+
+% salidas del stream: val, sof y eof van registradas con el dato
+\node[y3] (aeof) at (13.5,-6.75) {};
+\node[y3] (asof) at (13.5,-7.8) {};
+\node[reg=1.1cm] (mval) at (14.2,-4.3) {m\_val};
+\node[reg=0.85cm] (meof) at (14.6,-6.75) {m\_eof};
+\node[reg=0.85cm] (msof) at (14.6,-7.8) {m\_sof};
+\red[0.45]{mval.west}{word\_val}
+\draw[flujo] (cl.east) -- (12.85,0 |- cl.east) |- node[sen, right, pos=0.3] {ch\_last} (aeof.input 1);
+\draw[flujo] (c0.east) -- (12.85,0 |- c0.east) |- (asof.input 1);
+\draw[flujo] ($(aeof.input 3)+(-0.25,0)$) node[left, chico] {wv} -- (aeof.input 3);
+\draw[flujo] ($(asof.input 3)+(-0.25,0)$) node[left, chico] {wv} -- (asof.input 3);
+\draw[flujo] (aeof.output) -- (meof.west);
+\draw[flujo] (asof.output) -- (msof.west);
+\coordinate (jfin) at ($(aeof.output)+(0.12,0)$);
+\punto{jfin}
+\draw[flujo] (jfin) |- ($(jfin)+(0.3,-0.52)$) node[right, red] {fin};
+\draw[flujo] (mval.east) -- (\xout,0 |- mval.east) node[right, sen] {m\_val\_o};
+\draw[flujo] (meof.east) -- (\xout,0 |- meof.east) node[right, sen] {m\_eof\_o};
+\draw[flujo] (msof.east) -- (\xout,0 |- msof.east) node[right, sen] {m\_sof\_o};
+
+% ================================================ contadores de la ventana ===
+% word_val: hay palabra cargada en word_r
+\node[puerta y=ni] (awv) at (2.45,-5.35) {};
+\node[puerta o] (owv) at (3.75,-5.5) {};
+\node[reg=1.25cm] (wv) at (5.05,-5.5) {word\_val};
+\red[0.45]{awv.input 1}{word\_val}
+\red[0.45]{awv.input 2}{ch\_last}
+\draw[flujo] (awv.output) -- (3.15,0 |- awv.output) |- (owv.input 1);
+\draw[flujo] (2.7,-5.95) node[left, red] {do\_read} -- (3.15,-5.95) |- (owv.input 2);
+\draw[flujo] (owv.output) -- (wv.west);
+\redsal[0.35]{wv.east}{word\_val}
+% samp_left: al aceptar, pre + post; -1 al terminar cada palabra
+\muxdec{msl}{(2.75,-6.95)}{1.1}
+\node[font=\tiny] at ($(msl-in)+(0.13,0.25)$) {1};
+\node[font=\tiny] at ($(msl-in)+(0.13,-0.25)$) {0};
+\node[reg=1.25cm] (sl) at (4.35,-6.75) {samp\_left};
+\node[op] (dec) at (1.6,-7.85) {$-1$};
+\red[0.55]{msl-in |- 0,-6.7}{pre+post}
+\draw[flujo] (msl-out) -- (msl-out -| 3.45,0) |- (sl.west);
+\coordinate (js) at (5.3,-6.75);
+\draw[flujo] (sl.east) -- (js);
+\punto{js}
+\draw[flujo] (js) -- (5.3,-8.35) -| (dec.south);
+\draw[flujo] (dec.north) |- (msl-in |- 0,-7.2);
+\draw[flujo] ($(msl-sel)+(0,-0.45)$) node[below, red] {acepta} -- (msl-sel);
+\node[chico, anchor=north, text width=1.6cm] at ($(sl.south)+(-0.1,-0.03)$) {en: acepta $\vee$\\ (word\_val $\wedge$ ch\_last)};
+\node[op, font=\tiny] (s1) at (6.35,-6.75) {$=\!1$};
+\node[caja, font=\tiny] (sn) at (6.5,-7.8) {$=$ m\_nsamp};
+\draw[flujo] (js) -- (s1.west);
+\coordinate (js2) at (5.6,-6.75);
+\punto{js2}
+\draw[flujo] (js2) |- (sn.west);
+% la última y la primera muestra cruzan al serializador
+\draw[flujo, cruce] (s1.east) -- (aeof.input 2);
+\draw[flujo] (sn.east) -- (asof.input 2);
 
 % ============================================================== el límite ===
-\node[contenedor, fit={(0.35,5.15) (12.9,-4.85)}] (lim) {};
+\node[contenedor, fit={(0.25,7.6) (15.35,-8.9)}] (lim) {};
 \node[titulo, anchor=south west, inner sep=2pt, align=left] at (lim.north west)
   {\texttt{\bfseries event\_window\_capture}\\
    \prm{DW=14 & N\_CH=2 & SW=16\\ PRE\_AW=11 & S\_AW=11 & TS\_W=64}};
 
-% ============================================================== flechas ====
-% --- lo que viaja con la ventana: se copia al aceptar ---
-\draw[flujo, ancho=64, ancho en=0.25] (\xin,4.3) node[left, sen] {ts\_i} -- (met.west |- 0,4.3);
-\draw[flujo, ancho=17, ancho en=0.55] (\xin,3.7) node[left, sen] {snapshot\_i} -- (met.west |- 0,3.7);
-\draw[flujo] (9.45,0 |- fsm.north) -- node[sen, right, pos=0.45] {acepta} (9.45,0 |- met.south);
-\draw[flujo] (met.east) -- (\xout,0 |- met.east) node[right, sen, align=left]
-  {m\_ts\_o, m\_snap\_o\\ m\_nsamp\_o};
-
-% --- el trigger ---
-\draw[flujo] (\xin,0 |- flc.west) node[left, sen] {trig\_i} -- (flc.west);
-\draw[flujo] (flc.east) -- node[sen, above] {trig\_edge} (fsm.west);
-
-% --- control, por arriba (cruza lo que va a los metadatos) ---
-\draw[ctrl, cruce] (6.6,\ytop) node[above, sen, black!80, align=center] {run\_i\\ accept\_trig\_i}
-  -- (6.6,0 |- fsm.north);
-\draw[ctrl, cruce] (8.2,\ytop) node[above, sen, black!80, align=center] {pre\_i\\ post\_i}
-  -- (8.2,0 |- fsm.north);
-
-% --- la decisión: m_accept entra, las pérdidas salen ---
-\draw[flujo] (\xout,2.05) node[right, sen] {m\_accept\_i} -- (fsm.east |- 0,2.05);
-\draw[flujo] (fsm.east |- 0,1.25) -- (\xout,1.25) node[right, sen, align=left]
-  {drop\_busy\_o, drop\_full\_o\\ busy\_o};
-
-% --- la FSM mueve el puntero de lectura y el serializador ---
-\draw[flujo] (5.6,0 |- fsm.south) -- node[sen, left, align=right] {acepta,\\ do\_read} (5.6,0 |- ptr.north);
-\draw[flujo] (6.6,0 |- ptr.north) -- node[sen, right] {rd\_avail} (6.6,0 |- fsm.south);
-\draw[flujo] (9.45,0 |- fsm.south) -- node[sen, right, align=left, pos=0.4] {do\_read,\\ samp\_left} (9.45,0 |- ser.north);
-
-% --- el camino de la muestra ---
-\draw[flujo] (\xin,0 |- ptr.west) node[left, sen] {dv\_i} -- (ptr.west);
-\draw[flujo, ancho=28, ancho en=0.7] (\xin,0 |- sx.west) node[left, sen, align=right]
-  {dat\_i\\[-1pt]\normalfont\scriptsize 2 canales} -- (sx.west);
-\draw[flujo, ancho=32] (sx.east) -- (buf.west);
-\draw[flujo] (ptr.south) -- node[sen, right] {wr\_ptr, rd\_ptr} (buf.north);
-\draw[flujo, ancho=32] (buf.east) -- (ser.west);
-\draw[flujo, ancho=16, ancho en=0.6] (ser.east |- 0,-3.3) -- (\xout,-3.3) node[right, sen] {m\_dat\_o};
-\draw[flujo] (ser.east |- 0,-3.9) -- (\xout,-3.9) node[right, sen, align=left]
-  {m\_val\_o, m\_sof\_o\\ m\_eof\_o};
-
 % ================================================================= leyenda ===
-\leyenda{-1.6,-6.0}{naranja!25/lógica propia, naranja!50/memoria, grisr/registro}{}
+\leyenda{-1.6,-9.65}{amarillo!40/decisión del trigger, azul!10/muestra y punteros,
+  naranja!18/hacia el stage, grisr/registro}{}
 
 \end{tikzpicture}
 \end{document}

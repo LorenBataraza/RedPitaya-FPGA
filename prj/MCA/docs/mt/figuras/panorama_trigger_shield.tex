@@ -1,10 +1,22 @@
-% Panorama de TRIGGER_SHIELD: el escudo por dentro. Un solo contador de holdoff
-% que carga `dur` cuando dispara alguna fuente habilitada; al expirar emite un
-% pulso de re-arm hacia los canales de destino, y mientras corre da el veto al
-% MCA. El borde grueso es el límite del módulo; lo que lo cruza son sus
-% puertos, sólo con el nombre.
+% Panorama de TRIGGER_SHIELD en el estilo de panorama_mt.tex: el escudo,
+% registro por registro. Cada fila es un registro del RTL con la lógica que da
+% su valor siguiente:
+%   src_fire  = |(trig_event & src)                         (combinacional)
+%   cnt       <- src_fire ? dur : (active ? cnt-1 : cnt)
+%   active    <- src_fire ? (dur != 0) : (active & !vence)
+%   clr_q     <- dst[N-1:0] & (src_fire ? (dur == 0) : vence)
+%   mca_veto  <- dst[N] & (src_fire | active)
+% con vence = active & (cnt <= 1): el holdoff termina. Mientras corre, cnt >= 1,
+% así que cnt-1 es el «cnt <= 0» del RTL cuando vence.
+% Las ramas del RTL (if src_fire / else if active) son los muxes en cascada.
 % Fuente: modulos/mt/rtl/trigger_shield.sv. Estilo: docs/figuras/estilo_tikz.tex.
-% El epígrafe no va en la figura: está en panorama_trigger_shield.txt y en el doc que la incluye.
+%
+% EL COLOR ES LA FUNCIÓN, como en panorama_mt.tex: amarillo selección (de qué
+% fuentes se dispara el escudo), naranja escudo, gris registros. Las operaciones
+% van con su símbolo. Nombres de red sin cable (src_fire, active, vence,
+% dst[N]): la señal del mismo nombre, que se dibuja una sola vez donde nace.
+% El epígrafe no va en la figura: está en panorama_trigger_shield.txt y en el
+% doc que la incluye.
 %
 % Compilar:   pdflatex panorama_trigger_shield.tex
 %             pdftocairo -svg panorama_trigger_shield.pdf panorama_trigger_shield.svg
@@ -15,70 +27,158 @@
 \usepackage{lmodern}
 \usepackage[none]{hyphenat}
 \input{../../figuras/estilo_tikz.tex}
-
-\tikzset{logica/.style = {etapa=amarillo!40, text width=3.0cm}}
+\tikzset{
+  ysel/.style  = {puerta y=#1, fill=amarillo},
+  ysel/.default = nn,
+  osel/.style  = {puerta o, fill=amarillo},
+  yesc/.style  = {puerta y=#1, fill=naranja!70},
+  yesc/.default = nn,
+  oesc/.style  = {puerta o, fill=naranja!70},
+  reg/.style   = {registro=#1, minimum height=0.7cm, font=\scriptsize\ttfamily},
+  reg/.default = 0.8cm,
+  chico/.style = {font=\scriptsize\ttfamily, inner sep=1pt},
+  red/.style   = {ctrl},
+}
+% un nombre de red que entra por abajo a #1 (un punto), con el nombre #2
+\newcommand{\redAbajo}[2]{\draw[red] ($(#1)+(0,-0.4)$) node[below, chico, black!80] {#2} -- (#1);}
+% ... y por arriba
+\newcommand{\redArriba}[2]{\draw[red] ($(#1)+(0,0.4)$) node[above, chico, black!80] {#2} -- (#1);}
+% ... y por la izquierda
+\newcommand{\redIzq}[2]{\draw[red] ($(#1)+(-0.45,0)$) node[left, chico, black!80] {#2} -- (#1);}
+% las etiquetas de las entradas de un mux: #1 = mux, #2 = y de la de arriba,
+% #3 = su rótulo, #4 = y de la de abajo, #5 = su rótulo
+\newcommand{\muxio}[5]{%
+  \node[font=\tiny] at ($(#1-in |- 0,#2)+(0.13,0)$) {#3};
+  \node[font=\tiny] at ($(#1-in |- 0,#4)+(0.13,0)$) {#5};}
+% la mitad del lado de arriba de un mux de alto #2: (#1-top)
+\newcommand{\selArriba}[2]{\path ($(#1)+(0,{#2/2-0.175})$) coordinate (#1-top);}
 
 \begin{document}
 \begin{tikzpicture}[fondo]
 
-\def\xin{-0.4}    % donde arrancan las entradas
-\def\xout{17.6}   % donde terminan las salidas
-\def\ytop{4.6}    % de donde bajan las de configuración
+\def\xin{-0.15}   % donde arrancan las entradas
+\def\xout{10.9}   % donde terminan las salidas
 
-% ================================================================ bloques ===
-\node[logica, minimum height=1.6cm] (dis) at (2.6,0.0)
-  {\etq{disparo del escudo}{\texttt{src\_fire =}\\ \texttt{|(trig\_event \& src)}\\ combinacional}};
-\node[logica, minimum height=1.9cm] (cnt) at (6.4,0.0)
-  {\etq{contador de holdoff}{con \texttt{src\_fire} carga \texttt{dur}\\ (cada disparo recarga);\\ si no, cuenta hasta 1\\ \texttt{active}: está contando}};
-\node[logica, minimum height=1.5cm] (pul) at (10.4,1.7)
-  {\etq{pulso de re-arm}{\texttt{clr\_q <= dst[N-1:0]}\\ al expirar; con \texttt{dur=0},\\ al disparar \;(1 ciclo)}};
-\node[logica, minimum height=1.3cm] (vet) at (10.4,-1.9)
-  {\etq{veto al MCA}{\texttt{dst[N] \& (src\_fire | active)}\\ registrado}};
-\node[logica, text width=2.4cm, minimum height=1.5cm,
-      double copy shadow={shadow xshift=2pt, shadow yshift=-2pt}] (mux) at (14.5,1.7)
-  {\etq{mux {\normalfont$\times$} N}{\texttt{dst[i] ? clr\_q[i]}\\ \texttt{: sw\_clr[i]}}};
+% ============================================== src_fire, y el veto al MCA ===
+\node[ysel] (as) at (1.45,3.4) {};
+\node[osel] (os) at (2.4,3.4) {};
+\node[oesc, anchor=input 1] (ov) at (5.75,3.4) {};
+\node[yesc, anchor=input 1] (av) at ($(ov.output)+(1.1,0)$) {};
+\node[reg=1.15cm] (rv) at ($(av.output)+(0.95,0)$) {mca\_veto};
+
+% ======================================================= cnt: el holdoff ===
+\node[oper] (dec) at (3.65,1.3) {$-$};
+\muxdec{ma}{(4.7,1.05)}{1.0}
+\muxio{ma}{1.3}{1}{0.8}{0}
+\muxdec{mf}{(5.85,1.3)}{1.3}
+\muxio{mf}{1.8}{1}{1.05}{0}
+\selArriba{mf}{1.3}
+\node[reg] (rc) at (7.0,1.3) {cnt};
+
+% el fin del holdoff: vence
+\node[oper, font=\tiny] (le) at (8.4,0.5) {$\leq 1$};
+\node[yesc, anchor=input 1] (ave) at (9.05,0.5) {};
+
+% ========================================================= active ===
+\node[oper, font=\tiny] (nz) at (3.65,-1.15) {$\neq 0$};
+\node[yesc=in, anchor=output] (aa) at (4.95,-1.75) {};
+\muxdec{mA}{(5.85,-1.45)}{1.2}
+\muxio{mA}{-1.15}{1}{-1.75}{0}
+\selArriba{mA}{1.2}
+\node[reg] (ra) at (7.0,-1.45) {active};
+
+% ===================================================== clr_q: el re-arm ===
+\node[oper, font=\tiny] (z) at (3.65,-3.31) {$=0$};
+\muxdec{mF}{(5.85,-3.56)}{1.0}
+\muxio{mF}{-3.31}{1}{-3.81}{0}
+\selArriba{mF}{1.0}
+\node[yesc, anchor=input 1] (af) at (6.75,-3.56) {};
+\node[reg] (rq) at ($(af.output)+(0.85,0)$) {clr\_q};
+\path (rq.east) coordinate (rqe);
+\muxdec{mo}{($(rqe)+(0.95,-0.25)$)}{1.0}
+\coordinate (mo-1) at ($(mo-in)+(0,0.25)$);
+\coordinate (mo-0) at ($(mo-in)+(0,-0.25)$);
+\node[font=\tiny] at ($(mo-1)+(0.13,0)$) {1};
+\node[font=\tiny] at ($(mo-0)+(0.13,0)$) {0};
 
 % ============================================================== el límite ===
-\node[contenedor, fit={(0.65,3.75) (16.3,-3.95)}] (lim) {};
-\node[titulo, anchor=south west, inner sep=2pt, align=left] at (lim.north west)
-  {\texttt{\bfseries trigger\_shield}\\ \prm{N=SHIELD\_N & DURATION\_W=16\\ N\_SRC=N+3 & N\_DST=N+1}};
+\node[contenedor, fit={(0.1,4.75) (10.45,-5.0)}] (lim) {};
+\node[titulo] at (0.1,4.75)
+  {\texttt{\bfseries trigger\_shield}\quad
+   \prm{N=SHIELD\_N\\ N\_SRC=SHIELD\_SRC & N\_DST=SHIELD\_DST}};
 
 % ============================================================== flechas ====
-% --- entradas por la izquierda ---
-\draw[flujo, ancho=N\_SRC, ancho en=0.4] (\xin,0.35) node[left, sen] {trig\_event\_i} -- (dis.west |- 0,0.35);
-\draw[ctrl] (\xin,-0.4) node[left, sen, black!80] {shield\_src\_i} -- (dis.west |- 0,-0.4);
-\draw[flujo, ancho=N, ancho en=0.2] (\xin,3.0) node[left, sen] {sw\_trig\_dis\_clr\_i}
-  -- (13.05,3.0) -- (13.05,2.15) -- (mux.west |- 0,2.15);
+% --- src_fire: alguna fuente habilitada dispara; y el veto ---
+\draw[flujo, ancho=N\_SRC, ancho en=0.45] (\xin,3.7) node[left, sen] {trig\_event\_i}
+  -- (0.95,3.7) |- (as.input 1);
+\draw[flujo, ancho=N\_SRC, ancho en=0.45] (\xin,3.1) node[left, sen] {shield\_src\_i}
+  -- (0.95,3.1) |- (as.input 2);
+\draw[flujo] (as.output) -- ($(os.input 1)!0.5!(os.input 2)$);
+\draw[flujo] (os.output) -- node[sen, above, pos=0.3] {src\_fire} (ov.input 1);
+\redIzq{ov.input 2}{active}
+\draw[flujo] (ov.output) -- (av.input 1);
+\draw[red] (7.1,2.55) node[below, chico, black!80] {dst[N]} |- (av.input 2);
+\draw[flujo] (av.output) -- (rv.west);
+\draw[flujo] (rv.east) -- (\xout,0 |- rv.east) node[right, sen] {mca\_veto\_o};
 
-% --- configuración, por arriba ---
-\draw[ctrl] (cnt.north |- 0,\ytop) node[above, sen, black!80] {shield\_dur\_i} -- (cnt.north);
-\draw[ctrl] (12.7,\ytop) node[above, sen, black!80] {shield\_dst\_i} -- (12.7,3.45);
-\draw[ctrl] (pul.north |- 0,3.45) -- (mux.north |- 0,3.45);
-\punto{12.7,3.45}
-\draw[ctrl, cruce] (pul.north |- 0,3.45) -- node[sen, right, pos=0.35, black!80] {dst[N-1:0]} (pul.north);
-\draw[ctrl] (mux.north |- 0,3.45) -- node[sen, right, pos=0.35, black!80] {dst[i]: elige} (mux.north);
-\draw[ctrl, cruce] (12.7,3.45) -- (12.7,-0.6) -- (vet.north |- 0,-0.6)
-  -- node[sen, right, pos=0.5, black!80] {dst[N]} (vet.north);
+% --- cnt: con src_fire carga dur; si no, mientras corre, cuenta hacia abajo ---
+\draw[flujo, ancho=16, ancho en=0.12] (\xin,1.8) node[left, sen] {shield\_dur\_i}
+  -- (mf-in |- 0,1.8);
+\punto{2.4,1.8}
+\draw[flujo] (dec.east) -- (ma-in |- 0,1.3);
+\node[cte, anchor=east] (uno) at ($(dec.west)+(-0.25,0)$) {1};
+\draw[flujo] (uno.east) -- (dec.west);
+\draw[flujo] (ma-out) -- (mf-in |- 0,1.05);
+\draw[red] (4.7,0.35) node[right, chico, black!80] {active} -- (ma-sel);
+\redArriba{mf-top}{src\_fire}
+\draw[flujo] (mf-out) -- (rc.west);
+\draw[flujo, ancho=16, ancho en=0.75] (rc.east) -- (\xout,0 |- rc.east) node[right, sen] {cnt\_o};
+% la vuelta: por abajo, a la resta y al «0» del mux
+\punto{7.75,1.3}
+\draw[flujo] (7.75,1.3) -- (7.75,0.0) -- (3.65,0.0) -- (dec.south);
+\punto{4.0,0.0}
+\draw[flujo] (4.0,0.0) |- (ma-in |- 0,0.8);
+% vence = active & (cnt <= 1)
+\punto{8.4,1.3}
+\draw[flujo] (8.4,1.3) -- (le.north);
+\draw[flujo] (le.east) -- (ave.input 1);
+\draw[red] (8.85,-0.2) node[below, chico, black!80] {active} |- (ave.input 2);
+\draw[flujo] (ave.output) -- ++(0.3,0) node[right, chico] {vence};
 
-% --- adentro ---
-\draw[flujo] (dis.east) -- node[sen, above, pos=0.5] {src\_fire} (cnt.west);
-\draw[flujo] (cnt.east |- 0,0.45) -- (8.35,0.45) -- (8.35,1.7) -- (pul.west);
-\node[sen, above left] at (pul.west) {expira};
-\draw[flujo] (cnt.east |- 0,-0.45) -- (8.65,-0.45) -- (8.65,-2.15) -- (vet.west |- 0,-2.15);
-\node[sen, below left] at (vet.west |- 0,-2.15) {active};
-\punto{4.5,0.0}
-\draw[flujo, cruce] (4.5,0.0) -- (4.5,-1.65) -- (vet.west |- 0,-1.65);
-\node[sen, above left] at (vet.west |- 0,-1.65) {src\_fire};
-\draw[flujo, cruce] (pul.east |- 0,1.25) -- node[sen, below, pos=0.35] {clr\_q} (mux.west |- 0,1.25);
+% --- active: con src_fire, dur != 0; si no, sigue hasta que vence ---
+\draw[flujo] (2.4,1.8) |- (nz.west);
+\punto{2.4,-1.15}
+\draw[flujo] (nz.east) -- (mA-in |- 0,-1.15);
+\redIzq{aa.input 1}{vence}
+\draw[flujo] (aa.output) -- (mA-in |- 0,-1.75);
+\redArriba{mA-top}{src\_fire}
+\draw[flujo] (mA-out) -- (ra.west);
+\draw[flujo] (ra.east) -- (\xout,0 |- ra.east) node[right, sen] {active\_o};
+\punto{7.75,-1.45}
+\draw[flujo] (7.75,-1.45) -- (7.75,-2.35) -- (4.05,-2.35) |- (aa.input 2);
 
-% --- salidas: sólo el nombre ---
-\draw[flujo, ancho=N, ancho en=0.55] (mux.east) -- (\xout,0 |- mux.east) node[right, sen] {trig\_dis\_clr\_o};
-\draw[flujo] (vet.east) -- (\xout,0 |- vet.east) node[right, sen] {mca\_veto\_o};
-\draw[flujo] (cnt.south) -- (cnt.south |- 0,-3.3) -- (\xout,-3.3)
-  node[right, sen, align=left] {cnt\_o, active\_o};
+% --- clr_q: el pulso de re-arm, a los destinos; con dur = 0, al disparar ---
+\draw[flujo] (2.4,-1.15) |- (z.west);
+\draw[flujo] (z.east) -- (mF-in |- 0,-3.31);
+\coordinate (mF-0) at (mF-in |- 0,-3.81);
+\redIzq{mF-0}{vence}
+\redArriba{mF-top}{src\_fire}
+\draw[flujo] (mF-out) -- (af.input 1);
+\draw[flujo] (af.output) -- (rq.west);
+\draw[flujo] (rq.east) -- (mo-1);
+
+% --- el mux por canal: los destinos siguen al escudo; el resto, al software ---
+\draw[flujo, ancho=N, ancho en=0.12] (\xin,0 |- mo-0) node[left, sen] {sw\_trig\_dis\_clr\_i}
+  -- (mo-0);
+\draw[ctrl, anchov=N+1, ancho en=0.3] (mo-sel |- 0,-5.5) node[below, sen, black!80] {shield\_dst\_i}
+  -- (mo-sel);
+\punto{mo-sel |- 0,-4.85}
+\draw[ctrl, cruce] (mo-sel |- 0,-4.85) -- node[chico, black!80, above, pos=0.35] {dst[N-1:0]}
+  (6.55,-4.85) |- (af.input 2);
+\draw[flujo, ancho=N, ancho en=0.5] (mo-out) -- (\xout,0 |- mo-out) node[right, sen] {trig\_dis\_clr\_o};
 
 % ================================================================= leyenda ===
-\leyenda{-1.0,-4.8}{amarillo!40/lógica del escudo}{}
+\leyenda{0.2,-6.65}{amarillo/selección, naranja!70/escudo, grisr/registros}{}
 
 \end{tikzpicture}
 \end{document}

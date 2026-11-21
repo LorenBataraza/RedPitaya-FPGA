@@ -1,5 +1,12 @@
-Los números sobre el bus son los bits de la máscara (`OR_MASK`); los 25–31 están
-reservados. El software también pasa por la máscara: es el bit 0, así que con
-`OR_MASK = 0` ni `TRIG_SW` dispara. En modo continuo (`we_keep = 1`) la máscara
-no se limpia sola; el protect se engancha igual. `NOMBRE=valor`: parámetros con
-que lo instancia `mt_event_logic`.
+En el estilo de `panorama_mt`: el color es la función del bloque (la leyenda),
+las operaciones van con su símbolo y gris con triángulo es un registro del RTL.
+Acá sí hay un vector: las fuentes entran cada una por su línea y este módulo
+las concatena (la barra); los números son los bits de la máscara (`OR_MASK`), y
+los 29–31 están en cero. El software también pasa por la máscara: es el bit 0,
+así que con `OR_MASK = 0` ni `TRIG_SW` dispara. La máscara, salvo con el
+disable enganchado, da con las fuentes el disparo, y con el armado de cada
+fuente (`armado_i`) da `puede_o`: el canal puede disparar ya. «disparo» es la
+salida del registro `adc_trig`, realimentada: engancha el disable y, en
+single-shot (`we_keep = 0`), limpia la máscara, igual que `dly_do`; en modo
+continuo la máscara no se limpia sola. `rst_do` la limpia siempre.
+`NOMBRE=valor`: parámetros con que lo instancia `mt_event_logic`.

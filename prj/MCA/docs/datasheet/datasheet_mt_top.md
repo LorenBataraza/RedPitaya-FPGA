@@ -73,8 +73,9 @@
 **Qué hace.** Es el **multitrigger entero** detrás de un solo borde: de las
 muestras del tap MTRG y las entradas externas a `trigger_event`, más los
 registros del slot 3. Adentro están el disparo de nivel
-([`rp_adc_trig`](../../../../rtl/classic/rp_adc_trig.v), de Red Pitaya) y el de
-pendiente ([`mt_slope_trig`](datasheet_mt_slope_trig.md)) de cada canal, el
+([`rp_adc_trig`](../../../../rtl/classic/rp_adc_trig.v), de Red Pitaya), el de
+pendiente ([`mt_slope_trig`](datasheet_mt_slope_trig.md)) y el de polo-cero
+([`mt_pz_trig`](datasheet_mt_pz_trig.md)) de cada canal, el
 debounce externo ([`rp_ext_trig`](../../../../rtl/classic/rp_ext_trig.v)), la
 lógica de evento ([`mt_event_logic`](datasheet_mt_event_logic.md)) y el
 esclavo del bus ([`mt_cfg`](datasheet_mt_cfg.md)).
@@ -82,14 +83,21 @@ esclavo del bus ([`mt_cfg`](datasheet_mt_cfg.md)).
 
 ![Panorama de mt_top](../mt/figuras/panorama_mt.svg)
 
-*El borde grueso es el límite de `mt_top`; lo que lo cruza son sus puertos. Las
-franjas numeradas son las tres partes del texto de `register_map_mt.md`. El
-recuadro punteado es la jerarquía del RTL: `mt_event_logic` instancia
-`mt_trig_src` (uno por canal) y `trigger_shield`. `NOMBRE=valor`: parámetros con
-que el padre instancia el bloque (se omiten los que sólo pasan el del padre sin
-cambio).*
+*En estilo datapath, para una hoja A4, como el de `mca_top`. El borde grueso es
+el límite de `mt_top`; lo que lo cruza son sus puertos: las entradas por la
+izquierda y las salidas por la derecha. El color es la función del bloque (la
+leyenda). Cada fuente llega por su propia línea a `mt_trig_src`, que es el que
+las concatena; el snapshot toma las mismas líneas por su lado, en la barra con
+un punto por fuente. Los flancos de `rp_ext_trig` salen del módulo por
+`trig_ext_asg_o` y vuelven por `trig_ext_asg_i`: el top los une. `adc_trig`
+sale de `mt_trig_src` hacia el escudo y hacia el OR: es la misma señal. Nombre
+en monoespaciada, con encabezado: submódulo con archivo propio. Gris con
+triángulo: registro del RTL. Los recuadros punteados son la jerarquía del RTL:
+`mt_event_logic` instancia los `mt_trig_src`, el escudo y el snapshot, y los
+tres disparos se instancian por canal. Los números sobre las flechas son anchos
+en bits.*
 
-*Por dentro:* las tres partes del texto de
+*Por dentro:* qué hace cada bloque, por función, en
 [`register_map_mt.md`](../mt/register_map_mt.md#panorama), con la tabla de
 puertos y de dónde viene cada uno. Fuente TikZ en
 [`panorama_mt.tex`](../mt/figuras/panorama_mt.tex).
@@ -230,6 +238,16 @@ cadena, modo continuo y el lazo con la captura.
 Contrato del bus: [`bus_sistema_redpitaya.md`](../TOP/bus_sistema_redpitaya.md) · Mapa de slots: [`register_map_top.md`](../TOP/register_map_top.md)
 <!-- /AUTO:regmap -->
 
+<!-- AUTO:secuencia -->
+#### Secuencia de programación
+
+**UN DISPARO, VISTO DESDE EL PS** ([fuente](../mt/figuras/secuencia/mt_secuencia.tex))
+
+![UN DISPARO, VISTO DESDE EL PS](../mt/figuras/secuencia/mt_secuencia.svg)
+
+El contrato entre el PS y el multitrigger en modo single-shot (`we_keep` = 0) y sin escudo, para un canal. La configuración se escribe una vez y queda; cada disparo es limpiar el disable, cargar la máscara, sondear `DIS_FLAGS` hasta que el canal dispare y leer qué fuentes lo hicieron. Lo que pide cada paso: la máscara va en 0 mientras se configura, porque vive apenas se escribe y una fuente habilitada dispararía con la configuración a medias. En el disparo por pendiente los umbrales van antes que `en`, que es el orden de `multitrigger_set_slope`: con `en` = 1 y `SLOPE_THR` = `SLOPE_HYST` = 0 el Schmitt no re-arma nunca. Cambiar `L` o `G`, o pasar por `en` = 0, re-arranca el filtro, y hasta que se llena la ventana de 2L + G muestras no sale ningún pulso. Con el polo-cero es igual: `PZ_THR`, `PZ_HYST` y `PZ_MQ` antes que `PZ_CFG`. Un registro que no se escribe conserva lo que tenía: el valor de reset vale sólo después de cargar el bitstream, y por eso la vuelta empieza con `TRIG_DIS_CLR`, que borra también un disable que haya quedado enganchado de antes. Al disparar, el canal engancha el disable y, en single-shot, la máscara vuelve a 0: sin `TRIG_DIS_CLR` y sin reescribir `OR_MASK` no hay segundo disparo, y un programa que espere el evento siguiente sin hacer las dos cosas espera para siempre. `TRIG_DIS_CLR` borra también el `SNAPSHOT`, así que el snapshot se lee antes; en sus 17 bits bajos usa otro orden que la máscara. Para saber si disparó sirve `DIS_FLAGS` y no `TRG_STATE`, que no muestra los bits de pendiente ni de polo-cero (17–28). `OR_MASK` y `SLOPE_*` son por canal, `TRIG_DIS_CLR` es un bit por canal, y `SHIELD_CFG` y `SNAPSHOT` son comunes; sin modo independiente (`indep_mode`, del osciloscopio) los canales 1 a 3 siguen al 0 en `OR_MASK` y `TRIG_DIS_CLR`. Con el escudo re-armando el canal (`SHIELD_CFG` con el canal en `src` y en `dst`) el módulo limpia el disable solo a los `dur` ciclos: `TRIG_DIS_CLR` sobra y `dis_act` se ve sólo ese lapso, así que el evento se detecta en la captura, que es lo que hace `osciloscope_leer_lote`. En modo continuo (`we_keep` = 1) la máscara sobrevive al disparo, y con el escudo re-armando el PS no entra en la vuelta: es el disparo del MCA ([`register_map_mca.md`](../mca/register_map_mca.md#cómo-configurar-el-multitrigger-para-el-mca)). `mca_veto` sale sólo si `SHIELD_CFG` lleva `DST_MCA`. Cuando una captura espera el disparo, la máscara se carga después de armarla: al revés, un flanco en el medio la gasta con la captura sin armar ([`orden_arm_trigger_captura.md`](../osc/orden_arm_trigger_captura.md)). El mapa completo está en [`register_map_mt.md`](../mt/register_map_mt.md).
+<!-- /AUTO:secuencia -->
+
 ### 1.4 Clock domains
 
 <!-- AUTO:clocks -->
@@ -348,14 +366,6 @@ _Origen: `tb_trigger_shield`, escena 2._
 El flanco de la fuente habilitada dispara `adc_trig` y en el mismo movimiento engancha `adc_trg_dis`, que es lo que impide que el siguiente flanco vuelva a disparar. En modo single-shot la mascara se auto-limpia, asi que para volver a disparar hace falta reescribirla; en modo continuo la mascara persiste y basta con limpiar el disable. Esa es la unica diferencia entre los dos modos.
 
 _Origen: `tb_mt_trig_src`, escena 1._
-
-**FLUJO DE UTILIZACION  -  mt_cfg**
-
-![FLUJO DE UTILIZACION  -  mt_cfg](../mt/figuras/ondas/mt_flujo.svg)
-
-Es un esquema de la SECUENCIA, no una medicion. La configuracion es una escalera: el bus del PS escribe un registro por vez, en el orden de MtRegion.set_slope() --los umbrales antes que `en`, porque con en=1 y thr=hyst=0 el Schmitt no re-arma-- y despues el escudo. OR_MASK NO es parte de esa etapa: va DESPUES de CMD_ARM, porque la mascara vive apenas se escribe y un flanco previo al arm la gasta (single-shot) y deja la captura esperando un disparo imposible (ver docs/osc/orden_arm_trigger_captura.md). CMD_ARM no es un registro del multitrigger: arma la captura del scope (slot 1); aparece aca porque fija cuando se puede escribir la mascara. La otra dependencia que no se ve en el mapa de registros: el disable queda ENGANCHADO despues del disparo, asi que sin escribir TRIG_DIS_CLR no hay segundo disparo. Un programa que configure, dispare y se quede esperando el proximo evento sin limpiar el disable espera para siempre.
-
-_Origen: esquema (sin VCD)._
 
 ---
 

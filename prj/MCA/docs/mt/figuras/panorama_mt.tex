@@ -1,15 +1,30 @@
-% Panorama de MT_TOP, el multitrigger aislado: el borde grueso es su límite y
-% lo que lo cruza son sus puertos, sólo con el nombre. De dónde viene y adónde va
-% cada uno está en el texto (docs/mt/register_map_mt.md §Panorama), no acá.
-% Adentro, las tres partes con que lo describe el texto: (1) cálculo y
-% concatenación de triggers, (2) selección y enmascarado, (3) configuración.
-% El recuadro punteado de mt_event_logic es la jerarquía del RTL.
-% Fuentes: modulos/mt/rtl/mt_top.sv y lo que instancia.
-% Estilo: docs/figuras/estilo_tikz.tex.
-% El epígrafe no va en la figura: está en panorama_mt.txt y en el doc que la incluye.
+% Panorama de mt_top en estilo datapath, para una hoja A4 (~17 cm de ancho),
+% como el de mca_top. El borde grueso es el límite del módulo y lo que lo cruza
+% son sus puertos, sólo con el nombre: de dónde viene y adónde va cada uno está
+% en la tabla de docs/mt/register_map_mt.md §Panorama.
+% Fuentes: modulos/mt/rtl/mt_top.sv, mt_event_logic.v, mt_trig_src.sv y
+% trigger_shield.sv. Estilo: docs/figuras/estilo_tikz.tex.
+%
+% CÓMO SE LEE. Las entradas llegan por la izquierda y las salidas van por la
+% derecha. A la izquierda, la detección: el disparo externo arriba y los tres
+% disparos de cada canal abajo. Cada fuente llega por su línea a mt_trig_src,
+% que es el que las concatena; el snapshot toma las mismas líneas por su lado
+% (la barra vertical con los puntos). Arriba, el escudo; a la derecha, lo que
+% sale del evento. Abajo, mt_cfg y sys_bus.
+%
+% EL COLOR ES LA FUNCIÓN, como en panorama_mca_top.tex:
+%   azul      detección: de la muestra o la línea a un pulso por fuente
+%   amarillo  selección: máscara, disable y OR de los canales
+%   naranja   escudo: holdoff, re-armado y veto
+%   gris      registros
+% Submódulo (archivo propio): encabezado con el nombre en monoespaciada y cuerpo
+% más claro. Gris con triángulo: un registro del RTL.
+% El epígrafe no va en la figura: está en panorama_mt.txt y en los docs que la
+% incluyen.
 %
 % Compilar:   pdflatex panorama_mt.tex
 %             pdftocairo -svg panorama_mt.pdf panorama_mt.svg
+% Incluir:    \includegraphics[width=\textwidth]{panorama_mt.pdf}
 %
 \documentclass[border=0pt,tikz]{standalone}
 \usepackage[utf8]{inputenc}
@@ -17,9 +32,15 @@
 \usepackage{lmodern}
 \usepackage[none]{hyphenat}
 \input{../../figuras/estilo_tikz.tex}
-
 \tikzset{
-  parte/.style  = {anchor=north west, font=\small\bfseries, inner sep=0pt, align=left},
+  % un estilo por función
+  det/.style    = {bloque=azul!35, param={azul!35}{azul!12}},
+  sel/.style    = {bloque=amarillo, param={amarillo}{amarillo!35}},
+  esc/.style    = {bloque=naranja!70, param={naranja!70}{naranja!25}},
+  varios/.style = {double copy shadow={shadow xshift=2pt, shadow yshift=-2pt}},
+  chico/.style  = {font=\tiny, inner sep=1pt, align=center, fill=white},
+  senchico/.style = {font=\tiny\ttfamily, inner sep=1pt},
+  ror/.style    = {puerta o, fill=amarillo, minimum height=0.5cm, minimum width=0.45cm},
 }
 % de qué proyecto viene un bloque
 \newcommand{\origen}[1]{{\tiny\itshape\color{black!60}#1}}
@@ -27,139 +48,136 @@
 \begin{document}
 \begin{tikzpicture}[fondo]
 
-\def\xin{-6.6}   % donde arrancan las entradas
-\def\xout{17.2}  % donde terminan las salidas
+\def\xin{-0.15}    % donde arrancan las entradas
+\def\xout{12.85}  % donde terminan las salidas
 
-% ================================================================ franjas ===
-% Primero, para que todo lo demás quede encima.
-\fill[black!3]   (-4.7,3.1)   rectangle (10.05,-5.9);
-\fill[black!7]   (10.05,3.1)  rectangle (16.2,-5.9);
-\fill[grisr!55]  (-4.7,-5.9)  rectangle (16.2,-8.5);
-\node[marca] (m1) at (-4.35,2.75) {1};
-\node[parte] at ([xshift=4pt]m1.north east) {Cálculo y concatenación de triggers};
-\node[marca] (m2) at (10.4,2.75) {2};
-\node[parte] at ([xshift=4pt]m2.north east) {Selección y enmascarado};
-\node[marca] (m3) at (-4.35,-6.25) {3};
-\node[parte] at ([xshift=4pt]m3.north east) {Configuración};
+% ===================================================== detección externa ===
+\node[registro=1.05cm] (syn) at (2.55,0.35) {\texttt{sync}\\[-1pt]{\tiny 2 FF}};
+\node[det, text width=2.2cm] (ext) at (2.0,-0.95)
+  {\blk{rp\_ext\_trig}{}\nodepart{two}debounce y flancos\\ \origen{(Red Pitaya)}};
 
-% ============================================== 1: cálculo de los triggers
-% por canal: los dos disparos que salen de la muestra del canal
-\node[trig] (atr) at (-1.7,0.75)
-  {\blk{rp\_adc\_trig}{Schmitt de nivel\\[-1pt] \origen{(Red Pitaya)}}};
-\node[trig, param={amarillo}{amarillo!35}, text width=2.6cm] (slp) at (-1.7,-1.25)
-  {\blk{mt\_slope\_trig}{\prm{LMAX=16 & GMAX=31\\ LW=SLOPE\_LW & GW=SLOPE\_GW}}
-   \nodepart{two}trapezoidal rápido\\ + Schmitt (pendiente)};
-\node[canal, fit={(-3.3,1.75) (-0.1,-2.25)}] (pc) {};
-\node[rotulo] at (pc.north west) {por canal};
+% ================================================ detección, por canal ===
+\node[det, text width=2.2cm] (atr) at (2.0,-4.05)
+  {\blk{rp\_adc\_trig}{}\nodepart{two}Schmitt de nivel\\ \origen{(Red Pitaya)}};
+\node[det, text width=2.2cm] (slp) at (2.0,-5.55)
+  {\blk{mt\_slope\_trig}{}\nodepart{two}trapecio rápido\\ y Schmitt};
+\node[det, text width=2.2cm] (pzt) at (2.0,-7.05)
+  {\blk{mt\_pz\_trig}{}\nodepart{two}trapecio con polo-cero\\ y Schmitt};
+\node[grupo, fit={(0.35,-3.25) (3.4,-8.05)}] (pc) {};
+\node[rotulo, anchor=south west] at (pc.south west) {por canal};
 
-% la entrada externa, una sola para todos
-\node[comp] (ext) at (2.4,-3.6)
-  {\blk{rp\_ext\_trig}{debounce ext.\ y ASG\\[-1pt] \origen{(Red Pitaya)}}};
-\node[comp, text width=1.0cm, minimum height=0.6cm] (syn) at (3.6,-5.15)
-  {\texttt{sync}\\[-1pt]{\tiny 2 FF}};
+% ========================================================= mt_event_logic ===
+\node[esc, text width=2.6cm] (shd) at (7.75,-0.05)
+  {\blk{trigger\_shield}{}\nodepart{two}holdoff de \texttt{dur} ciclos\\ desde \texttt{SRC};
+   al vencer,\\ re-arma \texttt{DST};\\ mientras corre, veta};
+% el rectángulo partido no respeta minimum height: el alto lo dan los \rule
+\node[sel, text width=2.7cm, varios, anchor=north] (mts) at (8.2,-1.7)
+  {\blk{mt\_trig\_src {\normalfont$\times$} N\_CH}{}\nodepart{two}\rule{0pt}{2.3cm}concatena
+   las fuentes\\ y las pasa por la máscara\\ del canal; al disparar,\\ engancha el
+   disable\rule[-2.25cm]{0pt}{0pt}};
+\node[ror] (oa) at (10.9,-3.1) {};
+\node[registro=0.55cm, minimum height=0.6cm] (ra) at (11.75,-3.1) {};
+\node[ror] (oe) at (10.9,-4.4) {};
+\node[registro=1.6cm] (snp) at (11.55,-5.75) {\texttt{snapshot}\\[-1pt] 29 b};
+\node[grupo, fit={(5.95,0.95) (12.4,-8.75)}] (evl) {};
+\node[rotulo, anchor=north east] at (evl.north east) {\texttt{mt\_event\_logic}};
 
-\node[trig, param={amarillo}{amarillo!35}, text width=2.4cm] (mts) at (8.3,-0.6)
-  {\blk{mt\_trig\_src {\normalfont$\times$} N\_CH}{\prm{CHN=GV}}
-   \nodepart{two}concatena las 25 fuentes,\\ máscara OR y \emph{protect}};
-
-% ============================================ 2: selección y enmascarado
-\node[draw, circle, line width=0.6pt, fill=amarillo, inner sep=1pt,
-      minimum size=0.55cm, font=\scriptsize] (or) at (10.85,-0.6) {$\geq\!1$};
-\node[etapa=amarillo!40, text width=2.0cm] (snp) at (13.25,0.5)
-  {\etq{snapshot}{qué fuentes dispararon\\ el último evento}};
-\node[trig, param={amarillo}{amarillo!35}, text width=2.7cm] (shd) at (13.25,-3.15)
-  {\blk{trigger\_shield}{\prm{N=SHIELD\_N\\ N\_SRC=SHIELD\_SRC\\ N\_DST=SHIELD\_DST}}
-   \nodepart{two}cuenta regresiva:\\ se recarga si\\ \texttt{|(fuentes \& SRC)};\\
-   al expirar re-arma \texttt{DST};\\ veto al MCA};
-
-% la jerarquía: mt_event_logic cruza de la parte 1 a la 2
-\node[grupo, fit={(6.8,2.05) (15.0,-4.85)}] (evl) {};
-\node[rotulo, align=left] at (evl.north west) {\texttt{mt\_event\_logic}};
-\node[rotulo, anchor=north east] at (evl.north east) {una vez \;\;\prm{SRC\_W=32 & SHIELD\_N=4 & DURATION\_W=16}};
-
-% ======================================================= 3: configuración
-\node[comp, param={grisr}{grisr!35}, text width=14.2cm] (cfg) at (5.3,-7.3)
-  {\blk{mt\_cfg}{\prm{SRC\_W=32 & SHIELD\_N=4}}
-   \nodepart{two}común a todos los canales \;$\cdot$\; mapa de registros (slot 3)\\
-   máscara, escudo y pendiente \;$\cdot$\; lee snapshot y estado};
+% ================================================================ mt_cfg ===
+\node[comp, text width=11.95cm, minimum height=0.7cm] (cfg) at (6.4,-10.1)
+  {\texttt{\bfseries mt\_cfg}};
 
 % ============================================================== el límite ===
-\node[contenedor, fit={(-4.9,3.3) (16.4,-8.7)}] (lim) {};
-\node[titulo, anchor=south west, inner sep=2pt] at (lim.north west)
-  {\texttt{\bfseries mt\_top}\;\; {\scriptsize\itshape el multitrigger: slot 3}\quad
-   \prm{N\_CH=N\_CH & DW=DW}};
+\node[contenedor, fit={(0.1,1.5) (12.55,-10.65)}] (top) {};
+\node[titulo] at (0.1,1.5)
+  {\texttt{\bfseries mt\_top}\;\; {\scriptsize\itshape el multitrigger}};
 
-\node[bus, text width=2.0cm] (sb) at (5.3,-9.75) {\texttt{\bfseries sys\_bus}};
+\node[bus, text width=1.8cm] (sb) at (6.4,-11.85) {\texttt{\bfseries sys\_bus}};
 
 % ============================================================== flechas ====
-% --- entradas por la izquierda ---
-\draw[ctrl] (\xin,1.05) node[left, sen, black!80] {set\_tresh, set\_hyst} -- (atr.west |- 0,1.05);
-\draw[flujo, ancho=14] (\xin,-0.25) node[left, sen] {mtrg\_dat} -- (-3.6,-0.25);
-\draw[line width=0.8pt] (-3.6,0.45) -- (-3.6,-1.0);
-\punto{-3.6,-0.25}
-\draw[flujo] (-3.6,0.45) -- (atr.west |- 0,0.45);
-\draw[flujo] (-3.6,-1.0) -- (slp.west |- 0,-1.0);
-\draw[flujo] (\xin,-2.75) node[left, sen] {trig\_ch\_i} -- (6.0,-2.75);
-\draw[ctrl] (\xin,-3.6) node[left, sen, black!80, align=right]
-  {trig\_ext\_i, trig\_asg\_i\\ set\_deb\_len} -- (ext.west);
-\punto{0.4,-3.6}
-\draw[ctrl] (0.4,-3.6) |- node[sen, black!80, pos=0.25, left] {trig\_ext\_i} (syn.west);
+% --- la entrada externa: debounce, flancos y el nivel sincronizado ---
+\draw[ctrl] (\xin,-0.95) node[left, sen, black!80, align=right]
+  {trig\_ext\_i\\ trig\_asg\_i\\ set\_deb\_len\_i} -- (ext.west);
+\punto{0.55,-0.95}
+\draw[ctrl] (0.55,-0.95) |- node[sen, black!80, above, pos=0.75] {trig\_ext\_i} (syn.west);
+\draw[flujo] (syn.east) -- node[sen, above, pos=0.4] {ext\_lvl} (shd.west |- syn.east);
+% los flancos salen del módulo y vuelven: el top los une
+\draw[flujo, cruce, anchov=4, ancho en=0.85] (ext.east) -- (3.75,-0.95) -- (3.75,2.05)
+  node[above, sen] {trig\_ext\_asg\_o};
+\draw[flujo, ancho=4, ancho en=0.07] (\xin,-1.95) node[left, sen] {trig\_ext\_asg\_i}
+  -- node[sen, above, pos=0.62] {ext, ASG p/n} (mts.west |- 0,-1.95);
+\punto{5.3,-1.95}
+\draw[flujo] (5.3,-1.95) |- node[sen, above, pos=0.75] {ext\_p/n} (shd.west |- 0,-0.45);
 
-% --- la concatenación: un bus de 25 fuentes ---
-\draw[line width=2.0pt] (6.0,1.4) -- (6.0,-3.6);
-\draw[flujo] (atr.east) -- node[sen, above, pos=0.62] {trig\_p/n} (6.0,0 |- atr.east);
-\draw[flujo] (slp.east) -- node[sen, above, pos=0.62] {slope\_p/n} (6.0,0 |- slp.east);
-\draw[flujo] (ext.east) -- node[sen, above, pos=0.5] {ext/ASG p/n} (6.0,0 |- ext.east);
-\draw[flujo, ancho=25] (6.0,0 |- mts.west) -- (mts.west);
-\node[sen, anchor=south west] at (6.05,1.4) {25 fuentes};
+% --- la cadena con el otro scope ---
+\draw[flujo, ancho=4, ancho en=0.07] (\xin,-2.4) node[left, sen] {trig\_ch\_i}
+  -- node[sen, above, pos=0.62] {cadena} (mts.west |- 0,-2.4);
+\punto{3.55,-4.05}
+\draw[flujo] (3.55,-4.05) -- (3.55,-2.85) -- (\xin,-2.85) node[left, sen] {trig\_ch\_o};
 
-% --- la entrada externa cruda va al escudo: flancos y nivel ---
-\draw[line width=0.8pt] (ext.south) -- (ext.south |- 0,-4.35);
-\draw[line width=0.8pt] (syn.north) -- (syn.north |- 0,-4.35);
-\punto{syn.north |- 0,-4.35}
-\draw[flujo] (ext.south |- 0,-4.35) -- node[sen, above, pos=0.55] {ext\_p/n, ext\_lvl} (shd.west |- 0,-4.35);
+% --- los disparos de cada canal ---
+\draw[ctrl] (\xin,-3.75) node[left, sen, black!80, align=right]
+  {set\_tresh\_i\\ set\_hyst\_i} -- (atr.west |- 0,-3.75);
+\draw[flujo, ancho=14, ancho en=0.5] (\xin,-5.55) node[left, sen, align=right]
+  {mtrg\_dat\_i\\ mtrg\_val\_i} -- (slp.west);
+\punto{0.55,-5.55}
+\draw[line width=0.8pt] (0.55,-4.3) -- (0.55,-7.3);
+\draw[flujo] (0.55,-4.3) -- (atr.west |- 0,-4.3);
+\draw[flujo] (0.55,-7.3) -- (pzt.west |- 0,-7.3);
+\draw[flujo] (atr.east) -- node[sen, above, pos=0.5] {trig\_p/n} (mts.west |- atr.east);
+\draw[flujo] (slp.east) -- node[sen, above, pos=0.5] {slope\_p/n, armado} (mts.west |- slp.east);
+\draw[flujo] (pzt.east) -- node[sen, above, pos=0.5] {pz\_p, armado} (mts.west |- pzt.east);
 
-% --- dentro de mt_event_logic ---
-\draw[flujo] (mts.east) -- (or.west);
-\punto{10.05,-0.6}
-\draw[flujo] (10.05,-0.6) -- (10.05,-2.55) -- node[sen, above, pos=0.5] {adc\_trig} (shd.west |- 0,-2.55);
-\draw[flujo] (shd.west |- 0,-3.25) -- (8.3,-3.25)
-  -- node[sen, right, pos=0.5] {trig\_dis\_clr} (8.3,0 |- mts.south);
-\draw[line width=0.8pt] (6.0,1.4) -- (13.25,1.4);
-\draw[flujo] (13.25,1.4) -- (snp.north);
-\coordinate (jt) at (11.6,-0.6);
-\punto{jt}
-\draw[flujo] (jt) |- (snp.west);
+% --- el disparo por software, desde mt_cfg ---
+\draw[flujo] (5.6,0 |- cfg.north) -- (5.6,-7.6) -- node[sen, above, pos=0.3] {trig\_sw}
+  (mts.west |- 0,-7.6);
 
-% --- salidas: sólo el nombre ---
-\draw[flujo] (or.east) -- (\xout,-0.6) node[right, sen, align=left] {trigger\_event\\ daisy\_trig};
-\draw[flujo, ancho en=0.6, ancho=17] (snp.east) -- (\xout,0 |- snp.east) node[right, sen] {event\_snap};
-\draw[flujo] (shd.east) -- (\xout,0 |- shd.east) node[right, sen] {mca\_veto};
-\punto{4.5,0.75}
-\draw[flujo, ancho en=0.88, anchov=4] (4.5,0.75) -- (4.5,4.1) node[above, sen] {trig\_ch\_o};
+% --- el snapshot toma las mismas líneas: una barra con un punto por fuente ---
+\foreach \y in {-1.95,-2.4,-4.05,-5.55,-7.05,-7.6} \punto{6.25,\y}
+\draw[flujo, line width=1.4pt] (6.25,-1.95) -- (6.25,-8.5) -- (10.3,-8.5)
+  -- (10.3,0 |- snp.west) -- (snp.west);
+\node[sen, anchor=south] at (8.2,-8.5) {las fuentes, 29 b};
+
+% --- el escudo y mt_trig_src ---
+\draw[flujo] (7.3,0 |- mts.north) -- node[sen, left] {adc\_trig} (7.3,0 |- shd.south);
+\draw[flujo] (8.4,0 |- shd.south) -- node[sen, right] {trig\_dis\_clr} (8.4,0 |- mts.north);
 
 % --- control de la captura, por arriba ---
-\draw[ctrl, cruce] (9.0,4.1) node[above, sen, black!80, align=center]
-  {adc\_dly\_do, adc\_rst\_do,\\ we\_keep, dly\_valp}
-  -- (9.0,0 |- mts.north);
+\draw[ctrl] (9.4,2.05) node[above, sen, black!80, align=center]
+  {adc\_dly\_do, adc\_rst\_do\\ adc\_we\_keep, dly\_valp} -- (9.4,0 |- mts.north);
 
-% --- configuración ---
-\draw[ctrl] (7.3,0 |- cfg.north) -- (7.3,0 |- evl.south)
-  node[sen, pos=0.5, right, black!80, align=left] {máscara, new\_trg\_src,\\ trig\_sw, escudo};
-\draw[ctrl] (12.0,0 |- evl.south) -- (12.0,0 |- cfg.north)
-  node[sen, pos=0.5, right, black!80, align=left] {snapshot,\\ estado};
-\draw[ctrl, cruce] (slp.south |- cfg.north) -- node[sen, right, black!80, pos=0.12] {pendiente} (slp.south);
-\draw[ctrl] (\xout,-7.05) node[right, sen, black!80, align=left]
-  {legacy\_trig\_sw\\ legacy\_trig\_dis\_clr} -- (cfg.east |- 0,-7.05);
-\draw[flujo] (cfg.east |- 0,-7.6) -- (\xout,-7.6) node[right, sen, align=left]
-  {trig\_dis\_clr, trg\_src\\ new\_trg\_src};
-% el estado de las máscaras va a mt_cfg y también afuera, al readback de osc_cfg
-\punto{12.0,-5.15}
-\draw[flujo] (12.0,-5.15) -- (\xout,-5.15) node[right, sen] {trg\_state};
+% --- salidas por la derecha ---
+\draw[flujo, cruce] (shd.east) -- (\xout,0 |- shd.east) node[right, sen] {mca\_veto\_o};
+\draw[flujo, ancho=4$\times$8, ancho en=0.8] (mts.east |- 0,-2.1) -- (\xout,-2.1)
+  node[right, sen] {trg\_state\_o};
+\draw[flujo] (mts.east |- 0,-3.1) -- node[senchico, above, pos=0.6] {puede}
+  ($(oa.input 1)!0.5!(oa.input 2)$);
+\draw[flujo] (oa.output) -- (ra.west);
+\draw[flujo] (ra.east) -- (\xout,-3.1) node[right, sen] {trig\_arm\_o};
+\draw[flujo] (mts.east |- 0,-4.4) -- node[senchico, above, pos=0.6] {adc\_trig}
+  ($(oe.input 1)!0.5!(oe.input 2)$);
+\draw[flujo] (oe.output) -- (\xout,-4.4) node[right, sen, align=left]
+  {trigger\_event\_o\\ daisy\_trig\_o};
+\punto{11.55,-4.4}
+\draw[ctrl] (11.55,-4.4) -- node[chico, right] {carga} (snp.north);
+\draw[flujo, ancho=17, ancho en=0.5] (snp.east) -- (\xout,0 |- snp.east)
+  node[right, sen] {event\_snap\_o};
+
+% --- mt_cfg ---
+\draw[ctrl] (2.0,0 |- cfg.north) -- node[sen, black!80, right, pos=0.5] {pendiente, polo-cero}
+  (2.0,0 |- pc.south);
+\draw[ctrl] (7.1,0 |- cfg.north) -- node[sen, black!80, right, pos=0.5, align=left]
+  {máscara, escudo,\\ dis\_clr} (7.1,0 |- evl.south);
+\draw[ctrl] (12.0,0 |- evl.south) -- node[sen, black!80, left, pos=0.5, align=right]
+  {snapshot,\\ estado} (12.0,0 |- cfg.north);
+\draw[ctrl] (1.9,-11.25) node[below, sen, black!80, align=center]
+  {legacy\_trig\_sw, legacy\_trig\_dis\_clr\\ indep\_mode} -- (1.9,0 |- cfg.south);
+\draw[flujo] (cfg.east) -- (\xout,0 |- cfg.east) node[right, sen, align=left]
+  {trig\_dis\_clr\_o\\ trg\_src\_o\\ new\_trg\_src\_o};
 \draw[<->, line width=0.8pt] (cfg.south) -- (sb.north);
 
 % ================================================================= leyenda ===
-\leyenda{-6.6,-11.0}{amarillo/trigger, grisr/registros y entradas, rojo!45/bus del sistema}{}
+\leyenda{0.2,-12.85}{azul!35/detección, amarillo/selección, naranja!70/escudo,
+  grisr/registros, rojo!45/bus del sistema}{}
 
 \end{tikzpicture}
 \end{document}

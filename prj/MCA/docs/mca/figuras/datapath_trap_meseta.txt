@@ -1,0 +1,27 @@
+`mca_trap` registro por registro, y cómo su salida se convierte en `F_TRAP`.
+Arriba, el trapecio en dos filas. La regla de cada fila cuenta muestras
+válidas: todos los registros avanzan con `val`, así que la latencia es de 8
+muestras, sea cual sea la decimación. Las tres líneas de retardo son memorias
+circulares con un solo puntero de escritura (`wp`): cada una lee en `wp − k` o
+en `wp − l`, y la tercera vuelve a retrasar por k lo que sale de la de l.
+`cnt` cuenta las muestras desde el `clr` y dice qué tomas existen ya; una que
+todavía no existe lee 0, que es la convención v[<0] = 0 del modelo. `d3` es la
+doble diferencia v[n] − v[n−k] − v[n−l] + v[n−k−l], calculada con una sola
+suma de tres términos. `p4` la integra, `r5` le suma M·d para cancelar el polo
+de la cola (`Mq` = 16·M, por eso `p4` se corre 4 bits) y `s6` integra otra vez.
+`clr` pone en cero el puntero, `cnt` y toda la cuenta; en la figura se marca en
+los integradores, porque ahí un estado inconsistente deja un escalón
+permanente. Abajo está la meseta. `off` se cuenta en muestras del trapecio
+desde el disparo y el trapecio llega 8 muestras tarde, así que `mca_window`
+traslada la ventana [off, off + 2^lw) al marco de la ranura como [ini, fin).
+Las dos saturan a 16 bits: una ventana que no entra nunca se completa. Cada
+`mca_slot` suma el trapecio mientras acumula y `ini ≤ len < fin` (`len`:
+muestras desde el disparo), y cuenta cuántas muestras sumó; al abrir, las dos
+vuelven a cero. Las tres formas suman en paralelo, y al publicar `mca_publish`
+toma la forma `f*` de la ranura que publica (la elección está en la Fig.
+`banco_eleccion_forma`). `F_TRAP` es esa suma corrida lw
+bits (el promedio sobre la meseta), saturada a 16 bits, y vale 0 si la cuenta
+no llegó a 2^lw (la compuerta cerró antes) o si el pulso quedó `marcado`.
+Nombres sin cable (`k`, `wp`, `fk1`, `ini`, `len`, `f*`…): la señal del mismo
+nombre, que se dibuja una sola vez donde nace o viene de otra figura.
+`NOMBRE=valor`: parámetros con que lo instancia `mca_window`.

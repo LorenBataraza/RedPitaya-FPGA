@@ -1,0 +1,162 @@
+% Cuerpo común de los dos datapaths del top en integración:
+%   datapath_top.tex             \ringfalse  los dos tops: con el ecualizador
+%                                            opcional, rp_axi_sm y el ring; con
+%                                            las marcas de register_map_top.md
+%   datapath_event_ring_top.tex  \ringtrue   sólo event_ring_red_pitaya_top: sin
+%                                            ecualizador (EN_FILT=0), sin
+%                                            rp_axi_sm (EN_AXI=0) y sin marcas
+% Se dibujan desde un solo archivo para que no diverjan.
+%
+% UNA cadena de acondicionado por canal, con cuatro nodos (A..D), y un
+% dsp_tap_mux 4:1 por consumidor. No es una matriz de conmutación: cada
+% consumidor tiene su propio mux, cuyas entradas son tres nodos de la cadena
+% (A, B y D, los mismos para todos) y su nodo NATIVO (la entrada 0, el valor de
+% reset), que es distinto en cada uno. Las entradas de los mux se rotulan con
+% la letra del nodo en vez de dibujar un cable a cada uno, para que no parezca
+% una grilla de cruces.
+%
+% Las marcas numeradas (sólo con \ringfalse) son las filas de la tabla de
+% docs/TOP/register_map_top.md §Ruteo del datapath: si se cambia una marca, se
+% cambia esa tabla. Sin texto explicativo adentro: los epígrafes están en
+% epigrafes.txt (datapath_top) y en datapath_event_ring_top.txt.
+% Fuentes: rtl/mine/tops/{mca,event_ring}_red_pitaya_top.sv (lazo digital,
+% EN_FILT, EN_AXI, mca_dat al ring), modulos/osc/rtl/rp_scope_mt_com.sv (cadena
+% y los tres dsp_tap_mux), modulos/comun/rtl/{dsp_tap_mux.sv,
+% integration_cfg.sv} (ROUTE_*).
+%
+% Este archivo no compila solo: lo incluye cada envoltorio.
+
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+% posiciones de la cadena: sin ecualizador ni rp_axi_sm, el ring la reparte
+\ifring
+  \def\xcal{4.5}\def\xnB{6.3}\def\xdec{7.95}\def\xnC{9.6}\def\xdly{11.25}\def\xnD{12.9}
+  \def\xder{15.9}
+\else
+  \def\xcal{4.25}\def\xnB{8.5}\def\xdec{9.8}\def\xnC{11.1}\def\xdly{12.4}\def\xnD{13.75}
+  \def\xder{16.65}
+\fi
+
+\tikzset{
+  cad/.style   = {datos, text width=1.75cm, minimum height=0.75cm, font=\scriptsize},
+  letra/.style = {circle, draw=black, line width=0.6pt, fill=white,
+                  font=\scriptsize\bfseries, inner sep=0pt, minimum size=4.4mm},
+  cons/.style  = {text width=2.3cm, minimum height=0.75cm, font=\scriptsize},
+}
+% mux 2:1 chico (el lazo digital y el bypass del ecualizador)
+\newcommand{\muxdos}[2]{% #1 = nombre, #2 = centro
+  \draw[line width=0.6pt, fill=grisr] ($(#2)+(-0.22,0.42)$) -- ($(#2)+(0.22,0.25)$)
+    -- ($(#2)+(0.22,-0.25)$) -- ($(#2)+(-0.22,-0.42)$) -- cycle;
+  \coordinate (#1) at (#2);
+  \coordinate (#1-a) at ($(#2)+(-0.22,0.2)$);
+  \coordinate (#1-b) at ($(#2)+(-0.22,-0.2)$);
+  \coordinate (#1-o) at ($(#2)+(0.22,0)$);
+  \coordinate (#1-s) at ($(#2)+(0,-0.33)$);
+  \coordinate (#1-n) at ($(#2)+(0,0.33)$);}
+% un dsp_tap_mux: trapecio con las cuatro entradas arriba, rotuladas con el
+% código de tap y la letra del nodo; #1 = nombre, #2 = centro, #3..#6 = nodos
+% de las entradas 0..3
+\newcommand{\tapmux}[6]{%
+  \muxdecv{#1}{(#2)}{2.6}
+  \node[font=\tiny\ttfamily\bfseries] at (#1) {dsp\_tap\_mux};
+  \foreach \k/\n [count=\i from 0] in {0/#3, 1/#4, 2/#5, 3/#6} {
+    \coordinate (#1-e\k) at ($(#1)+(-0.9+0.6*\i,0.45)$);
+    \draw[line width=0.6pt] (#1-e\k) -- ++(0,0.32);
+    \node[letra] at ($(#1-e\k)+(0,0.55)$) {\n};
+    \node[font=\tiny\ttfamily, anchor=north] at ($(#1-e\k)+(0,-0.02)$) {\k};
+  }}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+% ================================================= la entrada y el lazo digital
+\node[datos, cons, text width=1.5cm] (adc) at (0.2,0.55) {\texttt{\bfseries ADC}\\ IN1, IN2};
+\node[bloque=naranja!30, cons, text width=1.5cm] (gen) at (0.2,-1.2) {\texttt{\bfseries gen\_pulsos}};
+\muxdos{lz}{1.65,0}
+\draw[flujo] (adc.east) -- (1.3,0 |- adc.east) |- (lz-a);
+\draw[flujo] (gen.east) -- (1.3,0 |- gen.east) |- (lz-b);
+\node[sen, anchor=east] at (1.27,-0.68) {asg\_dat};
+\draw[ctrl] ($(lz-n)+(0,0.6)$) node[sen, above] {digital\_loop[0]} -- (lz-n);
+
+% =========================================================== la cadena, i_scope
+\coordinate (nA) at (2.9,0);
+\node[cad] (cal) at (\xcal,0)  {\texttt{\bfseries rp\_scope\_calib}};
+\coordinate (nB) at (\xnB,0);
+\node[cad] (dec) at (\xdec,0)   {\texttt{\bfseries rp\_decim}};
+\coordinate (nC) at (\xnC,0);
+\node[cad] (dly) at (\xdly,0)  {\texttt{\bfseries rp\_delay}};
+\coordinate (nD) at (\xnD,0);
+
+\draw[flujo] (lz-o) -- (cal.west);
+\ifring
+  % EN_FILT=0: sin ecualizador, y el bypass queda con las dos entradas iguales
+  \draw[flujo] (cal.east) -- (dec.west);
+  % EN_AXI=0: sin rp_axi_sm; la cadena termina en el nodo D
+  \draw[line width=0.8pt] (dly.east) -- (nD);
+\else
+  \node[cad] (flt) at (6.45,0)  {\texttt{\bfseries osc\_filter}};
+  \muxdos{byp}{7.8,0}
+  \node[ddr, cons, text width=1.6cm] (axi) at (15.6,0) {\texttt{\bfseries rp\_axi\_sm}\\ a DDR};
+  \draw[flujo] (cal.east) -- (flt.west);
+  \draw[flujo] (flt.east) -- (byp-a);
+  \coordinate (tb) at ($(cal.east)!0.45!(flt.west)$);
+  \fill (tb) circle (1.3pt);
+  \draw[flujo] (tb) -- ++(0,-0.62) -| ($(byp-b)+(-0.3,0)$) -- (byp-b);
+  \draw[ctrl] ($(byp-s)+(0,-0.45)$) -- (byp-s);
+  \draw[flujo] (byp-o) -- (dec.west);
+  \draw[flujo] (dly.east) -- (axi.west);
+\fi
+\draw[flujo] (dec.east) -- (dly.west);
+\foreach \n/\l in {nA/A, nB/B, nC/C, nD/D}
+  \node[letra] at (\n) {\l};
+
+% ============================================== un dsp_tap_mux por consumidor
+\tapmux{mo}{4.05,-3.1}{D}{A}{B}{D}
+\tapmux{mm}{8.6,-3.1}{C}{A}{B}{D}
+\tapmux{mc}{13.15,-3.1}{B}{A}{B}{D}
+\foreach \m/\r in {mo/OSC, mm/MTRG, mc/MCA}
+  \draw[ctrl] ($(\m-sel)+(-0.75,0)$) node[sen, left] {ROUTE\_\r} -- (\m-sel);
+
+% ================================================================ consumidores
+\node[datos, cons] (bram) at (4.05,-4.75) {\texttt{\bfseries rp\_acq\_bram}\\ OSC, slot 1};
+\node[trig, cons]  (mt)   at (8.6,-4.75)  {\texttt{\bfseries mt\_top}\\ MTRG, slot 3};
+\node[captura, cons] (mca) at (13.15,-4.75) {\texttt{\bfseries mca\_top}\\ slot 7};
+\node[ddr, cons]   (rng)  at (13.15,-6.45) {\texttt{\bfseries event\_ring\_top}\\ slot 2};
+\foreach \m/\c in {mo/bram, mm/mt, mc/mca}
+  \draw[flujo] (\m-out) -- (\c.north);
+\fill ($(mc-out)!0.5!(mca.north)$) circle (1.3pt);
+\draw[flujo] ($(mc-out)!0.5!(mca.north)$) -- ++(1.5,0) |- node[sen, right, pos=0.25] {mca\_dat} (rng.east);
+
+% lo que el multitrigger da a los otros consumidores
+\draw[flujo] (mt.west) -- node[sen, above] {trig} (bram.east);
+\draw[flujo] ([yshift=2.2mm]mt.east) -- node[sen, above] {trig} ([yshift=2.2mm]mca.west);
+\draw[flujo, line width=1.1pt] ([yshift=-2.2mm]mt.east) -- node[sen, below] {veto, trig\_arm} ([yshift=-2.2mm]mca.west);
+\draw[flujo] (mt.south) |- (rng.west) node[sen, above, pos=0.75] {trig};
+
+% ================================================================= marcas
+\ifring\else
+\node[marca] at ($(cal.north)+(0,0.42)$)  {1};
+\node[marca] at ($(nA)+(0,0.42)$)         {2};
+\node[marca] at ($(nB)+(0,0.42)$)         {3};
+\node[marca] at ($(nC)+(0,0.42)$)         {4};
+\node[marca] at ($(nD)+(0,0.42)$)         {5};
+\node[marca] at ($(flt.north)+(0,0.42)$)  {6};
+\node[marca] at ($(byp)+(0.05,0.75)$)     {7};
+\node[marca] at ($(mm)+(1.55,0.95)$)      {8};
+\node[marca] at ($(mo-e0)+(-0.42,0.55)$)  {9};
+\node[marca] at ($(axi.north)+(0,0.42)$)  {10};
+\node[marca] at (10.9,-5.6)              {11};
+\node[marca] at ($(lz)+(0,-0.75)$)        {12};
+\node[marca] at ($(rng.west)+(-0.45,0.4)$) {13};
+\fi
+
+% ================================================================== región
+\node[grupo, fit={(2.55,1.45) (\xder,-7.15)}] (sc) {};
+\node[rotulo] at (sc.north west) {\texttt{i\_scope} (\texttt{rp\_scope\_mt\_com}) y los consumidores · \texttt{adc\_clk}, 125 MHz · un canal de dos};
+
+\leyenda{-0.8,-8.0}{azul!35/acondicionamiento y OSC, amarillo/multitrigger,
+  verde!55/MCA, naranja!70/a DDR, grisr/ruteo}{}
+
+\end{tikzpicture}
+\end{document}

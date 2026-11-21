@@ -16,7 +16,7 @@
 | Módulo RTL | `rp_scope_mt_com` |
 | Archivo | [`rp_scope_mt_com.sv`](../../modulos/osc/rtl/rp_scope_mt_com.sv) |
 | Parámetros | 6 |
-| Puertos | 51 (26 in / 25 out) |
+| Puertos | 52 (26 in / 26 out) |
 | Parte | `xc7z010clg400-1` |
 
 
@@ -45,8 +45,8 @@ consumidores propios.
 (`rp_decim`) → retardo (`rp_delay`) → buffer de captura (`rp_bram_sm`,
 `rp_acq_bram`), y los tres [`dsp_tap_mux`](datasheet_dsp_tap_mux.md) que
 eligen desde dónde lee cada consumidor. Comunes: el multitrigger entero,
-[`mt_top`](datasheet_mt_top.md) (los disparos de nivel y de pendiente de
-cada canal, la lógica de evento y [`mt_cfg`](datasheet_mt_cfg.md), el
+[`mt_top`](datasheet_mt_top.md) (los disparos de nivel, de pendiente y de
+polo-cero de cada canal, la lógica de evento y [`mt_cfg`](datasheet_mt_cfg.md), el
 esclavo del slot 3), y [`osc_cfg`](datasheet_osc_cfg.md), el esclavo del
 slot 1.
 
@@ -140,6 +140,7 @@ sistema de punta a punta en
 | `trig_ext_asg_i` | in | 4 | adc_clk_i | input External and ASG trigger |
 | `daisy_trig_o` | out | 1 | adc_clk_i | trigger for daisy chaining |
 | `mca_veto_o` | out | 1 | adc_clk_i | nivel del trigger_shield hacia el MCA |
+| `trig_arm_o` | out | 1 | adc_clk_i | nivel: el disparo puede salir (re-armado del MCA) |
 
 
 ##### Axi master

@@ -1,0 +1,9 @@
+El writer a nivel de operación. Arriba, el evento se toma con `start` (hay
+metadato, hay crédito, el writer está en `IDLE` y el pop anterior ya se vio) y
+la cabecera sale de un mux de cuatro palabras. En el medio, las muestras se
+empaquetan de a cuatro en `acc` y la que cierra la palabra sólo se pide con la
+salida libre. A la derecha, el estado elige la palabra y `wr_val` la sostiene
+hasta `wr_rdy_i`. Abajo, `word_idx` cuenta hasta la anteúltima palabra del slot
+y el footer aceptado (`done ∧ ¬wr_val`) sube `wr_slot` y `seq` y saca el pop del
+metadato. Las redes con nombre se conectan por nombre. Versión en bloques:
+`panorama_event_slot_writer`.

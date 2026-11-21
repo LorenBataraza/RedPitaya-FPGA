@@ -134,7 +134,6 @@
 \draw[black!60] (12.800,-7.21) -- ++(0,-0.08) node[nodo, below] {200};
 \draw[black!60] (14.400,-7.21) -- ++(0,-0.08) node[nodo, below] {225};
 \node[nodo, anchor=north east] at (15.36,-7.56) {ciclos de adc\_clk (8 ns); sin decimar, un ciclo es una muestra};
-\leyenda{-0.6,-8.26}{verde!55/ranura midiendo; todas midiendo (t\_win), amarillo/cerrada y esperando publicar (t\_div), white/libre; puede abrir (livetime), rojo/tiempo muerto: ninguna libre}
-  {Simulación de \texttt{mca\_top} (\texttt{tb\_tm\_cronograma}): compuertas 8/40, base fija, sin retardo extra, y cada pulso con su disparo (flecha roja). La ventana ocupa la compuerta más un ciclo, y la publicación 18. El tiempo muerto es cada tramo sin ranura libre (\texttt{bloqueado}), y $L$ su largo en ciclos, el que guarda \texttt{dead\_len}. El resumen son los registros al final de la escena.}
+\leyenda{-0.6,-8.26}{verde!55/ranura midiendo; todas midiendo (t\_win), amarillo/cerrada y esperando publicar (t\_div), white/libre; puede abrir (livetime), rojo/tiempo muerto: ninguna libre}{}
 \end{tikzpicture}
 \end{document}

@@ -1,6 +1,14 @@
-`s[n] = s[n-1] + (x[n] - x[n-L]) - (x[n-L-G] - x[n-2L-G])`. Cada línea tiene una
-sola toma dinámica, que es el patrón que Vivado lleva a SRLC32E. Las líneas,
-`fill` y el pipeline avanzan sólo con `adc_dv_i`: el filtro anda igual sobre el
-tap decimado que a 125 MS/s. Latencia: 5 ciclos de pipeline más lo que tarde `s`
-en cruzar `thr`. `NOMBRE=valor`: parámetros con que lo instancia
-`rp_scope_mt_com`.
+`s[n] = s[n-1] + (x[n] - x[n-L]) - (x[n-L-G] - x[n-2L-G])`. De arriba hacia
+abajo: la configuración, las tres líneas de retardo, las tomas, la diferencia,
+el acumulador y el Schmitt de cada signo. Cada línea tiene una sola toma
+dinámica, en la dirección `L-1` o `G-1`; con `G = 0` la del medio se puentea.
+Una toma más vieja que `fill` lee 0: el filtro arranca con historia en cero.
+`restart` (cambio de `L` o `G`, `cfg_en_i = 0` o reset) vacía el filtro: borra
+`fill`, `s` y las cadenas `p*_v` y `p*_full`. Las líneas, `fill` y cada etapa
+avanzan sólo con la muestra válida (`adc_dv_i` y su cadena): el filtro anda
+igual sobre el tap decimado que a 125 MS/s. En el Schmitt, S pone el estado en 1
+(disparado) y gana sobre R, que lo re-arma; mientras la ventana no está llena
+(`p3_full = 0`) los dos bits quedan en 1 y no sale flanco. Latencia: 5 ciclos de
+pipeline más lo que tarde `s` en cruzar `thr`. Nombres sin cable (`fill`, `L+G`,
+`p3_v`…): la señal del mismo nombre, que se dibuja una sola vez donde nace.
+`NOMBRE=valor`: parámetros con que lo instancia `mt_top`.

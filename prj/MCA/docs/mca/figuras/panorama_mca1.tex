@@ -1,0 +1,155 @@
+% Panorama de la primera versión del MCA (MCA1), la de antes de las ranuras y
+% del banco de trapecios, en el mismo estilo que panorama_mca_top.tex para que
+% se puedan comparar. Es el estado del RTL en el commit 126f0f3 («Refactor
+% MCA»), el último con MAGIC = "MCA1": una sola ventana, abierta por el Schmitt
+% propio o por trig_i, cerrada por histéresis o por compuerta fija, y una cola
+% de publicación de PUB_K lugares. La versión de antes del refactor tenía sólo
+% el Schmitt y la publicación bloqueante.
+% Fuente: git show 126f0f3:prj/MCA/modulos/mca/rtl/{mca_top,mca_window,mca_publish}.sv
+%
+% Igual que en el panorama del top, la entrada (mux de canal y decimación) y el
+% banco de registros no se dibujan. El color es la función:
+%   azul      línea de base
+%   amarillo  segmentación: quién abre y quién cierra la ventana
+%   verde     estadísticos del pulso: los acumuladores y los divisores
+%   naranja   publicación: de la ventana cerrada al histograma
+%   gris      contabilidad
+% El epígrafe no va en la figura: está en panorama_mca1.txt.
+%
+% Compilar:   pdflatex panorama_mca1.tex
+%             pdftocairo -svg panorama_mca1.pdf panorama_mca1.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+\tikzset{
+  linea/.style   = {rectangle split, rectangle split parts=2},
+  pre/.style     = {bloque=azul!35, param={azul!35}{azul!12}},
+  seglog/.style  = {etapa=amarillo!75},
+  est/.style     = {bloque=verde!55, param={verde!55}{verde!20}},
+  estlog/.style  = {etapa=verde!30},
+  pub/.style     = {bloque=naranja!70, param={naranja!70}{naranja!25}},
+  publog/.style  = {etapa=naranja!30},
+  conlog/.style  = {etapa=grisr!60},
+  varios/.style  = {double copy shadow={shadow xshift=2pt, shadow yshift=-2pt}},
+  chico/.style   = {font=\tiny, inner sep=1pt, align=center, fill=white},
+}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\def\ytop{1.9}
+
+% ======================================================= base y resta ===
+\coordinate (jd) at (1.25,-2.55);
+\node[pre, text width=1.45cm] (bas) at (1.25,-4.45)
+  {\blk{mca\_baseline}{}\nodepart{two}IIR o fija};
+\node[circle, draw, line width=0.6pt, fill=azul!15, minimum size=5.5mm, inner sep=0pt,
+      font=\small] (res) at (2.45,-2.55) {$-$};
+
+% ======================================================== segmentación ===
+\node[seglog, text width=2.4cm, linea] (fl) at (4.95,-0.95)
+  {{\bfseries disparo externo}\nodepart{two}flanco de \texttt{trig\_i}};
+\node[seglog, text width=2.4cm, linea] (sch) at (4.95,-2.55)
+  {{\bfseries Schmitt}\nodepart{two}abre con $x \ge$ umbral;\\ re-arma por nivel\\ o por demora};
+\muxdec{m1}{(7.15,-1.75)}{2.1}
+\node[font=\tiny, anchor=west] at ($(m1-in)+(0.03,0.8)$) {1};
+\node[font=\tiny, anchor=west] at ($(m1-in)+(0.03,-0.8)$) {0};
+\node[seglog, text width=2.4cm, linea] (hy) at (4.95,-4.3)
+  {{\bfseries histéresis}\nodepart{two}cierra con $x <$ umbral $-$ hist.\\ o al largo máximo};
+\node[seglog, text width=2.4cm, linea] (gf) at (4.95,-5.6)
+  {{\bfseries compuerta fija}\nodepart{two}cierra a \texttt{gate\_long}};
+\muxdec{m2}{(7.15,-4.95)}{2.0}
+\node[font=\tiny, anchor=west] at ($(m2-in)+(0.03,0.65)$) {0};
+\node[font=\tiny, anchor=west] at ($(m2-in)+(0.03,-0.65)$) {1};
+
+% ===================================================== la ventana única ===
+\node[estlog, text width=2.75cm, linea] (acu) at (10.45,-3.05)
+  {{\bfseries una ventana}\nodepart{two}pico, $t_\mathrm{pico}$, $Q_\mathrm{tot}$,\\ $Q_\mathrm{cola}$, largo;\\
+   ventana de amplitud;\\[1pt] {\tiny mientras mide, no abre otra}};
+
+% ========================================================= publicación ===
+\node[est, text width=2.75cm, varios] (div) at (14.05,-1.0)
+  {\blk{mca\_div\_restore {\normalfont$\times$} 2}{}\nodepart{two}$Q_\mathrm{cola}/Q_\mathrm{tot}$,
+   pico$/Q_\mathrm{tot}$};
+\node[publog, text width=2.4cm, linea] (cola) at (14.05,-3.75)
+  {{\bfseries cola de publicación}\nodepart{two}\texttt{PUB\_K} lugares,\\ o bloqueante;\\ arma el bus};
+
+\node[contenedor, draw=black!55, line width=0.7pt, fit={(0.3,-0.15) (15.55,-6.95)}] (pf) {};
+\node[rotulo, anchor=north west] at (pf.north west) {\texttt{mca\_pulse\_feature}};
+
+% ========================================================= contabilidad ===
+\node[conlog, text width=2.4cm, linea] (rel) at (14.05,0.8)
+  {{\bfseries contabilidad}\nodepart{two}relojes de 64 b};
+
+% ============================================== del evento al histograma ===
+\def\ybus{-7.5}
+\def\yc{-8.6}
+\node[pub, text width=2.7cm, varios] (zoo) at (2.6,\yc)
+  {\blk{mca\_zoom {\normalfont$\times$} 3}{}\nodepart{two}mux de eje;\\ feature $\to$ bin};
+\node[pub, text width=3.1cm, varios] (hst) at (7.6,\yc)
+  {\blk{mca\_hist {\normalfont$\times$} 2}{}\nodepart{two}1D: 16384 $\times$ 32 b\\
+   2D: $128{\times}64 \times 32$ b};
+\node[pub, text width=2.4cm] (dis) at (12.9,\yc)
+  {\blk{mca\_discriminator}{}\nodepart{two}una feature\\ en $[\min, \max]$};
+
+% ============================================================ caja mca_top
+\node[contenedor, fit={(0.05,1.4) (15.8,-9.55)}] (top) {};
+\node[titulo] at (5.95,1.4)
+  {\texttt{\bfseries mca\_top}\;\; {\scriptsize\itshape MCA1, antes de las ranuras}\\[1pt]
+   \prm{DW=14 & H\_AW=14 & H2\_AW=7\\ PSD\_AW=6 & PUB\_K=2}};
+
+% ============================================================== flechas ===
+\node[sen, align=center, anchor=south] at (1.25,\ytop)
+  {dat\\[-1pt]\normalfont\scriptsize un canal};
+\draw[flujo, anchov=14, ancho en=0.15] (1.25,\ytop) -- (jd) -- (res.west);
+\punto{jd}
+\draw[flujo] (jd) -- (bas.north);
+\draw[flujo] (bas.east) -- (2.45,0 |- bas.east) -- (res.south);
+\draw[flujo] (fl.north |- 0,\ytop) node[above, sen] {trig\_i} -- (fl.north);
+\draw[flujo] (11.4,\ytop) node[above, sen] {veto\_i} -- (11.4,0 |- acu.north);
+\draw[flujo] (rel.north |- 0,\ytop) node[above, sen] {veto\_i} -- (rel.north);
+
+% --- x a la segmentación y, saturada, a la ventana ---
+\coordinate (jx) at (3.15,-2.55);
+\draw[flujo] (res.east) -- node[sen, above, pos=0.55] {x} (sch.west);
+\punto{jx}
+\draw[flujo] (jx) |- (hy.west);
+\draw[flujo] (jx) -- (3.15,-6.65) -- node[sen, below, pos=0.5] {xc} (10.9,-6.65) -- (10.9,0 |- acu.south);
+
+% --- quién abre y quién cierra ---
+\draw[flujo] (fl.east) -- (m1-in |- fl.east);
+\draw[flujo] (sch.east) -- (m1-in |- sch.east);
+\draw[flujo] (hy.east) -- (m2-in |- hy.east);
+\draw[flujo] (gf.east) -- (m2-in |- gf.east);
+\draw[ctrl] (m1-sel) -- ++(0,-0.4) node[below, sen, black] {cfg\_trig\_src};
+\draw[ctrl] (m2-sel |- 0,-6.3) node[right, sen, black] {cfg\_gate\_mode} -- (m2-sel);
+\draw[flujo] (m1-out) -- node[sen, above, pos=0.45] {abre} (8.4,0 |- m1-out) |- (acu.west |- 0,-2.5);
+\draw[flujo] (m2-out) -- node[sen, below, pos=0.45] {cierra} (8.7,0 |- m2-out) |- (acu.west |- 0,-3.55);
+
+% --- de la ventana a la cola, y de la cola a los divisores ---
+\draw[flujo] (acu.east |- 0,-3.4) -- node[chico, above] {cerrada} (cola.west |- 0,-3.4);
+\draw[ctrl] (cola.west |- 0,-4.1) -- node[chico, below] {libre} (acu.east |- 0,-4.1);
+\draw[flujo] (13.5,0 |- cola.north) -- node[chico, left] {$Q$, pico} (13.5,0 |- div.south);
+\draw[flujo] (14.6,0 |- div.south) -- node[chico, right] {cocientes} (14.6,0 |- cola.north);
+\draw[flujo] (12.3,0 |- pf.north) -- node[chico, left] {casilleros} (12.3,0 |- rel.west) -- (rel.west);
+
+% --- el bus de features ---
+\draw[line width=0.8pt] (cola.south) -- (14.05,\ybus);
+\draw[line width=2.2pt] (2.6,\ybus) -- (14.05,\ybus);
+\node[sen, anchor=south, align=center] at (7.6,\ybus)
+  {ev\_feat: 6 features $\times$ 16 b, uno por evento};
+\draw[flujo] (2.6,\ybus) -- (zoo.north);
+\draw[flujo] (12.9,\ybus) -- (dis.north);
+\draw[flujo] (zoo.east) -- (hst.west);
+\draw[flujo] (dis.west) -- node[sen, above] {acepta} (hst.east);
+
+% ================================================================= leyenda ===
+\leyenda{0.15,-10.3}{azul!35/línea de base, amarillo!75/segmentación,
+  verde!55/estadísticos del pulso, naranja!70/publicación, grisr/contabilidad}{}
+
+\end{tikzpicture}
+\end{document}

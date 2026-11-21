@@ -67,13 +67,18 @@ que un canal del scope se re-dispare con su propia cola, y darle al MCA un
 
 ![Panorama de trigger_shield](../mt/figuras/panorama_trigger_shield.svg)
 
-*Hay un solo contador para todos los destinos. Con una fuente de nivel
-(`ext_lvl`) el escudo dispara cada ciclo que la línea está alta y cada disparo
-recarga `dur`: el veto dura la línea más `dur` ciclos. Los canales que no están
-en `dst` siguen al clear de software (`sw_clr`) sin cambio. `NOMBRE=valor`:
-parámetros con que lo instancia `mt_event_logic`.*
+*Una fila por registro. `src_fire` es el OR de las fuentes habilitadas que
+disparan. Con `src_fire`, `cnt` carga `dur`; si no, mientras `active`, cuenta
+hacia abajo, y `vence` (`active` y `cnt ≤ 1`) termina el holdoff. El pulso
+`clr_q` re-arma los destinos al vencer, o al disparar si `dur = 0`. Hay un solo
+contador para todos los destinos. Con una fuente de nivel (`ext_lvl`) el escudo
+dispara cada ciclo que la línea está alta y cada disparo recarga `dur`: el veto
+dura la línea más `dur` ciclos. Los canales que no están en `dst` siguen al
+clear de software sin cambio. Nombres sin cable (`src_fire`, `active`, `vence`,
+`dst[N]`): la señal del mismo nombre, que se dibuja una sola vez donde nace.
+`NOMBRE=valor`: parámetros con que lo instancia `mt_event_logic`.*
 
-*Por dentro:* el contador de holdoff, el pulso de re-arm, el veto al MCA y el mux por canal. Fuente TikZ en [`panorama_trigger_shield.tex`](../mt/figuras/panorama_trigger_shield.tex).
+*Por dentro:* `src_fire`, el contador de holdoff, `active`, el pulso de re-arm, el veto al MCA y el mux por canal. Fuente TikZ en [`panorama_trigger_shield.tex`](../mt/figuras/panorama_trigger_shield.tex).
 
 Lo que lo hace más que un holdoff por canal es que **fuentes y destinos son
 vectores independientes**:
@@ -271,14 +276,6 @@ _Origen: `tb_trigger_shield`, escena 2._
 El flanco de la fuente habilitada dispara `adc_trig` y en el mismo movimiento engancha `adc_trg_dis`, que es lo que impide que el siguiente flanco vuelva a disparar. En modo single-shot la mascara se auto-limpia, asi que para volver a disparar hace falta reescribirla; en modo continuo la mascara persiste y basta con limpiar el disable. Esa es la unica diferencia entre los dos modos.
 
 _Origen: `tb_mt_trig_src`, escena 1._
-
-**FLUJO DE UTILIZACION  -  mt_cfg**
-
-![FLUJO DE UTILIZACION  -  mt_cfg](../mt/figuras/ondas/mt_flujo.svg)
-
-Es un esquema de la SECUENCIA, no una medicion. La configuracion es una escalera: el bus del PS escribe un registro por vez, en el orden de MtRegion.set_slope() --los umbrales antes que `en`, porque con en=1 y thr=hyst=0 el Schmitt no re-arma-- y despues el escudo. OR_MASK NO es parte de esa etapa: va DESPUES de CMD_ARM, porque la mascara vive apenas se escribe y un flanco previo al arm la gasta (single-shot) y deja la captura esperando un disparo imposible (ver docs/osc/orden_arm_trigger_captura.md). CMD_ARM no es un registro del multitrigger: arma la captura del scope (slot 1); aparece aca porque fija cuando se puede escribir la mascara. La otra dependencia que no se ve en el mapa de registros: el disable queda ENGANCHADO despues del disparo, asi que sin escribir TRIG_DIS_CLR no hay segundo disparo. Un programa que configure, dispare y se quede esperando el proximo evento sin limpiar el disable espera para siempre.
-
-_Origen: esquema (sin VCD)._
 
 ---
 

@@ -1,0 +1,145 @@
+% Panorama EXPANDIDO de EVENT_STAGE_FIFO: el mismo módulo que
+% panorama_event_stage_fifo.tex, a nivel de operación. Las dos colas con sus
+% punteros y niveles, y la aceptación como un comparador y una compuerta.
+% Las redes con nombre (sof_v, eof_v, push, pop, free, meta_full) se conectan
+% por nombre. Fuente: modulos/event_ring/rtl/event_stage_fifo.sv.
+% Estilo: docs/figuras/estilo_tikz.tex (símbolos de operación al final).
+% El epígrafe no va en la figura: está en panorama_event_stage_fifo_expandido.txt.
+%
+% Compilar:   pdflatex panorama_event_stage_fifo_expandido.tex
+%             pdftocairo -svg panorama_event_stage_fifo_expandido.pdf panorama_event_stage_fifo_expandido.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{
+  op/.style      = {oper, font=\scriptsize},
+  caja/.style    = {desp, inner sep=2pt, minimum height=0.5cm},
+  reg/.style     = {registro=#1, minimum height=0.6cm, font=\scriptsize\ttfamily},
+  reg/.default   = 1.05cm,
+  fondo f/.style = {draw=black!45, dashed, line width=0.5pt, rounded corners=3pt,
+                    fill=#1},
+  rotf/.style    = {font=\scriptsize\itshape, black!75, inner sep=2pt},
+  red/.style     = {font=\scriptsize\ttfamily, inner sep=1pt},
+  chico/.style   = {font=\tiny, inner sep=1pt, align=center},
+}
+\newcommand{\red}[3][0.35]{\draw[flujo] ($(#2)+(-#1,0)$) node[left, red] {#3} -- (#2);}
+\newcommand{\redab}[3][0.35]{\draw[flujo] ($(#2)+(0,-#1)$) node[below, red] {#3} -- (#2);}
+\newcommand{\redsal}[3][0.3]{\draw[flujo] (#2) -- ($(#2)+(#1,0)$) node[right, red] {#3};}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\def\xin{-0.7}
+\def\xout{14.4}
+
+% ================================================================ fondos ====
+\node[fondo f=naranja!15, fit={(0.55,1.45) (13.25,5.4)}] (fmet) {};
+\node[fondo f=amarillo!40, fit={(0.55,-0.75) (4.6,1.2)}] (facp) {};
+\node[fondo f=azul!10,    fit={(0.55,-4.65) (13.25,-1.0)}] (fmue) {};
+\node[rotf, anchor=north west] at (fmet.north west) {cola de metadatos};
+\node[rotf, anchor=north east] at (facp.north east) {aceptación};
+\node[rotf, anchor=south west] at (fmue.south west) {cola de muestras};
+
+% ======================================================= cola de metadatos ===
+% el metadato se escribe en el SOF y cuenta recién en el EOF
+\node[puerta y] (asof) at (2.2,3.75) {};
+\node[puerta y] (aeof) at (2.2,2.75) {};
+\red{asof.input 1}{s\_val}
+\red{aeof.input 1}{s\_val}
+\draw[flujo] (\xin,0 |- asof.input 2) node[left, sen] {s\_sof\_i} -- (asof.input 2);
+\draw[flujo] (\xin,0 |- aeof.input 2) node[left, sen] {s\_eof\_i} -- (aeof.input 2);
+\redsal{asof.output}{sof\_v}
+\redsal{aeof.output}{eof\_v}
+\node[memoria=naranja!50, text width=2.6cm, minimum height=1.65cm] (mm) at (6.6,3.5)
+  {\etq{meta[$E$]}{\texttt{ts}, \texttt{snap}, \texttt{nsamp}\\ $E = 4$, en registros\\ escribe: sof\_v}};
+\draw[flujo] (\xin,4.85) node[left, sen, align=right] {s\_ts\_i, s\_snap\_i, s\_nsamp\_i} -- (5.0,4.85) |- ($(mm.west)+(0,0.5)$);
+\node[reg=1.1cm] (mwr) at (5.95,1.95) {meta\_wr};
+\node[reg=1.1cm] (mrd) at (8.0,1.95) {meta\_rd};
+\draw[flujo] (mwr.north) -- node[sen, left, pos=0.4] {esc.} (mwr.north |- mm.south);
+\draw[flujo] (mrd.north) -- node[sen, right, pos=0.4] {lect.} (mrd.north |- mm.south);
+\node[chico, anchor=north] at ($(mwr.south)+(0,-0.02)$) {$+1$ por eof\_v};
+\node[chico, anchor=north] at ($(mrd.south)+(0,-0.02)$) {$+1$ por m\_meta\_rd\_i};
+\draw[flujo] (mm.east |- 0,3.0) -- (\xout,3.0) node[right, sen, align=left] {m\_ts\_o, m\_snap\_o\\ m\_nsamp\_o};
+\draw[flujo] (\xout,1.75) node[right, sen] {m\_meta\_rd\_i} -- (9.1,1.75) |- (mrd.east);
+% eventos completos y el que está entrando
+\node[reg=1.15cm] (ml) at (10.0,4.65) {meta\_lvl};
+\node[reg=1.15cm] (mo) at (10.0,3.8) {meta\_open};
+\node[chico, anchor=south] at (ml.north) {$+1$ eof\_v, $-1$ m\_meta\_rd\_i};
+\node[chico, anchor=east, align=right] at ($(mo.west)+(-0.05,0)$) {set: sof\_v\\ clr: eof\_v};
+\coordinate (jml) at (10.9,4.65);
+\draw[flujo] (ml.east) -- (jml);
+\punto{jml}
+\node[op, font=\tiny] (mnz) at (11.75,4.65) {$\neq\!0$};
+\draw[flujo] (jml) -- (mnz.west);
+\draw[flujo] (mnz.east) -- (\xout,0 |- mnz.east) node[right, sen] {m\_meta\_val\_o};
+\draw[flujo] (jml) -- (10.9,5.85) node[above, sen] {ev\_lvl\_o};
+\node[op] (sm) at (11.75,3.8) {$+$};
+\draw[flujo] (mo.east) -- (sm.west);
+\draw[flujo] (jml) -- (10.9,4.2) -| (sm.north);
+\node[op, font=\tiny] (gE) at (12.65,3.8) {$\geq\!E$};
+\draw[flujo] (sm.east) -- (gE.west);
+\draw[flujo] (gE.south) -- ++(0,-0.3) node[below, red] {meta\_full};
+
+% ============================================================= aceptación ===
+% s_accept = free ≥ win_len ∧ ¬meta_full: entra la ventana entera y hay metadato
+\node[op] (gw) at (2.0,0.25) {$\geq$};
+\node[puerta y=ni] (aac) at (3.65,0.1) {};
+\draw[flujo] (\xin,0.25) node[left, sen] {win\_len\_i} -- (gw.west);
+\draw[flujo] (2.0,0.95) node[above, red] {free} -- (gw.north);
+\draw[flujo] (gw.east) -- (2.8,0 |- gw.east) |- (aac.input 1);
+\draw[flujo] ($(aac.input 2)+(-0.45,0)$) -- (aac.input 2);
+\node[red, anchor=north east] at ($(aac.input 2)+(-0.4,-0.04)$) {meta\_full};
+\draw[flujo] (aac.output) -- (4.3,0 |- aac.output) -- (4.3,-0.45) -- (\xin,-0.45) node[left, sen] {s\_accept\_o};
+
+% ======================================================== cola de muestras ===
+\node[memoria=azul!35, text width=2.6cm, minimum height=1.5cm] (mem) at (6.6,-1.95)
+  {\etq{mem}{$2^{12} \times 16$ b\\ escribe: push}};
+\draw[flujo, ancho=16, ancho en=0.35] (\xin,-1.6) node[left, sen] {s\_dat\_i} -- (mem.west |- 0,-1.6);
+\coordinate (jpu) at (0.95,-3.85);
+\draw[flujo] (\xin,-3.85) node[left, sen] {s\_val\_i} -- (jpu);
+\punto{jpu}
+\draw[flujo] (jpu) -- (jpu |- 0,-3.3) -- ++(0.3,0) node[right, red] {push};
+\node[reg=1.1cm] (wp) at (5.85,-3.85) {wr\_ptr};
+\node[reg=1.1cm] (rp) at (7.65,-3.85) {rd\_ptr};
+\draw[flujo] (jpu) -- (wp.west);
+\draw[flujo] (wp.north) -- node[sen, left, pos=0.4] {esc.} (wp.north |- mem.south);
+\draw[flujo] (rp.north) -- node[sen, right, pos=0.4] {lect.} (rp.north |- mem.south);
+\node[chico, anchor=north] at ($(wp.south)+(0,-0.02)$) {$+1$ por push};
+\node[chico, anchor=north] at ($(rp.south)+(0,-0.02)$) {$+1$ por pop};
+\draw[flujo] (\xout,-3.85) node[right, sen] {m\_dat\_rd\_i} -- node[sen, above, pos=0.2] {pop} (rp.east);
+% lectura registrada: el dato vale el ciclo después del pop
+\node[reg=1.05cm] (dr) at (10.0,-1.6) {dout\_r};
+\draw[flujo, ancho=16, ancho en=0.45] (mem.east |- 0,-1.6) -- (dr.west);
+\draw[flujo, ancho=16, ancho en=0.5] (dr.east) -- (\xout,-1.6) node[right, sen] {m\_dat\_o};
+\node[chico, anchor=north] at ($(dr.south)+(0,-0.02)$) {un ciclo después del pop};
+% ocupación y lugar libre
+\node[reg=1.0cm] (lv) at (10.0,-3.0) {lvl};
+\node[chico, anchor=north] at ($(lv.south)+(0,-0.02)$) {$+1$ push, $-1$ pop};
+\coordinate (jlv) at (10.85,-3.0);
+\draw[flujo] (lv.east) -- (jlv);
+\punto{jlv}
+\draw[flujo] (jlv) -- (10.85,-5.2) node[below, sen] {lvl\_o};
+\node[op] (fr) at (11.85,-3.0) {$-$};
+\draw[flujo] (jlv) -- (fr.west);
+\draw[flujo] (11.85,-2.3) node[above, chico] {4096} -- (fr.north);
+\redsal{fr.east}{free}
+
+% ============================================================== el límite ===
+\node[contenedor, fit={(0.3,5.55) (13.5,-4.85)}] (lim) {};
+\node[titulo, anchor=south west, inner sep=2pt, align=left] at (lim.north west)
+  {\texttt{\bfseries event\_stage\_fifo} \;{\scriptsize\itshape expandido}\\
+   \prm{SW=16 & S\_AW=11 & TS\_W=64\\ DATA\_AW=12 & E=4}};
+\draw[ctrl] (\xin,-4.55) node[left, sen, black!80] {flush\_i} -- (0.3,-4.55);
+\node[chico, anchor=west] at (0.4,-5.05) {flush\_i: punteros, niveles y meta\_open a cero};
+
+% ================================================================= leyenda ===
+\leyenda{-1.6,-6.0}{naranja!15/metadatos, amarillo!40/aceptación, azul!10/muestras,
+  grisr/registro}{}
+
+\end{tikzpicture}
+\end{document}

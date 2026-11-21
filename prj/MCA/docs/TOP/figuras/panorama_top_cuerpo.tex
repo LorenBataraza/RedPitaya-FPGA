@@ -12,20 +12,45 @@
 \usepackage[none]{hyphenat}
 \input{../../figuras/estilo_tikz.tex}
 
+% RELOJES. El relleno sigue siendo la función; el reloj va en una etiqueta en
+% el borde del bloque, y sólo donde NO es adc_clk (o donde podría confundirse,
+% como axi_master, que vive en el PS pero corre en adc_clk). Los cruces que
+% necesitan sincronizador llevan la marca CDC: fclk[0] y adc_clk tienen la misma
+% frecuencia nominal pero salen de osciladores distintos (plesiócronos), y el PS
+% cruza a sus relojes internos en GP0 y HP. Fuente: las instancias de
+% rtl/mine/tops/mca_red_pitaya_top.sv y rtl/red_pitaya_ps.sv (ACLK de GP0 y HP).
+\tikzset{
+  reloj/.style = {draw=black!75, fill=white, line width=0.4pt, rounded corners=1.2pt,
+                  font=\fontsize{5.4}{6}\selectfont\ttfamily, inner ysep=1.1pt,
+                  inner xsep=1.3pt,
+                  path picture={
+                    \draw[line width=0.35pt]
+                      ([xshift=1.25mm]path picture bounding box.west) circle (0.75mm)
+                      ([xshift=1.25mm]path picture bounding box.west) -- ++(0,0.52mm)
+                      ([xshift=1.25mm]path picture bounding box.west) -- ++(0.4mm,0);}},
+  cdc/.style   = {fill=black, text=white, rounded corners=1pt, inner sep=1.1pt,
+                  font=\fontsize{5.4}{6}\selectfont\bfseries},
+}
+% \reloj[opciones]{(coordenada)}{nombre}
+\newcommand{\reloj}[3][]{\node[reloj, #1] at #2 {\hspace{2.1mm}#3};}
+
 % geometría que cambia con el ring
 \ifring
   \def\icx{10.85}\def\icw{19.4cm}\def\derecha{22.6}
   \def\nombretop{event\_ring\_red\_pitaya\_top}
+  % sin captura del OSC a DDR: la reemplaza el ring (axi0/1_sys en cero)
+  \def\prmscp{CHN=0 & N\_CH=2\\ DW=14 & RSZ=13\\ EN\_FILT=0 & EN\_AXI=0}
 \else
   \def\icx{9.6}\def\icw{16.8cm}\def\derecha{20.2}
   \def\nombretop{mca\_red\_pitaya\_top}
+  \def\prmscp{CHN=0 & N\_CH=2\\ DW=14 & RSZ=13\\ EN\_FILT=0}
 \fi
 
 \begin{document}
 \begin{tikzpicture}[fondo]
 
 % ============================================================ red_pitaya_ps
-\node[comp, text width=2.6cm] (zyn) at (2.2,0)  {\etq{Zynq PS}{ARM + controlador DDR\\ \texttt{fclk[0..3]}}};
+\node[comp, text width=2.6cm] (zyn) at (2.2,0)  {\etq{Zynq PS}{ARM + controlador DDR\\ genera \texttt{fclk[0..3]}}};
 \node[bus, param={rojo!45}{rojo!18}] (a4s) at (7.6,0)
   {\blk{axi4\_slave}{\prm{DW=32 & AW=32 & IW=12}}\nodepart{two}AXI4-Lite $\to$ \texttt{sys\_bus}\\ sin ráfagas};
 \node[ddr, param={naranja!70}{naranja!30}] (axm) at (16.2,0)
@@ -43,14 +68,11 @@
 \node[comp] (hk)  at (1.6,-5.3) {\blk{red\_pitaya\_hk}{slot 0 \;$\cdot$\; LED, DIO,\\ \texttt{digital\_loop}}};
 \node[comp] (ams) at (4.0,-5.3) {\blk{red\_pitaya\_ams}{slot 4 \;$\cdot$\; config.\\ de las salidas PWM}};
 \node[comp] (dsy) at (6.4,-5.3) {\blk{red\_pitaya\_daisy}{slot 5 \;$\cdot$\; enlace\\ serie por SATA}};
-\ifring\else
-\node[mudo, text width=1.4cm] (stb) at (8.25,-5.3) {\blk{stub}{slot 2\\ ASG quitado}};
-\fi
 \node[comp, param={grisr}{grisr!35}, text width=2.0cm] (itg) at (10.2,-5.6)
   {\blk{integration\_cfg}{\prm{EN\_RING=\ifring 1\else 0\fi & EN\_ASG=0\\ EN\_PID=0 & H\_AW=\ifring 14\else 13\fi\\ +17 más}}
    \nodepart{two}slot 6 \;$\cdot$\; ID del\\ bitstream y ruteo};
 \node[datos, param={azul!35}{azul!12}, text width=2.8cm] (scp) at (14.0,-6.0)
-  {\blk{rp\_scope\_mt\_com}{\prm{CHN=0 & N\_CH=2\\ DW=14 & RSZ=13\\ EN\_FILT=0}}
+  {\blk{rp\_scope\_mt\_com}{\prm{\prmscp}}
    \nodepart{two}\texttt{i\_scope}\\ OSC \;(slot 1) \;$\cdot$\; MTRG \;(slot 3)};
 \node[captura, param={verde!55}{verde!20}, text width=2.6cm] (mca) at (18.1,-6.0)
   {\blk{mca\_top}{\prm{DW=14 & H\_AW=13\\ H2\_AW=7 & PSD\_AW=6\\
@@ -58,14 +80,17 @@
    \nodepart{two}slot 7 \;$\cdot$\; espectro 1D\\ y mapa 2D};
 \ifring
 \node[ddr, param={naranja!70}{naranja!30}, text width=2.4cm] (rng) at (19.4,-9.5)
-  {\blk{event\_ring\_top}{\prm{DW=14 & N\_CH=2\\ PRE\_AW=9 & S\_AW=11\\ DATA\_AW=12 & E=4}}
+  {\blk{event\_ring\_top}{\prm{DW=14 & N\_CH=2\\ PRE\_AW=11 & S\_AW=11\\ DATA\_AW=12 & E=4}}
    \nodepart{two}slot 2 \;$\cdot$\; ventanas\\ a un ring en DDR};
 \fi
 
 % ============================================================ fila de E/S
 \node[comp] (pdm) at (4.0,-7.7)  {\blk{red\_pitaya\_pdm}{4 salidas PWM}};
-\node[comp] (pll) at (10.4,-9.6) {\blk{red\_pitaya\_pll}{\texttt{adc\_clk}: el reloj\\ de todo el PL}};
-\node[mudo] (dac) at (8.0,-9.6) {\etq{DAC IO}{\texttt{asg} = \texttt{pid} = 0:\\ salida muda}};
+% slot 2 lo reparte sys_bus_split: 0x4021_0000 a gen_pulsos, el resto al
+% event_ring (un stub en el top del MCA, que no se dibuja)
+\node[comp, text width=1.9cm] (gen) at (8.1,-7.65) {\blk{gen\_pulsos}{slot 2 \;$\cdot$\; pulsos\\ al DAC}};
+\node[comp] (pll) at (10.45,-9.6) {\blk{red\_pitaya\_pll}{\texttt{adc\_clk}, \texttt{ser\_clk}\\ y los del DAC}};
+\node[comp] (dac) at (7.85,-9.6) {\etq{DAC IO}{complemento a 2\\ $\to$ offset binario}};
 \node[datos] (adc) at (13.0,-9.6) {\etq{ADC IO}{offset binario $\to$\\ complemento a 2}};
 
 % ======================================================= caja del top
@@ -87,9 +112,8 @@
   \draw[<->, line width=0.7pt] (\b.north |- ic.south) -- (\b.north);
 \ifring
   \draw[<->, line width=0.7pt] (20.45,0 |- ic.south) -- (20.45,0 |- rng.north);
-\else
-  \draw[<->, line width=0.7pt] (stb.north |- ic.south) -- (stb.north);
 \fi
+\draw[<->, line width=0.7pt] (gen.north |- ic.south) -- (gen.north);
 \draw[<->, line width=0.7pt] (13.3,0 |- ic.south) -- (13.3,0 |- scp.north)
   node[sen, pos=0.45, left] {1};
 \draw[<->, line width=0.7pt] (14.7,0 |- ic.south) -- (14.7,0 |- scp.north)
@@ -97,7 +121,7 @@
 
 % --- datapath ---
 \draw[flujo] (itg.east) -- node[sen, above] {route\_*} (itg.east -| scp.west);
-\draw[flujo] (adc.north) -- node[sen, left] {adc\_dat} (adc.north |- scp.south);
+\draw[flujo] (adc.north) -- node[sen, right, pos=0.25] {adc\_dat} (adc.north |- scp.south);
 \draw[flujo] ([yshift=6mm]scp.east) -- node[sen, above] {mca\_dat} ([yshift=6mm]scp.east -| mca.west);
 % veto y trig_arm son NIVELES del multitrigger que el MCA usa sólo para su
 % teselado de relojes (vetotime y t_rearm); trig es el flanco que abre ranura
@@ -110,25 +134,59 @@
     {dat, trig,\\ snap} (rng.west);
   \draw[flujo] (rng.east) -- (21.6,0 |- rng.east) |- ([yshift=2mm]axm.east)
     node[sen, pos=0.12, right] {axi2\_sys};
-  \draw[flujo] (15.2,0 |- scp.south) -- (15.2,-10.55) -- (22.1,-10.55) |- ([yshift=-2mm]axm.east)
-    node[sen, pos=0.06, right] {axi0/1\_sys};
+  % EN_AXI=0: el OSC no escribe a DDR y axi0/1_sys quedan en cero
+  \draw[flujo, black!45, dashed] (15.2,0 |- scp.south) -- (15.2,-10.55)
+    -- node[sen, below, pos=0.3, black!55] {axi0/1\_sys = 0} (22.1,-10.55)
+    |- ([yshift=-2mm]axm.east);
 \else
   \draw[flujo] (15.2,0 |- scp.south) -- (15.2,-10.3) -- (19.75,-10.3) |- (axm.east)
     node[sen, pos=0.1, left] {axi0/1\_sys};
 \fi
 \draw[flujo] (ams.south) -- node[sen, right] {pdm\_cfg} (pdm.north);
 
+% --- gen_pulsos: al DAC, al lazo digital (digital_loop[0]) y al multitrigger ---
+\draw[flujo] ([xshift=-4mm]gen.south) -- node[sen, left] {asg\_dat}
+  ([xshift=-4mm]gen.south |- dac.north);
+\coordinate (gtrig) at ([yshift=2mm]gen.east);
+\coordinate (glazo) at ([yshift=-2mm]gen.east);
+\coordinate (xtrig) at (13.6,0);
+\coordinate (xlazo) at (12.3,0);
+\draw[flujo, cruce] (gtrig) -- node[sen, above, pos=0.35] {trig\_asg} (gtrig -| xtrig)
+  -- (xtrig |- scp.south);
+\draw[flujo] (glazo) -- node[sen, below, pos=0.45] {asg\_dat (lazo)} (glazo -| xlazo)
+  -- (xlazo |- adc.north);
+
 % --- pines de la placa (borde inferior) ---
 \draw[<->, line width=0.8pt] (hk.south) -- (hk.south |- 0,-11.5) node[below, pin] {LED\\DIO};
 \draw[flujo] (pdm.south) -- (pdm.south |- 0,-11.5) node[below, pin] {PWM\\DAC};
 \draw[<->, line width=0.8pt] (dsy.south) -- (dsy.south |- 0,-11.5) node[below, pin] {SATA};
-\draw[flujo, black!50] (dac.south) -- (dac.south |- 0,-11.5) node[below, pin, black!55] {DAC};
+\draw[flujo] (dac.south) -- (dac.south |- 0,-11.5) node[below, pin] {DAC};
 \draw[flujo] (pll.south |- 0,-11.5) node[below, pin] {ADC\\CLK} -- (pll.south);
 \draw[flujo, ancho en=0.15, anchov=16] (adc.south |- 0,-11.5) node[below, pin] {ADC\\2 canales} -- (adc.south);
+
+% ================================================================ relojes ===
+% sin etiqueta: adc_clk. El PS tiene sus relojes (CPU, DDR) y cruza él mismo
+% en sus puertos: GP0 corre en fclk[0] y HP0/1(/2) en adc_clk (sus ACLK).
+\reloj[anchor=north east]{([yshift=0.5mm]zyn.north west)}{propio}
+\reloj[anchor=south east]{([xshift=-1mm, yshift=-0.5mm]a4s.north east)}{fclk[0]}
+\reloj[anchor=south west]{([xshift=0.5mm, yshift=-0.5mm]axm.north west)}{adc\_clk}
+\reloj[anchor=south west]{([xshift=8mm, yshift=-0.5mm]ic.north west)}{fclk[0]}
+\reloj[anchor=north west]{([xshift=8mm, yshift=0.5mm]ic.south west)}{adc\_clk}
+\reloj[anchor=south east]{([xshift=-1mm, yshift=-0.5mm]dsy.north east)}{ser\_clk}
+\reloj[anchor=south east]{([xshift=-1mm, yshift=-0.5mm]dac.north east)}{dac\_clk\_*}
+\node[cdc] at ([xshift=4mm]ic.west) {CDC};
+\node[cdc] at ([xshift=4.5mm, yshift=2mm]zyn.east) {CDC};
+\node[cdc] at ([yshift=3mm]zyn.north) {CDC};
 
 % ================================================================= leyenda ===
 \leyenda{-0.4,-13.0}{azul!35/acondicionamiento y trigger, verde!55/MCA,
   naranja!70/camino a DDR, grisr/periferia e infraestructura, rojo!45/bus del sistema}{}
+\begin{scope}[shift={(-0.4,-13.6)}, every node/.style={font=\scriptsize}]
+  \node[reloj, anchor=west] (lr) at (0,0) {\hspace{2.1mm}reloj};
+  \node[anchor=west] (tr) at ([xshift=1.5mm]lr.east) {reloj del bloque; sin etiqueta, \texttt{adc\_clk}};
+  \node[cdc, anchor=west] (lc) at ([xshift=6mm]tr.east) {CDC};
+  \node[anchor=west] at ([xshift=1.5mm]lc.east) {cruce con sincronizador};
+\end{scope}
 
 \end{tikzpicture}
 \end{document}

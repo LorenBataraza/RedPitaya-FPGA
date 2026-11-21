@@ -271,13 +271,8 @@ def figura(filas):
                        ("cerrada y esperando publicar (t\\_div)", "amarillo"),
                        ("libre; puede abrir (livetime)", "white"),
                        ("tiempo muerto: ninguna libre", "rojo")))
-    L.append(f"\\leyenda{{-0.6,{yl:.2f}}}{{{items}}}")
-    L.append("  {Simulación de \\texttt{mca\\_top} (\\texttt{tb\\_tm\\_cronograma}): compuertas "
-             "8/40, base fija, sin retardo extra, y cada pulso con su disparo (flecha roja). "
-             "La ventana ocupa la compuerta más un ciclo, y la publicación 18. El tiempo "
-             "muerto es cada tramo sin ranura libre (\\texttt{bloqueado}), y $L$ su largo en "
-             "ciclos, el que guarda \\texttt{dead\\_len}. El resumen son los registros al "
-             "final de la escena.}")
+    # sin nota: el epígrafe va en tm_cronograma.txt y en el doc que la incluye
+    L.append(f"\\leyenda{{-0.6,{yl:.2f}}}{{{items}}}{{}}")
     return L
 
 

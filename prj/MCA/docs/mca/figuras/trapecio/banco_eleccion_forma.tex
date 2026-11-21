@@ -1,0 +1,99 @@
+% banco_eleccion_forma: cómo elige el publicador la forma del banco que sale en
+% F_TRAP y F_FORMA, a nivel de operación. Por forma f, dos comparaciones contra
+% sus umbrales (antes_f <= F_DTPREV y despues_f <= F_DTNEXT) y una Y dan v_f;
+% la prioridad toma la primera forma válida, de la más larga a la más corta; un
+% mux toma su suma S_f y el corrimiento la convierte en el promedio. Si ninguna
+% es válida, el pulso queda marcado: F_TRAP = 0 y F_FORMA = 0xFFFF.
+% Se omiten la habilitación (f < n_formas) y la comprobación de que la meseta
+% se completó (si no, F_TRAP = 0), que no cambian la idea.
+% Fuente: modulos/mca/rtl/mca_publish.sv (forma_d, marcado_d, feat_trap).
+% El epígrafe no va en la figura: está en banco_eleccion_forma.txt.
+%
+% Compilar:   pdflatex banco_eleccion_forma.tex
+%             pdftocairo -svg banco_eleccion_forma.pdf banco_eleccion_forma.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../../figuras/estilo_tikz.tex}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\node[titulo, anchor=west] at (-0.6,1.85) {\textbf{La elección de la forma}};
+
+% ------------------------------------------------ las distancias de la ranura
+\node[sen, anchor=south] at (0.3,1.0) {F\_DTPREV};
+\node[sen, anchor=south] at (1.65,1.0) {F\_DTNEXT};
+\draw[line width=0.8pt] (0.3,1.0) -- (0.3,-4.55);
+\draw[line width=0.8pt] (1.65,1.0) -- (1.65,-5.45);
+
+% ------------------------------- por forma: dos comparaciones y una Y -> v_f
+\foreach \f/\y/\km in {0/0/{64\,/\,48}, 1/-2.5/{32\,/\,24}, 2/-5.0/{8\,/\,8}} {
+  \node[oper] (cp\f) at (2.85,\y+0.45) {$\geq$};
+  \node[oper] (cn\f) at (2.85,\y-0.45) {$\geq$};
+  \draw[flujo, cruce] (0.3,\y+0.45) -- (cp\f);
+  \punto{0.3,\y+0.45}
+  \draw[flujo] (1.65,\y-0.45) -- (cn\f);
+  \punto{1.65,\y-0.45}
+  \node[cte, anchor=south] (a\f) at (2.85,\y+0.88) {antes$_{\f}$};
+  \draw[ctrl] (a\f) -- (cp\f);
+  \node[cte, anchor=north] (d\f) at (2.85,\y-0.88) {después$_{\f}$};
+  \draw[ctrl] (d\f) -- (cn\f);
+  \node[puerta y] (y\f) at (4.05,\y) {};
+  \draw[ctrl] (cp\f) -- ++(0.38,0) |- (y\f.input 1);
+  \draw[ctrl] (cn\f) -- ++(0.38,0) |- (y\f.input 2);
+  \draw[flujo] (y\f.output) -- node[above, nodo, pos=0.45] {$v_{\f}$} (4.95,\y);
+  \node[anchor=east, font=\scriptsize, align=right] at (-0.25,\y)
+    {forma \f\\[-1pt]{\tiny \km}};
+}
+
+% --------------------------------------------------------------- la prioridad
+\node[bloque=naranja!30, minimum height=5.9cm, text width=1.25cm, align=center]
+  (pr) at (5.65,-2.5) {\etq{prioridad}{la primera\\ con\\ $v_f = 1$}};
+
+% ------------------------------------------- las sumas, el mux y el promedio
+\node[nodo, anchor=south, align=center] at (7.55,0.6) {sumas de\\[-1pt] la ranura};
+\foreach \f/\y in {0/0, 1/-2.5, 2/-5.0}
+  \node[registro] (s\f) at (7.55,\y) {$S_{\f}$};
+\muxdec{m1}{(9.05,-2.5)}{5.6}
+\foreach \f/\y in {0/0, 1/-2.5, 2/-5.0} {
+  \draw[flujo] (s\f) -- (m1-in |- s\f.east);
+  \node[nodo, anchor=west] at ($(m1-in |- s\f.east)+(0.02,0)$) {\f};
+}
+\node[desp] (dv) at (10.55,-2.5) {\texttt{>>> lw}$_{f^*}$};
+\draw[flujo] (m1-out) -- (dv);
+
+% --------------------------------------------------------- F_TRAP: o el 0
+\muxdec{m2}{(12.15,-2.5)}{1.5}
+\draw[flujo] (dv.east) -- ($(m2-in)+(0,0.3)$);
+\node[nodo, anchor=west] at ($(m2-in)+(0.02,0.3)$) {0};
+\node[cte, anchor=east] (c0) at ($(m2-in)+(-0.35,-0.3)$) {0};
+\draw[flujo] (c0) -- ($(m2-in)+(0,-0.3)$);
+\node[nodo, anchor=west] at ($(m2-in)+(0.02,-0.3)$) {1};
+
+% -------------------------------------------------------- F_FORMA: o 0xFFFF
+\muxdec{m3}{(12.15,-5.15)}{1.5}
+\node[cte, anchor=east] (cf) at ($(m3-in)+(-0.35,0.3)$) {\texttt{0xFFFF}};
+\draw[flujo] (cf) -- ($(m3-in)+(0,0.3)$);
+\node[nodo, anchor=west] at ($(m3-in)+(0.02,0.3)$) {1};
+\node[nodo, anchor=west] at ($(m3-in)+(0.02,-0.3)$) {0};
+
+% ------------------------------------- lo que sale de la prioridad: f* y ninguna
+\node[nodo, anchor=north east] at ($(pr.south)+(-0.36,-0.04)$) {$f^*$};
+\node[nodo, anchor=north west] at ($(pr.south)+(0.36,-0.04)$) {ninguna};
+\draw[flujo] ([xshift=-0.3cm]pr.south) |- (9.05,-6.15) -- (m1-sel);
+\draw[flujo] (9.05,-6.15) -- (10.75,-6.15) |- ($(m3-in)+(0,-0.3)$);
+\punto{9.05,-6.15}
+\draw[ctrl] ([xshift=0.3cm]pr.south) |- (12.15,-6.65) -- (m3-sel);
+\draw[ctrl] (12.15,-6.65) -- (12.85,-6.65) -- (12.85,-3.7) -| (m2-sel);
+\punto{12.15,-6.65}
+
+% las salidas, encima de la vuelta de ninguna
+\draw[flujo] (m2-out) -- ++(0.95,0) node[sen, right] {F\_TRAP};
+\draw[flujo, cruce] (m3-out) -- ++(0.95,0) node[sen, right] {F\_FORMA};
+
+\end{tikzpicture}
+\end{document}

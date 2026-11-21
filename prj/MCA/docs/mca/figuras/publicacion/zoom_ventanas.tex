@@ -1,0 +1,142 @@
+% El zoom de un eje (mca_zoom): qué parte de la feature va al histograma y cómo
+% se calcula el bin. Para el eje 1D: feature de 16 bits, AW = 13 (8192 canales),
+% así que z llega a 3.
+%   (a) las ventanas: en el nivel z el rango de la feature se parte en 2^z
+%       ventanas iguales, alineadas, y la k-ésima ocupa el histograma entero.
+%       Tres eventos: uno adentro (bin proporcional) y dos afuera, que saturan
+%       en el primer y en el último canal.
+%   (b) la cuenta en bits, para z = 2: los z bits altos se comparan con k, los
+%       AW siguientes son el bin y el resto se descarta. Dos comparadores y un
+%       mux de tres entradas, sin restas ni productos.
+% Fuente: modulos/mca/rtl/mca_zoom.sv.
+% Estilo: docs/figuras/estilo_tikz.tex. El zoom es de la publicación (naranja).
+% El epígrafe no va en la figura: está en zoom_ventanas.txt.
+%
+% Compilar:   pdflatex zoom_ventanas.tex
+%             pdftocairo -svg zoom_ventanas.pdf zoom_ventanas.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\usepackage{amssymb}
+\input{../../../figuras/estilo_tikz.tex}
+\usetikzlibrary{decorations.pathreplacing}
+\tikzset{
+  ventana/.style = {draw=black, line width=0.5pt, fill=white, minimum height=0.42cm,
+                    inner sep=0pt, font=\scriptsize},
+  elegida/.style = {ventana, fill=naranja!55},
+  bitc/.style    = {draw=black, line width=0.5pt, minimum width=0.62cm,
+                    minimum height=0.55cm, inner sep=0pt, font=\scriptsize},
+  evento/.style  = {circle, fill=black, inner sep=0pt, minimum size=1.6mm},
+  rot/.style     = {font=\scriptsize, inner sep=1.5pt},
+  panel/.style   = {font=\small\bfseries, anchor=north west},
+}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\def\W{12}        % ancho del eje: 2^16 de la feature, y también el histograma
+\def\xo{1.6}      % donde arranca el eje
+
+% =============================================================== (a) ===
+\node[panel] at (0,0.95) {(a)};
+
+% --- el eje de la feature ---
+\draw[line width=0.6pt] (\xo,0) -- (\xo+\W,0);
+\foreach \f/\t in {0/$0$, 0.25/$2^{14}$, 0.5/$2^{15}$, 0.75/$3\cdot2^{14}$, 1/$2^{16}$}
+  \draw[line width=0.5pt] (\xo+\f*\W,0) -- ++(0,0.1) node[above, rot] {\t};
+\node[rot, anchor=east] at (\xo-0.1,0.05) {feature};
+
+% --- las ventanas de cada nivel ---
+\foreach \z/\y in {0/-0.65, 1/-1.25, 2/-1.85} {
+  \node[rot, anchor=east] at (\xo-0.1,\y) {$z = \z$};
+  \pgfmathtruncatemacro\nv{2^\z}
+  \pgfmathsetmacro\ancho{\W/\nv}
+  \foreach \k in {1,...,\nv} {
+    \pgfmathtruncatemacro\kk{\k-1}
+    \ifnum\z=2 \ifnum\kk=1
+      \node[elegida, minimum width=\ancho cm, anchor=west] at (\xo+\kk*\ancho,\y) {$k = \kk$};
+    \else
+      \node[ventana, minimum width=\ancho cm, anchor=west] at (\xo+\kk*\ancho,\y) {$k = \kk$};
+    \fi\else
+      \node[ventana, minimum width=\ancho cm, anchor=west] at (\xo+\kk*\ancho,\y) {$k = \kk$};
+    \fi
+  }
+}
+
+% --- el histograma: la ventana elegida lo ocupa entero ---
+\def\yh{-4.1}
+\node[draw=black, line width=0.6pt, fill=naranja!25, minimum width=\W cm,
+      minimum height=0.5cm, anchor=west, inner sep=0pt] (hist) at (\xo,\yh) {};
+\foreach \i in {1,...,15}
+  \draw[black!40, line width=0.3pt] (\xo+\i*\W/16,\yh-0.25) -- ++(0,0.5);
+\node[rot, anchor=east] at (\xo-0.1,\yh) {histograma};
+\node[rot, anchor=north] at (\xo,\yh-0.3) {canal 0};
+\node[rot, anchor=north] at (\xo+\W,\yh-0.3) {canal 8191};
+
+% la ventana z = 2, k = 1 se estira sobre los 8192 canales
+\draw[densely dashed, black!60, line width=0.5pt] (\xo+0.25*\W,-2.06) -- (\xo,\yh+0.25);
+\draw[densely dashed, black!60, line width=0.5pt] (\xo+0.5*\W,-2.06) -- (\xo+\W,\yh+0.25);
+
+% --- tres eventos, vistos con z = 2, k = 1 ---
+\def\ye{-2.55}
+\node[evento] (e1) at (\xo+0.375*\W,\ye) {};
+\node[evento] (e2) at (\xo+0.12*\W,\ye) {};
+\node[evento] (e3) at (\xo+0.83*\W,\ye) {};
+\foreach \e/\f in {e1/0.375, e2/0.12, e3/0.83}
+  \draw[black!45, densely dotted, line width=0.5pt] (\xo+\f*\W,-2.06) -- (\e);
+\draw[->, line width=0.7pt] (e1) -- (\xo+0.5*\W,\yh+0.25);
+\draw[->, line width=0.7pt, rojo!70!black] (e2) -- (\xo+0.03,\yh+0.25);
+\draw[->, line width=0.7pt, rojo!70!black] (e3) -- (\xo+\W-0.03,\yh+0.25);
+\node[rot, anchor=south west] at (e1.north east) {adentro};
+\node[rot, anchor=south east, rojo!70!black] at (e2.north west) {abajo: satura};
+\node[rot, anchor=south west, rojo!70!black] at (e3.north east) {arriba: satura};
+
+% =============================================================== (b) ===
+\def\yb{-6.1}
+\node[panel] at (0,\yb+0.95) {(b)};
+\def\bw{0.62}
+% bits 15..0 de la feature, de izquierda a derecha
+\foreach \b in {0,...,15} {
+  \pgfmathtruncatemacro\bit{15-\b}
+  \ifnum\b<2
+    \node[bitc, fill=grisr] (b\bit) at (\xo+\b*\bw+\bw/2,\yb) {\bit};
+  \else\ifnum\b<15
+    \node[bitc, fill=naranja!45] (b\bit) at (\xo+\b*\bw+\bw/2,\yb) {\bit};
+  \else
+    \node[bitc, fill=white, densely dashed, text=black!55] (b\bit) at (\xo+\b*\bw+\bw/2,\yb) {\bit};
+  \fi\fi
+}
+\node[rot, anchor=east] at (\xo-0.1,\yb) {feature};
+\draw[decorate, decoration={brace, amplitude=4pt, raise=1pt}, line width=0.5pt]
+  (b15.north west) -- (b14.north east) node[midway, above=5pt, rot] {$z = 2$ bits altos};
+\draw[decorate, decoration={brace, amplitude=4pt, raise=1pt}, line width=0.5pt]
+  (b13.north west) -- (b1.north east) node[midway, above=5pt, rot] {$AW = 13$ bits: el bin};
+\node[rot, anchor=south, black!55] at ($(b0.north)+(0,0.08)$) {se descarta};
+
+% --- comparación de los bits altos con k: tres salidas ---
+\coordinate (alto) at ($(b15.south)!0.5!(b14.south)$);
+\node[oper] (cmp) at ($(alto)+(0,-1.25)$) {$\lessgtr$};
+\node[cte, anchor=east] (kk) at ($(cmp.west)+(-0.5,0)$) {$k$};
+\draw[flujo] (alto) -- (cmp.north);
+\draw[flujo] (kk.east) -- (cmp.west);
+
+% --- el mux de salida: arriba satura, adentro el bin, abajo cero ---
+\def\ym{\yb-1.3}
+\muxdec{m}{(\xo+12.3,\ym)}{2.3}
+\node[font=\tiny, anchor=west] at ($(m-in)+(0.03,0.75)$) {$>$};
+\node[font=\tiny, anchor=west] at ($(m-in)+(0.03,0)$) {$=$};
+\node[font=\tiny, anchor=west] at ($(m-in)+(0.03,-0.75)$) {$<$};
+\node[cte, anchor=east] (unos) at ($(m-in)+(-0.5,0.75)$) {$2^{13}-1$};
+\node[cte, anchor=east] (cero) at ($(m-in)+(-0.5,-0.75)$) {$0$};
+\draw[flujo] (unos.east) -- (m-in |- unos.east);
+\draw[flujo] (cero.east) -- (m-in |- cero.east);
+\coordinate (bsal) at ($(b13.south)!0.5!(b1.south)$);
+\draw[flujo] (bsal) |- node[rot, above, pos=0.75] {bin} (m-in |- 0,\ym);
+\draw[flujo] (m-out) -- ++(0.7,0) node[right, rot] {índice del bin};
+\draw[ctrl] (cmp.south) -- ($(cmp.south)+(0,-0.75)$) -| (m-sel);
+
+\end{tikzpicture}
+\end{document}

@@ -190,7 +190,8 @@
 %
 %   - Sólo el PS y el módulo. Lo que llega de otro módulo (el trigger, por
 %     ejemplo) entra como una flecha \entrada desde el borde: es una entrada
-%     del módulo, no un actor.
+%     del módulo, no un actor. Lo que sale hacia otro módulo (el disparo del
+%     multitrigger) va al borde con salida, del mismo color.
 %   - El módulo va con el color de su región (azul osc, amarillo mt, verde
 %     mca, naranja event_ring); el PS, en gris.
 %   - El color de la flecha dice por dónde viaja: rojo = registro o apertura
@@ -205,6 +206,7 @@
   gp/.style      = {->, rojo!65!black, line width=0.9pt},
   hp/.style      = {->, naranja!60!black, line width=1.1pt},
   entrada/.style = {->, amarillo!35!black, line width=1.1pt},
+  salida/.style  = {entrada},
   rot/.style     = {font=\scriptsize, fill=white, text=black, inner sep=1.5pt,
                     align=center},
   % el marco de lo que se repite (un lote, una captura): punteado, porque no

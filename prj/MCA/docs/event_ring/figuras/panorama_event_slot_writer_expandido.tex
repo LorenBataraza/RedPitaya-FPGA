@@ -1,0 +1,318 @@
+% Panorama EXPANDIDO de EVENT_SLOT_WRITER: el mismo módulo que
+% panorama_event_slot_writer.tex, a nivel de operación. Registros, contadores
+% con su +1, comparadores, compuertas y muxes, tal como están en el RTL.
+% Las redes con nombre (start, recibe, libre, carga, hay_mas...) se conectan por
+% nombre: el trazo corto que entra a un pin lleva el nombre de la red.
+% Fuente: modulos/event_ring/rtl/event_slot_writer.sv.
+% Estilo: docs/figuras/estilo_tikz.tex (símbolos de operación al final).
+% El epígrafe no va en la figura: está en panorama_event_slot_writer_expandido.txt.
+%
+% Compilar:   pdflatex panorama_event_slot_writer_expandido.tex
+%             pdftocairo -svg panorama_event_slot_writer_expandido.pdf panorama_event_slot_writer_expandido.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{
+  op/.style      = {oper, font=\scriptsize},
+  caja/.style    = {desp, inner sep=2pt, minimum height=0.5cm},
+  reg/.style     = {registro=#1, minimum height=0.6cm, font=\scriptsize\ttfamily},
+  reg/.default   = 1.0cm,
+  y3/.style      = {puerta y=#1, logic gate input sep=0.16cm},
+  o3/.style      = {puerta o=#1, logic gate input sep=0.16cm},
+  fondo f/.style = {draw=black!45, dashed, line width=0.5pt, rounded corners=3pt,
+                    fill=#1},
+  rotf/.style    = {font=\scriptsize\itshape, black!75, inner sep=2pt},
+  red/.style     = {font=\scriptsize\ttfamily, inner sep=1pt},
+  chico/.style   = {font=\tiny, inner sep=1pt, align=center},
+}
+\newcommand{\red}[3][0.4]{\draw[flujo] ($(#2)+(-#1,0)$) node[left, red] {#3} -- (#2);}
+\newcommand{\redab}[3][0.4]{\draw[flujo] ($(#2)+(0,-#1)$) node[below, red] {#3} -- (#2);}
+\newcommand{\redsal}[3][0.35]{\draw[flujo] (#2) -- ($(#2)+(#1,0)$) node[right, red] {#3};}
+\newcommand{\mxlab}[2]{\node[font=\tiny, anchor=west, inner sep=0.5pt] at #1 {#2};}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\def\xin{-0.7}
+\def\xout{17.4}
+
+% ================================================================ fondos ====
+\node[fondo f=grisr!40,     fit={(0.55,4.35) (5.75,8.15)}] (fmet) {};
+\node[fondo f=naranja!15,   fit={(6.0,4.95) (10.2,8.15)}] (fcab) {};
+\node[fondo f=azul!10,      fit={(0.55,-1.55) (9.75,3.45)}] (femp) {};
+\node[fondo f=naranja!25,   fit={(10.45,-1.55) (16.45,5.1)}] (fsal) {};
+\node[fondo f=grisr!40,     fit={(0.55,-6.0) (6.25,-1.9)}] (fpal) {};
+\node[fondo f=azul!10,      fit={(6.45,-6.0) (10.95,-1.9)}] (fmue) {};
+\node[fondo f=grisr!40,     fit={(11.2,-6.0) (16.45,-1.9)}] (fslot) {};
+\node[rotf, anchor=north west] at (fmet.north west) {tomar el evento};
+\node[rotf, anchor=north east] at (fcab.north east) {cabecera};
+\node[rotf, anchor=south west] at (femp.south west) {empaquetar y pedir};
+\node[rotf, anchor=north east] at (fsal.north east) {salida};
+\node[rotf, anchor=north west] at (fpal.north west) {palabras del slot};
+\node[rotf, anchor=north east] at (fmue.north east) {muestras};
+\node[rotf, anchor=north east] at (fslot.north east) {cerrar el slot};
+
+% ========================================================= tomar el evento ===
+% start = idle ∧ s_meta_val ∧ credit_ok ∧ ¬s_meta_rd: el pop anterior todavía no
+% se ve en s_meta_val, y sin esa guarda se leería dos veces el mismo evento
+\node[reg=1.15cm] (tsr) at (4.6,7.55) {ts\_r};
+\node[reg=1.15cm] (nsr) at (4.6,6.85) {nsamp\_r};
+\node[reg=1.15cm] (snr) at (4.6,6.15) {snap\_r};
+\draw[flujo] (\xin,0 |- tsr.west) node[left, sen] {s\_ts\_i} -- (tsr.west);
+\draw[flujo] (\xin,0 |- nsr.west) node[left, sen] {s\_nsamp\_i} -- (nsr.west);
+\draw[flujo] (\xin,0 |- snr.west) node[left, sen] {s\_snap\_i} -- (snr.west);
+\node[grupo, fit={(3.95,5.8) (5.25,7.9)}, inner sep=0pt] (gmet) {};
+\node[y3=nnni, logic gate input sep=0.2cm] (ast) at (2.3,4.95) {};
+\draw[flujo] (\xin,0 |- ast.input 1) node[left, sen] {s\_meta\_val\_i} -- (ast.input 1);
+\draw[flujo] (\xin,0 |- ast.input 2) node[left, sen] {credit\_ok\_i} -- (ast.input 2);
+\red{ast.input 3}{idle}
+\red{ast.input 4}{s\_meta\_rd}
+\draw[flujo] (ast.output) -- node[sen, above, pos=0.55] {start} (4.6,0 |- ast.output)
+  -- node[chico, right, pos=0.6] {en} (gmet.south);
+
+% =============================================================== cabecera ===
+\node[caja, font=\tiny] (w1) at (7.4,6.85) {\{0, $N_\mathrm{CH}$, nsamp\_r, seq\}};
+\node[caja, font=\tiny] (w2) at (7.4,6.15) {\{0, snap\_r\}};
+\muxdec{mh}{(9.5,6.55)}{2.8}
+\draw[flujo, ancho=64, ancho en=0.75] (tsr.east) -- (mh-in |- tsr.east);
+\draw[flujo] (nsr.east) -- (w1.west);
+\draw[flujo] (w1.east) -- (mh-in |- w1.east);
+\draw[flujo] (snr.east) -- (w2.west);
+\draw[flujo] (w2.east) -- (mh-in |- w2.east);
+\draw[flujo] (8.65,5.45) node[left, chico] {0} -- (mh-in |- 0,5.45);
+\mxlab{($(mh-in |- tsr.east)+(0.02,0)$)}{0}
+\mxlab{($(mh-in |- w1.east)+(0.02,0)$)}{1}
+\mxlab{($(mh-in |- w2.east)+(0.02,0)$)}{2}
+\mxlab{($(mh-in |- 0,5.45)+(0.02,0)$)}{3}
+\redab[0.35]{mh-sel}{hdr\_idx}
+\node[chico, anchor=north west, align=left] at (6.15,5.65) {hdr\_idx: 0..3,\\ $+1$ por palabra en \textsc{hdr}};
+
+% ============================================================ empaquetar ======
+% entra = rd_d ? s_dat_i : 0 (relleno de la última palabra con ceros)
+\muxdec{me}{(2.4,2.6)}{1.0}
+\mxlab{($(me-in)+(0.02,0.24)$)}{1}
+\mxlab{($(me-in)+(0.02,-0.24)$)}{0}
+\draw[flujo, ancho=16, ancho en=0.4] (\xin,2.84) node[left, sen] {s\_dat\_i} -- (me-in |- 0,2.84);
+\draw[flujo] (1.55,2.36) node[left, chico] {0} -- (me-in |- 0,2.36);
+\redab[0.3]{me-sel}{rd\_d}
+\coordinate (je) at (3.2,2.6);
+\draw[flujo] (me-out) -- node[sen, above, pos=0.5] {entra} (je);
+\punto{je}
+\node[caja] (sh) at (4.75,2.6) {\{entra, acc[47:16]\}};
+\node[reg=0.95cm] (acc) at (6.9,2.6) {acc};
+\coordinate (ja) at (7.65,2.6);
+\node[caja] (dw) at (8.75,2.6) {\{entra, acc\}};
+\draw[flujo] (je) -- (sh.west);
+\draw[flujo, ancho=48, ancho en=0.45] (sh.east) -- (acc.west);
+\draw[flujo] (acc.east) -- (ja);
+\punto{ja}
+\draw[flujo] (ja) -- (ja |- 0,3.2) -| (sh.north);
+\draw[flujo] (ja) -- (dw.west);
+\draw[flujo] (je) -- (3.2,2.0) -| (dw.south);
+\node[chico, anchor=north] at ($(acc.south)+(0,-0.02)$) {en: recibe $\wedge\neg$p3};
+
+% recibe = rd_d ∨ (relleno ∧ (¬p3 ∨ libre)): llega una muestra, o un cero de relleno
+\node[puerta o=in] (oa) at (1.5,1.3) {};
+\node[puerta y] (ar) at (2.75,1.0) {};
+\node[puerta o] (orc) at (4.05,1.2) {};
+\red[0.3]{oa.input 1}{p3}
+\red[0.3]{oa.input 2}{libre}
+\draw[flujo] (oa.output) -- (2.1,0 |- oa.output) |- (ar.input 1);
+\draw[flujo] (1.95,0.75) node[left, red] {relleno} -- (2.2,0.75) |- (ar.input 2);
+\draw[flujo] (3.5,1.65) node[above, red] {rd\_d} |- (orc.input 1);
+\draw[flujo] (ar.output) -- (3.6,0 |- ar.output) |- (orc.input 2);
+\redsal[0.3]{orc.output}{recibe}
+% pack_cnt: muestras de esta palabra, 0..3
+\node[reg=1.1cm] (pc) at (6.6,1.05) {pack\_cnt};
+\node[op, font=\tiny] (pc1) at (6.6,0.3) {$+1$};
+\coordinate (jpc) at (7.4,1.05);
+\draw[flujo] (pc.east) -- (jpc);
+\punto{jpc}
+\draw[flujo] (jpc) |- (pc1.east);
+\draw[flujo] (pc1.west) -- (5.75,0 |- pc1.west) |- (pc.west);
+\node[chico, anchor=south] at (pc.north) {en: recibe};
+\node[op, font=\tiny] (p3) at (8.3,1.4) {$=\!3$};
+\node[op, font=\tiny] (pnz) at (8.3,0.7) {$\neq\!0$};
+\draw[flujo] (jpc) |- (p3.west);
+\draw[flujo] (jpc) |- (pnz.west);
+\redsal[0.3]{p3.east}{p3}
+\redsal[0.3]{pnz.east}{pack$\neq$0}
+
+% pedir: cierra = (pack_cnt + s_dat_rd + rd_d = 3); la muestra que cierra la
+% palabra sólo se pide con la salida libre
+\node[caja, font=\tiny, align=left] (sig) at (1.65,-0.45) {pack\_cnt\\ $+$\,s\_dat\_rd\\ $+$\,rd\_d};
+\node[op, font=\tiny] (c3) at (2.95,-0.45) {$=\!3$};
+\node[puerta o=in] (oc) at (4.75,-0.3) {};
+\node[y3=nnn] (ap) at (5.95,-0.45) {};
+\node[reg=1.15cm] (sdr) at (7.3,-0.45) {s\_dat\_rd};
+\node[reg=0.8cm] (rdd) at (8.95,-0.45) {rd\_d};
+\draw[flujo] (sig.east) -- (c3.west);
+\draw[flujo] (c3.east) -- node[sen, above, pos=0.5] {cierra} (4.2,0 |- c3.east) |- (oc.input 1);
+\draw[flujo] (4.35,-1.0) node[below, red] {libre} |- (oc.input 2);
+\draw[flujo] (oc.output) -- (5.4,0 |- oc.output) |- (ap.input 1);
+\draw[flujo] (5.5,0.3) node[above, red] {data} |- (ap.input 2);
+\draw[flujo] (5.55,-1.0) node[below, red] {samp$\neq$0} |- (ap.input 3);
+\draw[flujo] (ap.output) -- (sdr.west);
+\coordinate (jd) at (8.15,-0.45);
+\draw[flujo] (sdr.east) -- (jd);
+\punto{jd}
+\draw[flujo] (jd) -- (rdd.west);
+\redsal[0.3]{rdd.east}{rd\_d}
+\draw[flujo] (jd) -- (8.15,-1.3) -- (\xin,-1.3) node[left, sen] {s\_dat\_rd\_o};
+\node[chico, anchor=south] at (8.95,-0.1) {latencia del stage};
+
+% ================================================================= salida ====
+\node[caja] (ft) at (11.35,3.75) {\{$\overline{\mathrm{seq}}$, seq\}};
+\muxdec{mm}{(13.0,3.0)}{4.0}
+\mxlab{($(mm-in)+(0.02,1.35)$)}{hdr}
+\mxlab{($(mm-in)+(0.02,0.75)$)}{foot}
+\mxlab{($(mm-in)+(0.02,-0.4)$)}{data}
+\mxlab{($(mm-in)+(0.02,-1.35)$)}{pad}
+\draw[flujo] (mh-out) -- (11.1,0 |- mh-out) |- (mm-in |- 0,4.35);
+\red[0.35]{ft.west}{seq}
+\draw[flujo] (ft.east) -- (mm-in |- ft.east);
+\draw[flujo, ancho=64, ancho en=0.3] (dw.east) -- (mm-in |- dw.east);
+\draw[flujo] (12.05,1.65) node[left, chico] {0} -- (mm-in |- 0,1.65);
+\redab[0.35]{mm-sel}{estado}
+\node[reg=1.0cm] (wd) at (14.6,3.0) {wr\_dat};
+\draw[flujo] (mm-out) -- (wd.west);
+\node[chico, anchor=north] at ($(wd.south)+(0,-0.02)$) {en: carga};
+\draw[flujo, ancho=64, ancho en=0.5] (wd.east) -- (\xout,0 |- wd.east) node[right, sen] {wr\_dat\_o};
+% wr_val: se prende con cada palabra y se sostiene hasta que la aceptan
+\node[reg=1.0cm] (wv) at (14.6,1.65) {wr\_val};
+\red[0.35]{wv.west}{carga}
+\node[chico, anchor=north] at ($(wv.south)+(0,-0.02)$) {clr: fire $\wedge\neg$carga};
+\coordinate (jwv) at (15.4,1.65);
+\draw[flujo] (wv.east) -- (jwv);
+\punto{jwv}
+\draw[flujo] (jwv) -- (\xout,0 |- jwv) node[right, sen] {wr\_val\_o};
+\node[puerta y] (af) at (15.9,0.55) {};
+\draw[flujo] (jwv) |- (af.input 1);
+\draw[flujo] (\xout,-0.05) node[right, sen] {wr\_rdy\_i} -- (15.45,-0.05) |- (af.input 2);
+\node[puerta o=in] (ol) at (12.6,0.3) {};
+\redsal[0.25]{af.output}{}
+\node[red, anchor=south] at ($(af.output)+(0.25,0.05)$) {fire};
+\red[0.35]{ol.input 1}{wr\_val}
+\red[0.35]{ol.input 2}{fire}
+\redsal[0.3]{ol.output}{libre}
+\node[chico, anchor=north west, align=left, text width=4.6cm] at (10.6,-0.35)
+  {carga: sale una palabra nueva (cada una de\\ \textsc{hdr}, \textsc{pad} y \textsc{foot} con libre; en \textsc{data}, recibe $\wedge$ p3)};
+
+% ======================================================= palabras del slot ===
+\node[caja] (sw) at (1.95,-2.6) {\texttt{1 << (slot\_shift$-$3)}};
+\node[reg=1.2cm] (swr) at (1.95,-3.45) {slot\_words};
+\draw[flujo] (\xin,-2.6) node[left, sen] {slot\_shift\_i} -- (sw.west);
+\draw[flujo] (sw.south) -- (swr.north);
+\node[chico, anchor=north] at ($(swr.south)+(0,-0.02)$) {en: start};
+\node[op, font=\tiny] (sm1) at (3.35,-3.45) {$-1$};
+\draw[flujo] (swr.east) -- (sm1.west);
+\node[reg=1.2cm] (wi) at (1.95,-5.1) {word\_idx};
+\node[op, font=\tiny] (wi1) at (1.95,-4.4) {$+1$};
+\coordinate (jwi) at (2.75,-5.1);
+\draw[flujo] (wi.east) -- (jwi);
+\punto{jwi}
+\draw[flujo] (jwi) |- (wi1.east);
+\draw[flujo] (wi1.west) -- (1.1,0 |- wi1.west) |- (wi.west);
+\node[chico, anchor=north] at ($(wi.south)+(0,-0.02)$) {en: carga \;$\cdot$\; 0 en \textsc{idle}};
+\node[op] (ge) at (3.85,-4.3) {$\geq$};
+\draw[flujo] (sm1.east) -| (ge.north);
+\draw[flujo] (jwi) -| (ge.south);
+\coordinate (jll) at (4.35,-4.3);
+\draw[flujo] (ge.east) -- (jll);
+\punto{jll}
+\redsal[0.25]{jll}{anteúltima}
+% err_slot_ovf: la ventana no entra en el slot (sticky)
+\node[puerta y] (ae) at (4.95,-5.3) {};
+\node[reg=1.45cm] (eov) at (5.0,-2.6) {err\_slot\_ovf};
+\draw[flujo] (jll) |- (ae.input 1);
+\draw[flujo] ($(ae.input 2)+(-0.3,-0.4)$) -- ($(ae.input 2)+(-0.3,0)$) -- (ae.input 2);
+\node[chico, anchor=north] at ($(ae.input 2)+(-0.3,-0.42)$) {hdr $\vee$ (data $\wedge$ hay\_mas)};
+\draw[flujo] (ae.output) -- (6.0,0 |- ae.output) -- (6.0,-3.3) -| node[chico, left, pos=0.85] {set} (eov.south);
+\draw[flujo] (eov.north) -- (5.0,0 |- 0,-1.72) -- (\xout,-1.72) node[right, sen] {err\_slot\_ovf\_o};
+
+% ================================================================ muestras ===
+% samp_left: muestras que faltan pedir al stage
+\muxdec{ms}{(7.3,-2.9)}{1.0}
+\mxlab{($(ms-in)+(0.02,0.24)$)}{1}
+\mxlab{($(ms-in)+(0.02,-0.24)$)}{0}
+\node[reg=1.15cm] (sl) at (8.75,-2.9) {samp\_left};
+\node[op, font=\tiny] (sl1) at (8.75,-3.9) {$-1$};
+\draw[flujo] (ms-out) -- (sl.west);
+\draw[flujo] (6.6,-2.2) node[above, chico] {s\_nsamp\_i$\cdot N_\mathrm{CH}$} |- (ms-in |- 0,-2.66);
+\coordinate (jsl) at (9.55,-2.9);
+\draw[flujo] (sl.east) -- (jsl);
+\punto{jsl}
+\draw[flujo] (jsl) |- (sl1.east);
+\draw[flujo] (sl1.west) -- (6.6,0 |- sl1.west) |- (ms-in |- 0,-3.14);
+\redab[0.3]{ms-sel}{start}
+\node[chico, anchor=north] at ($(sl.south)+(0,-0.02)$) {en: start $\vee$ s\_dat\_rd};
+\node[op, font=\tiny] (snz) at (10.3,-2.9) {$\neq\!0$};
+\draw[flujo] (jsl) -- (snz.west);
+\draw[flujo] (snz.south) -- ++(0,-0.3) node[below, red] {samp$\neq$0};
+% hay_mas = samp≠0 ∨ en_camino ∨ pack≠0; relleno = ¬en_camino ∧ ¬samp≠0 ∧ pack≠0
+\node[puerta o] (oec) at (7.7,-4.75) {};
+\red[0.3]{oec.input 1}{s\_dat\_rd}
+\red[0.3]{oec.input 2}{rd\_d}
+\coordinate (jec) at (8.3,-4.75);
+\draw[flujo] (oec.output) -- node[chico, above, pos=0.5] {} (jec);
+\punto{jec}
+\node[o3=nnn, logic gate input sep=0.21cm] (ohm) at (9.75,-4.75) {};
+\node[y3=iin, logic gate input sep=0.21cm] (arl) at (9.75,-5.55) {};
+\draw[flujo] (jec) |- (ohm.input 2);
+\draw[flujo] (jec) |- (arl.input 1);
+\draw[flujo] ($(ohm.input 1)+(-0.25,0)$) node[left, chico] {samp$\neq$0} -- (ohm.input 1);
+\draw[flujo] ($(ohm.input 3)+(-0.25,0)$) node[left, chico] {pack$\neq$0} -- (ohm.input 3);
+\draw[flujo] ($(arl.input 2)+(-0.25,0)$) node[left, chico] {samp$\neq$0} -- (arl.input 2);
+\draw[flujo] ($(arl.input 3)+(-0.25,0)$) node[left, chico] {pack$\neq$0} -- (arl.input 3);
+\redsal[0.2]{ohm.output}{hay\_mas}
+\redsal[0.2]{arl.output}{relleno}
+
+% ========================================================= cerrar el slot ===
+\node[etapa=grisr!70, text width=3.0cm, minimum height=1.6cm] (fsm) at (13.05,-2.95)
+  {\etq{FSM del slot}{\textsc{idle} $\to$ \textsc{hdr} $\to$ \textsc{data} $\to$\\
+   \textsc{pad} $\to$ \textsc{foot} $\to$ \textsc{done}\\[1pt]
+   {\tiny \textsc{idle}$\to$\textsc{hdr}: start;\; \textsc{hdr}$\to$\textsc{data}: 4 palabras\\[-1pt]
+   \textsc{data}$\to$\textsc{pad}: $\neg$hay\_mas;\; $\to$\textsc{foot}: anteúltima\\[-1pt]
+   \textsc{done}$\to$\textsc{idle}: $\neg$wr\_val}}};
+\redsal[0.25]{$(fsm.east)+(0,0.5)$}{estado}
+\draw[flujo] ($(fsm.east)+(0,0.0)$) -- (\xout,0 |- fsm.east) node[right, sen] {no\_credit\_o};
+\draw[flujo] ($(fsm.east)+(0,-0.6)$) -- (\xout,0 |- 0,-3.55) node[right, sen] {busy\_o};
+\node[chico, anchor=north west, align=left] at ($(fsm.east)+(0.05,-0.03)$) {idle $\wedge$ s\_meta\_val\\ $\wedge\,\neg$credit\_ok};
+\node[chico, anchor=north west] at ($(fsm.east)+(0.05,-0.63)$) {$\neg$idle};
+% cerrar: el footer ya fue aceptado
+\node[puerta y=ni] (acl) at (12.4,-5.0) {};
+\red[0.35]{acl.input 1}{done}
+\red[0.35]{acl.input 2}{wr\_val}
+\coordinate (jcl) at (13.0,-5.0);
+\draw[flujo] (acl.output) -- (jcl);
+\punto{jcl}
+\node[reg=1.0cm] (wsl) at (14.3,-4.3) {wr\_slot};
+\node[reg=1.0cm] (sq) at (14.3,-5.0) {seq};
+\node[reg=1.2cm] (smr) at (14.3,-5.7) {s\_meta\_rd};
+\draw[flujo] (jcl) |- node[chico, above, pos=0.75] {$+1$} (wsl.west);
+\draw[flujo] (jcl) -- node[chico, above, pos=0.6] {$+1$} (sq.west);
+\draw[flujo] (jcl) |- (smr.west);
+\draw[flujo] (wsl.east) -- (\xout,0 |- wsl.east) node[right, sen] {wr\_slot\_o};
+\draw[flujo] (sq.east) -- (\xout,0 |- sq.east) node[right, sen] {seq\_o};
+\draw[flujo] (smr.east) -- (15.6,0 |- smr.east) -- (15.6,-6.45) -- (\xin,-6.45) node[left, sen] {s\_meta\_rd\_o};
+\node[chico, anchor=south west] at (14.85,-4.27) {clr: clr\_cnt\_i};
+
+% ============================================================== el límite ===
+\node[contenedor, fit={(0.3,8.4) (16.7,-6.95)}] (lim) {};
+\node[titulo, anchor=south west, inner sep=2pt, align=left] at (lim.north west)
+  {\texttt{\bfseries event\_slot\_writer} \;{\scriptsize\itshape expandido}\\
+   \prm{SW=16 & S\_AW=11 & N\_CH=2\\ TS\_W=64 & WCW=16}};
+\draw[ctrl] (\xin,-6.75) node[left, sen, black!80] {flush\_i} -- (0.3,-6.75);
+\node[chico, anchor=west] at (0.35,-6.75) {vacía la FSM, los contadores de palabra y el dato en vuelo; no toca wr\_slot ni seq};
+
+% ================================================================= leyenda ===
+\leyenda{-1.6,-7.65}{grisr!40/control del slot, naranja!15/cabecera, azul!10/muestras,
+  naranja!25/salida, grisr/registro}{}
+
+\end{tikzpicture}
+\end{document}

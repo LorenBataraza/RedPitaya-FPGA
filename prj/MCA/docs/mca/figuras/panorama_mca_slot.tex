@@ -22,6 +22,7 @@
 \usepackage[none]{hyphenat}
 \input{../../figuras/estilo_tikz.tex}
 \tikzset{
+  linea/.style   = {rectangle split, rectangle split parts=2},
   seglog/.style  = {etapa=amarillo!75},
   estlog/.style  = {etapa=verde!20, text width=2.9cm},
   conlog/.style  = {etapa=grisr!60, text width=2.9cm},
@@ -44,47 +45,47 @@
 
 % ================================================================ bloques ===
 % --- arriba: el control ---
-\node[seglog, text width=3.3cm] (cmp) at (2.85,5.3)
-  {\etq{compuertas}{al abrir retiene\\ \texttt{g\_short} y \texttt{g\_long}\\[2pt]
+\node[seglog, text width=3.3cm, linea] (cmp) at (2.85,5.3)
+  {{\bfseries compuertas}\nodepart{two}al abrir retiene\\ \texttt{g\_short} y \texttt{g\_long}\\[2pt]
    \texttt{len}: 1 al abrir, +1 por\\ muestra acumulada\\[2pt]
    \texttt{cierre}: abierta, válida\\ y \texttt{len} $\geq$ \texttt{g\_long}\\[2pt]
    \texttt{acumula}: abierta,\\ válida y sin cierre\\[2pt]
-   \texttt{in\_tail}: \texttt{len} $\geq$ \texttt{g\_short}}};
-\node[seglog, text width=3.0cm, minimum height=2.2cm] (fsm) at (8.1,5.3)
-  {\etq{estado}{\textsc{libre} $\to$ \textsc{abierta}\\ con \texttt{abre}\\[3pt]
+   \texttt{in\_tail}: \texttt{len} $\geq$ \texttt{g\_short}};
+\node[seglog, text width=3.0cm, minimum height=2.2cm, linea] (fsm) at (8.1,5.3)
+  {{\bfseries estado}\nodepart{two}\textsc{libre} $\to$ \textsc{abierta}\\ con \texttt{abre}\\[3pt]
    al cierre, con \texttt{amp\_ok}:\\ \textsc{cerrada}; sin él, \textsc{libre}\\[3pt]
-   \textsc{cerrada} $\to$ \textsc{libre}\\ con \texttt{libera\_i}}};
+   \textsc{cerrada} $\to$ \textsc{libre}\\ con \texttt{libera\_i}};
 
 % --- una fila por acumulador: lógica, registro ---
-\node[estlog] (lp) at (2.6,2.75)
-  {\etq{pico}{$x_c >$ \texttt{peak}, estricto:\\ gana la primera;\\ \texttt{t\_peak} $\leftarrow$ \texttt{len}}};
+\node[estlog, linea] (lp) at (2.6,2.75)
+  {{\bfseries pico}\nodepart{two}$x_c >$ \texttt{peak}, estricto:\\ gana la primera;\\ \texttt{t\_peak} $\leftarrow$ \texttt{len}};
 \node[reg] (rp) at (5.5,2.75) {\texttt{peak}\\ \texttt{t\_peak}};
 
-\node[estlog] (lv) at (2.6,0.75)
-  {\etq{ventana de amplitud}{sombras $Q-$\texttt{min\_q}\\ y \texttt{max\_q}$\,-\,Q$: su signo;\\ el pico, en [min, max];\\ un ciclo antes del cierre}};
+\node[estlog, linea] (lv) at (2.6,0.75)
+  {{\bfseries ventana de amplitud}\nodepart{two}sombras $Q-$\texttt{min\_q}\\ y \texttt{max\_q}$\,-\,Q$: su signo;\\ el pico, en [min, max];\\ un ciclo antes del cierre};
 \node[reg, minimum height=1.4cm] (rv) at (5.5,0.75)
   {\texttt{d\_min}, \texttt{d\_max}\\ \texttt{ge\_min\_r}\\ \texttt{le\_max\_r}\\ \texttt{peak\_ok\_r}};
 
-\node[estlog] (lq) at (2.6,-1.25)
-  {\etq{cargas}{$Q_\mathrm{tot}$ $+\,x_c$, y $Q_\mathrm{cola}$ $+\,x_c$\\ si \texttt{in\_tail}\\ al abrir: $x_c$ y 0}};
+\node[estlog, linea] (lq) at (2.6,-1.25)
+  {{\bfseries cargas}\nodepart{two}$Q_\mathrm{tot}$ $+\,x_c$, y $Q_\mathrm{cola}$ $+\,x_c$\\ si \texttt{in\_tail}\\ al abrir: $x_c$ y 0};
 \node[reg] (rq) at (5.5,-1.25) {\texttt{q\_tot}\\ \texttt{q\_tail}};
 
-\node[estlog, varios] (lm) at (2.6,-3.15)
-  {\etq{meseta, una por forma}{si acumula y\\ \texttt{ini} $\leq$ \texttt{len} $<$ \texttt{fin}:\\ suma el trapecio y cuenta}};
+\node[estlog, varios, linea] (lm) at (2.6,-3.15)
+  {{\bfseries meseta, una por forma}\nodepart{two}suma y cuenta las\\ muestras con \texttt{acumula}\\ e \texttt{ini} $\leq$ \texttt{len} $<$ \texttt{fin}};
 \node[reg, varios] (rm) at (5.5,-3.15) {\texttt{suma}\\ \texttt{cuenta}};
 
-\node[conlog] (lk) at (2.6,-5.15)
-  {\etq{marcas de solape}{otro disparo adentro:\\ \texttt{adentro}, y el primero\\ fija \texttt{dt\_next} = \texttt{len};\\ sin ranura: \texttt{perdido}}};
+\node[conlog, linea] (lk) at (2.6,-5.15)
+  {{\bfseries marcas de solape}\nodepart{two}otro disparo adentro:\\ \texttt{adentro}, y el primero\\ fija \texttt{dt\_next} = \texttt{len};\\ sin ranura: \texttt{perdido}};
 \node[reg, minimum height=1.0cm] (rk) at (5.5,-5.15) {\texttt{adentro}\\ \texttt{perdido}\\ \texttt{dt\_next}};
 
 \node[reg, minimum height=1.0cm] (ra) at (5.5,-7.0) {\texttt{win\_id}\\ \texttt{dt\_prev}\\ \texttt{otras}};
 \node[font=\scriptsize\itshape, black!70, anchor=east] at (4.25,-7.25) {se cargan al abrir};
 
 % --- después de los registros ---
-\node[estlog, text width=2.0cm] (amp) at (9.15,0.75)
-  {\etq{amplitud}{\texttt{amp\_int}: $Q_\mathrm{tot}\gg$\texttt{s},\\ saturada\\ \texttt{amp\_sel}: pico\\ o integral}};
-\node[conlog, text width=1.4cm] (sol) at (8.3,-6.1)
-  {\etq{solapada}{\texttt{otras} $\neq$ 0\\ o \texttt{adentro}}};
+\node[estlog, text width=2.0cm, linea] (amp) at (9.15,0.75)
+  {{\bfseries amplitud}\nodepart{two}\texttt{amp\_int}: $Q_\mathrm{tot}\gg$\texttt{s},\\ saturada\\ \texttt{amp\_sel}: pico\\ o integral};
+\node[conlog, text width=1.4cm, linea] (sol) at (8.3,-6.1)
+  {{\bfseries solapada}\nodepart{two}\texttt{otras} $\neq$ 0\\ o \texttt{adentro}};
 
 % ============================================================== el límite ===
 \node[contenedor, fit={(0.35,7.1) (10.6,-7.85)}] (lim) {};

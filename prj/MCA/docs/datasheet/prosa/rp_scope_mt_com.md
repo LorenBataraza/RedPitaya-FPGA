@@ -24,8 +24,8 @@ consumidores propios.
 (`rp_decim`) → retardo (`rp_delay`) → buffer de captura (`rp_bram_sm`,
 `rp_acq_bram`), y los tres [`dsp_tap_mux`](../datasheet_dsp_tap_mux.md) que
 eligen desde dónde lee cada consumidor. Comunes: el multitrigger entero,
-[`mt_top`](../datasheet_mt_top.md) (los disparos de nivel y de pendiente de
-cada canal, la lógica de evento y [`mt_cfg`](../datasheet_mt_cfg.md), el
+[`mt_top`](../datasheet_mt_top.md) (los disparos de nivel, de pendiente y de
+polo-cero de cada canal, la lógica de evento y [`mt_cfg`](../datasheet_mt_cfg.md), el
 esclavo del slot 3), y [`osc_cfg`](../datasheet_osc_cfg.md), el esclavo del
 slot 1.
 

@@ -32,9 +32,10 @@
 <!-- AUTO:prosa -->
 <!-- Prosa a mano: se edita en prosa/mt_trig_src.md, no aca. -->
 
-**Qué hace.** Es el **selector de disparo de un canal**: toma las 25 fuentes
+**Qué hace.** Es el **selector de disparo de un canal**: toma las 29 fuentes
 de trigger del sistema (los flancos de nivel de los canales del ADC, los de
-pendiente de [`mt_slope_trig`](datasheet_mt_slope_trig.md), la entrada
+pendiente de [`mt_slope_trig`](datasheet_mt_slope_trig.md) y de polo-cero
+de [`mt_pz_trig`](datasheet_mt_pz_trig.md), la entrada
 externa, el generador, la cadena desde el otro scope y el disparo por
 software), las filtra con una máscara, y emite el trigger del canal. Hay una
 instancia por canal dentro de
@@ -42,13 +43,20 @@ instancia por canal dentro de
 
 ![Panorama de mt_trig_src](../mt/figuras/panorama_mt_trig_src.svg)
 
-*Los números sobre el bus son los bits de la máscara (`OR_MASK`); los 25–31
-están reservados. El software también pasa por la máscara: es el bit 0, así que
-con `OR_MASK = 0` ni `TRIG_SW` dispara. En modo continuo (`we_keep = 1`) la
-máscara no se limpia sola; el protect se engancha igual. `NOMBRE=valor`:
-parámetros con que lo instancia `mt_event_logic`.*
+*En el estilo de `panorama_mt`: el color es la función del bloque (la leyenda),
+las operaciones van con su símbolo y gris con triángulo es un registro del RTL.
+Acá sí hay un vector: las fuentes entran cada una por su línea y este módulo
+las concatena (la barra); los números son los bits de la máscara (`OR_MASK`), y
+los 29–31 están en cero. El software también pasa por la máscara: es el bit 0,
+así que con `OR_MASK = 0` ni `TRIG_SW` dispara. La máscara, salvo con el
+disable enganchado, da con las fuentes el disparo, y con el armado de cada
+fuente (`armado_i`) da `puede_o`: el canal puede disparar ya. «disparo» es la
+salida del registro `adc_trig`, realimentada: engancha el disable y, en
+single-shot (`we_keep = 0`), limpia la máscara, igual que `dly_do`; en modo
+continuo la máscara no se limpia sola. `rst_do` la limpia siempre.
+`NOMBRE=valor`: parámetros con que lo instancia `mt_event_logic`.*
 
-*Por dentro:* las 25 fuentes, la máscara, el *protect* y la realimentación del disparo. Fuente TikZ en [`panorama_mt_trig_src.tex`](../mt/figuras/panorama_mt_trig_src.tex).
+*Por dentro:* las 29 fuentes, la máscara, el disable, `puede` y la realimentación del disparo. Fuente TikZ en [`panorama_mt_trig_src.tex`](../mt/figuras/panorama_mt_trig_src.tex).
 
 Es el reemplazo de `rp_trig_src.v`, y las dos diferencias con el original son
 las que dan el nombre al módulo:
@@ -258,14 +266,6 @@ _Origen: `tb_trigger_shield`, escena 2._
 El flanco de la fuente habilitada dispara `adc_trig` y en el mismo movimiento engancha `adc_trg_dis`, que es lo que impide que el siguiente flanco vuelva a disparar. En modo single-shot la mascara se auto-limpia, asi que para volver a disparar hace falta reescribirla; en modo continuo la mascara persiste y basta con limpiar el disable. Esa es la unica diferencia entre los dos modos.
 
 _Origen: `tb_mt_trig_src`, escena 1._
-
-**FLUJO DE UTILIZACION  -  mt_cfg**
-
-![FLUJO DE UTILIZACION  -  mt_cfg](../mt/figuras/ondas/mt_flujo.svg)
-
-Es un esquema de la SECUENCIA, no una medicion. La configuracion es una escalera: el bus del PS escribe un registro por vez, en el orden de MtRegion.set_slope() --los umbrales antes que `en`, porque con en=1 y thr=hyst=0 el Schmitt no re-arma-- y despues el escudo. OR_MASK NO es parte de esa etapa: va DESPUES de CMD_ARM, porque la mascara vive apenas se escribe y un flanco previo al arm la gasta (single-shot) y deja la captura esperando un disparo imposible (ver docs/osc/orden_arm_trigger_captura.md). CMD_ARM no es un registro del multitrigger: arma la captura del scope (slot 1); aparece aca porque fija cuando se puede escribir la mascara. La otra dependencia que no se ve en el mapa de registros: el disable queda ENGANCHADO despues del disparo, asi que sin escribir TRIG_DIS_CLR no hay segundo disparo. Un programa que configure, dispare y se quede esperando el proximo evento sin limpiar el disable espera para siempre.
-
-_Origen: esquema (sin VCD)._
 
 ---
 

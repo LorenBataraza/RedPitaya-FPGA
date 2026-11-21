@@ -9,9 +9,10 @@
      renderiza bien y el chequeo de enlaces del repo lo puede verificar; al
      copiarlos a la pagina se recalculan solos.                         -->
 
-**Qué hace.** Es el **selector de disparo de un canal**: toma las 25 fuentes
+**Qué hace.** Es el **selector de disparo de un canal**: toma las 29 fuentes
 de trigger del sistema (los flancos de nivel de los canales del ADC, los de
-pendiente de [`mt_slope_trig`](../datasheet_mt_slope_trig.md), la entrada
+pendiente de [`mt_slope_trig`](../datasheet_mt_slope_trig.md) y de polo-cero
+de [`mt_pz_trig`](../datasheet_mt_pz_trig.md), la entrada
 externa, el generador, la cadena desde el otro scope y el disparo por
 software), las filtra con una máscara, y emite el trigger del canal. Hay una
 instancia por canal dentro de
@@ -19,13 +20,20 @@ instancia por canal dentro de
 
 ![Panorama de mt_trig_src](../../mt/figuras/panorama_mt_trig_src.svg)
 
-*Los números sobre el bus son los bits de la máscara (`OR_MASK`); los 25–31
-están reservados. El software también pasa por la máscara: es el bit 0, así que
-con `OR_MASK = 0` ni `TRIG_SW` dispara. En modo continuo (`we_keep = 1`) la
-máscara no se limpia sola; el protect se engancha igual. `NOMBRE=valor`:
-parámetros con que lo instancia `mt_event_logic`.*
+*En el estilo de `panorama_mt`: el color es la función del bloque (la leyenda),
+las operaciones van con su símbolo y gris con triángulo es un registro del RTL.
+Acá sí hay un vector: las fuentes entran cada una por su línea y este módulo
+las concatena (la barra); los números son los bits de la máscara (`OR_MASK`), y
+los 29–31 están en cero. El software también pasa por la máscara: es el bit 0,
+así que con `OR_MASK = 0` ni `TRIG_SW` dispara. La máscara, salvo con el
+disable enganchado, da con las fuentes el disparo, y con el armado de cada
+fuente (`armado_i`) da `puede_o`: el canal puede disparar ya. «disparo» es la
+salida del registro `adc_trig`, realimentada: engancha el disable y, en
+single-shot (`we_keep = 0`), limpia la máscara, igual que `dly_do`; en modo
+continuo la máscara no se limpia sola. `rst_do` la limpia siempre.
+`NOMBRE=valor`: parámetros con que lo instancia `mt_event_logic`.*
 
-*Por dentro:* las 25 fuentes, la máscara, el *protect* y la realimentación del disparo. Fuente TikZ en [`panorama_mt_trig_src.tex`](../../mt/figuras/panorama_mt_trig_src.tex).
+*Por dentro:* las 29 fuentes, la máscara, el disable, `puede` y la realimentación del disparo. Fuente TikZ en [`panorama_mt_trig_src.tex`](../../mt/figuras/panorama_mt_trig_src.tex).
 
 Es el reemplazo de `rp_trig_src.v`, y las dos diferencias con el original son
 las que dan el nombre al módulo:

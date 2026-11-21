@@ -121,7 +121,7 @@ def fig_senal(sim, t0, t1, eventos):
         l.append(f"\\draw[eje] ({f(X(t))},0) -- ++(0,-0.08) node[tick, below] {{{t}}};")
     l.append(f"\\node[titeje, anchor=north] at ({f(W_A / 2)},-0.48) {{tiempo [$\\mu$s]}};")
     l.append(f"\\node[titeje, rotate=90, anchor=south] at (-0.75,{f(H_A / 2)}) "
-             "{amplitud sobre la base [cuentas de ADC]};")
+             "{amplitud sobre la base [ADU]};")
 
     # --- umbral y re-armado, rotulados a la derecha -------------------------------
     l.append(f"\\draw[thr] (0,{f(Y(UMBRAL))}) -- ({f(W_A)},{f(Y(UMBRAL))});")
@@ -209,7 +209,7 @@ def fig_cadena(eventos):
                          f"\\color{{black!50}}\\textit{{rechazado: amp < thr}}\\\\")
     tabla = ("\\begin{tabular}{@{}l@{\\hspace{1.0cm}}r@{\\hspace{1.0cm}}r"
              "@{\\hspace{1.0cm}}r@{}}\\toprule "
-             "\\textbf{pulso} & \\textbf{$t$ [$\\mu$s]} & \\textbf{amp [cuentas]} & "
+             "\\textbf{pulso} & \\textbf{$t$ [$\\mu$s]} & \\textbf{amp [ADU]} & "
              f"\\textbf{{canal = \\shr{{{H_SHIFT}}}}}\\\\\\midrule "
              + " ".join(filas) + "\\bottomrule\\end{tabular}")
     l.append(f"\\node[anchor=north, font=\\scriptsize, inner sep=0pt] at (6.0,-1.15) "

@@ -19,7 +19,9 @@
 \usepackage[none]{hyphenat}
 \input{../../figuras/estilo_tikz.tex}
 
-\tikzset{logica/.style = {etapa=naranja!25, text width=3.4cm}}
+% los colores son los de las regiones del expandido (panorama_event_slot_writer_expandido):
+% gris = control del slot, naranja claro = cabecera, azul = muestras, naranja = salida
+\tikzset{logica/.style = {etapa=#1, text width=3.4cm}}
 
 \begin{document}
 \begin{tikzpicture}[fondo]
@@ -28,16 +30,16 @@
 \def\xout{15.0}   % donde terminan las salidas
 
 % ================================================================ bloques ===
-\node[registro, text width=3.6cm, inner ysep=5pt] (cnt) at (8.4,4.9)
+\node[registro, fill=grisr!40, text width=3.6cm, inner ysep=5pt] (cnt) at (8.4,4.9)
   {\etq{contadores de slot}{\texttt{wr\_slot}, \texttt{seq}: $+1$ cuando\\ el FIFO acepta el footer}};
-\node[registro, text width=3.4cm, inner ysep=5pt] (cab) at (3.4,2.5)
+\node[registro, fill=naranja!15, text width=3.4cm, inner ysep=5pt] (cab) at (3.4,2.5)
   {\etq{cabecera}{\texttt{ts}, \texttt{snapshot}, \texttt{nsamp}\\ se toman al empezar}};
-\node[logica, minimum height=1.45cm] (emp) at (3.4,0.0)
+\node[logica=azul!10, minimum height=1.45cm] (emp) at (3.4,0.0)
   {\etq{empaquetador}{4 muestras de 16 b $\to$ 64 b;\\ pide una por ciclo, y la que\\ cierra la palabra, sólo\\ con la salida libre}};
-\node[logica, minimum height=1.5cm] (fsm) at (3.4,-2.75)
+\node[logica=grisr!40, minimum height=1.5cm] (fsm) at (3.4,-2.75)
   {\etq{FSM del slot}{\textsc{idle} $\to$ \textsc{hdr} $\to$ \textsc{data} $\to$\\ \textsc{pad} $\to$ \textsc{foot} $\to$ \textsc{done}\\[1pt]
    {\tiny toma un evento si hay crédito}}};
-\node[logica] (pal) at (3.4,-5.3)
+\node[logica=grisr!40] (pal) at (3.4,-5.3)
   {\etq{palabras del slot}{\texttt{word\_idx} hasta\\ $2^{\mathtt{slot\_shift}-3}-1$}};
 
 % --- el mux de la palabra: lo elige el estado ---
@@ -46,7 +48,7 @@
 \node[font=\tiny, anchor=west] at ($(mx-in)+(0.02,1.35)$) {hdr};
 \node[font=\tiny, anchor=west] at ($(mx-in)+(0.02,-1.15)$) {data};
 \node[font=\tiny, anchor=west] at ($(mx-in)+(0.02,-1.85)$) {pad};
-\node[registro, text width=2.2cm, inner ysep=5pt] (sal) at (12.0,1.15)
+\node[registro, fill=naranja!25, text width=2.2cm, inner ysep=5pt] (sal) at (12.0,1.15)
   {\etq{salida}{\texttt{wr\_dat}, \texttt{wr\_val}\\ se sostiene hasta\\ \texttt{wr\_rdy}}};
 
 % ============================================================== el límite ===
@@ -99,7 +101,8 @@
 \draw[flujo] (pal.east) -- (\xout,0 |- pal.east) node[right, sen] {err\_slot\_ovf\_o};
 
 % ================================================================= leyenda ===
-\leyenda{-1.6,-7.4}{naranja!25/lógica propia, grisr/registro}{}
+\leyenda{-1.6,-7.4}{grisr!40/control del slot, naranja!15/cabecera, azul!10/muestras,
+  naranja!25/salida}{}
 
 \end{tikzpicture}
 \end{document}

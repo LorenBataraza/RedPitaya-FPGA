@@ -43,15 +43,23 @@ eventos. No tiene lógica propia de disparo: lo que aporta es la topología.
 
 ![Panorama de mt_event_logic](../mt/figuras/panorama_mt_event_logic.svg)
 
-*`trigger_event_o`, `event_arm_o` y `daisy_trig_o` son la misma señal: el OR de
-los disparos de los canales. Las fuentes del escudo son los disparos por canal
-más la entrada externa cruda (flancos y nivel), así que se puede vetar desde
-afuera sin gastar la máscara de un canal. El snapshot guarda las fuentes crudas
-del ciclo del evento, retrasadas uno para alinearlas con el registro de
-`mt_trig_src`. `NOMBRE=valor`: parámetros con que lo instancia
-`rp_scope_mt_com`.*
+*En el estilo de `panorama_mt`: el color es la función del bloque (la leyenda),
+las operaciones van con su símbolo y gris con triángulo es un registro del RTL.
+Cada fuente entra por su línea: las concatena cada `mt_trig_src`, y el snapshot
+las toma por su lado, en la barra con un punto por fuente, retrasadas un ciclo
+(`src_now_d`) para alinearlas con el registro de `mt_trig_src`. El snapshot
+carga con el evento y lo limpian `adc_rst_do` y el `TRIG_DIS_CLR` de software;
+con el evento arriba sale el valor nuevo (el mux), así el `event_ring` no se
+lleva las fuentes del evento anterior. `trigger_event_o`, `event_arm_o` y
+`daisy_trig_o` son la misma señal: el OR de los disparos de los canales.
+`trig_arm_o` es el OR, registrado, de lo que cada canal puede disparar; el
+armado de una fuente es el estado de su Schmitt (pendiente y polo-cero), y las
+demás cuentan como armadas. Las fuentes del escudo son los disparos de los
+canales más la entrada externa cruda (flancos y nivel), así que se puede vetar
+desde afuera sin gastar la máscara de un canal. `NOMBRE=valor`: parámetros con
+que lo instancia `mt_top`.*
 
-*Por dentro:* los `mt_trig_src`, el escudo, el OR que da `trigger_event`, el snapshot y la cadena. Fuente TikZ en [`panorama_mt_event_logic.tex`](../mt/figuras/panorama_mt_event_logic.tex).
+*Por dentro:* los `mt_trig_src`, el escudo, el OR que da `trigger_event`, `trig_arm`, el snapshot y la cadena. Fuente TikZ en [`panorama_mt_event_logic.tex`](../mt/figuras/panorama_mt_event_logic.tex).
 
 Tres salidas que son la misma señal y una que no:
 
@@ -275,14 +283,6 @@ _Origen: `tb_trigger_shield`, escena 2._
 El flanco de la fuente habilitada dispara `adc_trig` y en el mismo movimiento engancha `adc_trg_dis`, que es lo que impide que el siguiente flanco vuelva a disparar. En modo single-shot la mascara se auto-limpia, asi que para volver a disparar hace falta reescribirla; en modo continuo la mascara persiste y basta con limpiar el disable. Esa es la unica diferencia entre los dos modos.
 
 _Origen: `tb_mt_trig_src`, escena 1._
-
-**FLUJO DE UTILIZACION  -  mt_cfg**
-
-![FLUJO DE UTILIZACION  -  mt_cfg](../mt/figuras/ondas/mt_flujo.svg)
-
-Es un esquema de la SECUENCIA, no una medicion. La configuracion es una escalera: el bus del PS escribe un registro por vez, en el orden de MtRegion.set_slope() --los umbrales antes que `en`, porque con en=1 y thr=hyst=0 el Schmitt no re-arma-- y despues el escudo. OR_MASK NO es parte de esa etapa: va DESPUES de CMD_ARM, porque la mascara vive apenas se escribe y un flanco previo al arm la gasta (single-shot) y deja la captura esperando un disparo imposible (ver docs/osc/orden_arm_trigger_captura.md). CMD_ARM no es un registro del multitrigger: arma la captura del scope (slot 1); aparece aca porque fija cuando se puede escribir la mascara. La otra dependencia que no se ve en el mapa de registros: el disable queda ENGANCHADO despues del disparo, asi que sin escribir TRIG_DIS_CLR no hay segundo disparo. Un programa que configure, dispare y se quede esperando el proximo evento sin limpiar el disable espera para siempre.
-
-_Origen: esquema (sin VCD)._
 
 ---
 

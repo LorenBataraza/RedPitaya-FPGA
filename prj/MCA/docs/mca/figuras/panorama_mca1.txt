@@ -1,0 +1,11 @@
+La primera versión del MCA (MCA1), antes de las ranuras y del banco de
+trapecios, en el mismo estilo que el panorama de `mca_top` para poder
+compararlas. Una sola ventana mide un pulso a la vez: la abre el Schmitt
+propio sobre $x$ o el flanco de `trig_i` (o cualquiera de los dos), y la
+cierra la histéresis o una compuerta fija; mientras mide, no se puede abrir
+otra. Al cerrar, el resultado espera en una cola de `PUB_K` lugares a que los
+divisores calculen las features de forma; en el modo bloqueante, la ventana no
+reabre hasta publicar. El bus lleva seis features: el pico, la integral, las
+dos de forma, el largo y el tiempo al pico. Las primeras versiones tenían sólo
+el Schmitt y la publicación bloqueante. No se dibujan la entrada (canal y
+decimación) ni el banco de registros.

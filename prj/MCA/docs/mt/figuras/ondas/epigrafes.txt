@@ -1,12 +1,10 @@
 EPÍGRAFES DE LAS FIGURAS DE ONDAS DEL MODULO MULTITRIGGER
 =========================================================
 
-Las tres primeras las escribe `ondas_mt.py` leyendo los VCD de
+Las tres las escribe `ondas_mt.py` leyendo los VCD de
 `tb_trigger_shield` y `tb_mt_trig_src`. Los números de abajo --cuántos
 ciclos dura cada veto, cuánto cuenta el holdoff-- los mide el script sobre el
 VCD, así que no pueden desincronizarse de los dibujos.
-
-La cuarta es un esquema de secuencia y no tiene VCD detrás.
 
 Reloj de la simulación: clk = 100 MHz.
 
@@ -75,26 +73,6 @@ con limpiar el disable. Esa es la unica diferencia entre los dos modos.
 
   · El disable se engancha 1 ciclo(s) después del disparo; la máscara se limpia a los 1.
   · 4 señales, 16 columnas, ventana 35 a 185 ns.
-
-FIGURA — mt_flujo.svg
----------------------
-FLUJO DE UTILIZACION  -  mt_cfg
-
-Es un esquema de la SECUENCIA, no una medicion. La configuracion es una
-escalera: el bus del PS escribe un registro por vez, en el orden de
-MtRegion.set_slope() --los umbrales antes que `en`, porque con en=1 y
-thr=hyst=0 el Schmitt no re-arma-- y despues el escudo. OR_MASK NO es parte de
-esa etapa: va DESPUES de CMD_ARM, porque la mascara vive apenas se escribe y
-un flanco previo al arm la gasta (single-shot) y deja la captura esperando un
-disparo imposible (ver docs/osc/orden_arm_trigger_captura.md). CMD_ARM no es
-un registro del multitrigger: arma la captura del scope (slot 1); aparece aca
-porque fija cuando se puede escribir la mascara. La otra dependencia que no se
-ve en el mapa de registros: el disable queda ENGANCHADO despues del disparo,
-asi que sin escribir TRIG_DIS_CLR no hay segundo disparo. Un programa que
-configure, dispare y se quede esperando el proximo evento sin limpiar el
-disable espera para siempre.
-
-  · ESQUEMA: una columna es un paso del software, no un ciclo de reloj.
 
 Las ventanas se ubican por la CONFIGURACION que define cada escena --qué
 combinación de shield_src / shield_dst / shield_dur está escrita-- y no por un

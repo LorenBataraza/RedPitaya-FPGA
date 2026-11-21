@@ -34,33 +34,45 @@ lo que le entra del scope, y el scope entero con `mt_top` plegado en un bloque.
 **`mt_top` por dentro.** El borde grueso de la figura es su límite: todo lo que
 va de las muestras y las entradas externas a `trigger_event`. Lo que lo cruza
 son sus puertos, dibujados sólo con el nombre para que la figura se lea aislada;
-de dónde vienen y adónde van está en la tabla de abajo. Adentro hay tres partes:
+de dónde vienen y adónde van está en la tabla de abajo. Adentro, el color es la
+función de cada bloque:
 
-1. **Cálculo y concatenación de triggers.** Por canal, los dos disparos que
-   salen de la misma muestra: el de nivel (`rp_adc_trig`, del scope original
-   de Red Pitaya) y el de pendiente (`mt_slope_trig`, propio). Para todos los
-   canales, el externo y el del ASG (`rp_ext_trig`, también de Red Pitaya). Las
-   25 fuentes —software, flancos de los cuatro canales, externo, ASG, cadena y
-   pendiente— llegan a cada `mt_trig_src`, que las concatena en un vector y
-   aplica la máscara OR del canal.
-2. **Selección y enmascarado.** El OR de los canales es `trigger_event`, **el
-   mismo disparo** para la captura de todos los canales y para afuera. El
-   `trigger_shield` cuenta un holdoff desde las fuentes elegidas en
-   `SHIELD_SRC`; al expirar re-arma los canales de `SHIELD_DST`, y mientras
-   corre vetea al MCA. El *snapshot* guarda qué fuentes dispararon el último
-   evento. Todo esto, junto con los `mt_trig_src`, lo instancia
-   `mt_event_logic`.
-3. **Configuración.** `mt_cfg` es el esclavo del slot 3, común a todos los
-   canales.
+1. **Detección** (azul): de la muestra o la línea a un pulso por fuente. Por
+   canal, los tres disparos que salen de la misma muestra: el de nivel
+   (`rp_adc_trig`, del scope original de Red Pitaya), el de pendiente
+   (`mt_slope_trig`) y el de polo-cero (`mt_pz_trig`). Para todos los canales,
+   el externo y el del ASG (`rp_ext_trig`, también de Red Pitaya), cuyos
+   flancos salen del módulo y vuelven (`trig_ext_asg_o` → `trig_ext_asg_i`).
+2. **Selección** (amarillo). Las 29 fuentes —software, flancos de nivel de los
+   cuatro canales, externo, ASG, cadena, pendiente y polo-cero— llegan cada una
+   por su línea a cada `mt_trig_src`, que las concatena y les aplica la máscara
+   OR y el disable del canal. El OR de los canales es `trigger_event`, **el
+   mismo disparo** para la captura de todos los canales y para afuera; el OR de
+   lo que cada canal puede disparar, registrado, es `trig_arm`.
+3. **Escudo** (naranja). El `trigger_shield` cuenta un holdoff desde las
+   fuentes elegidas en `SHIELD_SRC`; al expirar re-arma los canales de
+   `SHIELD_DST`, y mientras corre veta al MCA.
+4. **Registros** (gris). El *snapshot* guarda qué fuentes dispararon el último
+   evento: toma las mismas líneas que `mt_trig_src`, por su lado. `mt_cfg` es
+   el esclavo del bus, común a todos los canales.
+
+`mt_event_logic` instancia los `mt_trig_src`, el escudo, los OR y el snapshot.
 
 ![Panorama del multitrigger](figuras/panorama_mt.svg)
 
-*El borde grueso es el límite de `mt_top`; lo que lo cruza son sus puertos. Las
-franjas numeradas son las tres partes del texto de `register_map_mt.md`. El
-recuadro punteado es la jerarquía del RTL: `mt_event_logic` instancia
-`mt_trig_src` (uno por canal) y `trigger_shield`. `NOMBRE=valor`: parámetros con
-que el padre instancia el bloque (se omiten los que sólo pasan el del padre sin
-cambio).*
+*En estilo datapath, para una hoja A4, como el de `mca_top`. El borde grueso es
+el límite de `mt_top`; lo que lo cruza son sus puertos: las entradas por la
+izquierda y las salidas por la derecha. El color es la función del bloque (la
+leyenda). Cada fuente llega por su propia línea a `mt_trig_src`, que es el que
+las concatena; el snapshot toma las mismas líneas por su lado, en la barra con
+un punto por fuente. Los flancos de `rp_ext_trig` salen del módulo por
+`trig_ext_asg_o` y vuelven por `trig_ext_asg_i`: el top los une. `adc_trig`
+sale de `mt_trig_src` hacia el escudo y hacia el OR: es la misma señal. Nombre
+en monoespaciada, con encabezado: submódulo con archivo propio. Gris con
+triángulo: registro del RTL. Los recuadros punteados son la jerarquía del RTL:
+`mt_event_logic` instancia los `mt_trig_src`, el escudo y el snapshot, y los
+tres disparos se instancian por canal. Los números sobre las flechas son anchos
+en bits.*
 
 `rp_adc_trig` y `rp_ext_trig` están dentro de `mt_top` porque son parte del
 cálculo de disparos, pero sus archivos no están en `modulos/mt/rtl`: son de
@@ -95,8 +107,8 @@ Red Pitaya conectan los que salen de él):
 
 **Dentro de `rp_scope_mt_com`.** El mismo `mt_top`, plegado: lo que lo conecta
 con el resto es el tap MTRG, la configuración del slot 1, la entrada externa,
-el puente legacy y su slot 3; lo que sale es `trigger_event`, el veto y el
-snapshot.
+la cadena con el otro scope, el puente legacy y su slot 3; lo que sale es
+`trigger_event`, el veto, `trig_arm` y el snapshot.
 
 ![Panorama de rp_scope_mt_com](figuras/panorama_rp_scope_mt_com.svg)
 
@@ -104,7 +116,8 @@ snapshot.
 en el panorama de `mt_top`. `trigger_event` dispara a la vez la captura de todos
 los canales. Cada `dsp_tap_mux` es combinacional y elige, con su `route_*_tap`,
 de cuál de los cuatro nodos toma su consumidor; su `route_*_en` corta el valid,
-no el dato. Los `route_*` son puertos: vienen de `integration_cfg` (región de
+no el dato. La entrada 0 es la nativa: la que estaba cableada antes del
+refactor. Los `route_*` son puertos: vienen de `integration_cfg` (región de
 TOP, slot 6). `NOMBRE=valor`: parámetros con que el padre instancia el bloque
 (se omiten los que sólo pasan el del padre sin cambio).*
 
@@ -119,10 +132,10 @@ misma paleta; está en la §1.1 de su datasheet:
 | Submódulo | Panorama | Qué muestra |
 |---|---|---|
 | [`mt_cfg`](../datasheet/datasheet_mt_cfg.md) | [`panorama_mt_cfg.svg`](figuras/panorama_mt_cfg.svg) | escritura, registros y pulsos, puente legacy, fan-out por `indep_mode`, lectura y ack |
-| [`mt_event_logic`](../datasheet/datasheet_mt_event_logic.md) | [`panorama_mt_event_logic.svg`](figuras/panorama_mt_event_logic.svg) | los `mt_trig_src`, el escudo, el OR del evento, el snapshot y la cadena |
-| [`mt_trig_src`](../datasheet/datasheet_mt_trig_src.md) | [`panorama_mt_trig_src.svg`](figuras/panorama_mt_trig_src.svg) | las 25 fuentes, la máscara, el *protect* y la realimentación del disparo |
-| [`trigger_shield`](../datasheet/datasheet_trigger_shield.md) | [`panorama_trigger_shield.svg`](figuras/panorama_trigger_shield.svg) | el contador de holdoff, el re-arm, el veto y el mux por canal |
-| [`mt_slope_trig`](../datasheet/datasheet_mt_slope_trig.md) | [`panorama_mt_slope_trig.svg`](figuras/panorama_mt_slope_trig.svg) | las tres líneas de retardo, el trapezoidal y el Schmitt |
+| [`mt_event_logic`](../datasheet/datasheet_mt_event_logic.md) | [`panorama_mt_event_logic.svg`](figuras/panorama_mt_event_logic.svg) | los `mt_trig_src`, el escudo, el OR del evento, `trig_arm`, el snapshot y la cadena |
+| [`mt_trig_src`](../datasheet/datasheet_mt_trig_src.md) | [`panorama_mt_trig_src.svg`](figuras/panorama_mt_trig_src.svg) | las 29 fuentes, la máscara, el disable, `puede` y la realimentación del disparo |
+| [`trigger_shield`](../datasheet/datasheet_trigger_shield.md) | [`panorama_trigger_shield.svg`](figuras/panorama_trigger_shield.svg) | `src_fire`, el contador de holdoff, `active`, el re-arm, el veto y el mux por canal |
+| [`mt_slope_trig`](../datasheet/datasheet_mt_slope_trig.md) | [`panorama_mt_slope_trig.svg`](figuras/panorama_mt_slope_trig.svg) | la configuración y el re-arranque, las líneas de retardo, el trapezoidal, los umbrales y el Schmitt |
 
 ---
 

@@ -103,14 +103,22 @@ bits 17–24 de la máscara OR.
 
 ![Panorama de mt_slope_trig](../mt/figuras/panorama_mt_slope_trig.svg)
 
-*`s[n] = s[n-1] + (x[n] - x[n-L]) - (x[n-L-G] - x[n-2L-G])`. Cada línea tiene
-una sola toma dinámica, que es el patrón que Vivado lleva a SRLC32E. Las líneas,
-`fill` y el pipeline avanzan sólo con `adc_dv_i`: el filtro anda igual sobre el
-tap decimado que a 125 MS/s. Latencia: 5 ciclos de pipeline más lo que tarde `s`
-en cruzar `thr`. `NOMBRE=valor`: parámetros con que lo instancia
-`rp_scope_mt_com`.*
+*`s[n] = s[n-1] + (x[n] - x[n-L]) - (x[n-L-G] - x[n-2L-G])`. De arriba hacia
+abajo: la configuración, las tres líneas de retardo, las tomas, la diferencia,
+el acumulador y el Schmitt de cada signo. Cada línea tiene una sola toma
+dinámica, en la dirección `L-1` o `G-1`; con `G = 0` la del medio se puentea.
+Una toma más vieja que `fill` lee 0: el filtro arranca con historia en cero.
+`restart` (cambio de `L` o `G`, `cfg_en_i = 0` o reset) vacía el filtro: borra
+`fill`, `s` y las cadenas `p*_v` y `p*_full`. Las líneas, `fill` y cada etapa
+avanzan sólo con la muestra válida (`adc_dv_i` y su cadena): el filtro anda
+igual sobre el tap decimado que a 125 MS/s. En el Schmitt, S pone el estado en 1
+(disparado) y gana sobre R, que lo re-arma; mientras la ventana no está llena
+(`p3_full = 0`) los dos bits quedan en 1 y no sale flanco. Latencia: 5 ciclos de
+pipeline más lo que tarde `s` en cruzar `thr`. Nombres sin cable (`fill`, `L+G`,
+`p3_v`…): la señal del mismo nombre, que se dibuja una sola vez donde nace.
+`NOMBRE=valor`: parámetros con que lo instancia `mt_top`.*
 
-*Por dentro:* las tres líneas de retardo, el pipeline del trapezoidal y el Schmitt simétrico. Fuente TikZ en [`panorama_mt_slope_trig.tex`](../mt/figuras/panorama_mt_slope_trig.tex).
+*Por dentro:* la configuración y el re-arranque, las tres líneas de retardo, las tomas, la diferencia, el acumulador, los umbrales y el Schmitt de cada signo con su flanco. Fuente TikZ en [`panorama_mt_slope_trig.tex`](../mt/figuras/panorama_mt_slope_trig.tex).
 
 Tres cosas que hay que saber para usarlo:
 
@@ -265,14 +273,6 @@ _Origen: `tb_trigger_shield`, escena 2._
 El flanco de la fuente habilitada dispara `adc_trig` y en el mismo movimiento engancha `adc_trg_dis`, que es lo que impide que el siguiente flanco vuelva a disparar. En modo single-shot la mascara se auto-limpia, asi que para volver a disparar hace falta reescribirla; en modo continuo la mascara persiste y basta con limpiar el disable. Esa es la unica diferencia entre los dos modos.
 
 _Origen: `tb_mt_trig_src`, escena 1._
-
-**FLUJO DE UTILIZACION  -  mt_cfg**
-
-![FLUJO DE UTILIZACION  -  mt_cfg](../mt/figuras/ondas/mt_flujo.svg)
-
-Es un esquema de la SECUENCIA, no una medicion. La configuracion es una escalera: el bus del PS escribe un registro por vez, en el orden de MtRegion.set_slope() --los umbrales antes que `en`, porque con en=1 y thr=hyst=0 el Schmitt no re-arma-- y despues el escudo. OR_MASK NO es parte de esa etapa: va DESPUES de CMD_ARM, porque la mascara vive apenas se escribe y un flanco previo al arm la gasta (single-shot) y deja la captura esperando un disparo imposible (ver docs/osc/orden_arm_trigger_captura.md). CMD_ARM no es un registro del multitrigger: arma la captura del scope (slot 1); aparece aca porque fija cuando se puede escribir la mascara. La otra dependencia que no se ve en el mapa de registros: el disable queda ENGANCHADO despues del disparo, asi que sin escribir TRIG_DIS_CLR no hay segundo disparo. Un programa que configure, dispare y se quede esperando el proximo evento sin limpiar el disable espera para siempre.
-
-_Origen: esquema (sin VCD)._
 
 ---
 

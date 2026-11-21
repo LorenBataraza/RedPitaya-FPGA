@@ -2,8 +2,11 @@
 """Diagramas de tiempo del modulo Multitrigger, con WaveDrom, desde simulacion.
 
 Dos figuras salen del VCD de `tb_trigger_shield` y una del de
-`tb_mt_trig_src`. La cuarta es un esquema del flujo de utilizacion,
-donde una columna es un paso del software y no un ciclo.
+`tb_mt_trig_src`.
+
+La secuencia de uso del multitrigger (el contrato PS <-> modulo) ya no es una
+figura de ondas: es un diagrama de secuencia en docs/mt/figuras/secuencia/, y
+va en la §1.3 del datasheet.
 
 La ventana de cada figura se ubica por la CONFIGURACION que define la escena
 --que combinacion de shield_src / shield_dst / shield_dur esta escrita-- y no
@@ -20,7 +23,6 @@ Salidas en <out_dir> (por defecto, el directorio de este script):
   mt_veto_tres_formas.json / .svg   nivel, nivel con cola y ventana por flanco
   mt_holdoff_rearm.json / .svg      el holdoff src->dst y el re-arm
   mt_trig_src_enganche.json / .svg  single-shot vs continuo
-  mt_flujo.json / .svg              el flujo de utilizacion (esquema)
   ondas_mt.html           visor; no necesita nada instalado
 
 Los FST que vienen al lado de este script son la salida de
@@ -302,53 +304,6 @@ def fig_trig_src(vcd, step, hscale):
 
 
 # ----------------------------------------------------------------------
-# Figura 4: el flujo de utilizacion (esquema)
-# ----------------------------------------------------------------------
-
-def fig_flujo(hscale):
-    # La configuracion del slot 3 es una escalera: cada registro en su paso,
-    # en el orden de MtRegion.set_slope() (umbrales antes que `en`) y despues
-    # el escudo. OR_MASK no esta en la escalera: va DESPUES del arm
-    # (orden_arm_trigger_captura.md). CMD_ARM no es del multitrigger: arma la
-    # captura del scope (slot 1), y por eso se rotula con su slot.
-    # Los nodos van en mayuscula para que WaveDrom no dibuje la letra, y el
-    # grupo va ARRIBA de la fila de escritura para que las flechas de abajo no
-    # lo crucen.
-    n_col = 20
-    cfg, _ = O.escalera([("SLOPE_THR[ch]", "thr"),
-                         ("SLOPE_HYST[ch]", "hyst"),
-                         ("SLOPE_CFG[ch]", "en, G, L"),
-                         ("SHIELD_CFG", "src,dst,dur")], 1, n_col)
-    filas = [
-        ["configuracion"] + cfg,
-        {"name": "escritura del PS", "wave": "x3...x4.x5.x.....6.x",
-         "data": ["configuracion", "CMD_ARM (osc)", "OR_MASK", "TRIG_DIS_CLR"],
-         "node": "...........C.....G.."},
-        {},
-        {"name": "fuente (pulso o nivel)", "wave": "0...........10......",
-         "node": "............D......."},
-        {"name": "adc_trig", "wave": "0............10.....",
-         "node": ".............E......"},
-        {"name": "adc_trg_dis  (enganchado)", "wave": "0............1....0.",
-         "node": "..................H."},
-        {"name": "mca_veto_o", "wave": "0............1.0....",
-         "node": ".............F......"},
-        {},
-        {"name": "lectura del PS", "wave": "x.............7..x..",
-         "data": ["DIS_FLAGS + SNAPSHOT"]},
-        {},       # wavedrom-cli no cuenta el grupo en el alto: sin esto el pie
-                  # queda recortado
-    ]
-    edge = ["C~>D mascara viva", "D~>E", "E~>F", "G~>H re-arm"]
-    pie = ("ESQUEMA: una columna es un paso, no un ciclo; cada registro se "
-           "escribe en su propio paso. CMD_ARM es del scope (slot 1) y va antes "
-           "de OR_MASK; sin TRIG_DIS_CLR no hay re-arm.")
-    return O.esquema(filas,
-                     head={"text": "FLUJO DE UTILIZACION  -  mt_cfg"},
-                     foot=pie, hscale=hscale) | {"edge": edge}
-
-
-# ----------------------------------------------------------------------
 
 TITULOS = {
     "mt_veto_tres_formas":
@@ -360,7 +315,6 @@ TITULOS = {
     "mt_trig_src_enganche":
         "DISPARO SINGLE-SHOT  -  el flanco dispara, engancha el disable y la "
         "mascara se auto-limpia",
-    "mt_flujo": "FLUJO DE UTILIZACION  -  mt_cfg",
 }
 
 NOTAS = {
@@ -389,33 +343,15 @@ NOTAS = {
         "auto-limpia, asi que para volver a disparar hace falta reescribirla; "
         "en modo continuo la mascara persiste y basta con limpiar el disable. "
         "Esa es la unica diferencia entre los dos modos.",
-    "mt_flujo":
-        "Es un esquema de la SECUENCIA, no una medicion. La configuracion es "
-        "una escalera: el bus del PS escribe un registro por vez, en el orden "
-        "de MtRegion.set_slope() --los umbrales antes que `en`, porque con "
-        "en=1 y thr=hyst=0 el Schmitt no re-arma-- y despues el escudo. "
-        "OR_MASK NO es parte de esa etapa: va DESPUES de CMD_ARM, porque la "
-        "mascara vive apenas se escribe y un flanco previo al arm la gasta "
-        "(single-shot) y deja la captura esperando un disparo imposible (ver "
-        "docs/osc/orden_arm_trigger_captura.md). CMD_ARM no es un registro del "
-        "multitrigger: arma la captura del scope (slot 1); aparece aca porque "
-        "fija cuando se puede escribir la mascara. La otra dependencia que no "
-        "se ve en el mapa de registros: el disable "
-        "queda ENGANCHADO despues del disparo, asi que sin escribir "
-        "TRIG_DIS_CLR no hay segundo disparo. Un programa que configure, "
-        "dispare y se quede esperando el proximo evento sin limpiar el disable "
-        "espera para siempre.",
 }
 
 CABECERA = """EPÍGRAFES DE LAS FIGURAS DE ONDAS DEL MODULO MULTITRIGGER
 =========================================================
 
-Las tres primeras las escribe `ondas_mt.py` leyendo los VCD de
+Las tres las escribe `ondas_mt.py` leyendo los VCD de
 `tb_trigger_shield` y `tb_mt_trig_src`. Los números de abajo --cuántos
 ciclos dura cada veto, cuánto cuenta el holdoff-- los mide el script sobre el
 VCD, así que no pueden desincronizarse de los dibujos.
-
-La cuarta es un esquema de secuencia y no tiene VCD detrás.
 
 Reloj de la simulación: clk = {f_clk:.0f} MHz.
 
@@ -490,15 +426,6 @@ def main():
                 f"{info['lat_msk']}.\n"
                 f"  · {info['senales']} señales, {info['columnas']} columnas, "
                 f"ventana {info['t0']:.0f} a {info['t1']:.0f} ns."))
-
-    wj = fig_flujo(max(args.hscale, 2))
-    avisado = O.emitir(out_dir, "mt_flujo", wj, args.render, avisado,
-                       info="esquema, sin VCD")
-    items.append(dict(titulo=TITULOS["mt_flujo"], nota=NOTAS["mt_flujo"],
-                      json=wj, archivo="mt_flujo.svg",
-                      origen="esquema (sin VCD)",
-                      detalle="  · ESQUEMA: una columna es un paso del "
-                              "software, no un ciclo de reloj."))
 
     html = out_dir / "ondas_mt.html"
     O.write_html(html, "Ondas del m&oacute;dulo Multitrigger",

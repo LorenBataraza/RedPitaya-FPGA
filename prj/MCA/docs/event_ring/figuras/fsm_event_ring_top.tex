@@ -1,5 +1,5 @@
 % La FSM global de event_ring_top (gst): STOPPED -> RUNNING -> DRAINING.
-% La maneja el PS con CTRL.run; el estado se lee en STATUS[2:0]. Le da a la
+% La maneja el PS con CTRL.run; el estado se lee en STATUS[1:0]. Le da a la
 % captura run_i = (gst != STOPPED) y accept_trig_i = (gst == RUNNING).
 % Fuente: modulos/event_ring/rtl/event_ring_top.sv (FSM global, flush, bus).
 % El epígrafe está en fsm_event_ring_top.txt y en el doc que la incluye
@@ -32,7 +32,7 @@
 \begin{tikzpicture}[fondo]
 
 \node[titulo] at (-2.7,1.75) {\textbf{La FSM global} (\s{event\_ring\_top}):
-  la maneja el PS con \s{CTRL.run}, y la lee en \s{STATUS[2:0]}};
+  la maneja el PS con \s{CTRL.run}, y la lee en \s{STATUS[1:0]}};
 
 \node[estado=grisr] (st) at (0,0) {
   \cab{stopped}{\s{STATUS} = 0}
@@ -52,7 +52,7 @@
   termina la ventana en vuelo,\\ vacía la stage y el writer,\\
   y el FIFO larga el último footer};
 
-\draw[trans, black!55] ([xshift=-1.0cm]st.west) node[left, guarda, black!70] {reset} -- (st.west);
+\draw[trans, black!55] ([xshift=-1.0cm]st.west) node[left, guarda, black!70] {$\neg$\s{adc\_rstn}} -- (st.west);
 
 \draw[trans] ([yshift=4mm]st.east) -- ([yshift=4mm]st.east -| ru.west)
   node[guarda, midway, above=1pt] {\s{CTRL.run} = 1}
@@ -61,7 +61,7 @@
 \draw[trans] (ru.south) |- node[guarda, pos=0.25, right=2pt, align=left] {\s{CTRL.run} = 0} (dr.east);
 
 \draw[trans] (dr.west) -| node[guarda, pos=0.75, left=2pt, align=right]
-  {captura y writer libres,\\ stage sin eventos\\ y FIFO vacío} (st.south);
+  {$\neg$\s{cap\_busy} $\wedge\ \neg$\s{wr\_busy}\\ $\wedge\ \neg$\s{stg\_meta\_val}\\ $\wedge$ \s{fifo\_occ} = 0} (st.south);
 
 \end{tikzpicture}
 \end{document}

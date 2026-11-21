@@ -1,0 +1,98 @@
+% Un disparo del multitrigger, visto desde el PS: el contrato PS <-> mt.
+% Sólo dos actores, el PS y el módulo. Lo que entra (las fuentes) y lo que sale
+% (trigger_event, mca_veto) son puertos del módulo: van al borde, sin actor.
+% La captura que espera el disparo es de otro módulo: el orden entre su arm y la
+% máscara va en el epígrafe, no en la figura (era el CMD_ARM de mt_flujo).
+% Fuente: modulos/mt/rtl/mt_cfg.sv (mapa, docs/mt/register_map_mt.md),
+% mt_trig_src.sv (máscara, disable enganchado, single-shot), mt_event_logic.v
+% (snapshot: lo borra TRIG_DIS_CLR) y software/libmca/src/multitrigger.c
+% (multitrigger_set_slope: umbrales antes que en).
+%
+% Modo single-shot (we_keep = 0) y sin escudo. Las reglas de cada paso (qué
+% pasa si no se respeta) y las variantes (escudo, modo continuo) van en el
+% epígrafe, secuencia.json, no en la figura.
+%
+% Compilar:   pdflatex mt_secuencia.tex
+%             pdftocairo -svg mt_secuencia.pdf mt_secuencia.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../../figuras/estilo_tikz.tex}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+\def\xm{0} \def\xps{10.0}
+\def\yfin{-9.0}
+
+\node[actor=amarillo] at (\xm,0)  {\textbf{mt}\\ registros y disparo};
+\node[actor=grisr]    at (\xps,0) {\textbf{PS}\\ software};
+\foreach \x in {\xm,\xps} \draw[vida] (\x,-0.43) -- (\x,\yfin);
+
+% estado del módulo mientras se configura: la máscara en 0
+\franja{\xm}{-0.95}{-4.55}{grisr}{sin máscara:\\ no dispara}
+
+% ---- 1: configurar, una vez
+\draw[gp] (\xps,-1.25) -- node[rot] {escribir \texttt{OR\_MASK} = 0: que no dispare
+  mientras se configura} (\xm+0.16,-1.25);
+\draw[gp] (\xps,-1.95) -- node[rot] {configurar el disparo: \texttt{SLOPE\_THR} y
+  \texttt{SLOPE\_HYST},\\ después \texttt{SLOPE\_CFG} con \texttt{en} = 1} (\xm+0.16,-1.95);
+\draw[gp, densely dashed] (\xps,-2.7) -- node[rot] {configurar el escudo: \texttt{SHIELD\_CFG}}
+  (\xm+0.16,-2.7);
+
+% ---- el marco de un disparo
+\fill[marcolazo] (-4.7,-3.25) rectangle (14.4,-8.75);
+\draw[marcolazo, fill=none] (-4.7,-3.25) rectangle (14.4,-8.75);
+\node[rotlazo, anchor=north west] at (-4.7,-3.25) {un disparo};
+\foreach \x in {\xm,\xps} \draw[vida] (\x,-3.25) -- (\x,-8.75);
+
+% estados del módulo, los que el PS ve en DIS_FLAGS
+\franja{\xm}{-3.25}{-4.55}{grisr}{}
+\franja{\xm}{-4.55}{-6.35}{verde!55}{armado: dispara con la\\ primera fuente de la máscara}
+\franja{\xm}{-6.35}{-8.75}{amarillo}{}
+\node[rotfranja] at (\xm-0.3,-8.1) {disparó: el disable,\\ enganchado; la máscara, en 0};
+
+% ---- 2: limpiar el disable y cargar la máscara
+\draw[gp] (\xps,-3.85) -- node[rot] {escribir \texttt{TRIG\_DIS\_CLR}: borra el disable
+  y el \texttt{SNAPSHOT}} (\xm+0.16,-3.85);
+\draw[gp] (\xps,-4.55) -- node[rot] {escribir \texttt{OR\_MASK}: las fuentes de este disparo}
+  (\xm+0.16,-4.55);
+
+% ---- 3: sondear hasta que dispare (la fuente llega en el medio)
+\draw[gp] (\xps,-5.2) -- node[rot] {leer \texttt{DIS\_FLAGS}: \texttt{dis\_act} = 0} (\xm+0.16,-5.2);
+\node[font=\scriptsize, black!60] at (\xps/2,-5.85) {\dots};
+\draw[entrada] (-4.3,-6.35) -- node[rot, fill=azul!8, above=1pt, pos=0.45] {fuente}
+  (\xm-0.16,-6.35);
+\draw[salida] (\xm-0.16,-6.85) -- node[rot, fill=azul!8, above=1pt, pos=0.55]
+  {\texttt{trigger\_event}} (-4.3,-6.85);
+\draw[salida, densely dashed] (\xm-0.16,-7.35) -- node[rot, fill=azul!8, above=1pt, pos=0.55]
+  {\texttt{mca\_veto}: si el escudo lo pide} (-4.3,-7.35);
+\node[font=\scriptsize, black!60] at (\xps/2,-6.85) {\dots};
+\draw[gp] (\xps,-7.5) -- node[rot] {leer \texttt{DIS\_FLAGS}: \texttt{dis\_act} = 1} (\xm+0.16,-7.5);
+\repite{\xps}{-5.2}{-7.5}{se repite\\ hasta \texttt{dis\_act} = 1}
+
+% ---- 4: qué disparó, antes de que TRIG_DIS_CLR lo borre
+\draw[gp] (\xps,-8.2) -- node[rot] {leer \texttt{SNAPSHOT}: las fuentes que dispararon}
+  (\xm+0.16,-8.2);
+
+% ---- y de vuelta
+\draw[->, line width=0.6pt, black!70] (\xps,-9.25) -- (\xps+0.9,-9.25)
+  node[right, font=\scriptsize, black!70, align=left] {vuelve: \texttt{TRIG\_DIS\_CLR} y
+  \texttt{OR\_MASK};\\ la configuración queda};
+
+% leyenda
+\draw[gp] (-4.7,-10.0) -- ++(0.7,0);
+\node[font=\scriptsize, anchor=west] at (-3.95,-10.0) {registro, por GP0};
+\draw[gp, densely dashed] (-4.7,-10.45) -- ++(0.7,0);
+\node[font=\scriptsize, anchor=west] at (-3.95,-10.45) {opcional};
+\draw[entrada] (-4.7,-10.9) -- ++(0.7,0);
+\node[font=\scriptsize, anchor=west] at (-3.95,-10.9)
+  {entrada o salida del módulo: no la maneja el PS};
+\draw[->, black!80, line width=0.7pt, rounded corners=2pt] (-4.0,-11.22) -- (-3.85,-11.22) -- (-3.85,-11.48) -- (-4.0,-11.48);
+\node[font=\scriptsize, anchor=west] at (-3.75,-11.35) {lo que el PS repite};
+\node[font=\scriptsize, black!70, anchor=west] at (-4.75,-11.8)
+  {El tiempo corre hacia abajo y no está a escala: lo que fija la figura es el orden.};
+\end{tikzpicture}
+\end{document}

@@ -21,9 +21,9 @@
 % ============================================================ cadena de datos
 \node[datos, param={azul!35}{azul!12}] (cal) at (0,0)
   {\blk{rp\_scope\_calib}{\prm{DBITS=DW}}\nodepart{two}offset + ganancia};
-\node[datos]   (flt) at (2.8,0)  {\blk{osc\_filter}{IIR, coef.\ \texttt{aa/bb/kk/pp}}};
-\node[datos]   (dec) at (7.1,0)  {\blk{rp\_decim}{diezmado 1\ldots65536\\ con/sin promedio}};
-\node[datos]   (dly) at (10.6,0) {\blk{rp\_delay}{alinea el dato\\ con su trigger}};
+\node[datos, param={azul!35}{azul!12}]   (flt) at (2.8,0)  {\blk{osc\_filter}{}\nodepart{two}IIR, coef.\ \texttt{aa/bb/kk/pp}};
+\node[datos, param={azul!35}{azul!12}]   (dec) at (7.1,0)  {\blk{rp\_decim}{}\nodepart{two}diezmado 1\ldots65536\\ con/sin promedio};
+\node[datos, param={azul!35}{azul!12}]   (dly) at (10.6,0) {\blk{rp\_delay}{}\nodepart{two}alinea el dato\\ con su trigger};
 
 % mux de bypass del filtro (trapecio dibujado a mano)
 \coordinate (mx) at (4.95,0);
@@ -34,13 +34,13 @@
 \node[font=\tiny] at ($(mx)+(-0.07,-0.25)$) {0};
 
 % ================================================================ captura ===
-\node[captura] (bram) at (14.6,0)    {\blk{rp\_acq\_bram}{$2^{\mathrm{RSZ}}\times14$\,b}};
-\node[captura] (fsm)  at (14.6,-2.7) {\blk{rp\_bram\_sm}{FSM de captura}};
-\node[ddr]     (axi)  at (14.6,2.5)  {\blk{rp\_axi\_sm}{empaqueta 4$\times$16\,b\\ + \texttt{axi\_wr\_fifo}}};
+\node[captura, param={verde!55}{verde!20}] (bram) at (14.6,0)    {\blk{rp\_acq\_bram}{}\nodepart{two}$2^{\mathrm{RSZ}}\times14$\,b};
+\node[captura, param={verde!55}{verde!20}] (fsm)  at (14.6,-2.7) {\blk{rp\_bram\_sm}{}\nodepart{two}FSM de captura};
+\node[ddr, param={naranja!70}{naranja!25}]     (axi)  at (14.6,2.5)  {\blk{rp\_axi\_sm}{}\nodepart{two}empaqueta 4$\times$16\,b\\ + \texttt{axi\_wr\_fifo}};
 
 % ================================================================ trigger ===
-\node[trig] (atr) at (7.1,-2.7)  {\blk{rp\_adc\_trig}{Schmitt + histéresis}};
-\node[trig] (tsr) at (10.6,-2.7) {\blk{rp\_trig\_src}{mux 4\,b + protect}};
+\node[trig, param={amarillo}{amarillo!35}] (atr) at (7.1,-2.7)  {\blk{rp\_adc\_trig}{}\nodepart{two}Schmitt + histéresis};
+\node[trig, param={amarillo}{amarillo!35}] (tsr) at (10.6,-2.7) {\blk{rp\_trig\_src}{}\nodepart{two}mux 4\,b + protect};
 
 % ============================================================ caja por canal
 \node[canal, fit={(-1.35,3.55) (15.95,-3.75)}] (box) {};
@@ -48,9 +48,9 @@
   at (box.north west) {por canal \;(\texttt{generate GV < N\_CH})};
 
 % ============================================================ compartidos ===
-\node[comp] (ext) at (11.4,-5.15) {\blk{rp\_ext\_trig}{debounce ext.\ y ASG}};
-\node[comp, text width=17.1cm, minimum height=0.9cm] (cfg) at (7.3,-7.1)
-  {\blk{rp\_scope\_cfg}{registros \;$\cdot$\; strobes de comando \;$\cdot$\; mux de lectura}};
+\node[comp, param={grisr}{grisr!35}] (ext) at (11.4,-5.15) {\blk{rp\_ext\_trig}{}\nodepart{two}debounce ext.\ y ASG};
+\node[comp, param={grisr}{grisr!35}, text width=17.1cm, minimum height=0.9cm] (cfg) at (7.3,-7.1)
+  {\blk{rp\_scope\_cfg}{}\nodepart{two}registros \;$\cdot$\; strobes de comando \;$\cdot$\; mux de lectura};
 
 % ======================================================= caja rp_scope_com
 \node[contenedor, fit={(-1.75,4.3) (18.15,-7.9)}] (top) {};

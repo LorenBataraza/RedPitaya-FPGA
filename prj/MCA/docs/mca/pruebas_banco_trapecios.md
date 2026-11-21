@@ -375,18 +375,14 @@ primera con antes ≤ `F_DTPREV` y después ≤ `F_DTNEXT`. Si ninguna cumple, e
 pulso queda **marcado**: `F_TRAP` = 0 y `F_FORMA` (feature 10) = 0xFFFF. Si
 cumple, `F_FORMA` es el índice de la forma.
 
-![Cómo deciden los disparos vecinos la forma de cada pulso, y cuánto se usa cada una](figuras/trapecio/banco_uso.svg)
+![Cómo deciden los disparos vecinos la forma de cada pulso](figuras/trapecio/banco_uso.svg)
 
-*a) Un tren de siete pulsos por el golden model. Cada fila es la ranura de un pulso, y sus
+*Un tren de siete pulsos por el golden model. Cada fila es la ranura de un pulso, y sus
 cuatro barras van de t − antes a t + después, con t su disparo: arriba la 64/48, abajo la
 8/8. Una barra no sirve si tiene otro disparo adentro (×). Gana la de más arriba que
-queda limpia; las de abajo también entran, pero promedian menos muestras. `F_DTNEXT` sólo
-ve los disparos de adentro de la compuerta (> 112). P4 y P5, a 18 muestras, se limitan
-uno al otro y los dos usan la 8/8; P6 y P7, a 10, quedan marcados. b) Qué parte de los
-eventos publicados usa cada forma, con el golden model sobre trenes de Poisson como los
-del §4. La barra es la placa a 1 Mcps (§6), con otro tren, el del Rigol: 27 / 28 / 20 /
-14 % y 10 % marcados, contra 25 / 27 / 24 / 14 y 10 del modelo. Lo genera
-[`figuras_banco.py`](figuras/trapecio/figuras_banco.py).*
+queda limpia; las de abajo también entran, pero promedian menos muestras. P4 y P5, a 18
+muestras, se limitan uno al otro y los dos usan la 8/8; P6 y P7, a 10, quedan marcados.
+Lo genera [`figuras_banco.py`](figuras/trapecio/figuras_banco.py).*
 
 **"La primera" es la primera de la tabla, no la que termina antes.** La tabla va de la
 forma más larga a la más corta, y no hay carrera entre ellas: la ranura suma las cuatro

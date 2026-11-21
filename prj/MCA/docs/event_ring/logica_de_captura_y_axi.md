@@ -67,7 +67,7 @@ eventos y los pulsos sin trigger. Para mirar eso sigue estando la captura en BRA
 
 ### Qué cambia en el flujo de adquisición
 
-![Lo que hace el PS: buffer circular contra ring de slots](figuras/ring_vs_buffer_ps.svg)
+![Lo que hace el PS: buffer circular contra ring de slots|985](figuras/ring_vs_buffer_ps.svg)
 
 Esa diferencia de estructura es la que cambia el trabajo del PS. Con el buffer
 circular el trabajo es **por evento**, y la captura queda congelada mientras el PS
@@ -86,14 +86,90 @@ Reemplaza el rol de `rp_bram_sm`. La diferencia estructural: en vez de congelar
 ![Panorama de event_window_capture](figuras/panorama_event_window_capture.svg)
 
 *Una sola memoria para el pre y el post: al aceptar, `rd_ptr` arranca `pre`
-palabras atrás de `wr_ptr`, y desde ahí el lector consume una palabra cada
-`N_CH` ciclos mientras el pre-buffer se sigue escribiendo a una por ciclo. Cada
-palabra trae los dos canales y el serializador los saca de a uno. `m_accept_i`
-se mira una sola vez, en el ciclo del trigger. Con `run_i = 0` la FSM vuelve a
-`IDLE`, y `wr_ptr` y el detector de flanco a cero, pero el contenido del buffer
-no se borra. `NOMBRE=valor`: parámetros con que lo instancia `event_ring_top`.*
+palabras atrás de `wr_ptr`, y desde ahí se lee una palabra cada `N_CH` ciclos
+mientras el pre-buffer se sigue escribiendo a una por ciclo. El serializador
+guarda la palabra en `word_r` y un mux elegido por `ch_idx` saca un canal por
+ciclo. `m_accept_i` se mira una sola vez, en el ciclo del trigger. Las redes con
+nombre se conectan por nombre (`wv` = `word_val`). Con `run_i = 0` la FSM vuelve
+a `IDLE`, y `wr_ptr` y `trig_d` a cero, pero el contenido del buffer no se borra.
+`NOMBRE=valor`: parámetros con que lo instancia `event_ring_top`.*
 
 ([fuente](figuras/panorama_event_window_capture.tex))
+
+El panorama se lee por regiones. Las de arriba deciden qué hacer con un trigger,
+las de abajo copian la ventana y la convierten en un stream.
+
+**Flanco y decisión (amarillo).** `trig_d` guarda `trig_i` un ciclo atrasado, y
+`trig_edge = trig_i ∧ ¬trig_d` es el flanco de subida (§2.2). La compuerta de tres
+entradas deja pasar el flanco sólo con `accept_trig_i` en 1 y la FSM en `IDLE`:
+eso es `tr`, un trigger que se puede tomar. En ese ciclo, y sólo en ése, se mira
+`m_accept_i`, la respuesta del stage a «¿entra la ventana entera?». Con 1, `tr`
+se vuelve `acepta` y arranca la copia. Con 0 el evento se pierde entero y se
+cuenta en `drop_full`. La tercera compuerta mira el caso que no pasa por la
+decisión: un flanco con la FSM ocupada (`busy`) va a `drop_busy`. No consulta
+`accept_trig_i`, porque mientras se copia una ventana cualquier flanco es tiempo
+muerto. `drop_full` y `drop_busy` son pulsos de un ciclo, y el top los acumula
+en `DROP_FULL` y `DROP_BUSY`. Como `tr` exige `idle` y `drop_busy` exige `busy`,
+un mismo flanco no puede caer en los dos.
+
+**Metadatos (gris, arriba a la derecha).** `acepta` carga tres registros con lo
+que vale en ese ciclo: `m_ts ← ts_i`, `m_snap ← snapshot_i` y
+`m_nsamp ← pre_i + post_i`, el largo por canal. Quedan fijos hasta el próximo
+evento aceptado, así que valen con el SOF y durante toda la ventana. El stage los
+guarda con el SOF.
+
+**FSM de ventana (gris, al centro).** Es la de §2.4, dibujada como caja: entra
+`acepta` y sale de `IDLE`; entra `fin`, la última muestra, y pasa a `TAIL`. Sus
+salidas `idle`, `drain` y `busy = ¬idle` habilitan el resto del dibujo, y
+`run_i = 0` la manda a `IDLE` desde cualquier estado.
+
+**Punteros y pre-buffer (azul).** `dat_i` trae los dos canales juntos, 2 × 14 b.
+La extensión de signo copia el bit 13 de cada canal dos veces hacia arriba y arma
+una palabra de 2 × 16 b, que se escribe en `pre_buf[wr_ptr]` en cada ciclo con
+`run_i` y `dv_i` en 1. `wr_ptr` suma 1 con cada `dv_i` y no mira la FSM: el
+buffer se escribe siempre (§2.3). `rd_ptr` tiene un mux delante. Con `acepta`
+carga `wr_ptr − pre_i`, el principio de la ventana; después suma 1 con cada
+`do_read`. El comparador `rd_ptr ≠ wr_ptr` da `rd_avail`: hay una palabra escrita
+que todavía no se leyó. En el pre siempre hay, porque el lector arranca `pre`
+palabras atrás. En el post lo frena cuando alcanza al escritor, lo que pasa con
+`pre = 0` o con un tap decimado, donde `dv_i` no vale 1 en todos los ciclos. Ni
+`wr_ptr` ni nada en esta región verifica que el escritor no alcance al lector
+desde atrás: ese límite de la geometría lo controla libmca (§2.3).
+
+**Pedir palabra (naranja, al centro).** Decide en qué ciclo se lee el pre-buffer:
+
+```
+do_read = drain ∧ samp_left ≠ 0 ∧ (¬word_val ∨ ch_last) ∧ rd_avail
+```
+
+Se pide una palabra cuando no hay ninguna cargada (`¬word_val`) o cuando la
+cargada está entregando su último canal (`ch_last`). El segundo caso es el que
+evita las burbujas: la palabra siguiente se lee en el mismo ciclo en que sale el
+último canal de la anterior, y el stream sale sin huecos, una muestra por ciclo.
+
+**Serializador (naranja, abajo a la derecha).** `word_r` guarda la palabra leída
+(se carga con `do_read`). Un mux 2:1 elegido por `ch_idx` saca el canal 0
+(`[15:0]`) o el canal 1 (`[31:16]`) hacia `m_dat`. `ch_idx` cuenta
+`0, 1, 0, 1, …` (`+1 mód N_CH`) mientras haya palabra cargada, y su comparador
+`= N_CH−1` da `ch_last`. Así cada palabra de 32 b se convierte en dos muestras de
+16 b seguidas, con los canales intercalados: `ch0[k], ch1[k], ch0[k+1], …`.
+`m_val`, `m_sof` y `m_eof` se registran junto con `m_dat`, así que salen alineados:
+`m_val` es `word_val`, `m_sof` es la primera muestra (`samp_left = m_nsamp`,
+`ch_idx = 0`) y `m_eof` la última (`samp_left = 1`, `ch_last`). La compuerta del
+EOF es también `fin`, que lleva la FSM a `TAIL`.
+
+**Contadores de la ventana (gris, abajo a la izquierda).** Llevan la cuenta que
+usan las otras dos regiones:
+
+- `word_val = do_read ∨ (word_val ∧ ¬ch_last)`: hay palabra cargada si se acaba de
+  leer una, o si la que estaba todavía tiene canales por entregar. La forma con
+  `do_read` en el OR es la que corrige el off-by-one de §2.7.
+- `samp_left` carga `pre + post` con `acepta` y resta 1 cada vez que una palabra
+  termina (`word_val ∧ ch_last`). Cuenta muestras por canal, no muestras del
+  stream. Sus comparadores dan el SOF (`= m_nsamp`) y el EOF (`= 1`).
+
+Con todo eso, la ventana tarda `(pre + post)·N_CH` ciclos en salir, más dos: uno
+para cargar la primera palabra y el de `TAIL`.
 
 ### 2.1 Señales
 
@@ -102,7 +178,7 @@ no se borra. `NOMBRE=valor`: parámetros con que lo instancia `event_ring_top`.*
 | `run_i` | in | mantiene vivo el pre-buffer y el drenaje |
 | `accept_trig_i` | in | permite **aceptar** triggers nuevos |
 | `pre_i` / `post_i` | in | muestras antes / desde el trigger (por canal) |
-| `dat_i` / `dv_i` | in | muestras de los `N_CH` canales, ya calibradas |
+| `dat_i` / `dv_i` | in | muestras de los `N_CH` canales, ya calibradas; `dv_i` (*data valid*) vale 1 en los ciclos en que `dat_i` trae una muestra nueva |
 | `trig_i` | in | trigger conjunto (se toma **por flanco**) |
 | `snapshot_i` | in | 17 b: qué fuente disparó |
 | `ts_i` | in | contador libre de 64 b, el reloj de la corrida |
@@ -195,6 +271,55 @@ DROP_BUSY + DROP_FULL` = triggers.*
 
 ([fuente](figuras/fsm_event_window_capture.tex))
 
+La FSM mueve sólo el lado de lectura del pre-buffer. La escritura no depende de
+ella: con `run_i` en 1, cada ciclo con `dv_i` en 1 (hay muestra nueva) escribe una palabra y avanza `wr_ptr`, en
+cualquier estado. Por eso el pre-trigger del evento siguiente está completo aunque
+llegue mientras se copia la ventana anterior.
+
+**`ST_IDLE`, esperando el trigger.** La FSM mira `trig_edge`, el flanco de
+`trig_i` (§2.2). Un flanco con `accept_trig_i` en 0, que es lo que pasa en
+`DRAINING`, se ignora y no se cuenta. Con `accept_trig_i` en 1, la decisión se
+toma en ese mismo ciclo, mirando `m_accept_i` (§2.5):
+
+- Si la stage no tiene lugar (`m_accept_i = 0`), sale un pulso de `drop_full_o`
+  y la FSM se queda en `ST_IDLE`. No hay reintento: el evento se pierde entero.
+- Si tiene lugar, en el mismo ciclo carga `rd_ptr ← wr_ptr − pre`,
+  `samp_left ← pre + post` y los metadatos (`m_ts`, `m_snap` y `m_nsamp`), pone
+  `ch_idx` y `word_val` en 0, y pasa a `ST_DRAIN`.
+
+**`ST_DRAIN`, copiando la ventana.** Cada ciclo hace dos cosas a la vez:
+
+1. **Leer.** Si hace falta una palabra nueva (`want_word`: quedan muestras y la
+   palabra cargada ya salió entera) y hay una para leer (`rd_avail`:
+   `rd_ptr ≠ wr_ptr`), carga `word_r ← pre_buf[rd_ptr]` y avanza `rd_ptr`.
+   Durante el pre siempre hay, porque se arranca `pre` palabras atrás. Durante el
+   post, `rd_avail` espera a que la muestra llegue del ADC: eso sincroniza la
+   ventana con la señal.
+2. **Serializar.** Si hay palabra cargada (`word_val`), saca el canal `ch_idx`
+   por `m_dat_o`, con `m_val_o` en 1. `m_sof_o` acompaña a la primera muestra
+   (`samp_left = nsamp`, canal 0) y `m_eof_o` a la última (`samp_left = 1`, último
+   canal). Cuando sale el último canal de la palabra, `samp_left` baja en 1.
+
+La palabra siguiente se lee en el mismo ciclo en que sale el último canal de la
+anterior (`want_word` lo permite cuando `ch_idx = N_CH−1`; ver §2.7), así que el
+stream no tiene burbujas: una muestra por ciclo durante toda la ventana. Como se
+escribe una palabra por ciclo y se lee una cada `N_CH`, el rezago entre los dos
+punteros crece durante la ventana; §2.3 dice hasta dónde puede crecer.
+
+Un flanco en `ST_DRAIN` saca un pulso de `drop_busy_o` y no cambia nada más: no
+abre otra ventana ni alarga ésta. Cuando sale la última muestra del último canal,
+la FSM pasa a `ST_TAIL`.
+
+**`ST_TAIL`, un ciclo.** Deja que `m_eof_o` salga por su registro antes de
+aceptar otro trigger. Un flanco en este ciclo también es `drop_busy`. Al ciclo
+siguiente vuelve a `ST_IDLE`.
+
+**Lo que viene de afuera.** `busy_o` vale `ST_DRAIN` o `ST_TAIL`, y es una de las
+condiciones que espera la FSM global para pasar de `DRAINING` a `STOPPED` (§7).
+`run_i` en 0 (`STOPPED`) devuelve la FSM a `ST_IDLE` desde cualquier estado y pone
+en cero `wr_ptr` y `trig_d`, pero no borra el buffer. `accept_trig_i` en 0
+(`DRAINING`) sólo cierra la entrada a `ST_DRAIN`: la ventana en vuelo termina.
+
 El tiempo muerto **de la captura** es la duración de `ST_DRAIN` + `ST_TAIL`. Medido
 en simulación con la ventana por defecto:
 
@@ -242,9 +367,9 @@ con la aceptación y los dos descartes, está en §2.4.
 
 ### 2.6 Las dos causas de pérdida, separadas
 
-| contador | causa | qué decisión implica |
-|---|---|---|
-| `drop_busy` | el trigger cayó mientras se drenaba la ventana anterior | tiempo muerto del **PL**: bajar `pre+post`, o aceptar el techo |
+| contador    | causa                                                      | qué decisión implica                                                 |
+| ----------- | ---------------------------------------------------------- | -------------------------------------------------------------------- |
+| `drop_busy` | el trigger cayó mientras se drenaba la ventana anterior    | tiempo muerto del **PL**: bajar `pre+post`, o aceptar el techo       |
 | `drop_full` | aguas abajo no aceptó (stage llena, o sin créditos de DDR) | tiempo muerto del **consumidor**: el PS no drena, o el ring es chico |
 
 Están separados porque llevan a acciones **opuestas**. Y su suma con `ev_cnt` es
@@ -278,7 +403,7 @@ Existe porque la captura no se frena y el writer sí. Con capacidad para `E = 4`
 eventos, la captura puede empezar el evento N+1 mientras el writer todavía drena
 el N.
 
-![Panorama de event_stage_fifo](figuras/panorama_event_stage_fifo.svg)
+![Panorama de event_stage_fifo|874](figuras/panorama_event_stage_fifo.svg)
 
 *`eventos + abierto` cuenta también el evento que está entrando, así que un
 trigger nunca se acepta sobre un lugar de metadato ya prometido. `win_len_i` es
@@ -303,6 +428,74 @@ Con ventanas de 1024 muestras entran solo dos eventos, porque cada uno ocupa 204
 palabras. `DATA_AW = 13` devolvería los cuatro, pero no paga sus 2 RAMB36: con la
 ventana de 1024 y el tren de §4.5, guarda lo mismo hasta 100 kcps y como mucho 1 k/s
 más por encima (`figuras/tiempos/stage_8192/poisson.txt`).
+
+![Panorama expandido de event_stage_fifo](figuras/panorama_event_stage_fifo_expandido.svg)
+
+*El stage a nivel de operación. El metadato se escribe en `meta[meta_wr]` con el
+SOF (`sof_v`) y `meta_wr` avanza recién con el EOF (`eof_v`): el writer no ve un
+evento cuyas muestras todavía están entrando. `meta_open` marca ese evento a medio
+entrar, y la aceptación lo cuenta: `s_accept_o = (free ≥ win_len_i) ∧ ¬meta_full`,
+con `meta_full = meta_lvl + meta_open ≥ E`. La cola de muestras tiene lectura
+registrada (`dout_r`), un ciclo después del pop. Las redes con nombre se conectan
+por nombre.*
+
+([fuente](figuras/panorama_event_stage_fifo_expandido.tex))
+
+El panorama expandido tiene tres regiones: las dos colas y, entre ellas, la
+aceptación, que mira el estado de las dos.
+
+**Cola de metadatos (naranja).** Las dos compuertas de la izquierda combinan la
+validez con las marcas del stream: `sof_v = s_val ∧ s_sof_i` es la primera muestra
+de un evento y `eof_v = s_val ∧ s_eof_i` la última. `meta[E]` son `E = 4`
+entradas en registros, cada una con `ts`, `snap` y `nsamp`. Con `sof_v` se escribe
+la entrada `meta[meta_wr]`, pero `meta_wr` no avanza ahí: avanza con `eof_v`,
+cuando la última muestra del evento ya entró en la otra cola. Del lado del writer,
+`meta_rd` apunta a la entrada que se está leyendo, que sale directo por `m_ts_o`,
+`m_snap_o` y `m_nsamp_o`, y avanza con `m_meta_rd_i`, el pulso con que el writer
+cierra el slot. Dos registros llevan la ocupación:
+
+- `meta_lvl` cuenta los eventos **completos**: +1 con `eof_v` y −1 con
+  `m_meta_rd_i`. Si es distinto de 0, `m_meta_val_o` le avisa al writer que hay
+  un evento para leer. Por `ev_lvl_o` sale al top como diagnóstico.
+- `meta_open` vale 1 desde el `sof_v` hasta el `eof_v`: hay un evento a medio
+  entrar. No cuenta para el writer, pero ocupa una entrada.
+
+La suma `meta_lvl + meta_open` comparada con `E` da `meta_full`: no queda entrada
+libre para otro evento. Por qué el metadato se publica en el EOF y no en el SOF se
+explica abajo.
+
+**Aceptación (amarillo).** Es la respuesta a la pregunta que la captura hace en el
+ciclo del trigger:
+
+```
+s_accept_o = (free ≥ win_len_i) ∧ ¬meta_full
+```
+
+El comparador mira si las `win_len_i = (pre + post)·N_CH` muestras de la ventana
+entran en el lugar libre de la cola de muestras, y la compuerta exige además una
+entrada de metadato. La respuesta vale para toda la ventana sin reservar nada:
+mientras dura la copia sólo la captura escribe en el stage, y el writer sólo saca,
+así que el lugar libre no puede achicarse por otra cosa que por las muestras de
+este mismo evento.
+
+**Cola de muestras (azul).** `mem` es una BRAM de `2^12 = 4096` palabras de 16 b.
+Cada muestra que llega con `s_val_i` es un `push`: se escribe en `mem[wr_ptr]` y
+`wr_ptr` suma 1. Cada `m_dat_rd_i` del writer es un `pop`, y `rd_ptr` suma 1. Los
+dos punteros dan la vuelta solos, módulo 4096. La lectura es registrada: `dout_r`
+toma `mem[rd_ptr]` en cada flanco, así que la muestra pedida aparece en `m_dat_o`
+un ciclo después del pop, y el writer lo compensa con su registro `rd_d` (§4.2).
+`lvl` cuenta la ocupación (+1 con `push`, −1 con `pop`), sale por `lvl_o` como
+diagnóstico, y `free = 4096 − lvl` vuelve a la aceptación.
+
+El `push` no mira si la cola está llena: escribe a ciegas. No hace falta, porque
+la aceptación ya prometió en el trigger que la ventana entera entra. La protección
+está antes de la cola y no en ella, como en el pre-buffer de la captura, al que
+protege la geometría que valida libmca (§2.3), y en el `axi_wr_fifo`, al que
+protege la sombra del top (§5.5).
+
+**`flush_i`** pone en cero los punteros y los niveles de las dos colas y
+`meta_open`. El contenido de `mem` y de `meta` no se borra; queda inaccesible
+porque los niveles dicen que la cola está vacía.
 
 ### El metadato se publica en el EOF, no en el SOF
 
@@ -337,7 +530,7 @@ Emite **exactamente** `2^(slot_shift−3)` palabras de 64 b por evento, en orden
 dirección creciente. El layout está en
 [`diseno_y_register_map.md`](diseno_y_register_map.md#layout-del-slot).
 
-![Panorama de event_slot_writer](figuras/panorama_event_slot_writer.svg)
+![Panorama de event_slot_writer|1010](figuras/panorama_event_slot_writer.svg)
 
 *El estado de la FSM elige qué palabra sale: cuatro de cabecera, las muestras
 empaquetadas, ceros de relleno hasta la anteúltima y el footer `{~seq, seq}`.
@@ -351,15 +544,126 @@ evento se trunca. `NOMBRE=valor`: parámetros con que lo instancia
 
 ([fuente](figuras/panorama_event_slot_writer.tex))
 
+![Panorama expandido de event_slot_writer](figuras/panorama_event_slot_writer_expandido.svg)
+
+*El writer a nivel de operación. Arriba, el evento se toma con `start` (hay
+metadato, hay crédito, el writer está en `IDLE` y el pop anterior ya se vio) y
+la cabecera sale de un mux de cuatro palabras. En el medio, las muestras se
+empaquetan de a cuatro en `acc` y la que cierra la palabra sólo se pide con la
+salida libre. A la derecha, el estado elige la palabra y `wr_val` la sostiene
+hasta `wr_rdy_i`. Abajo, `word_idx` cuenta hasta la anteúltima palabra del slot
+y el footer aceptado (`done ∧ ¬wr_val`) sube `wr_slot` y `seq` y saca el pop del
+metadato. Las redes con nombre se conectan por nombre.*
+
+([fuente](figuras/panorama_event_slot_writer_expandido.tex))
+
+El panorama expandido tiene siete regiones. Arriba se toma el evento y se arma
+la cabecera, en el medio se empaquetan las muestras, a la derecha sale la palabra,
+y abajo se cuentan las palabras y las muestras y se cierra el slot.
+
+**Tomar el evento (gris, arriba a la izquierda).** La compuerta de cuatro entradas
+da `start`:
+
+```
+start = s_meta_val_i ∧ credit_ok_i ∧ idle ∧ ¬s_meta_rd
+```
+
+Hay un evento completo en el stage, hay un slot libre en la DDR y el writer está
+en `IDLE`. La cuarta entrada evita leer dos veces el mismo evento: el pop del
+evento anterior (`s_meta_rd`) sale en el primer ciclo de `IDLE`, y el stage
+recién lo descuenta al ciclo siguiente, así que en ese ciclo `s_meta_val_i` todavía
+cuenta el evento que se acaba de escribir. Con `start` se copian `ts`, `nsamp` y
+`snap` a `ts_r`, `nsamp_r` y `snap_r`. La copia hace falta porque las salidas del
+stage cambian con el pop, y el writer necesita `seq` y el resto de la cabecera
+hasta el final del slot. `start` también carga `slot_words` y `samp_left`, abajo.
+
+**Cabecera (naranja claro).** Un mux de cuatro entradas elegido por `hdr_idx` arma
+las cuatro palabras de 64 b de la cabecera:
+
+| `hdr_idx` | palabra |
+|---|---|
+| 0 | `ts_r` |
+| 1 | `{0, N_CH, nsamp_r, seq}` |
+| 2 | `{0, snap_r}` |
+| 3 | `0` |
+
+`hdr_idx` suma 1 con cada palabra que sale en `W_HDR`, y después de la 3 la FSM
+pasa a `W_DATA`.
+
+**Empaquetar y pedir (azul, al medio).** Es lo que §4.2 cuenta con tablas,
+dibujado en compuertas. Tiene dos mitades:
+
+- **Empaquetar.** `entra` es la muestra que llega del stage o un 0. El mux de
+  entrada toma `s_dat_i` cuando `rd_d` está en 1, es decir cuando hay una
+  muestra en el puerto. `recibe = rd_d ∨ (relleno ∧ (¬p3 ∨ libre))` dice que
+  en este ciclo entra una muestra, real o de relleno. Si es una de las tres
+  primeras (`¬p3`), se corre en el acumulador, `acc ← {entra, acc[47:16]}`. Si
+  es la cuarta (`p3`), sale la palabra `{entra, acc}` y no pasa por `acc`.
+  `pack_cnt` cuenta de 0 a 3 las muestras de la palabra en curso. Sus
+  comparadores dan `p3` (la próxima cierra la palabra) y `pack≠0` (hay una
+  palabra empezada).
+- **Pedir.** La caja `pack_cnt + s_dat_rd + rd_d` cuenta las muestras de la
+  palabra en curso: las recibidas y las que ya se pidieron y vienen en camino.
+  Si suma 3 da `cierra`, porque la próxima que se pida completa la palabra. La
+  compuerta pide en `W_DATA`, con muestras por pedir (`samp≠0`) y con
+  `¬cierra ∨ libre`: la muestra que cierra una palabra sólo se pide con la
+  salida libre. El pedido se registra en `s_dat_rd`, que sale como
+  `s_dat_rd_o`, el pop del stage. `rd_d` es ese pop un ciclo después, cuando la
+  muestra pedida ya está en `s_dat_i`, por la lectura registrada del stage.
+
+**Salida (naranja, a la derecha).** El mux grande elige la palabra según el
+estado: la de cabecera, el footer `{~seq, seq}`, la palabra de datos
+`{entra, acc}` o el 0 del relleno. `carga` es «sale una palabra nueva». En
+`W_HDR`, `W_PAD` y `W_FOOT` pasa con la salida libre. En `W_DATA` pasa con
+`recibe ∧ p3`, y no hace falta mirar `libre` porque la regla de pedir ya lo
+garantizó. Con `carga`, `wr_dat` toma la palabra y `wr_val` se prende. `wr_val`
+se apaga con `fire = wr_val ∧ wr_rdy_i`, cuando el `axi_wr_fifo` la acepta, salvo
+que en ese mismo ciclo cargue otra. `libre = ¬wr_val ∨ fire` dice que el registro
+de salida puede tomar otra palabra. Así cada palabra se sostiene hasta que la
+aceptan: ésa es la transferencia de la FSM (§4.1).
+
+**Palabras del slot (gris, abajo a la izquierda).** `slot_words = 1 << (slot_shift − 3)`
+pasa de bytes por slot a palabras de 8 B, y se copia con `start` por si la
+geometría cambia. `word_idx` suma 1 con cada `carga` y vuelve a 0 en `IDLE`. El
+comparador `word_idx ≥ slot_words − 1` da `anteúltima`: queda sólo la palabra del
+footer. Con eso `W_PAD` sabe cuándo terminar de rellenar. Y si todavía hay algo
+para escribir, en `W_HDR` o en `W_DATA` con `hay_mas`, la ventana no entró: la FSM
+va igual al footer y `err_slot_ovf` se prende y queda prendido hasta el `flush`
+(§4.3).
+
+**Muestras (azul, abajo al centro).** `samp_left` carga `s_nsamp_i · N_CH` con
+`start` y resta 1 con cada pedido. A diferencia del de la captura, cuenta
+muestras del stream, no por canal. Tres redes resumen el estado del evento:
+
+- `en camino = s_dat_rd ∨ rd_d`: hay una muestra pedida que todavía no llegó.
+- `hay_mas = samp≠0 ∨ en camino ∨ pack≠0`: queda algo del evento por escribir.
+  Cuando se apaga, la FSM pasa a `W_PAD`.
+- `relleno = ¬en camino ∧ samp=0 ∧ pack≠0`: no vienen más muestras, pero la
+  última palabra quedó a medias. Se completa con ceros por el mismo camino del
+  acumulador, con `entra = 0`.
+
+**Cerrar el slot (gris, abajo a la derecha).** La FSM de §4.1 como caja. Sus
+salidas son el `estado` que gobierna el mux de salida, `no_credit_o` (en `IDLE`,
+con evento esperando y sin crédito) y `busy_o` (fuera de `IDLE`). En `W_DONE`
+espera que el footer salga del registro (`¬wr_val`), o sea que el `axi_wr_fifo` lo
+haya aceptado. En ese ciclo suben `wr_slot` y `seq`, y sale el pulso `s_meta_rd`,
+que le saca el metadato al stage. Aceptado no quiere decir escrito en la DDR: el
+PS se entera por el footer, no por `WR_SLOT` (§5.3). `wr_slot` y `seq` se borran
+con `clr_cnt_i`, no con `flush_i`, aunque en el top los dos vienen de `flush`.
+
+**`flush_i`** vacía la FSM, los contadores de palabra y la muestra en vuelo. No
+toca `wr_slot` ni `seq`.
+
 ### 4.1 La FSM
 
-![La FSM de event_slot_writer](figuras/fsm_event_slot_writer.svg)
+![La FSM de event_slot_writer|994](figuras/fsm_event_slot_writer.svg)
 
 *Sin crédito el writer se queda en `W_IDLE` con `no_credit` = 1. Se frena y no
 descarta: la contrapresión sube a la stage, y si hay que descartar, la captura
-descarta el evento entero (§4.4). En `W_HDR`, `W_DATA`, `W_PAD` y `W_FOOT` cada
-palabra espera que el `axi_wr_fifo` la acepte (`wr_rdy`): la contrapresión del
-FIFO también frena, no descarta. El slot se cierra recién cuando el FIFO acepta
+descarta el evento entero (§4.4). `W_HDR`, `W_DATA`, `W_PAD` y `W_FOOT` son la
+transferencia, el grupo punteado: avanzan igual, de a una palabra que se sostiene
+hasta que el `axi_wr_fifo` la acepta (`wr_rdy`), así que la contrapresión del FIFO
+también frena, no descarta. El slot se cierra recién cuando el FIFO acepta
 el footer, y ahí suben `WR_SLOT` y `SEQ`. Si la ventana no entra en el slot, por
 una geometría mal configurada, el evento se trunca y el slot se cierra con su
 footer y `err_slot_ovf` prendido: es preferible a pisar el slot siguiente. El
@@ -434,7 +738,7 @@ La contrapresión sube al stage, y de ahí a la captura, que descarta el evento
 
 ### 4.5 Cuánto tarda cada etapa
 
-![Una ráfaga por el ring, a escala](figuras/ring_tiempos.svg)
+![Una ráfaga por el ring, a escala|1200](figuras/ring_tiempos.svg)
 
 La figura es la traza del RTL con una ráfaga de catorce triggers, uno cada 72 ciclos
 y uno más en medio de la primera ventana, con slots de 512 B. La captura da abasto,
@@ -593,8 +897,14 @@ vuelo (`data_in_reg`), así que esta cuenta **sobreestima** la ocupación real. 
 deliberado: sobreestimar frena de más, subestimar corrompe. El margen de 8
 palabras cubre las que puedan estar dentro del master.
 
-`err_fifo_ovf` es *sticky* sobre `stat_overflow_o`: si alguna vez se dispara, la
-sombra tiene un bug y lo que hay en DDR es basura. Tiene que ser visible.
+O sea que el `axi_wr_fifo` no frena a nadie: el que frena es el top, que deja de
+empujarlo antes de que se llene. `err_fifo_ovf` es *sticky* sobre
+`stat_overflow_o` y, por construcción, no debería prenderse nunca. Es una guarda
+sobre la sombra, que depende de cómo funciona por dentro un módulo ajeno (la
+palabra en vuelo, el margen de 8): si alguien cambia `FIFO_FW`, el umbral de
+ráfaga o el master, y la sombra deja de alcanzar, el FIFO descartaría palabras
+en silencio y lo que hay en DDR sería basura. Con la guarda, eso se ve en
+`STATUS[7]`.
 
 ### 5.6 Resumen del control de flujo
 
@@ -602,21 +912,23 @@ sombra tiene un bug y lo que hay en DDR es basura. Tiene que ser visible.
 
 *Sólo la captura descarta: el trigger y las muestras le llegan sin ready, así
 que no puede frenarlos, y el evento que no puede tomar lo pierde entero y lo
-cuenta (flecha roja). El stage, el writer y el `axi_wr_fifo` sólo bloquean: las
-flechas de vuelta son la contrapresión, que sube hasta la captura sin perder
-nada. Los dos descartes salen de lugares distintos: `DROP_BUSY` (arriba) es el
+cuenta (flecha roja). El stage y el writer sólo bloquean: las flechas de vuelta
+son la contrapresión, que sube hasta la captura sin perder nada. El `axi_wr_fifo`
+no frena por sí mismo, y si se lo empujara lleno descartaría: lo frena el top,
+que calcula `wr_rdy` con su propia cuenta de ocupación (§5.5). Los dos descartes salen de lugares distintos: `DROP_BUSY` (arriba) es el
 tiempo muerto de la captura misma y pasa aunque aguas abajo sobre lugar;
 `DROP_FULL` (abajo) es la contrapresión que llegó hasta arriba, con la captura
 libre. Por eso se cuentan aparte: el primero baja acortando la ventana, el
-segundo leyendo más rápido o con un ring más grande. Los números son las filas
-de la tabla.*
+segundo leyendo más rápido o con un ring más grande. Los créditos no vienen de
+la DDR, porque la PL no la lee: el PS lee los slots y escribe `RD_SLOT` por GP0,
+y la PL lo compara con su `WR_SLOT`. Los números son las filas de la tabla.*
 
-| nivel | recurso | señal | qué pasa al agotarse |
-|---|---|---|---|
-| 1 | slots de DDR | `credit_ok` | el writer **se frena** en `W_IDLE` |
-| 2 | `axi_wr_fifo` | `wr_rdy` | el writer **se frena** a mitad de slot |
-| 3 | stage (muestras + metadatos) | `s_accept` | la captura **descarta entero** → `drop_full` |
-| 4 | la captura misma | `busy` | trigger durante el drenaje → `drop_busy` |
+| nivel | recurso                      | señal       | qué pasa al agotarse                         |
+| ----- | ---------------------------- | ----------- | -------------------------------------------- |
+| 1     | slots de DDR                 | `credit_ok` | el writer **se frena** en `W_IDLE`           |
+| 2     | `axi_wr_fifo`                | `wr_rdy`    | el writer **se frena** a mitad de slot       |
+| 3     | stage (muestras + metadatos) | `s_accept`  | la captura **descarta entero** → `drop_full` |
+| 4     | la captura misma             | `busy`      | trigger durante el drenaje → `drop_busy`     |
 
 Los niveles 1 y 2 **frenan**; los 3 y 4 **descartan y cuentan**. Que el descarte
 ocurra sólo arriba, donde se puede descartar un evento completo, es lo que hace
@@ -671,11 +983,11 @@ arbitrario: con un umbral más bajo el FIFO arranca ráfagas cortas y **repite e
 El largo (`axi_wlen_o`, que es `AWLEN`) sale de un cálculo con tres cotas
 ([`axi_wr_fifo.v:216-245`](../../../../rtl/classic/axi_wr_fifo.v#L216)):
 
-| cota | expresión | qué evita |
-|---|---|---|
-| datos disponibles | `fill_lvl[3:0]` | prometer beats que no existen |
-| frontera de alineación | `4'hF - next_address[6:3]` | cruzar un bloque de 128 B |
-| dirección de fin | `sys_stop_addr_r[6:3] - next_address[6:3]` | pasarse del ring |
+| cota                   | expresión                                  | qué evita                     |
+| ---------------------- | ------------------------------------------ | ----------------------------- |
+| datos disponibles      | `fill_lvl[3:0]`                            | prometer beats que no existen |
+| frontera de alineación | `4'hF - next_address[6:3]`                 | cruzar un bloque de 128 B     |
+| dirección de fin       | `sys_stop_addr_r[6:3] - next_address[6:3]` | pasarse del ring              |
 
 La segunda merece un comentario, porque es la que satisface la **regla de las
 4 KB de AXI** (una ráfaga no puede cruzar un límite de 4096 B). Acá se resuelve

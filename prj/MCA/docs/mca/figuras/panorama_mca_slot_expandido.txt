@@ -1,0 +1,17 @@
+Una ranura de medición (`mca_slot`) a nivel de operación. Las redes con nombre
+(`abre`, `acumula`, `cierre`, `abierta`, `len`, `peak`...) se conectan por
+nombre, y las que terminan en `_i` son puertos de entrada. Compuertas: `abre`
+es la elección del asignador con muestra válida; `len` cuenta las muestras
+desde el disparo, y comparada con las compuertas que la ranura retuvo al abrir
+da `cierre`, `acumula`, `in_tail` y `estancada`. Estado: libre, abierta o
+cerrada; al cierre queda cerrada sólo si pasa la ventana de amplitud
+(`amp_ok`), y vuelve a libre con `libera_i`. Pico, cargas y meseta: un sumador
+o una comparación, el mux de carga y el registro, con su habilitación escrita
+arriba; el pico es estricto, así que gana la primera muestra. Ventana de
+amplitud: por la integral, las sombras $Q - \min$ y $\max - Q$ se acumulan con
+la carga y se mira su signo; por el pico, el pico que quedaría con esta
+muestra se compara contra [min, max] (el RTL lo escribe como cuatro
+comparaciones en paralelo, que es lo mismo). Las tres banderas se registran en
+cada ciclo, así que al cierre ya están. Marcas de solape: `adentro`,
+`dt_next` y `perdido` se escriben durante la medición; `win_id`, `dt_prev` y
+`otras` se cargan al abrir.

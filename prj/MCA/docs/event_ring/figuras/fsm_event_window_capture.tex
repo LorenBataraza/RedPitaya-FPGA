@@ -41,31 +41,35 @@
 \node[estado=naranja!70] (dn) at (11,0) {
   \cab{drain}{copiando la ventana}
   \nodepart{two}desde \s{pre} muestras antes del trigger,\\
-  $(\s{pre} + \s{post})\cdot N_\mathrm{CH}$ muestras a la stage;\\ la primera lleva \s{sof}};
+  $(\s{pre} + \s{post})\cdot N_\mathrm{CH}$ muestras a la stage;\\ la primera lleva \s{sof}\\[2pt]
+  \s{samp\_left}: muestras por canal que faltan\\ \s{ch\_idx}: canal que sale};
 
 \node[estado=amarillo] (tl) at (5.5,-3.3) {
   \cab{tail}{un ciclo}
-  \nodepart{two}sale el \s{eof} de la última muestra};
+  \nodepart{two}\s{m\_val\_o} = \s{m\_eof\_o} = 1, registrados\\ en la transición; \s{samp\_left} = 0};
 
 \draw[trans, black!55] ([yshift=1.0cm]id.north) node[above, guarda, black!70]
-  {\s{run\_i} = 0 (\textsc{stopped}), desde cualquier estado} -- (id.north);
+  {$\neg$\s{run\_i} (\textsc{stopped}), desde cualquier estado} -- (id.north);
 
 \draw[trans] ([yshift=4mm]id.east) -- ([yshift=4mm]id.east -| dn.west)
-  node[guarda, midway, above=1pt] {flanco de \s{trig} $\wedge$ \s{accept\_trig} $\wedge$ \s{m\_accept}}
-  node[guarda, midway, below=1pt] {\s{rd\_ptr} $\leftarrow$ \s{wr\_ptr} $-$ \s{pre}\\ guarda \s{ts} y \s{snapshot}};
+  node[guarda, midway, above=1pt] {\s{trig\_edge} $\wedge$ \s{accept\_trig\_i} $\wedge$ \s{m\_accept\_i}}
+  node[guarda, midway, below=1pt] {\s{rd\_ptr} $\leftarrow$ \s{wr\_ptr} $-$ \s{pre}\\
+   \s{samp\_left} $\leftarrow$ \s{pre} $+$ \s{post}, \s{ch\_idx} $\leftarrow$ 0\\ guarda \s{ts} y \s{snapshot}};
+\node[guarda, black!70, anchor=north west] at (11.3,-3.0)
+  {\s{trig\_edge} = \s{trig\_i} $\wedge\ \neg$\s{trig\_d}\; (flanco de subida)};
 
 \draw[pierde] ([yshift=3mm]id.west) -- ++(-0.7,0) -- ++(0,-0.6) -- ([yshift=-3mm]id.west);
 \node[guarda, rojo!75!black, anchor=east, align=right] at ([xshift=-7.5mm]id.west)
-  {flanco de \s{trig} $\wedge$ \s{accept\_trig}\\ $\wedge\ \neg$\s{m\_accept}:\\
+  {\s{trig\_edge} $\wedge$ \s{accept\_trig\_i}\\ $\wedge\ \neg$\s{m\_accept\_i}:\\
    \s{drop\_full}, se descarta\\ \textbf{entero}};
 
 \draw[pierde] ([yshift=3mm]dn.east) -- ++(0.7,0) -- ++(0,-0.6) -- ([yshift=-3mm]dn.east);
 \node[guarda, rojo!75!black, anchor=west, align=left] at ([xshift=7.5mm]dn.east)
-  {flanco de \s{trig}:\\ \s{drop\_busy}};
+  {\s{trig\_edge}:\\ \s{drop\_busy}};
 
-\draw[trans] (dn.south) |- node[guarda, pos=0.25, right=2pt, align=left] {la última\\ muestra} (tl.east);
+\draw[trans] (dn.south) |- node[guarda, pos=0.25, right=2pt, align=left] {\s{word\_val}\\ $\wedge$ \s{ch\_idx} = $N_\mathrm{CH}-1$\\ $\wedge$ \s{samp\_left} = 1:\\ \s{m\_eof\_o} $\leftarrow$ 1} (tl.east);
 \draw[trans] (tl.west) -| node[guarda, pos=0.75, left=2pt, align=right]
-  {siempre; un \s{trig}\\ en este ciclo:\\ \s{drop\_busy}} (id.south);
+  {siempre;\\ \s{trig\_edge} en este\\ ciclo: \s{drop\_busy}} (id.south);
 
 \end{tikzpicture}
 \end{document}

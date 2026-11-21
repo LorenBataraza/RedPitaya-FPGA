@@ -1,7 +1,11 @@
 % Panorama de event_ring_top: el ring de slots de evento en DDR (slot 2).
-% De la muestra al slot: captura de ventana, stage elástico, writer de slots,
-% axi_wr_fifo hacia el puerto HP; créditos contra el PS, contrapresión del
-% FIFO, la FSM global y el banco de registros.
+% De la muestra al slot: generador de eventos (un cable si está apagado),
+% captura de ventana, stage elástico, writer de slots y axi_wr_fifo hacia el
+% puerto HP. La lógica propia del top va a nivel de operación: el timestamp es
+% un contador, los créditos una resta y una comparación, la contrapresión un
+% contador de subida y bajada con su umbral, la parada una Y de "todo vacío".
+% Los submódulos van como bloque: cada uno tiene su panorama.
+% Las redes con nombre se conectan por nombre; en MAYÚSCULAS, los registros.
 % Fuente: modulos/event_ring/rtl/*.sv. Estilo: docs/figuras/estilo_tikz.tex.
 % El epígrafe no va en la figura: está en panorama_event_ring_top.txt y en el doc que la incluye.
 %
@@ -15,86 +19,202 @@
 \usepackage[none]{hyphenat}
 \input{../../figuras/estilo_tikz.tex}
 
+\tikzset{
+  op/.style      = {oper, font=\scriptsize},
+  caja/.style    = {desp, inner sep=2pt, minimum height=0.5cm},
+  reg/.style     = {registro=#1, minimum height=0.6cm, font=\scriptsize\ttfamily},
+  reg/.default   = 1.1cm,
+  y4/.style      = {puerta y=#1, logic gate input sep=0.15cm},
+  fondo f/.style = {draw=black!45, dashed, line width=0.5pt, rounded corners=3pt,
+                    fill=#1},
+  rotf/.style    = {font=\scriptsize\itshape, black!75, inner sep=2pt},
+  red/.style     = {font=\scriptsize\ttfamily, inner sep=1pt},
+  chico/.style   = {font=\tiny, inner sep=1pt, align=center},
+  % submódulo en el formato del datasheet: encabezado con el nombre, cuerpo con la función
+  sub/.style     = {ddr, param={naranja!70}{naranja!30}, text width=2.75cm, minimum height=2.0cm},
+}
+% la red que entra a un pin por nombre: desde la izquierda, desde abajo, desde arriba
+\newcommand{\red}[3][0.5]{\draw[flujo] ($(#2)+(-#1,0)$) node[left, red] {#3} -- (#2);}
+\newcommand{\redab}[3][0.45]{\draw[flujo] ($(#2)+(0,-#1)$) node[below, red] {#3} -- (#2);}
+\newcommand{\redar}[3][0.45]{\draw[flujo] ($(#2)+(0,#1)$) node[above, red] {#3} -- (#2);}
+\newcommand{\redsal}[3][0.45]{\draw[flujo] (#2) -- ($(#2)+(#1,0)$) node[right, red] {#3};}
+
 \begin{document}
 \begin{tikzpicture}[fondo]
 
+\def\xin{-0.95}
+\def\xout{20.3}
+
 % ============================================================ camino del dato
-\node[ddr, text width=2.6cm] (cap) at (2.6,0)
-  {\blk{event\_window\_capture}{pre-buffer circular\\ ventana pre + post\\ entera o nada, al trigger}};
-\node[ddr, text width=2.6cm] (stg) at (6.6,0)
-  {\blk{event\_stage\_fifo}{muestras ($2^{\mathtt{DATA\_AW}}$)\\ + metadatos ($E$ eventos)}};
-\node[ddr, text width=2.6cm] (wrt) at (10.6,0)
-  {\blk{event\_slot\_writer}{cabecera, muestras,\\ relleno y footer\\ $\{\sim$seq, seq$\}$}};
-\node[ddr, param={naranja!70}{naranja!30}, text width=2.6cm] (fifo) at (14.6,0)
-  {\blk{axi\_wr\_fifo}{\prm{DW=64 & AW=32\\ FW=FIFO\_FW & BYTE\_SEL=0}}
-   \nodepart{two}ring: de \texttt{SLOT\_BASE}\\ a $+$\texttt{RING\_SZ}, envuelve};
+% en cada bloque, la función del submódulo; cómo la hace está en su panorama
+\node[sub, text width=2.3cm] (gen) at (2.6,0)
+  {\blk{gen\_eventos}{}\nodepart{two}generador de\\ patrones de prueba\\[1pt] {\scriptsize o paso directo}};
+\node[sub] (cap) at (6.15,0)
+  {\blk{event\_window\_capture}{}\nodepart{two}segmentador de ventanas\\ con pre-trigger\\[1pt]
+   control de admisión\\ serializador de canales};
+\node[sub] (stg) at (9.95,0)
+  {\blk{event\_stage\_fifo}{}\nodepart{two}buffer elástico\\ de eventos\\[1pt] colas separadas de\\ datos y metadatos};
+\node[sub] (wrt) at (13.75,0)
+  {\blk{event\_slot\_writer}{}\nodepart{two}empaquetador de slots\\ (\textit{framer})};
+\node[sub] (fifo) at (17.55,0)
+  {\blk{axi\_wr\_fifo}{\prm{DW=64 & FW=8\\ BYTE\_SEL=0}}
+   \nodepart{two}FIFO de escritura\\ formador de\\ ráfagas AXI\\ direcciones circulares};
 
-% ================================================ lógica propia de event_ring_top
-\node[etapa=naranja!25, text width=2.6cm] (ts) at (2.6,2.6)
-  {\etq{timestamp}{64 b, cuenta \texttt{dv}\\ y vuelve a 0 al arrancar}};
-\node[etapa=naranja!25, text width=2.6cm] (cre) at (10.6,2.6)
-  {\etq{créditos}{$\mathtt{wr\_slot} - \mathtt{rd\_slot}$\\ $< N_\mathrm{slots}$}};
-\node[etapa=naranja!25, text width=2.4cm] (bkp) at (13.9,-2.7)
-  {\etq{contrapresión}{ocupación sombra\\ del FIFO, margen 8}};
-\node[etapa=grisr!60, text width=2.6cm] (fsm) at (1.95,-2.75)
-  {\etq{FSM global}{\textsc{stopped} $\to$ \textsc{running}\\ $\to$ \textsc{draining} $\to$ \textsc{stopped}\\[1pt]
-   {\tiny al parar: \texttt{flush} de\\ stage, writer y FIFO}}};
-\node[comp, text width=15.2cm, minimum height=0.9cm] (reg) at (8.6,-5.6)
-  {\etq{banco de registros}{\texttt{CTRL} (run, clr) \;$\cdot$\; geometría, sólo en \textsc{stopped}
-   \;$\cdot$\; \texttt{RD\_SLOT} \;$\cdot$\; contadores de pérdida \;$\cdot$\; ack de latencia fija}};
-
-% ======================================================= caja event_ring_top
-\node[contenedor, fit={(0.4,4.15) (16.6,-6.45)}] (top) {};
-\node[titulo] at (top.north west)
-  {\texttt{\bfseries event\_ring\_top}\;\; {\scriptsize\itshape todo en \texttt{adc\_clk}}\quad
-   \prm{DW=14 & N\_CH=2 & SW=16 & PRE\_AW=11\\ S\_AW=11 & DATA\_AW=12 & E=4 & FIFO\_FW=8}};
-
-\node[bus, text width=1.8cm] (sb) at (8.6,-7.6) {\texttt{\bfseries sys\_bus}};
-
-% ============================================================== flechas ====
-% --- entradas, desde rp_scope_mt_com ---
-\draw[flujo, ancho en=0.35, ancho=28] (-1.6,0.3) node[left, sen, align=right]
-  {dat\_i, dv\_i\\[-1pt]\normalfont\scriptsize 2 canales} -- ([yshift=3mm]cap.west);
-\draw[flujo] (-1.6,-0.3) node[left, sen, align=right]
-  {trig\_i, snapshot\_i\\[-1pt]\normalfont\scriptsize \texttt{trigger\_event}} -- ([yshift=-3mm]cap.west);
-\draw[flujo] (-1.6,0 |- ts.west) node[left, sen] {dv\_i} -- (ts.west);
-\draw[flujo] (ts.south) -- node[sen, right] {ts} (cap.north);
-
+% --- entradas: en el TOP salen de rp_scope_mt_com (el tap mca y el multitrigger) ---
+\def\pto#1#2{#1\\[-2pt]\normalfont\tiny$\leftarrow$\,\texttt{#2}}
+\draw[flujo] (\xin,0.75) node[left, sen, align=right] {\pto{dv\_i}{mca\_val\_o[0]}} -- (gen.west |- 0,0.75);
+\draw[flujo, ancho=28, ancho en=0.75] (\xin,0.25) node[left, sen, align=right] {\pto{dat\_i}{mca\_dat\_o}} -- (gen.west |- 0,0.25);
+\draw[flujo] (\xin,-0.25) node[left, sen, align=right] {\pto{trig\_i}{event\_trig\_o}} -- (gen.west |- 0,-0.25);
+\draw[flujo, ancho=17, ancho en=0.75] (\xin,-0.75) node[left, sen, align=right] {\pto{snapshot\_i}{event\_snap\_o}} -- (gen.west |- 0,-0.75);
+\coordinate (jdv) at (0.85,0.75);
+\punto{jdv}
 % --- el evento baja por la cadena ---
-\draw[flujo, ancho=16] ([yshift=3mm]cap.east) -- ([yshift=3mm]stg.west);
-\draw[flujo] ([yshift=-3mm]stg.west) -- node[sen, below] {accept} ([yshift=-3mm]cap.east);
-\draw[flujo] ([yshift=3mm]stg.east) -- node[sen, above] {evento} ([yshift=3mm]wrt.west);
-\draw[flujo] ([yshift=-3mm]wrt.west) -- node[sen, below] {rd} ([yshift=-3mm]stg.east);
-\draw[flujo, ancho=64] (wrt.east) -- (wrt.east -| fifo.west);
-\draw[flujo] (fifo.east) -- (18.4,0 |- fifo.east) node[right, sen, align=left]
+\draw[flujo] (gen.east |- 0,0.4) -- (cap.west |- 0,0.4);
+\draw[flujo] (gen.east |- 0,-0.4) -- (cap.west |- 0,-0.4);
+\draw[flujo, ancho=16] (cap.east |- 0,0.4) -- (stg.west |- 0,0.4);
+\draw[flujo] (stg.west |- 0,-0.4) -- node[sen, below] {accept} (cap.east |- 0,-0.4);
+\draw[flujo] (stg.east |- 0,0.4) -- node[sen, above] {evento} (wrt.west |- 0,0.4);
+\draw[flujo] (wrt.west |- 0,-0.4) -- node[sen, below] {rd} (stg.east |- 0,-0.4);
+\draw[flujo, ancho=64] (wrt.east) -- node[sen, below, pos=0.5] {wr\_dat} (fifo.west);
+\draw[flujo] (fifo.east) -- (\xout,0) node[right, sen, align=left]
   {axi\_*\\[-1pt]\normalfont\scriptsize$\to$ \texttt{axi\_master} (HP2) $\to$ DDR};
 
-% --- créditos y contrapresión: el writer se frena, nunca descarta ---
-\draw[flujo] ([xshift=-4mm]wrt.north) -- node[sen, left] {wr\_slot} ([xshift=-4mm]cre.south);
-\draw[flujo] ([xshift=4mm]cre.south) -- node[sen, right] {credit\_ok} ([xshift=4mm]wrt.north);
-\draw[flujo] (bkp.north |- fifo.south) -- node[sen, right] {push, pop} (bkp.north);
-\draw[flujo] (bkp.west) -| node[sen, above, pos=0.3] {wr\_rdy} ([xshift=4mm]wrt.south);
+% ============================================================ timestamp ======
+\node[fondo f=naranja!15, fit={(0.55,1.45) (6.6,4.3)}] (fts) {};
+\node[rotf, anchor=north west] at (fts.north west) {base de tiempo};
+\node[reg=1.2cm] (ts) at (3.4,2.95) {ts\_cnt};
+\node[op] (ts1) at (3.4,3.8) {$+1$};
+\coordinate (jts) at (4.35,2.95);
+\draw[flujo] (ts.east) -- (jts);
+\punto{jts}
+\draw[flujo] (jts) |- (ts1.east);
+\draw[flujo] (ts1.west) -- (2.45,0 |- ts1.west) |- (ts.west);
+\draw[flujo] (jdv) |- (1.2,2.35) -| node[chico, left, pos=0.85] {en} ($(ts.south)+(-0.3,0)$);
+\node[chico, anchor=north west] at ($(ts.south)+(0.0,-0.04)$) {clr: stopped};
+\coordinate (jt2) at (5.35,1.85);
+\draw[flujo, ancho=64, ancho en=0.5] (jts) -- node[sen, above, pos=0.6] {ts} (5.35,2.95) -- (jt2) -| ($(cap.north)+(0.6,0)$);
+\punto{jt2}
+\draw[flujo] (jt2) -| (gen.north);
 
-% --- FSM global ---
-\draw[flujo] (fsm.north) -- node[sen, left, align=right] {run,\\ accept\_trig} (fsm.north |- cap.south);
+% ============================================================ créditos =======
+\node[fondo f=naranja!15, fit={(11.4,1.4) (15.75,4.3)}] (fcr) {};
+\node[rotf, anchor=north west] at (fcr.north west) {control de flujo por créditos};
+\node[op] (ocu) at (13.05,2.3) {$-$};
+\node[op] (lt) at (14.45,2.3) {$<$};
+\node[caja] (ns) at (14.45,3.45) {\texttt{>>} SLOT\_SHIFT};
+\draw[flujo] ($(wrt.north)+(-0.7,0)$) -- node[sen, left, pos=0.45] {wr\_slot} (ocu.south);
+\red[0.55]{ocu.west}{RD\_SLOT}
+\draw[flujo] (ocu.east) -- node[sen, above] {ocup} (lt.west);
+\red[0.45]{ns.west}{RING\_SZ}
+\draw[flujo] (ns.south) -- node[sen, right, pos=0.4] {n\_slots} (lt.north);
+\draw[flujo] (lt.south) -- node[sen, right, pos=0.5] {credit\_ok} (lt.south |- wrt.north);
 
-% --- registros ---
-\draw[ctrl] (fsm.south |- reg.north) -- node[sen, right, black!80] {cfg\_run} (fsm.south);
-\draw[ctrl] (3.6,0 |- reg.north) -- (3.6,0 |- cap.south)
-  node[sen, pos=0.3, right, black!80] {pre, post};
-\draw[ctrl] (10.0,0 |- reg.north) -- (10.0,0 |- wrt.south)
-  node[sen, pos=0.3, left, black!80] {slot\_shift};
-\draw[ctrl] (6.6,0 |- stg.south) -- (6.6,0 |- reg.north)
-  node[sen, pos=0.45, right, black!80, align=left] {wr\_slot, seq,\\ pérdidas, nivel};
-\draw[ctrl] (15.6,0 |- reg.north) -- (15.6,0 |- fifo.south)
-  node[sen, pos=0.3, left, black!80, align=right] {slot\_base,\\ ring\_sz};
-\draw[ctrl, cruce] (16.2,0 |- reg.north) -- (16.2,0 |- cre.east) -- (cre.east)
-  node[sen, pos=0.0, above left, black!80, align=right] {rd\_slot, n\_slots\\[-1pt]\normalfont\scriptsize rd\_slot: lo escribe el PS};
+% ========================================== direcciones del ring ==============
+\node[fondo f=naranja!15, fit={(16.05,1.4) (19.35,4.3)}] (fdir) {};
+\node[rotf, anchor=north east] at (fdir.north east) {límites del ring};
+\node[op] (sa) at (18.55,2.95) {$+$};
+\node[caja] (m8) at (18.55,2.05) {$-8$};
+\red[0.45]{sa.west}{SLOT\_BASE}
+\redar[0.35]{sa.north}{RING\_SZ}
+\draw[flujo] (sa.south) -- (m8.north);
+\draw[flujo] (m8.south) -- node[sen, right, pos=0.4] {stop} (m8.south |- fifo.north);
+\draw[flujo] (16.6,3.55) node[above, red] {SLOT\_BASE} -- node[sen, right, pos=0.6] {start} (16.6,0 |- fifo.north);
+
+% ============================================================ contrapresión ===
+\node[fondo f=naranja!15, fit={(14.45,-1.65) (19.35,-4.6)}] (fbp) {};
+\node[rotf, anchor=south east] at (fbp.south east) {contrapresión del FIFO};
+\node[puerta y] (ap) at (15.8,-2.2) {};
+\node[puerta y] (aq) at (15.8,-3.35) {};
+\red[0.35]{ap.input 1}{wr\_val}
+\red[0.35]{ap.input 2}{wr\_rdy}
+\red[0.35]{aq.input 1}{wvalid}
+\red[0.35]{aq.input 2}{wrdy}
+\node[caja] (pm) at (17.6,-2.75) {$+$push $-$pop};
+\node[reg=1.25cm] (occ) at (17.6,-3.85) {fifo\_occ};
+\coordinate (jp) at (16.55,-2.2);
+\draw[flujo] (ap.output) -- node[sen, above, pos=0.3] {push} (jp);
+\punto{jp}
+\draw[flujo] (jp) -- (16.55,-2.62) -- (pm.west |- 0,-2.62);
+\draw[flujo] (jp) -- (16.55,0 |- fifo.south) node[pos=0.55, chico, right] {wr\_val\_i};
+\draw[flujo] (aq.output) -- node[sen, below, pos=0.4] {pop} (16.3,0 |- aq.output) |- (pm.west |- 0,-2.88);
+\draw[flujo] (pm.south) -- (occ.north);
+\coordinate (jo) at (18.5,-3.85);
+\draw[flujo] (occ.east) -- (jo);
+\punto{jo}
+\draw[flujo] (jo) |- (pm.east);
+\node[op] (lt8) at (19.0,-3.85) {$<$};
+\draw[flujo] (jo) -- (lt8.west);
+\draw[flujo] (19.0,-3.0) node[above, chico] {$2^{8}{-}8$} -- (lt8.north);
+\draw[flujo] (lt8.south) -- (19.0,-4.4) -- (14.2,-4.4) -- node[sen, left, pos=0.15] {wr\_rdy} ($(wrt.south)+(0.45,0)$);
+\node[chico, anchor=south] at (18.45,-4.4) {};
+\node[chico, anchor=north west] at (14.55,-3.75) {wvalid, wrdy:\\ los del \texttt{axi\_master}};
+
+% ============================================================ FSM global =====
+\node[fondo f=grisr!45, fit={(0.55,-1.65) (8.15,-4.6)}] (ffsm) {};
+\node[rotf, anchor=south west] at (ffsm.south west) {parada ordenada};
+\node[y4=iiin, logic gate input sep=0.25cm] (vac) at (2.6,-2.95) {};
+\red[0.3]{vac.input 1}{wr\_busy}
+\red[0.3]{vac.input 2}{cap\_busy}
+\red[0.3]{vac.input 3}{stg\_meta\_val}
+\red[0.3]{vac.input 4}{fifo\_occ=0}
+\node[etapa=grisr!70, text width=2.55cm, minimum height=1.45cm] (fsm) at (4.95,-2.9)
+  {\etq{FSM global}{secuenciador de\\ arranque y parada}};
+\draw[flujo] (vac.output) -- node[sen, above, pos=0.6] {vacío} (vac.output -| fsm.west);
+\redab[0.4]{$(fsm.south)+(-0.6,0)$}{CTRL.run}
+\redsal[0.3]{$(fsm.east)+(0,0.25)$}{running}
+\node[puerta o] (ofl) at (7.15,-4.05) {};
+\draw[flujo] ($(fsm.east)+(0,-0.4)$) -- ++(0.3,0) coordinate (jst) |- (ofl.input 1);
+\node[red, anchor=west] at ($(jst)+(0.05,-0.3)$) {stopped};
+\draw[flujo] (6.2,0 |- ofl.input 2) node[left, red] {CTRL.clr} -- (ofl.input 2);
+\redsal[0.2]{ofl.output}{flush}
+
+% --- lo que va a cada submódulo, por nombre ---
+\redab[0.45]{$(cap.south)+(-1.2,0)$}{$\neg$stopped}
+\redab[0.45]{$(cap.south)+(0.1,0)$}{running}
+% el generador es un submódulo más: corre con running y tiene sus registros en 0x100
+\redab[0.45]{$(gen.south)+(-0.8,0)$}{running}
+\redab[0.45]{$(gen.south)+(0.65,0)$}{regs 0x100}
+\redab[0.8]{$(cap.south)+(1.15,0)$}{PRE, POST}
+\redab[0.5]{$(stg.south)+(0.85,0)$}{flush}
+\redab[0.5]{$(wrt.south)+(-1.05,0)$}{flush}
+\redab[0.85]{$(wrt.south)+(-0.25,0)$}{SLOT\_SHIFT}
+\redab[0.4]{$(fifo.south)+(0.9,0)$}{flush}
+% win_len: la ventana en muestras totales, para el chequeo de espacio del stage
+\node[op] (wl) at (9.15,-2.35) {$+$};
+\node[caja] (xn) at (9.15,-1.5) {$\times N_\mathrm{CH}$};
+\red[0.35]{wl.west}{PRE}
+\redab[0.35]{wl.south}{POST}
+\draw[flujo] (wl.north) -- (xn.south);
+\draw[flujo] (xn.east) -- (9.75,0 |- xn.east) -- node[sen, right, pos=0.45] {win\_len} (9.75,0 |- stg.south);
+
+% ===================================================== contadores de pérdida ===
+\node[reg=1.45cm] (cdb) at (12.3,-2.45) {DROP\_BUSY};
+\node[reg=1.45cm] (cdf) at (12.3,-3.2) {DROP\_FULL};
+\node[reg=1.45cm] (cev) at (12.3,-3.95) {EV\_CNT};
+\red[0.35]{cdb.west}{drop\_busy}
+\red[0.35]{cdf.west}{drop\_full}
+\red[0.35]{cev.west}{sof$\wedge$val}
+\node[chico, anchor=north] at (12.3,-4.3) {cada uno: $+1$ por pulso};
+
+% ============================================================ registros ======
+\node[comp, text width=18.3cm, minimum height=0.95cm, align=left] (reg) at (9.95,-5.6)
+  {\etq{banco de registros}{control (\texttt{CTRL}) \;$\cdot$\; geometría del ring y de la ventana
+   (\texttt{SLOT\_BASE}, \texttt{RING\_SZ}, \texttt{SLOT\_SHIFT}, \texttt{PRE}, \texttt{POST})
+   \;$\cdot$\; crédito del PS (\texttt{RD\_SLOT}) \;$\cdot$\; estado y diagnóstico (\texttt{WR\_SLOT}, \texttt{SEQ},
+   pérdidas, \texttt{TS}, nivel del stage) \;$\cdot$\; registros de \texttt{gen\_eventos} (\texttt{0x100})}};
+
+% ======================================================= caja event_ring_top
+\node[contenedor, fit={(0.35,4.55) (19.55,-6.3)}] (top) {};
+\node[titulo] at ($(top.north west)+(0,0.95)$)
+  {\texttt{\bfseries event\_ring\_top}\;\; {\scriptsize\itshape todo en \texttt{adc\_clk}}\quad
+   \prm{DW=14 & N\_CH=2 & SW=16 & PRE\_AW=11\\ S\_AW=11 & DATA\_AW=12 & E=4 & FIFO\_FW=8\\ EN\_GEN=1}};
+
+\node[bus, text width=1.8cm] (sb) at (9.95,-7.5) {\texttt{\bfseries sys\_bus}};
 \draw[<->, line width=0.8pt] (reg.south) -- (sb.north);
 
 % ================================================================= leyenda ===
-\leyenda{0.5,-8.9}{naranja!70/submódulo del camino a DDR, naranja!25/lógica dentro del módulo,
-  grisr/registros, rojo!45/bus del sistema}{}
+\leyenda{0.5,-8.7}{naranja!70/submódulo, naranja!15/lógica propia,
+  grisr/registros y control, rojo!45/bus del sistema}{}
 
 \end{tikzpicture}
 \end{document}

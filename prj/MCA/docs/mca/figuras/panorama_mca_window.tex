@@ -4,7 +4,7 @@
 % Fuente: modulos/mca/rtl/mca_window.sv, instanciado por mca_pulse_feature como
 % en rtl/mine/tops/mca_red_pitaya_top.sv (3 ranuras, 3 formas).
 % Estilo: docs/figuras/estilo_tikz.tex; los colores por función, los mismos de
-% panorama_mca_top.tex (azul preprocesamiento, amarillo segmentación, verde
+% panorama_mca_top.tex (azul línea de base y conformado, amarillo segmentación, verde
 % estadísticos, gris contabilidad). El borde grueso es el límite del módulo; lo
 % que lo cruza son sus puertos, sólo con el nombre.
 % El epígrafe no va en la figura: está en panorama_mca_window.txt y en el doc
@@ -20,6 +20,7 @@
 \usepackage[none]{hyphenat}
 \input{../../figuras/estilo_tikz.tex}
 \tikzset{
+  linea/.style   = {rectangle split, rectangle split parts=2},
   pre/.style     = {bloque=azul!35, param={azul!35}{azul!12}},
   prelog/.style  = {etapa=azul!15},
   seglog/.style  = {etapa=amarillo!75},
@@ -39,22 +40,22 @@
 
 % ================================================================ bloques ===
 % --- arriba: el disparo, el asignador y lo que decide, registrado ---
-\node[seglog, text width=1.85cm, minimum height=1.25cm] (dsp) at (1.55,4.9)
-  {\etq{disparo}{flanco de \texttt{trig\_i};\\ si cae entre dos\\ válidas, espera}};
-\node[seglog, text width=2.5cm, minimum height=2.8cm] (asg) at (4.35,4.4)
-  {\etq{asignador}{habilitadas: las\\ \texttt{cfg\_n\_acc} primeras\\[2pt]
+\node[seglog, text width=1.85cm, minimum height=1.25cm, linea] (dsp) at (1.55,4.9)
+  {{\bfseries disparo}\nodepart{two}flanco de \texttt{trig\_i};\\ si cae entre dos\\ válidas, espera};
+\node[seglog, text width=2.5cm, minimum height=2.8cm, linea] (asg) at (4.35,4.4)
+  {{\bfseries asignador}\nodepart{two}habilitadas: las\\ \texttt{cfg\_n\_acc} primeras\\[2pt]
    \texttt{abre} la libre de\\ menor índice, si hay\\ y no hay veto\\[2pt]
-   marcas: \texttt{otras}\\ (cuántas abiertas),\\ \texttt{dt\_prev}, \texttt{win\_id}}};
+   marcas: \texttt{otras}\\ (cuántas abiertas),\\ \texttt{dt\_prev}, \texttt{win\_id}};
 \node[registro, minimum width=1.5cm, minimum height=2.6cm] (dec) at (6.8,4.4)
   {\texttt{abre\_q}\\ \texttt{disparo\_q}\\ \texttt{perdido\_q}\\ \texttt{otras\_q}\\
    \texttt{dt\_prev\_q}\\ \texttt{win\_id\_q}\\ \texttt{reserva\_q}};
-\node[estlog, text width=1.65cm, minimum height=1.6cm] (umb) at (8.85,4.4)
-  {\etq{umbrales}{\texttt{min}\,$\ll$\,\texttt{s}\\ (\texttt{max}+1)\,$\ll$\,\texttt{s}\,$-$\,1\\[2pt]
-   uno para las 3,\\ registrado}};
+\node[estlog, text width=1.65cm, minimum height=1.6cm, linea] (umb) at (8.85,4.4)
+  {{\bfseries umbrales}\nodepart{two}\texttt{min}\,$\ll$\,\texttt{s}\\ (\texttt{max}+1)\,$\ll$\,\texttt{s}\,$-$\,1\\[2pt]
+   uno para las 3,\\ registrado};
 
 % --- la muestra: relativa a la base, registrada antes de repartirse ---
-\node[prelog, text width=1.85cm, minimum height=1.1cm] (res) at (1.55,1.15)
-  {\etq{resta la base}{$x$ = dat $-$ base\\ $x_c$ = máx($x$, 0)}};
+\node[prelog, text width=1.85cm, minimum height=1.1cm, linea] (res) at (1.55,1.15)
+  {{\bfseries resta la base}\nodepart{two}$x$ = dat $-$ base\\ $x_c$ = máx($x$, 0)};
 \node[registro, minimum width=0.8cm, minimum height=1.3cm] (xq) at (3.2,0.9)
   {\texttt{xc\_q}\\ \texttt{x\_q}\\ \texttt{val\_q}};
 
@@ -62,8 +63,8 @@
 \node[pre, text width=1.75cm, varios] (trp) at (3.45,-2.0)
   {\blk{mca\_trap {\normalfont$\times$} 3}{}\nodepart{two}$k$, $l$, \texttt{sh} propios;\\
    $M$ común;\\ 8 muestras tarde};
-\node[prelog, text width=1.9cm] (mes) at (3.45,-4.1)
-  {\etq{ventana de la meseta}{\texttt{ini} = \texttt{off}\,+\,8\\ \texttt{fin} = \texttt{ini}\,+\,$2^{\mathtt{lw}}$\\ una por forma}};
+\node[prelog, text width=1.9cm, linea] (mes) at (3.45,-4.1)
+  {{\bfseries ventana de la meseta}\nodepart{two}\texttt{ini} = \texttt{off}\,+\,8\\ \texttt{fin} = \texttt{ini}\,+\,$2^{\mathtt{lw}}$\\ una por forma};
 
 % --- las ranuras: un submódulo alto, con el encabezado arriba ---
 \node[bloque=verde!20, varios, text width=2.6cm, minimum height=6.3cm,
@@ -81,11 +82,11 @@
    guarda el resultado\\ hasta \texttt{libera\_i}[$k$]};
 
 % --- la contabilidad ---
-\node[conlog, text width=2.05cm, minimum height=2.8cm] (con) at (11.4,4.4)
-  {\etq{contabilidad}{sin libre: \texttt{dt\_win}\\ si todas miden,\\ \texttt{dt\_div} si hay\\ alguna cerrada\\[2pt]
-   cada disparo, a\\ un casillero\\[2pt] cada cierre: total,\\ fuera de amplitud,\\ con solape}};
-\node[conlog, text width=2.05cm] (bas) at (11.4,1.2)
-  {\etq{hacia la base}{sigue sólo si nadie\\ mide, reserva ni abre}};
+\node[conlog, text width=2.05cm, minimum height=2.8cm, linea] (con) at (11.4,4.4)
+  {{\bfseries contabilidad}\nodepart{two}sin libre: \texttt{dt\_win}\\ si todas miden,\\ \texttt{dt\_div} si hay\\ alguna cerrada\\[2pt]
+   cada disparo, a\\ un casillero\\[2pt] cada cierre: total,\\ fuera de amplitud,\\ con solape};
+\node[conlog, text width=2.05cm, linea] (bas) at (11.4,1.2)
+  {{\bfseries hacia la base}\nodepart{two}sigue sólo si nadie\\ mide, reserva ni abre};
 
 % ============================================================== el límite ===
 \node[contenedor, fit={(0.35,6.7) (12.65,-5.0)}] (lim) {};
@@ -162,7 +163,7 @@
 \draw[ctrl] (\xout,-4.1) node[right, sen] {libera\_i} -- (slt.east |- 0,-4.1);
 
 % ================================================================= leyenda ===
-\leyenda{0.2,-5.75}{azul!15/preprocesamiento, amarillo!75/segmentación,
+\leyenda{0.2,-5.75}{azul!15/línea de base y conformado, amarillo!75/segmentación,
   verde!20/estadísticos, grisr!60/contabilidad, grisr/registro}{}
 
 \end{tikzpicture}

@@ -30,46 +30,59 @@
 \begin{tikzpicture}[fondo]
 
 \tikzset{estado/.append style={text width=3.6cm}}
-\node[titulo] at (-2.6,2.85) {\textbf{La FSM del writer} (\s{event\_slot\_writer}):
+\node[titulo] at (-2.6,3.3) {\textbf{La FSM del writer} (\s{event\_slot\_writer}):
   un evento entero, o ninguno, por slot; sin crédito se frena};
 
 \node[estado=grisr] (wi) at (0,0) {
   \cab{\ttfamily W\_IDLE}{esperando}
-  \nodepart{two}un evento completo en\\ la stage y un crédito};
-\node[estado=naranja!70] (wh) at (7,0) {
+  \nodepart{two}un evento completo en\\ la stage y un crédito\\[2pt] \s{word\_idx}, \s{hdr\_idx},\\ \s{pack\_cnt} $\leftarrow$ 0};
+\node[estado=naranja!70] (wh) at (8,0) {
   \cab{\ttfamily W\_HDR}{cabecera}
   \nodepart{two}4 palabras: \s{ts},\\ \s{\{n\_ch, n\_samp, seq\}},\\ \s{snapshot}, reservada};
-\node[estado=naranja!70] (wd) at (14,0) {
+\node[estado=naranja!70] (wd) at (15,0) {
   \cab{\ttfamily W\_DATA}{las muestras}
   \nodepart{two}4 muestras de 16 b\\ por palabra de 64 b};
-\node[estado=naranja!70] (wp) at (14,-3.6) {
+\node[estado=naranja!70] (wp) at (15,-3.6) {
   \cab{\ttfamily W\_PAD}{relleno}
-  \nodepart{two}ceros hasta la\\ anteúltima palabra};
-\node[estado=amarillo] (wf) at (7,-3.6) {
+  \nodepart{two}palabras en cero\\ mientras \s{word\_idx} $<$\\ \s{slot\_words} $-$ 1};
+\node[estado=amarillo] (wf) at (8,-3.6) {
   \cab{\ttfamily W\_FOOT}{el commit}
-  \nodepart{two}la última palabra:\\ \s{\{$\sim$seq, seq\}}};
+  \nodepart{two}la palabra \s{slot\_words} $-$ 1:\\ \s{\{$\sim$seq, seq\}}};
 \node[estado=grisr] (wo) at (0,-3.6) {
   \cab{\ttfamily W\_DONE}{cerrando}
-  \nodepart{two}espera que el FIFO\\ acepte el footer};
+  \nodepart{two}espera \s{wr\_val} = 0:\\ el FIFO aceptó el footer};
+
+% transferencia: los cuatro estados que emiten avanzan igual, de a una palabra
+% que se sostiene hasta que el axi_wr_fifo la acepta (wr_rdy)
+\node[draw=black!60, densely dotted, line width=0.9pt, rounded corners=6pt,
+      inner sep=0.2cm, fit=(wh) (wd) (wp) (wf)] (gtr) {};
+\node[font=\scriptsize\itshape, black!75, anchor=south east, inner sep=2pt, align=right]
+  at (gtr.north east) {transferencia: cada palabra se sostiene hasta \s{wr\_rdy}};
 
 \draw[trans, black!55] ([yshift=1.0cm]wi.north) node[above, guarda, black!70]
-  {\s{flush} (\textsc{stopped} o \s{clr}), desde cualquier estado} -- (wi.north);
+  {\s{flush\_i} = \textsc{stopped} $\vee$ \s{CTRL.clr}, desde cualquier estado} -- (wi.north);
 
 \draw[trans] (wi.east) -- (wh.west)
-  node[guarda, midway, above=1pt] {metadato $\wedge$ \s{credit\_ok}}
-  node[guarda, midway, below=1pt] {guarda \s{ts}, \s{snapshot},\\ \s{n\_samp}};
+  node[guarda, midway, above=1pt, align=center] {\s{s\_meta\_val\_i} $\wedge$ \s{credit\_ok\_i}\\ $\wedge\ \neg$\s{s\_meta\_rd\_o}}
+  node[guarda, midway, below=1pt] {guarda \s{ts}, \s{snapshot}, \s{nsamp};\\
+   \s{slot\_words} $\leftarrow 2^{\mathtt{slot\_shift}-3}$};
 \draw[pierde] ([yshift=3mm]wi.west) -- ++(-0.7,0) -- ++(0,-0.6) -- ([yshift=-3mm]wi.west);
 \node[guarda, rojo!75!black, anchor=east, align=right] at ([xshift=-7.5mm]wi.west)
-  {metadato $\wedge\ \neg$\s{credit\_ok}:\\ \s{no\_credit}, \textbf{se frena};\\ no descarta};
-\draw[trans] (wh.east) -- node[guarda, above=1pt] {la cuarta} node[guarda, below=1pt] {palabra} (wd.west);
-\draw[trans] (wd.south) -- node[guarda, right=2pt, align=left] {no falta nada\\ del evento} (wp.north);
-\draw[trans] (wp.west) -- node[guarda, above=1pt] {la anteúltima} node[guarda, below=1pt] {palabra} (wf.east);
-\draw[pierde, densely dashed] (wd.south west) -- node[guarda, sloped, above=1pt, rojo!75!black]
-  {el evento no entra en el slot:} node[guarda, sloped, below=1pt, rojo!75!black]
-  {\s{err\_slot\_ovf}, se trunca} (wf.north east);
-\draw[trans] (wf.west) -- node[guarda, above=1pt] {sale el} node[guarda, below=1pt] {footer} (wo.east);
-\draw[trans] (wo.north) -- node[guarda, left=2pt, align=right] {footer aceptado:\\ pop del metadato;\\
+  {\s{s\_meta\_val\_i} $\wedge\ \neg$\s{credit\_ok\_i}:\\ \s{no\_credit\_o}, \textbf{se frena};\\ no descarta};
+\draw[trans] (wh.east) -- node[guarda, above=1pt] {\s{libre} $\wedge$} node[guarda, below=1pt] {\s{hdr\_idx} = 3} (wd.west);
+\draw[trans] (wd.south) -- node[guarda, right=2pt, align=left] {$\neg$\s{hay\_mas}} (wp.north);
+\draw[trans] (wp.west) -- node[guarda, above=1pt] {\s{word\_idx} $\geq$} node[guarda, below=1pt] {\s{slot\_words} $-$ 1} (wf.east);
+\draw[pierde, densely dashed] (wd.south west) -- node[guarda, sloped, above=3pt, rojo!75!black]
+  {\s{hay\_mas} $\wedge$\\ \s{word\_idx} $\geq$ \s{slot\_words} $-$ 1:} node[guarda, sloped, below=3pt, rojo!75!black]
+  {\s{err\_slot\_ovf\_o}, se trunca} (wf.north east);
+\draw[trans] (wf.west) -- node[guarda, above=1pt] {\s{libre}:} node[guarda, below=1pt] {carga el footer} (wo.east);
+\draw[trans] (wo.north) -- node[guarda, left=2pt, align=right] {$\neg$\s{wr\_val}:\\ \s{s\_meta\_rd\_o} $\leftarrow$ 1;\\
   \s{WR\_SLOT} y \s{SEQ} $+1$} (wi.south);
+
+% definiciones de las señales de las guardas
+\node[guarda, black!70, anchor=north west, align=left] at (11.3,-4.95)
+  {\s{libre} = $\neg$\s{wr\_val} $\vee$ (\s{wr\_val} $\wedge$ \s{wr\_rdy})\\
+   \s{hay\_mas} = \s{samp\_left} $\neq$ 0 $\vee$ \s{s\_dat\_rd} $\vee$ \s{rd\_d} $\vee$ \s{pack\_cnt} $\neq$ 0};
 
 \end{tikzpicture}
 \end{document}

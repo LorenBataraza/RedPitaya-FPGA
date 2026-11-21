@@ -1,0 +1,423 @@
+% Datapath del TRAPECIO y de su MESETA, registro por registro: mca_trap
+% expandido y la cadena que convierte su salida en F_TRAP.
+%   mca_trap     las tres líneas de retardo (memorias circulares con un solo
+%                puntero de escritura wp), las banderas de llenado desde el clr
+%                (cnt contra k, l y k+l), la doble diferencia, el primer
+%                integrador, el polo-cero, el segundo integrador, el
+%                corrimiento y la saturación: 8 muestras de latencia, en dos
+%                filas con la regla de muestras arriba de cada una
+%   mca_window   la ventana de cada forma en el marco de la ranura:
+%                ini = off + 8, fin = ini + 2^lw, saturadas a 16 bits
+%   mca_slot     la suma del trapecio mientras acumula y ini <= len < fin, y
+%                cuántas muestras sumó
+%   mca_publish  el promedio (suma >>> lw) de la forma elegida f*, saturado, y
+%                cero si la ventana no se completó o el pulso quedó marcado
+% Fuentes: modulos/comun/rtl/mca_trap.sv, modulos/mca/rtl/mca_window.sv,
+% mca_slot.sv y mca_publish.sv (feat_trap), con los parámetros de
+% rtl/mine/tops/mca_red_pitaya_top.sv (3 formas, 3 ranuras). La vista por
+% bloques está en panorama_mca_window.tex y panorama_mca_slot.tex; cómo se
+% elige f*, en trapecio/banco_eleccion_forma.tex.
+% Estilo: docs/figuras/estilo_tikz.tex, con los símbolos de operación. El color
+% del fondo es la función, el mismo de los panoramas del MCA (azul
+% preprocesamiento, verde estadísticos, naranja publicación); cada fondo es
+% también un módulo. Nombres de red sin cable (k, l, Mq, sh, clr, val, wp, a_k,
+% a_l, fk1, fl1, fkl2, kl, ini, fin, len, acumula, abre, en, f*, lw, marcado):
+% la señal del mismo nombre, que se dibuja una sola vez donde nace, o que
+% viene de otra figura.
+% El epígrafe no va en la figura: está en datapath_trap_meseta.txt y en el doc
+% que la incluye.
+%
+% Compilar:   pdflatex datapath_trap_meseta.tex
+%             pdftocairo -svg datapath_trap_meseta.pdf datapath_trap_meseta.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+\tikzset{
+  reg/.style   = {registro=#1, minimum height=0.6cm, font=\scriptsize\ttfamily},
+  reg/.default = 0.8cm,
+  regt/.style  = {registro=#1, minimum height=0.5cm, font=\tiny\ttfamily},
+  regt/.default = 0.75cm,
+  % una línea de retardo con una toma dinámica: celdas en el borde de abajo
+  linea/.style = {draw=black, line width=0.6pt, fill=azul!35, minimum width=1.4cm,
+                  minimum height=0.7cm, inner sep=1pt, font=\small,
+                  path picture={\foreach \k in {1,...,7}
+                    \draw[line width=0.4pt, black!55]
+                      ($(path picture bounding box.south west)!\k/8!(path picture bounding box.south east)$)
+                      -- ++(0,0.16);}},
+  chico/.style = {font=\scriptsize\ttfamily, inner sep=1pt},
+  rot/.style   = {font=\tiny, inner sep=0.5pt, black!80},
+  red/.style   = {ctrl},
+  fondo f/.style = {draw=black!45, dashed, line width=0.5pt, rounded corners=3pt,
+                    fill=#1, inner sep=0pt},
+  rotf/.style  = {font=\scriptsize\itshape, black!75, inner sep=2pt},
+  etapa l/.style = {draw=black!30, line width=0.5pt, dash pattern=on 2pt off 2pt},
+  ciclo/.style = {font=\scriptsize, inner sep=1.5pt, fill=white},
+}
+% un nombre de red que entra a #1: desde la izquierda, o desde arriba o abajo
+% con el nombre a la izquierda de la punta
+\newcommand{\redIzq}[2]{\draw[red] ($(#1)+(-0.4,0)$) node[left, chico, black!80] {#2} -- (#1);}
+\newcommand{\redArr}[2]{\draw[red] ($(#1)+(0,0.28)$) node[left, chico, black!80] {#2} -- (#1);}
+\newcommand{\redAba}[2]{\draw[red] ($(#1)+(0,-0.28)$) node[left, chico, black!80] {#2} -- (#1);}
+% una constante que entra a #1 desde la izquierda o desde arriba
+\newcommand{\cteIzq}[2]{\draw[flujo] ($(#1)+(-0.3,0)$) node[left, cte] {#2} -- (#1);}
+\newcommand{\cteArr}[2]{\draw[flujo] ($(#1)+(0,0.32)$) node[above, cte] {#2} -- (#1);}
+% una salida con nombre: flecha corta y el nombre
+\newcommand{\nace}[2]{\draw[flujo] (#1) -- ++(0.4,0) node[right, chico] {#2};}
+% los rótulos 1/0 de las entradas de un mux, a #2 del centro
+\newcommand{\unocero}[2]{%
+  \node[font=\tiny] at ($(#1-in)+(0.13,#2)$) {1};
+  \node[font=\tiny] at ($(#1-in)+(0.13,-#2)$) {0};}
+\newcommand{\cerouno}[2]{%
+  \node[font=\tiny] at ($(#1-in)+(0.13,#2)$) {0};
+  \node[font=\tiny] at ($(#1-in)+(0.13,-#2)$) {1};}
+% la regla de muestras: #1 = y, #2 = lista de x de los registros, #3 = y de abajo
+\newcommand{\etapas}[3]{%
+  \foreach \x in {#2} \draw[etapa l] (\x,#1) -- (\x,#3);}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\def\xin{-0.2}    % donde arrancan las entradas
+
+% ===================================================== fondos por función ===
+% primero, para que todo lo demás quede encima
+\node[fondo f=azul!10, fit={(0.2,2.25) (13.2,14.85)}] (ftrap) {};
+\node[fondo f=azul!10, fit={(13.4,10.95) (15.45,14.85)}] (fwin) {};
+\node[fondo f=verde!15, fit={(0.2,-2.05) (9.0,1.65)}] (fslot) {};
+\node[fondo f=naranja!18, fit={(9.25,-2.05) (15.45,1.65)}] (fpub) {};
+
+\node[rotf, anchor=north east, fill=azul!10, align=right] at (13.1,14.78)
+  {\texttt{mca\_trap} $\times$\,3, uno por forma\\[1pt]
+   \prm{XW=15 & DAW=10 & MW=20\\ TW=18 & LAT=8}};
+\node[rotf, anchor=north east, align=right] at (fwin.south east)
+  {\texttt{mca\_window}:\\ la ventana de\\ cada meseta,\\ una por forma};
+\node[rotf, anchor=north west] at (fslot.south west)
+  {\texttt{mca\_slot} $\times$\,3: la suma sobre cada meseta, una por forma};
+\node[rotf, anchor=north east] at (fpub.south east)
+  {\texttt{mca\_publish}: el promedio de la forma elegida};
+
+% ======================================================= la regla de muestras
+\def\yra{15.15}
+\etapas{15.0}{6.4, 9.8, 12.55}{5.6}
+\node[ciclo] at (3.2,\yra) {muestra $n$};
+\node[ciclo] at (8.1,\yra) {$n{+}1$};
+\node[ciclo] at (11.2,\yra) {$n{+}2$};
+\def\yrb{4.85}
+\etapas{4.7}{2.35, 6.2, 8.15, 10.45, 12.55}{2.35}
+\node[ciclo] at (1.0,\yrb) {$n{+}3$};
+\node[ciclo] at (4.3,\yrb) {$n{+}4$};
+\node[ciclo] at (7.2,\yrb) {$n{+}5$};
+\node[ciclo] at (9.3,\yrb) {$n{+}6$};
+\node[ciclo] at (11.5,\yrb) {$n{+}7$};
+\node[ciclo] at (12.95,\yrb) {$n{+}8$};
+
+% ================================================================ entradas ===
+\foreach \y/\p/\n/\w in {14.2/cfg\_k\_i/k/10, 13.65/cfg\_l\_i/l/10,
+                         13.1/cfg\_mq\_i/Mq/20, 12.55/cfg\_sh\_i/sh/6}
+  \draw[flujo, ancho=\w, ancho en=0.45] (\xin,\y) node[left, sen] {\p} -- (0.75,\y)
+    node[right, chico] {\n};
+\draw[flujo] (\xin,12.0) node[left, sen] {clr\_i} -- (0.75,12.0) node[right, chico] {clr};
+\draw[flujo] (\xin,11.45) node[left, sen] {val\_i} -- (0.75,11.45) node[right, chico] {val};
+
+% ===================================== fila 1: las banderas de llenado ======
+% cnt cuenta las muestras desde el clr; v[n-j] existe si cnt >= j
+\node[oper] (acn) at (2.2,13.3) {$+$};
+\node[satur] (scn) at (3.0,13.3) {};
+\node[reg=0.8cm] (cnt) at (3.95,13.3) {cnt};
+\node[oper] (gk)  at (5.35,14.3) {$\geq$};
+\node[oper] (gl)  at (5.35,13.3) {$\geq$};
+\node[oper] (gkl) at (5.35,12.3) {$\geq$};
+\node[regt] (fk1)  at (6.4,14.3) {fk1};
+\node[regt] (fl1)  at (6.4,13.3) {fl1};
+\node[regt] (fkl1) at (6.4,12.3) {fkl1};
+\node[regt] (fkl2) at (9.8,12.3) {fkl2};
+\node[oper] (akl) at (2.2,12.15) {$+$};
+\node[reg=0.75cm] (kl) at (3.25,12.15) {kl};
+
+\cteArr{acn.north}{1}
+\draw[flujo] (acn.east) -- (scn.west);
+\draw[flujo] (scn.east) -- (cnt.west);
+\draw[red] (3.75,13.88) node[left, chico, black!80] {val} -- (3.75,13.6);
+\draw[red] (4.15,13.88) node[right, chico, black!80] {clr} -- (4.15,13.6);
+\draw[line width=0.8pt] (cnt.east) -- (4.6,13.3);
+\draw[line width=0.8pt] (4.6,14.3) -- (4.6,12.3);
+\punto{4.6,13.3}
+\draw[flujo] (4.6,14.3) -- (gk.west);
+\draw[flujo] (4.6,13.3) -- (gl.west);
+\draw[flujo] (4.6,12.3) -- (gkl.west);
+\punto{4.6,12.85}
+\draw[flujo] (4.6,12.85) -- (2.2,12.85) -- (acn.south);
+\redArr{gk.north}{k}
+\redArr{gl.north}{l}
+\redArr{gkl.north}{kl}
+\draw[flujo] (gk.east) -- (fk1.west);
+\draw[flujo] (gl.east) -- (fl1.west);
+\draw[flujo] (gkl.east) -- (fkl1.west);
+\draw[flujo] (fkl1.east) -- (fkl2.west);
+\nace{fk1.east}{fk1}
+\nace{fl1.east}{fl1}
+\nace{fkl2.east}{fkl2}
+\redIzq{akl.west}{k}
+\redAba{akl.south}{l}
+\draw[flujo] (akl.east) -- (kl.west);
+\nace{kl.east}{kl}
+
+% ============================================ fila 1: las líneas de retardo ==
+\node[reg] (v1) at (6.4,10.45) {v1};
+\node[linea] (lk) at (2.9,9.35) {$z^{-k}$};
+\node[reg] (rk) at (6.4,9.35) {rd\_k};
+\node[linea] (ll) at (2.9,8.1) {$z^{-l}$};
+\node[reg] (rl) at (6.4,8.1) {rd\_l};
+\node[linea] (lkl) at (8.2,6.7) {$z^{-k}$};
+\node[reg] (rkl) at (9.8,6.7) {rd\_kl};
+
+\draw[flujo, ancho=15, ancho en=0.12] (\xin,10.45) node[left, sen] {x\_i} -- (v1.west);
+\punto{1.25,10.45}
+\draw[flujo] (1.25,10.45) |- (lk.west);
+\punto{1.25,9.35}
+\draw[flujo] (1.25,9.35) |- (ll.west);
+\draw[flujo] (lk.east) -- (rk.west);
+\draw[flujo] (ll.east) -- (rl.west);
+\punto{6.95,8.1}
+\draw[flujo] (6.95,8.1) |- (lkl.west);
+\draw[flujo] (lkl.east) -- (rkl.west);
+% cada línea escribe en wp y lee en wp - k (o wp - l)
+\foreach \l/\a in {lk/a\_k, ll/a\_l, lkl/a\_k} {
+  \draw[red] ($(\l.south west)+(0.3,-0.28)$) node[left, chico, black!80] {wp} -- ++(0,0.28);
+  \draw[red] ($(\l.south east)+(-0.25,-0.28)$) node[left, chico, black!80] {\a} -- ++(0,0.28);
+}
+
+% el puntero y las dos direcciones de lectura
+\node[oper] (awp) at (1.8,6.75) {$+$};
+\node[reg=0.8cm] (wp) at (2.8,6.75) {wp};
+\node[oper] (oak) at (4.35,6.75) {$-$};
+\node[oper] (oal) at (4.35,6.0) {$-$};
+\cteIzq{awp.west}{1}
+\draw[flujo] (awp.east) -- (wp.west);
+\draw[red] (2.6,6.17) node[left, chico, black!80] {val} -- (2.6,6.45);
+\draw[red] (3.0,6.17) node[right, chico, black!80] {clr} -- (3.0,6.45);
+\punto{3.55,6.75}
+\draw[flujo] (wp.east) -- (oak.west);
+\draw[flujo] (3.55,6.75) -- (3.55,7.2) -- (1.8,7.2) -- (awp.north);
+\draw[flujo] (3.55,6.75) |- (oal.west);
+\redArr{oak.north}{k}
+\redAba{oal.south}{l}
+\nace{oak.east}{a\_k}
+\nace{oal.east}{a\_l}
+\foreach \o in {oak, oal} {
+  \node[rot, above left] at (\o.west) {$+$};
+}
+\node[rot, right] at ($(oak.north)+(0.04,0.1)$) {$-$};
+\node[rot, right] at ($(oal.south)+(0.04,-0.1)$) {$-$};
+
+% ======================================= fila 1: las tomas y la doble diferencia
+% una toma que todavía no existe desde el clr lee 0
+\muxdec{mk}{(7.65,9.15)}{0.9}
+\unocero{mk}{0.2}
+\muxdec{ml}{(8.05,7.9)}{0.9}
+\unocero{ml}{0.2}
+\muxdec{mkl}{(11.1,6.5)}{0.9}
+\unocero{mkl}{0.2}
+\node[oper] (re) at (8.75,10.45) {$-$};
+\node[reg] (e2) at (9.8,10.45) {e2};
+\node[reg] (l2) at (9.8,7.9) {l2};
+\node[oper] (sd) at (11.6,7.9) {$+$};
+\node[reg] (d3) at (12.55,7.9) {d3};
+
+\draw[flujo] (rk.east) -- (mk-in |- 0,9.35);
+\cteIzq{$(mk-in)+(0,-0.2)$}{0}
+\draw[red] ($(mk)+(0,0.53)$) node[left, chico, black!80] {fk1} -- ($(mk)+(0,0.275)$);
+\draw[flujo] (mk-out) -| (re.south);
+\draw[flujo] (v1.east) -- (re.west);
+\node[rot, above left] at (re.west) {$+$};
+\node[rot, right] at ($(re.south)+(0.04,-0.1)$) {$-$};
+\draw[flujo, ancho=16, ancho en=0.5] (re.east) -- (e2.west);
+
+\draw[flujo] (rl.east) -- (ml-in |- 0,8.1);
+\cteIzq{$(ml-in)+(0,-0.2)$}{0}
+\redAba{$(ml)+(0,-0.275)$}{fl1}
+\draw[flujo] (ml-out) -- (l2.west);
+
+\draw[flujo] (rkl.east) -- (mkl-in |- 0,6.7);
+\cteIzq{$(mkl-in)+(0,-0.2)$}{0}
+\draw[red] ($(mkl)+(0,0.53)$) node[left, chico, black!80] {fkl2} -- ($(mkl)+(0,0.275)$);
+
+% d = e2 - l2 + v[n-k-l]: una sola suma de tres
+\draw[flujo] (e2.east) -| (sd.north);
+\draw[flujo] (l2.east) -- (sd.west);
+\draw[flujo] (mkl-out) -| (sd.south);
+\node[rot, right] at ($(sd.north)+(0.04,0.12)$) {$+$};
+\node[rot, above left] at (sd.west) {$-$};
+\node[rot, right] at ($(sd.south)+(0.04,-0.12)$) {$+$};
+\draw[flujo] (sd.east) -- (d3.west);
+
+% d baja a la fila 2 por el canal de la derecha
+\draw[flujo, ancho=17, ancho en=0.55] (d3.east) -- (13.0,7.9) -- (13.0,5.2) -- (0.45,5.2) -- (0.45,3.75) -- (0.99,3.75);
+\node[chico, anchor=south] at (12.55,5.2) {d};
+
+% ============================== fila 2: integradores, polo-cero y salida ====
+\def\yb{3.75}
+\node[oper] (ap) at (1.25,\yb) {$+$};
+\node[reg] (p4) at (2.35,\yb) {p4};
+\node[reg] (d4) at (2.35,2.65) {d4};
+\node[desp] (dmf) at (3.95,\yb) {\texttt{<{}<{}< 4}};
+\node[oper] (mul) at (3.95,2.65) {$\times$};
+\node[oper] (ar) at (5.2,\yb) {$+$};
+\node[reg] (r5) at (6.2,\yb) {r5};
+\node[oper] (as) at (7.2,\yb) {$+$};
+\node[reg] (s6) at (8.15,\yb) {s6};
+\node[desp] (dsh) at (9.35,\yb) {\texttt{>{}>{}>}};
+\node[reg] (q7) at (10.45,\yb) {q7};
+\node[satur] (st) at (11.5,\yb) {};
+\node[rot, below] at (st.south) {18 b};
+\node[reg] (t8) at (12.55,\yb) {t8};
+
+% el primer integrador: p <= p + d; d4 lo acompaña
+\punto{0.75,\yb}
+\draw[flujo] (0.75,\yb) |- (d4.west);
+\draw[flujo] (ap.east) -- (p4.west);
+\punto{3.05,\yb}
+\draw[flujo, ancho=26, ancho en=0.68] (p4.east) -- (dmf.west);
+\draw[flujo] (3.05,\yb) -- (3.05,3.25) -- (1.25,3.25) -- (ap.south);
+\draw[red] ($(p4.north)+(0,0.3)$) node[above, chico, black!80] {clr} -- (p4.north);
+
+% el polo-cero: r = p * 2^4 + Mq * d
+\draw[flujo] (d4.east) -- (mul.west);
+\redArr{mul.north}{Mq}
+\draw[flujo] (dmf.east) -- (ar.west);
+\draw[flujo] (mul.east) -| (ar.south);
+\draw[flujo, ancho=39, ancho en=0.5] (ar.east) -- (r5.west);
+
+% el segundo integrador: s <= s + r
+\draw[flujo] (r5.east) -- (as.west);
+\draw[flujo] (as.east) -- (s6.west);
+\punto{8.8,\yb}
+\draw[flujo, ancho=48, ancho en=0.55] (s6.east) -- (dsh.west);
+\draw[flujo] (8.8,\yb) -- (8.8,3.25) -- (7.2,3.25) -- (as.south);
+\draw[red] ($(s6.north)+(0,0.3)$) node[above, chico, black!80] {clr} -- (s6.north);
+
+% corrimiento y saturación
+\redArr{dsh.north}{sh}
+\draw[flujo] (dsh.east) -- (q7.west);
+\draw[flujo] (q7.east) -- (st.west);
+\draw[flujo] (st.east) -- (t8.west);
+
+% =================================== mca_window: la ventana de cada meseta ===
+% lw a la izquierda (fin), off a la derecha (ini)
+\node[oper] (aof) at (14.95,14.0) {$+$};
+\node[satur] (sof) at (14.95,12.85) {};
+\node[regt=0.95cm] (rini) at (14.95,11.85) {trap\_ini};
+\node[desp] (dlw) at (13.9,14.45) {\texttt{1 <{}<}};
+\node[oper] (afi) at (13.9,13.55) {$+$};
+\node[satur] (sfi) at (13.9,12.85) {};
+\node[regt=0.95cm] (rfin) at (13.9,11.85) {trap\_fin};
+
+\draw[flujo, anchov=16, ancho en=0.55] (14.95,15.75) node[above left, sen, xshift=4pt] {cfg\_trap\_off\_i} -- (aof.north);
+\cteIzq{aof.west}{8}
+\punto{14.95,13.55}
+\draw[flujo] (aof.south) -- (sof.north);
+\draw[flujo] (14.95,13.55) -- (afi.east);
+\draw[flujo] (sof.south) -- (rini.north);
+\draw[flujo, anchov=3, ancho en=0.5] (13.9,15.25) node[above left, sen, xshift=4pt] {cfg\_trap\_lw\_i} -- (dlw.north);
+\draw[flujo] (dlw.south) -- (afi.north);
+\draw[flujo] (afi.south) -- (sfi.north);
+\draw[flujo] (sfi.south) -- (rfin.north);
+\draw[flujo] (rini.south) -- ++(0,-0.35) node[below, chico] {ini};
+\draw[flujo] (rfin.south) -- ++(0,-0.35) node[below, chico] {fin};
+
+% ======================================= mca_slot: la suma sobre la meseta ===
+% en = acumula y ini <= len < fin
+\node[oper] (ge) at (1.4,0.0) {$\geq$};
+\node[oper] (lt) at (1.4,-0.9) {$<$};
+\node[puerta y=nnn, anchor=input 1, minimum height=0.7cm] (yen) at (2.55,0.0) {};
+\redIzq{ge.west}{len}
+\redIzq{lt.west}{len}
+\redArr{ge.north}{ini}
+\redAba{lt.south}{fin}
+\draw[flujo] (ge.east) -- (yen.input 1);
+\draw[flujo] (lt.east) -- ++(0.45,0) |- (yen.input 2);
+\draw[red] (2.4,-1.3) node[below, chico, black!80] {acumula} |- (yen.input 3);
+\nace{yen.output}{en}
+
+% la suma: al abrir, 0; con en, + el trapecio; si no, la que tenía
+\node[oper] (asu) at (4.3,0.4) {$+$};
+\muxdec{mse}{(5.4,0.6)}{0.9}
+\cerouno{mse}{0.2}
+\muxdec{msa}{(6.55,0.8)}{0.9}
+\unocero{msa}{0.2}
+\node[reg=0.9cm] (rsu) at (7.75,0.8) {suma};
+
+% el trapecio llega de t8
+\draw[flujo, ancho=18, ancho en=0.08] (t8.east) -- (13.1,\yb) -- (13.1,1.95) -- (3.6,1.95) -- (3.6,0.4) -- (asu.west);
+\node[sen, right] at (13.1,2.9) {trap\_o};
+\draw[flujo] (asu.east) -- (mse-in |- 0,0.4);
+\draw[flujo] (mse-out) -- (msa-in |- 0,0.6);
+\cteIzq{$(msa-in)+(0,0.2)$}{0}
+\redAba{$(mse)+(0,-0.275)$}{en}
+\redAba{$(msa)+(0,-0.275)$}{abre}
+\draw[flujo] (msa-out) -- (rsu.west);
+\punto{8.5,0.8}
+\draw[flujo] (8.5,0.8) -- (8.5,1.45) -- (4.3,1.45) -- (asu.north);
+\punto{4.75,1.45}
+\draw[flujo] (4.75,1.45) |- (mse-in |- 0,0.8);
+
+% la cuenta, con la misma regla
+\node[oper] (acu) at (4.3,-1.45) {$+$};
+\muxdec{mce}{(5.4,-1.25)}{0.9}
+\cerouno{mce}{0.2}
+\muxdec{mca}{(6.55,-1.05)}{0.9}
+\unocero{mca}{0.2}
+\node[reg=0.9cm] (rcu) at (7.75,-1.05) {cuenta};
+\cteIzq{acu.west}{1}
+\draw[flujo] (acu.east) -- (mce-in |- 0,-1.45);
+\draw[flujo] (mce-out) -- (mca-in |- 0,-1.25);
+\cteIzq{$(mca-in)+(0,0.2)$}{0}
+\redAba{$(mce)+(0,-0.275)$}{en}
+\redAba{$(mca)+(0,-0.275)$}{abre}
+\draw[flujo] (mca-out) -- (rcu.west);
+\punto{8.5,-1.05}
+\draw[flujo] (8.5,-1.05) -- (8.5,-0.45) -- (4.3,-0.45) -- (acu.north);
+\punto{4.75,-0.45}
+\draw[flujo] (4.75,-0.45) |- (mce-in |- 0,-1.05);
+
+% ========================================== mca_publish: el promedio ========
+\muxdec{mfs}{(10.2,0.8)}{0.9}
+\muxdec{mfn}{(10.2,-1.05)}{0.9}
+\node[desp] (dpr) at (11.35,0.8) {\texttt{>{}>{}>}};
+\node[satur] (spr) at (12.4,0.8) {};
+\node[rot, above] at (spr.north) {$0\ldots2^{16}{-}1$};
+\muxdec{mo}{(13.35,0.6)}{0.9}
+\unocero{mo}{0.2}
+\node[reg=1.0cm] (rft) at (14.4,0.6) {F\_TRAP};
+\node[desp] (d2l) at (11.35,-0.25) {\texttt{1 <{}<}};
+\node[oper] (eq) at (11.35,-1.05) {$=$};
+\node[puerta y=ni, anchor=input 1] (yok) at (12.2,-1.05) {};
+
+\draw[flujo, ancho=3$\times$25, ancho en=0.45] (8.5,0.8) -- (mfs-in);
+\draw[flujo, ancho=3$\times$8, ancho en=0.45] (rcu.east) -- (mfn-in);
+\redAba{$(mfs)+(0,-0.275)$}{f*}
+\redAba{$(mfn)+(0,-0.275)$}{f*}
+\draw[flujo] (mfs-out) -- (dpr.west);
+\redArr{dpr.north}{lw}
+\draw[flujo] (dpr.east) -- (spr.west);
+\draw[flujo] (spr.east) -- (mo-in |- 0,0.8);
+\cteIzq{$(mo-in)+(0,-0.2)$}{0}
+\draw[flujo] (mfn-out) -- (eq.west);
+\redIzq{d2l.west}{lw}
+\draw[flujo] (d2l.south) -- (eq.north);
+\draw[flujo] (eq.east) -- (yok.input 1);
+\draw[red] (11.95,-1.75) node[below, chico, black!80] {marcado} |- (yok.input 2);
+\draw[flujo] (yok.output) -| ($(mo)+(0,-0.275)$);
+\draw[flujo] (mo-out) -- (rft.west);
+\draw[flujo, ancho=16, ancho en=0.45] (rft.east) -- (15.3,0.6);
+
+% ================================================================= leyenda ===
+\leyenda{0.2,-2.95}{azul!10/preprocesamiento, verde!15/estadísticos del pulso,
+  naranja!18/publicación, grisr/registro}{}
+
+\end{tikzpicture}
+\end{document}

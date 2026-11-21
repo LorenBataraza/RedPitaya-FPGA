@@ -1,0 +1,7 @@
+El stage a nivel de operación. El metadato se escribe en `meta[meta_wr]` con el
+SOF (`sof_v`) y `meta_wr` avanza recién con el EOF (`eof_v`): el writer no ve un
+evento cuyas muestras todavía están entrando. `meta_open` marca ese evento a medio
+entrar, y la aceptación lo cuenta: `s_accept_o = (free ≥ win_len_i) ∧ ¬meta_full`,
+con `meta_full = meta_lvl + meta_open ≥ E`. La cola de muestras tiene lectura
+registrada (`dout_r`), un ciclo después del pop. Las redes con nombre se conectan
+por nombre. Versión en bloques: `panorama_event_stage_fifo`.

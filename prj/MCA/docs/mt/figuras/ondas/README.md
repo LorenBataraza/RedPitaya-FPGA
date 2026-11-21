@@ -1,8 +1,10 @@
 # Figuras: ondas del módulo Multitrigger
 
-Cuatro diagramas de tiempo. Tres salen de los VCD de
-`tb_trigger_shield` y `tb_mt_trig_src`; el cuarto es un esquema de la
-secuencia de uso.
+Tres diagramas de tiempo, de los VCD de `tb_trigger_shield` y
+`tb_mt_trig_src`. La secuencia de uso (el contrato PS ↔ módulo) no es una
+figura de ondas: es un diagrama de secuencia,
+[`../secuencia/mt_secuencia.svg`](../secuencia/mt_secuencia.svg), y va en la
+§1.3 del datasheet.
 
 La primera junta las **tres formas del veto** en un solo dibujo, separadas por
 el hueco de WaveDrom (`|`): son tres ventanas distintas del mismo testbench y el
@@ -14,12 +16,11 @@ hueco daría a entender que una sigue a la otra.
 | Veto en Multitrigger | [`mt_veto_tres_formas.svg`](mt_veto_tres_formas.svg) | nivel / nivel con cola / ventana por flanco | simulación | `tb_trigger_shield`, escenas 4, 5 y 6 |
 | Holdoff y re-arm del escudo | [`mt_holdoff_rearm.svg`](mt_holdoff_rearm.svg) | el escudo cuenta y al expirar limpia el canal de destino | simulación | `tb_trigger_shield`, escena 2 |
 | Disparo single-shot | [`mt_trig_src_enganche.svg`](mt_trig_src_enganche.svg) | el flanco dispara, engancha el disable y la mascara se auto-limpia | simulación | `tb_mt_trig_src`, escena 1 |
-| Flujo de uso del Multitrigger | [`mt_flujo.svg`](mt_flujo.svg) | mt_cfg | esquema | esquema (sin VCD) |
 
 Los epígrafes —con los números medidos— están en
 [`epigrafes.txt`](epigrafes.txt), que escribe el mismo script para que no
 puedan desincronizarse de los dibujos. El visor
-[`ondas_mt.html`](ondas_mt.html) muestra las 4 con sus notas y
+[`ondas_mt.html`](ondas_mt.html) muestra las 3 con sus notas y
 no necesita nada instalado.
 
 ## Regenerar

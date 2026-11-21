@@ -1,0 +1,282 @@
+% Panorama de MCA_TOP EXPANDIDO: el mismo de panorama_mca_top.tex, con los
+% bloques chicos abiertos a nivel de operación, como en el OSC:
+%   - el disparo y el asignador (flanco, abre, la ranura de menor índice);
+%   - la línea de base (el IIR con su holdoff);
+%   - la contabilidad (los relojes del teselado, la ocupación y los períodos
+%     muertos, cada uno con lo que lo habilita).
+% Las ranuras, los trapecios, los divisores, el zoom y los histogramas quedan
+% como submódulos. El disparo omite el pendiente de la decimación (un flanco
+% entre dos muestras válidas espera a la siguiente): está en
+% panorama_mca_window_expandido.tex.
+% Las redes con nombre se conectan por nombre: el trazo corto que entra a un pin
+% lleva el nombre de la red.
+% Fuente: modulos/mca/rtl/mca_top.sv, mca_window.sv y mca_baseline.sv,
+% instanciado como en rtl/mine/tops/mca_red_pitaya_top.sv (3 ranuras, 3 formas).
+% Estilo: docs/figuras/estilo_tikz.tex; los colores por función, los mismos de
+% panorama_mca_top.tex.
+% El epígrafe no va en la figura: está en panorama_mca_top_expandido.txt.
+%
+% Compilar:   pdflatex panorama_mca_top_expandido.tex
+%             pdftocairo -svg panorama_mca_top_expandido.pdf panorama_mca_top_expandido.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+\usetikzlibrary{decorations.pathreplacing}
+\tikzset{
+  linea/.style   = {rectangle split, rectangle split parts=2},
+  pre/.style     = {bloque=azul!35, param={azul!35}{azul!12}},
+  est/.style     = {bloque=verde!55, param={verde!55}{verde!20}},
+  pub/.style     = {bloque=naranja!70, param={naranja!70}{naranja!25}},
+  publog/.style  = {etapa=naranja!30},
+  varios/.style  = {double copy shadow={shadow xshift=2pt, shadow yshift=-2pt}},
+  chico/.style   = {font=\tiny, inner sep=1pt, align=center},
+  op/.style      = {oper, font=\scriptsize},
+  caja/.style    = {desp, inner sep=2pt, minimum height=0.5cm},
+  reg/.style     = {registro=#1, minimum height=0.55cm, font=\scriptsize\ttfamily},
+  reg/.default   = 1.05cm,
+  cnt/.style     = {registro=1.9cm, minimum height=0.48cm, font=\scriptsize\ttfamily},
+  fondo f/.style = {draw=black!45, dashed, line width=0.5pt, rounded corners=3pt, fill=#1},
+  rotf/.style    = {font=\scriptsize\itshape, black!75, inner sep=2pt},
+  red/.style     = {font=\scriptsize\ttfamily, inner sep=1pt},
+  y3/.style      = {logic gate input sep=0.2cm},
+}
+\newcommand{\red}[3][0.3]{\draw[flujo] ($(#2)+(-#1,0)$) node[left, red] {#3} -- (#2);}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+\def\ytop{4.9}    % de donde bajan las entradas
+
+% ============================================================ las regiones ===
+\node[fondo f=grisr!45, fit={(6.75,-0.85) (15.2,3.65)}] (fcon) {};
+\node[fondo f=amarillo!22, fit={(3.85,-1.95) (10.55,-4.5)}] (fasg) {};
+\node[rotf, anchor=south west] at (fasg.south west) {disparo y asignador};
+\node[rotf, anchor=north west] at (fcon.north west) {contabilidad};
+\node[fondo f=azul!10, fit={(1.05,-5.55) (3.4,-11.0)}] (fbas) {};
+\node[rotf, anchor=north west, align=left] at (fbas.north west) {\texttt{mca\_baseline}};
+\node[fondo f=azul!10, fit={(4.45,-8.85) (9.45,-11.0)}] (fhol) {};
+\node[rotf, anchor=south east] at (fhol.south east) {cuándo sigue la base};
+
+% ======================================================== la contabilidad ===
+% los relojes del teselado: cada ciclo con run suma en exactamente uno
+\node[cnt] (crt) at (10.05,3.0) {REALTIME};
+\node[cnt] (cve) at (10.05,2.4) {VETOTIME};
+\node[cnt] (cwi) at (10.05,1.8) {T\_WIN};
+\node[cnt] (cdi) at (10.05,1.2) {T\_DIV};
+\node[cnt] (cra) at (10.05,0.6) {T\_REARM};
+\node[cnt] (cli) at (10.05,0.0) {LIVETIME};
+\red{crt.west}{run}
+\red{cve.west}{veto}
+\red{cwi.west}{$\neg$veto$\wedge$dt\_win}
+\red{cdi.west}{$\neg$veto$\wedge$dt\_div}
+\red{cra.west}{$\neg$veto$\wedge$puede$\wedge\neg$arm}
+\red{cli.west}{$\neg$veto$\wedge$puede$\wedge$arm}
+\draw[decorate, decoration={brace, amplitude=4pt}, line width=0.5pt]
+  ($(cve.north east)+(0.08,0)$) -- ($(cli.south east)+(0.08,0)$);
+\node[chico, anchor=north west, align=left] at (6.95,0 |- cli.south) {la llave: el teselado, un casillero por ciclo;\\ cada uno, $+1$ por ciclo, de 64 b};
+% la ocupación, y lo que no entra en el teselado
+\node[cnt] (coc) at (14.15,3.0) {T\_OCUP[$j$]};
+\node[cnt] (cde) at (14.15,2.4) {DEADTIME};
+\node[cnt] (ccl) at (14.15,1.8) {T\_CLEAR};
+\red{coc.west}{$\neg$veto}
+\red{cde.west}{$\neg$veto$\wedge$busy}
+\red{ccl.west}{clear}
+\node[chico, anchor=south east] at (coc.north east) {$j$ = \texttt{n\_ocup}};
+% los períodos muertos: tramos sin ranura libre
+\node[cnt] (cpe) at (14.15,1.0) {DEAD\_PERIODS};
+\node[cnt] (cml) at (14.15,0.4) {MAX\_DEAD\_LEN};
+\node[cnt] (cex) at (14.15,-0.2) {DEAD\_EXT};
+\red{cpe.west}{$\uparrow$bloq}
+\red{cml.west}{máx $L$}
+\red{cex.west}{bloq$\wedge$arribo}
+\node[chico, anchor=north east] at (15.15,0 |- cex.south) {bloq = $\neg$veto$\wedge$(dt\_win$\vee$dt\_div)};
+% entradas de la contabilidad
+\draw[flujo] (8.2,\ytop) node[above, sen] {veto\_i} -- (8.2,0 |- fcon.north);
+\draw[flujo] (9.2,\ytop) node[above, sen] {trig\_arm\_i} -- (9.2,0 |- fcon.north);
+\node[chico, anchor=north west, align=left] at (8.25,3.6) {$\to$ veto};
+\node[chico, anchor=north west, align=left] at (9.25,3.6) {$\to$ arm};
+
+% ================================================== mca_pulse_feature ===
+% --- la muestra y la resta ---
+\node[circle, draw, line width=0.6pt, fill=azul!15, minimum size=5.5mm, inner sep=0pt,
+      font=\small] (res) at (4.2,-5.0) {$-$};
+\node[registro, minimum width=0.85cm] (xq) at (5.3,-5.0) {\texttt{xc\_q}\\ \texttt{x\_q}};
+
+% --- el disparo y el asignador, abiertos ---
+\node[reg=0.95cm] (tq) at (4.95,-3.25) {trig\_q};
+\node[puerta y=nin, y3, anchor=input 1] (edg) at (5.85,-2.25) {};
+\draw[flujo] (4.15,\ytop) node[above, sen] {trig\_i} -- (4.15,-2.25) -- (edg.input 1);
+\draw[flujo] (4.15,-3.25) -- (tq.west);
+\punto{4.15,-3.25}
+\draw[flujo] (tq.east) -| ($(edg.input 2)+(-0.2,0)$) -- (edg.input 2);
+\red{edg.input 3}{val$\wedge$run}
+\node[chico, anchor=south] at ($(edg.output)+(0.32,0)$) {disparo};
+\node[puerta y=nin, y3, anchor=input 1] (abr) at (8.0,0 |- edg.output) {};
+\draw[flujo] (edg.output) -- (abr.input 1);
+\red{abr.input 2}{veto}
+\red{abr.input 3}{puede}
+\node[op] (pue) at (6.85,-3.4) {$\neq0$};
+\red{pue.west}{libre}
+\draw[flujo] (pue.east) -- ++(0.3,0) node[right, red] {puede};
+\node[caja] (pri) at (7.0,-4.15) {menor\\ índice};
+\red{pri.west}{libre}
+\node[caja, anchor=west] (oh) at ($(pri.east)+(0.2,0)$) {$1 \ll$ sel};
+\draw[flujo] (pri.east) -- (oh.west);
+\node[puerta y, anchor=input 2] (aoh) at ($(oh.east)+(0.3,0)$) {};
+\draw[flujo] (oh.east) -- (aoh.input 2);
+\draw[flujo] (abr.output) -- ++(0.3,0) node[right, red] {abre};
+\draw[flujo] ($(aoh.input 1)+(-0.2,0.45)$) node[above, red] {abre} |- (aoh.input 1);
+\node[reg=0.85cm] (raq) at (10.25,0 |- aoh.output) {abre\_q};
+\draw[flujo] (aoh.output) -- (raq.west);
+
+% --- trapecios y ranuras ---
+\node[pre, text width=1.85cm, varios] (trp) at (5.75,-6.45)
+  {\blk{mca\_trap {\normalfont$\times$} 3}{}\nodepart{two}$k$, $m$ propios;\\ $M$ común};
+\node[est, text width=3.0cm, varios] (acu) at (8.9,-6.05)
+  {\blk{mca\_slot {\normalfont$\times$} 3}{}\nodepart{two}pico, $Q_\mathrm{tot}$, $Q_\mathrm{cola}$,\\
+   largo, $t_\mathrm{pico}$, \texttt{dt\_next};\\ ventana de amplitud;\\ una meseta por forma};
+\draw[flujo] (raq.south) -- node[chico, right, align=left] {+ marcas} (raq.south |- acu.north);
+\node[grupo, fit={(3.6,-1.75) (10.7,-8.55)}] (gw) {};
+\node[rotulo, anchor=north east] at (gw.north east) {\texttt{mca\_window}};
+
+% --- mca_publish ---
+\node[est, text width=2.8cm, varios] (div) at (12.45,-3.05)
+  {\blk{mca\_div\_restore {\normalfont$\times$} 2}{}\nodepart{two}$Q_\mathrm{cola}/Q_\mathrm{tot} \to$ \texttt{F\_PSD}\\
+   pico$/Q_\mathrm{tot} \to$ \texttt{F\_INVW}\\[1pt] {\tiny 16 b en 16 ciclos}};
+\node[publog, text width=2.8cm, linea] (pubr) at (12.45,-6.25)
+  {{\bfseries publicador}\nodepart{two}de a una cerrada,\\ en orden de cierre:\\ elige la forma,\\ arma el bus, libera\\[1pt] {\tiny 18 ciclos por evento}};
+\node[grupo, fit={(10.95,-1.75) (14.1,-8.55)}] (gp) {};
+\node[rotulo, anchor=south east] at (gp.south east) {\texttt{mca\_publish}};
+
+% --- la línea de base, abierta: b_acc += dat - (b_acc >> k), base = b_acc >> k o fija ---
+\node[op] (bme) at (2.3,-6.15) {$-$};
+\node[op] (bma) at (2.3,-7.0) {$+$};
+\node[reg=1.0cm] (bac) at (2.3,-7.9) {bl\_acc};
+\node[chico, anchor=west, align=left] at (3.05,-7.65) {en:\\ sigue};
+\node[caja] (bsh) at (2.3,-8.85) {$\gg k$};
+\muxdecv{bmx}{(2.65,-9.75)}{1.1}
+\node[reg=1.0cm] (bas) at (2.65,-10.55) {base};
+\draw[flujo] (bme.south) -- (bma.north);
+\draw[flujo] (bma.south) -- (bac.north);
+\draw[flujo] (bac.south) -- (bsh.north);
+\coordinate (jb) at ($(bac.south)!0.5!(bsh.north)$);
+\draw[flujo] (jb) -- ++(0.65,0) |- (bma.east);
+\punto{jb}
+\draw[flujo] (bsh.west) -- ++(-0.6,0) |- (bme.west);
+\draw[flujo] (bsh.south) -- (2.3,0 |- bmx-in);
+\draw[flujo] (3.02,-9.05) node[above, red] {fija} -- (3.02,0 |- bmx-in);
+\draw[ctrl] ($(bmx-sel)+(-0.4,0)$) node[left, red, black!80] {auto} -- (bmx-sel);
+\draw[flujo] (bmx-out) -- (bas.north);
+% --- cuándo sigue: ninguna ranura midiendo, y pasado el holdoff del último cierre ---
+\node[reg=1.15cm] (bho) at (5.65,-9.65) {bl\_hold};
+\node[chico, anchor=north, align=center] at (bho.south) {carga holdoff al cerrar;\\ $-1$ por muestra válida};
+\node[op] (bce) at (6.9,-9.65) {$=0$};
+\draw[flujo] (bho.east) -- (bce.west);
+\red{bho.west}{cierra}
+\node[puerta y=nnn, y3, anchor=input 3] (bsg) at (7.75,0 |- bce.east) {};
+\draw[flujo] (bce.east) -- (bsg.input 3);
+\draw[flujo] ($(bsg.input 1)+(-0.25,0.35)$) node[above, red] {val, bl\_track} |- (bsg.input 1);
+\draw[flujo] ($(bsg.input 1)+(-0.25,0)$) |- (bsg.input 2);
+\draw[flujo] (bsg.output) -- ++(0.25,0) node[right, red] {sigue};
+
+\node[contenedor, draw=black!55, line width=0.7pt, fit={(0.9,-1.35) (14.25,-11.25)}] (pf) {};
+\node[rotulo, anchor=north west] at (pf.north west)
+  {\texttt{mca\_pulse\_feature}\; (solo cableado)};
+
+% =============================================== del evento al histograma ===
+\def\yc{-14.05}
+\node[publog, text width=1.75cm, linea] (mux) at (1.9,\yc)
+  {{\bfseries mux de eje}\nodepart{two}16:1 por eje,\\ \texttt{cfg\_sel\_*}};
+\node[registro, minimum width=0.95cm] (fq) at (3.75,\yc) {\texttt{f\_q}\\ \texttt{inc}};
+\node[pub, text width=1.8cm, varios] (zoo) at (5.75,\yc)
+  {\blk{mca\_zoom {\normalfont$\times$} 3}{}\nodepart{two}feature $\to$ bin,\\ ventana $2^{-z}$};
+\node[registro, minimum width=0.95cm] (pip) at (7.75,\yc) {\texttt{bin}\\ \texttt{inc}};
+\node[pub, text width=2.75cm, varios] (hst) at (10.35,\yc)
+  {\blk{mca\_hist {\normalfont$\times$} 2}{}\nodepart{two}1D: 8192 $\times$ 32 b\\
+   2D: $128{\times}64 \times 32$ b};
+\node[pub, text width=2.3cm] (dis) at (13.8,\yc)
+  {\blk{mca\_discriminator}{}\nodepart{two}una feature\\ en $[\min, \max]$};
+
+% ======================================================= registros y bus ===
+\node[comp, text width=14.3cm, minimum height=0.95cm, linea] (reg) at (8.1,-16.9)
+  {{\bfseries banco de registros}\nodepart{two}\texttt{cfg\_*} \;$\cdot$\; contadores de 64 b con sombra
+   \;$\cdot$\; mux de lectura \;$\cdot$\; ack de latencia fija};
+\node[bus, text width=1.8cm] (sb) at (8.1,-18.5) {\texttt{\bfseries sys\_bus}};
+
+% ============================================================ caja mca_top
+\node[contenedor, fit={(0.65,4.0) (15.55,-17.6)}] (top) {};
+\node[titulo, anchor=south east, inner sep=2pt, align=left] at (top.north east)
+  {\texttt{\bfseries mca\_top}\;\; {\scriptsize\itshape expandido, todo en \texttt{adc\_clk}}\\[1pt]
+   \prm{DW=14 & H\_AW=13 & H2\_AW=7\\ PSD\_AW=6 & N\_ACC=3 & N\_FORMAS=3}};
+
+% ============================================================== flechas ====
+% --- la muestra: a la base y a la resta ---
+\coordinate (jd) at (2.3,-5.0);
+\node[sen, align=center, anchor=south] at (2.3,\ytop)
+  {dat\_d\\[-1pt]\normalfont\scriptsize un canal, retrasado};
+\draw[flujo, anchov=14, ancho en=0.15] (2.3,\ytop) -- (jd) -- (res.west);
+\punto{jd}
+\draw[flujo] (jd) -- (bme.north);
+\draw[flujo] (bas.east) -- node[sen, above, pos=0.5] {base} (4.2,0 |- bas.east) -- (res.south);
+
+% --- x = dat - base, registrada: saturada a las ranuras, con signo al banco ---
+\draw[flujo] (res.east) -- (xq.west);
+\draw[flujo, ancho=14, ancho en=0.4] (xq.east) -- node[sen, below, pos=0.4] {xc} (6.65,0 |- xq.east) |- (acu.west |- 0,-5.55);
+\draw[flujo, anchov=15, ancho en=0.4] (xq.south) -- node[sen, left, pos=0.4] {x} (xq.south |- trp.north);
+\draw[flujo] (trp.east) -- node[chico, below, fill=white] {3$\times$18} (trp.east -| acu.west);
+
+% --- de las ranuras al publicador, y del publicador a los divisores ---
+\draw[flujo] (acu.east |- 0,-5.35) -- node[chico, above, pos=0.5, fill=white] {cerradas} (pubr.west |- 0,-5.35);
+\draw[ctrl] (pubr.west |- 0,-6.3) -- node[chico, below, pos=0.5, fill=white] {libera} (acu.east |- 0,-6.3);
+\draw[flujo] (11.9,0 |- pubr.north) -- node[chico, left] {$Q$, pico} (11.9,0 |- div.south);
+\draw[flujo] (13.0,0 |- div.south) -- node[chico, right] {cocientes} (13.0,0 |- pubr.north);
+
+% --- de la ventana a la contabilidad ---
+\draw[flujo] (10.4,0 |- gw.north) -- node[chico, right, align=left, pos=0.45]
+  {dt\_win, dt\_div, puede,\\ busy, n\_ocup, arribo} (10.4,0 |- fcon.south);
+
+% --- el bus de features: una barra, y lo que cuelga de ella ---
+\def\ybus{-12.3}
+\draw[line width=0.8pt] (pubr.south) -- (12.45,\ybus);
+\draw[line width=2.2pt] (1.9,\ybus) -- (13.8,\ybus);
+\node[sen, anchor=south, align=center] at (6.9,\ybus)
+  {ev\_feat: 16 features $\times$ 16 b, uno por evento, registrado\\[-1pt]
+   \normalfont\scriptsize + ev\_valid, ev\_psd\_ok};
+\draw[flujo] (1.9,\ybus) -- (mux.north);
+\draw[flujo] (13.8,\ybus) -- (dis.north);
+
+% --- de la feature al bin y al histograma ---
+\draw[flujo] (mux.east) -- (fq.west);
+\draw[flujo] (fq.east) -- (zoo.west);
+\draw[flujo] (zoo.east) -- (pip.west);
+\draw[flujo] (pip.east) -- (hst.west);
+\node[chico, anchor=north west] at (8.27,\yc-0.05) {13 b\\ 7+6 b};
+\draw[flujo] (13.15,0 |- dis.north) -- (13.15,-12.95) -- node[sen, above, pos=0.62]
+  {inc = ev\_valid $\wedge$ acepta} (3.75,-12.95) -- (fq.north);
+
+% --- registros, contadores y configuración ---
+\draw[flujo, cruce, anchov=32, ancho en=0.25] (hst.south) -- node[sen, right, pos=0.75] {rd\_data} (hst.south |- reg.north);
+\draw[flujo] (fcon.east |- 0,1.4) -- (15.38,1.4) -- (15.38,0 |- reg.north);
+\node[sen, anchor=south, rotate=90] at (15.36,0.2) {tiempos};
+\draw[line width=0.8pt] (pf.east |- 0,-7.6) -- (15.38,-7.6);
+\punto{15.38,-7.6}
+\node[sen, anchor=south east] at (15.3,-7.55) {contadores};
+\draw[ctrl, cruce] (12.15,0 |- reg.north) -- node[sen, black!80, right, pos=0.25] {cfg\_*} (12.15,0 |- pf.south);
+
+% --- bus del sistema ---
+\draw[<->, line width=0.8pt] (reg.south) -- (sb.north);
+\draw[<->, line width=0.8pt] (sb.east) -- ++(1.2,0) node[right, sen, align=left]
+  {M\_AXI\_GP0\\[-1pt]\normalfont\scriptsize$\leftrightarrow$ ARM};
+
+% ================================================================= leyenda ===
+\leyenda{0.75,-19.45}{azul!35/línea de base y conformado, amarillo!75/segmentación,
+  verde!55/estadísticos del pulso}{}
+\leyenda{0.75,-19.95}{naranja!70/publicación, grisr/registros y contabilidad,
+  rojo!45/bus del sistema}{}
+
+\end{tikzpicture}
+\end{document}

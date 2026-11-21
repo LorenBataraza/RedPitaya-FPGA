@@ -1,11 +1,27 @@
-% Panorama de MT_SLOPE_TRIG: el disparo por pendiente de un canal. Un
-% trapezoidal rápido s = Σ_L x[n-i] - Σ_L x[n-L-G-i], recursivo y exacto en
-% enteros, con tres líneas de retardo en cascada (L, G, L) y un Schmitt
-% simétrico a la salida. El borde grueso es el límite del módulo; lo que lo
-% cruza son sus puertos, sólo con el nombre.
+% Panorama de MT_SLOPE_TRIG en el estilo de panorama_mt.tex: el disparo por
+% pendiente de un canal, registro por registro. De arriba hacia abajo:
+%   configuración  L y G saturados, dos registros, y lo que sale de ellos
+%                  (direcciones de las líneas, tomas, G=0); restart cuando
+%                  cambian, con en=0 o con reset
+%   líneas         x --z^-L--> xa --z^-G--> xb --z^-L--> xc, cada una con una
+%                  toma dinámica (dirección L-1 o G-1); con G=0 la del medio
+%                  se puentea
+%   tomas          una toma más vieja que fill lee 0 (historia en cero)
+%   diferencia     d = (x - xa) - (xb - xc)
+%   acumulador     s <= s + d
+%   Schmitt        p: S con s >= thr, R con s < thr-hyst; n: S con s <= -thr,
+%                  R con s > -thr+hyst. Mientras la ventana no está llena
+%                  (p3_full = 0) queda en 1, sin flanco
+%   flanco         slope = scht[0] & !scht[1], registrado
 % Fuente: modulos/mt/rtl/mt_slope_trig.sv; teoría en docs/mt/trigger_pendiente.md.
 % Estilo: docs/figuras/estilo_tikz.tex.
-% El epígrafe no va en la figura: está en panorama_mt_slope_trig.txt y en el doc que la incluye.
+%
+% EL COLOR ES LA FUNCIÓN, como en panorama_mt.tex: azul detección (todo el
+% módulo), gris registros. Las operaciones van con su símbolo. Nombres de red sin
+% cable (dv, restart, fill, full, L, G, L-1, ..., thr_p, p3_v, p3_full): la
+% señal del mismo nombre, que se dibuja una sola vez donde nace.
+% El epígrafe no va en la figura: está en panorama_mt_slope_trig.txt y en el
+% doc que la incluye.
 %
 % Compilar:   pdflatex panorama_mt_slope_trig.tex
 %             pdftocairo -svg panorama_mt_slope_trig.pdf panorama_mt_slope_trig.svg
@@ -16,101 +32,327 @@
 \usepackage{lmodern}
 \usepackage[none]{hyphenat}
 \input{../../figuras/estilo_tikz.tex}
-
 \tikzset{
-  logica/.style = {etapa=amarillo!40, text width=2.9cm},
-  linea/.style  = {comp, text width=1.9cm, minimum height=1.0cm},
+  ydet/.style  = {puerta y=#1, fill=azul!35},
+  ydet/.default = nn,
+  odet/.style  = {puerta o=#1, fill=azul!35},
+  odet/.default = nn,
+  ndet/.style  = {not gate US, draw=black, line width=0.6pt, fill=azul!35,
+                  minimum height=0.4cm, minimum width=0.45cm, inner sep=0pt,
+                  logic gate inverted radius=1.4pt},
+  reg/.style   = {registro=#1, minimum height=0.6cm, font=\scriptsize\ttfamily},
+  reg/.default = 0.9cm,
+  regt/.style  = {registro=#1, minimum height=0.55cm, font=\tiny\ttfamily},
+  regt/.default = 0.75cm,
+  % una línea de retardo con una toma dinámica: celdas en el borde de abajo
+  linea/.style = {draw=black, line width=0.6pt, fill=azul!35, minimum width=1.5cm,
+                  minimum height=0.7cm, inner sep=1pt, font=\small,
+                  path picture={\foreach \k in {1,...,7}
+                    \draw[line width=0.4pt, black!55]
+                      ($(path picture bounding box.south west)!\k/8!(path picture bounding box.south east)$)
+                      -- ++(0,0.16);}},
+  chico/.style = {font=\scriptsize\ttfamily, inner sep=1pt},
+  rot/.style   = {font=\tiny, inner sep=0.5pt, black!80},
+  red/.style   = {ctrl},
 }
+% un nombre de red que entra a #1, desde la izquierda, arriba o abajo
+\newcommand{\redIzq}[2]{\draw[red] ($(#1)+(-0.45,0)$) node[left, chico, black!80] {#2} -- (#1);}
+\newcommand{\redArriba}[2]{\draw[red] ($(#1)+(0,0.4)$) node[above, chico, black!80] {#2} -- (#1);}
+\newcommand{\redAbajo}[2]{\draw[red] ($(#1)+(0,-0.4)$) node[below, chico, black!80] {#2} -- (#1);}
+% el segundo operando de una resta, desde abajo, con el nombre a la izquierda
+\newcommand{\redAbajoIzq}[2]{\draw[red] ($(#1)+(0,-0.32)$) node[left, chico, black!80] {#2} -- (#1);}
+% una constante que entra a #1 desde arriba
+\newcommand{\cteArriba}[2]{\draw[flujo] ($(#1.north)+(0,0.36)$) node[above, cte] {#2} -- (#1.north);}
+% una salida con nombre: flecha corta y el nombre
+\newcommand{\nace}[2]{\draw[flujo] (#1) -- ++(0.4,0) node[right, chico] {#2};}
 
 \begin{document}
 \begin{tikzpicture}[fondo]
 
-\def\xin{-0.6}    % donde arrancan las entradas
-\def\xout{19.0}   % donde terminan las salidas
-\def\ytop{6.2}    % de donde bajan las de configuración
+\def\xin{-0.15}   % donde arrancan las entradas
+\def\xout{14.1}   % donde terminan las salidas
 
-% ======================================================= configuración ===
-\node[logica, text width=3.7cm, minimum height=1.4cm] (cfg) at (6.6,4.4)
-  {\etq{configuración}{satura \texttt{L} y \texttt{G} (\texttt{L=0} vale 1);\\
-   dos registros; da las tomas\\ \texttt{L}, \texttt{L+G}, \texttt{2L+G}}};
-\node[logica, minimum height=1.4cm] (rst) at (11.4,4.4)
-  {\etq{re-arranque}{cambio de \texttt{L}/\texttt{G}, \texttt{en=0}\\ o reset: vacía el filtro\\ (\texttt{s=0}, \texttt{fill=0})}};
+% ================================================ configuración y restart ===
+\node[satur] (sL) at (1.05,11.85) {};
+\node[rot, above] at (sL.north) {$1\ldots$\texttt{LMAX}};
+\node[satur] (sG) at (1.05,11.15) {};
+\node[rot, below] at (sG.south) {$0\ldots$\texttt{GMAX}};
+\node[reg=1.1cm, minimum height=0.8cm] (q) at (3.05,11.5) {len\_q\\[-2pt]gap\_q};
+\node[reg=1.25cm, minimum height=0.8cm] (q2) at (4.85,11.5) {len\_q2\\[-2pt]gap\_q2};
+\node[oper] (ne1) at (3.05,10.55) {$\neq$};
+\node[oper] (ne2) at (4.85,10.55) {$\neq$};
+\node[odet=nnii, minimum height=1.0cm] (orr) at (6.7,9.5) {};
+\node[reg=0.8cm, minimum height=0.5cm] (enq) at (4.0,9.2) {en\_q};
 
-% ================================================ líneas de retardo (SRL) ===
-\node[linea] (l1) at (3.4,1.8) {\etq{línea de \texttt{L}}{SRL, sin reset}};
-\node[linea] (lg) at (6.9,1.8) {\etq{línea de \texttt{G}}{SRL, sin reset}};
-\node[linea] (l2) at (10.4,1.8) {\etq{línea de \texttt{L}}{SRL, sin reset}};
+% lo que sale de len_q y gap_q, registrado: direcciones y tomas
+\foreach \n/\y in {adl/12.0, adg/11.0, gz/10.0} \coordinate (\n) at (8.1,\y);
+\node[oper] (opl) at (adl) {$-$};
+\node[oper] (opg) at (adg) {$-$};
+\node[oper, font=\tiny] (opz) at (gz) {$=0$};
+\node[reg] (radl) at (9.1,12.0) {adr\_l};
+\node[reg] (radg) at (9.1,11.0) {adr\_g};
+\node[reg] (rgz)  at (9.1,10.0) {g\_zero};
+\node[oper] (opb) at (11.75,11.0) {$+$};
+\node[desp] (dsc) at (11.25,10.0) {\texttt{<{}<1}};
+\node[oper] (opc) at (11.9,10.0) {$+$};
+\node[reg] (rta) at (12.8,12.0) {tap\_a};
+\node[reg] (rtb) at (12.8,11.0) {tap\_b};
+\node[reg] (rtc) at (12.8,10.0) {tap\_c};
 
-% ============================================================= pipeline ===
-\node[logica, text width=11.6cm, minimum height=1.1cm] (tom) at (7.0,-0.6)
-  {\etq{1 $\cdot$ tomas}{\texttt{x[n]}, \;\texttt{x[n-L]}, \;\texttt{x[n-L-G]}, \;\texttt{x[n-2L-G]};
-   \;una toma más vieja que \texttt{fill} lee 0 (historia en cero)}};
-\node[logica, text width=2.3cm, minimum height=1.2cm] (fil) at (15.6,-0.6)
-  {\etq{\texttt{fill}}{muestras válidas\\ desde el re-arranque}};
-\node[logica, minimum height=1.3cm] (dif) at (2.6,-3.0)
-  {\etq{2 $\cdot$ diferencia}{\texttt{(x[n]-x[n-L])}\\ \texttt{- (x[n-L-G]-x[n-2L-G])}}};
-\node[logica, text width=2.2cm, minimum height=1.3cm] (acu) at (6.4,-3.0)
-  {\etq{3 $\cdot$ acumulador}{\texttt{s <= s + d}\\ exacto: no deriva}};
-\node[logica, text width=3.9cm, minimum height=1.6cm] (sch) at (10.6,-3.0)
-  {\etq{Schmitt simétrico}{\texttt{p}: dispara con \texttt{s >= thr}\\
-   \texttt{n}: con \texttt{s <= -thr}\\ re-arman a \texttt{hyst} del umbral\\
-   ventana incompleta: no dispara}};
-\node[logica, text width=2.0cm, minimum height=1.3cm] (fla) at (14.8,-3.0)
-  {\etq{flanco}{pulso de 1 ciclo\\ al disparar}};
-\node[logica, text width=2.4cm, minimum height=1.1cm] (umb) at (10.6,-5.4)
-  {\etq{umbrales}{\texttt{$\pm$thr}, \texttt{$\pm$(thr-hyst)}, registrados}};
+% ======================================================== líneas de retardo ===
+\node[linea] (l1) at (2.35,7.3) {$z^{-L}$};
+\node[linea] (lg) at (4.95,7.3) {$z^{-G}$};
+\muxdec{mg}{(6.45,7.55)}{1.1}
+\node[font=\tiny] at ($(mg-in)+(0.13,0.3)$) {1};
+\node[font=\tiny] at ($(mg-in)+(0.13,-0.25)$) {0};
+\node[linea] (l2) at (8.65,7.55) {$z^{-L}$};
+
+% ==================================================================== tomas ===
+\muxdecv{mza}{(3.85,5.45)}{1.0}
+\muxdecv{mzb}{(7.55,5.45)}{1.0}
+\muxdecv{mzc}{(10.15,5.45)}{1.0}
+\node[oper] (gea) at (2.85,5.45) {$\geq$};
+\node[oper] (geb) at (6.55,5.45) {$\geq$};
+\node[oper] (gec) at (9.15,5.45) {$\geq$};
+\foreach \m in {mza, mzb, mzc} {
+  \node[font=\tiny] at ($(\m-in)+(-0.25,-0.13)$) {1};
+  \node[font=\tiny] at ($(\m-in)+(0.25,-0.13)$) {0};
+}
+\node[reg=0.95cm] (p0) at (1.0,4.5)   {p1\_x0};
+\node[reg=0.95cm] (pa) at (3.85,4.5)  {p1\_xa};
+\node[reg=0.95cm] (pb) at (7.55,4.5)  {p1\_xb};
+\node[reg=0.95cm] (pc) at (10.15,4.5) {p1\_xc};
+
+% fill: cuántas muestras válidas entraron desde el re-arranque
+\node[oper] (fa) at (11.1,5.75) {$+$};
+\node[satur] (fs) at (11.95,5.75) {};
+\node[rot, above] at (fs.north) {$\leq$\,\texttt{2LMAX+GMAX}};
+\node[reg=1.1cm] (rf) at (13.05,5.75) {fill};
+
+% =========================================== diferencia y acumulador ===
+\node[oper] (sa) at (2.42,3.6) {$-$};
+\node[oper] (sb) at (8.95,3.6) {$-$};
+\node[oper] (sd) at (5.7,2.85) {$-$};
+\node[reg=0.95cm] (rd) at (5.7,1.9) {p2\_d};
+\node[oper] (ac) at (7.0,1.9) {$+$};
+\node[reg=0.8cm] (rs) at (8.2,1.9) {s};
+
+% las cadenas del válido y de la ventana llena
+\node[regt=0.55cm] (v1) at (11.65,3.4) {p1\_v};
+\node[regt=0.55cm] (v2) at (12.55,3.4) {p2\_v};
+\node[regt=0.55cm] (v3) at (13.45,3.4) {p3\_v};
+\node[regt] (f1) at (11.3,2.6)  {p1\_full};
+\node[regt] (f2) at (12.35,2.6) {p2\_full};
+\node[regt] (f3) at (13.4,2.6)  {p3\_full};
+
+% =============================================================== umbrales ===
+\node[reg=1.2cm] (rtp) at (2.55,1.0)  {thr\_p};
+\node[oper] (orp) at (1.45,0.0) {$-$};
+\node[reg=1.2cm] (rrp) at (2.55,0.0)   {rearm\_p};
+\node[oper] (otn) at (1.45,-1.0) {$-$};
+\node[reg=1.2cm] (rtn) at (2.55,-1.0) {thr\_n};
+\node[oper] (orn) at (1.45,-2.0) {$-$};
+\node[reg=1.2cm] (rrn) at (2.55,-2.0)  {rearm\_n};
+
+% ================================================================ Schmitt ===
+% p arriba, n abajo: S pone a 1 (disparado), R a 0 (re-armado); S gana. Con
+% p3_full = 0 los dos bits van a 1 (el «1» de arriba de cada registro).
+\foreach \t/\y in {p/-0.5, n/-3.1} {
+  \node[registro=1.6cm, minimum height=1.0cm] (q0\t) at (7.1,\y) {};
+  \node[font=\tiny\ttfamily] at (7.15,\y) {scht\_\t[0]};
+  \node[font=\tiny] at ($(q0\t.west)+(0.12,0.35)$) {S};
+  \node[font=\tiny] at ($(q0\t.west)+(0.12,-0.35)$) {R};
+  \node[font=\tiny] at ($(q0\t.north)+(-0.4,-0.12)$) {en};
+  \node[font=\tiny] at ($(q0\t.north)+(0.55,-0.12)$) {1};
+  \node[regt=0.95cm] (q1\t) at (9.0,\y-0.55) {scht\_\t[1]};
+  \node[font=\tiny] at ($(q1\t.south)+(0.3,0.1)$) {1};
+  \node[ydet=ni, anchor=input 1] (ae\t) at (10.0,\y) {};
+  \node[reg=1.0cm] (rsl\t) at ($(ae\t.output)+(0.85,0)$) {slope\_\t};
+  \node[ndet] (inv\t) at (8.75,\y+0.6) {};
+}
+\node[oper] (gep) at (5.45,-0.15) {$\geq$};
+\node[oper] (ltp) at (5.45,-0.85) {$<$};
+\node[oper] (len) at (5.45,-2.75) {$\leq$};
+\node[oper] (gtn) at (5.45,-3.45) {$>$};
 
 % ============================================================== el límite ===
-\node[contenedor, fit={(0.55,5.4) (17.4,-6.3)}] (lim) {};
-\node[titulo, anchor=south west, inner sep=2pt, align=left] at (lim.north west)
-  {\texttt{\bfseries mt\_slope\_trig}\;\; {\scriptsize\itshape uno por canal}\\
-   \prm{DW=DW & LMAX=16 & GMAX=31\\ LW=SLOPE\_LW & GW=SLOPE\_GW}};
+\node[contenedor, fit={(0.1,13.2) (13.85,-4.85)}] (lim) {};
+\node[titulo] at (0.1,13.2)
+  {\texttt{\bfseries mt\_slope\_trig}\;\; {\scriptsize\itshape uno por canal}\quad
+   \prm{LMAX=16 & GMAX=31\\ LW=SLOPE\_LW & GW=SLOPE\_GW}};
 
 % ============================================================== flechas ====
-% --- la muestra, por la izquierda, y las tres líneas en cascada ---
-\draw[flujo, ancho=DW, ancho en=0.35] (\xin,1.8) node[left, sen] {adc\_dat\_i} -- (l1.west);
-\draw[ctrl] (\xin,-0.6) node[left, sen, black!80] {adc\_dv\_i} -- (tom.west);
-\draw[flujo] (l1.east) -- (lg.west);
-\draw[flujo] (lg.east) -- (l2.west);
-\draw[line width=0.8pt] (l2.east) -- (12.4,1.8);
-% el puente de G = 0
-\draw[ctrl, dashed] (5.2,1.8) -- (5.2,2.75) -- node[sen, above, pos=0.22, black!80] {\texttt{G=0}: puente} (8.6,2.75) -- (8.6,1.8);
+% --- configuración: L y G saturados, dos registros; restart si cambian ---
+\draw[flujo, ancho=LW, ancho en=0.35] (\xin,11.85) node[left, sen] {cfg\_len\_i} -- (sL.west);
+\draw[flujo, ancho=GW, ancho en=0.35] (\xin,11.15) node[left, sen] {cfg\_gap\_i} -- (sG.west);
+\draw[line width=2pt] (1.85,11.0) -- (1.85,12.0);
+\draw[flujo] (sL.east) -- (1.85,11.85);
+\draw[flujo] (sG.east) -- (1.85,11.15);
+\draw[flujo] (1.85,11.5) -- (q.west);
+\draw[flujo] (q.east) -- node[sen, above, pos=0.5] {L, G} (q2.west);
+\punto{2.35,11.5}
+\draw[flujo] (2.35,11.5) |- (ne1.west);
+\punto{3.95,11.5}
+\draw[line width=0.8pt] (3.95,11.5) -- (3.95,10.55);
+\punto{3.95,10.55}
+\draw[flujo] (3.95,10.55) -- (ne1.east);
+\draw[flujo] (3.95,10.55) -- (ne2.west);
+\draw[flujo] (q2.east) -- (5.75,11.5) |- (ne2.east);
+\draw[flujo] (ne2.south) |- (orr.input 1);
+\draw[flujo] (ne1.south) |- (orr.input 2);
+\draw[flujo] (\xin,0 |- enq.west) node[left, sen] {cfg\_en\_i} -- (enq.west);
+\draw[flujo] (enq.east) -- ++(0.3,0) |- (orr.input 3);
+\draw[flujo] (\xin,8.75) node[left, sen] {adc\_rstn\_i} -- (6.0,8.75) |- (orr.input 4);
+\nace{orr.output}{restart}
 
-% --- las cuatro tomas bajan al pipeline ---
-\foreach \x/\t in {1.6/x[n], 5.2/x[n-L], 8.6/x[n-L-G], 12.4/x[n-2L-G]} {
-  \punto{\x,1.8}
-  \draw[flujo, cruce] (\x,1.8) -- node[sen, right, pos=0.45] {\t} (\x,0 |- tom.north);
+% lo que sale de len_q y gap_q
+\redIzq{opl.west}{L}
+\draw[flujo] ($(opl.south)+(0,-0.32)$) node[left, cte] {1} -- (opl.south);
+\redIzq{opg.west}{G}
+\draw[flujo] ($(opg.south)+(0,-0.32)$) node[left, cte] {1} -- (opg.south);
+\redIzq{opz.west}{G}
+\foreach \o/\r/\t in {opl/radl/L-1, opg/radg/G-1, opz/rgz/G=0} {
+  \draw[flujo] (\o.east) -- (\r.west);
+  \draw[flujo] (\r.east) -- ++(0.65,0) node[pos=0.42, above, chico] {\t};
+}
+\redIzq{rta.west}{L}
+\redIzq{opb.west}{L}
+\redAbajoIzq{opb.south}{G}
+\draw[flujo] (opb.east) -- (rtb.west);
+\redIzq{dsc.west}{L}
+\draw[flujo] (dsc.east) -- (opc.west);
+\redAbajoIzq{opc.south}{G}
+\draw[flujo] (opc.east) -- (rtc.west);
+
+% --- las tres líneas, en cascada; con G=0, la del medio se puentea ---
+\draw[flujo, ancho=DW, ancho en=0.3] (\xin,7.3) node[left, sen] {adc\_dat\_i} -- (l1.west);
+\punto{1.0,7.3}
+\node[chico, above] at (1.0,7.3) {x};
+\draw[flujo] (l1.east) -- (lg.west);
+\punto{3.6,7.3}
+\node[chico, above left] at (3.6,7.3) {xa};
+\draw[flujo] (lg.east) -- (mg-in |- 0,7.3);
+\draw[flujo] (3.6,7.3) |- (mg-in |- 0,7.85);
+\draw[flujo] (mg-out) -- (l2.west);
+\punto{7.3,7.55}
+\node[chico, above] at (7.3,7.55) {xb};
+\draw[line width=0.8pt] (l2.east) -- (9.9,7.55);
+\punto{9.9,7.55}
+\node[chico, above] at (9.9,7.55) {xc};
+\path ($(mg)+(0,{1.1/2-0.175})$) coordinate (mg-top);
+\redArriba{mg-top}{G=0}
+\draw[flujo] (\xin,6.6) node[left, sen] {adc\_dv\_i} -- (0.45,6.6) node[right, chico] {dv};
+\foreach \l/\a in {l1/L-1, lg/G-1, l2/L-1} {
+  \redAbajo{$(\l.south west)+(0.3,0)$}{dv}
+  \redAbajo{$(\l.south east)+(-0.35,0)$}{\a}
 }
 
-% --- configuración, por arriba ---
-\draw[ctrl] (cfg.north |- 0,\ytop) node[above, sen, black!80] {cfg\_len\_i, cfg\_gap\_i} -- (cfg.north);
-\draw[ctrl] (rst.north |- 0,\ytop) node[above, sen, black!80] {cfg\_en\_i} -- (rst.north);
-\draw[ctrl] (cfg.east) -- node[sen, above, pos=0.5, black!80] {L, G} (rst.west);
-\draw[ctrl] (cfg.south) -- (cfg.south |- 0,3.3);
-\draw[ctrl] (l1.north |- 0,3.3) -- (l2.north |- 0,3.3);
-\punto{cfg.south |- 0,3.3}
-\draw[ctrl] (l1.north |- 0,3.3) -- node[sen, left, pos=0.4, black!80] {dirección} (l1.north);
-\draw[ctrl, cruce] (lg.north |- 0,3.3) -- (lg.north);
-\draw[ctrl] (l2.north |- 0,3.3) -- (l2.north);
-\draw[ctrl] (rst.east) -- (15.6,4.4) -- node[sen, right, pos=0.3, black!80] {vacía} (fil.north);
+% --- tomas: una toma más vieja que fill lee 0 ---
+\draw[flujo] (1.0,7.3) -- (p0.north);
+\draw[flujo] (3.6,7.3) -- ($(mza-in)+(-0.25,0)$);
+\draw[flujo] (7.3,7.55) -- ($(mzb-in)+(-0.25,0)$);
+\draw[flujo] (9.9,7.55) -- ($(mzc-in)+(-0.25,0)$);
+\foreach \m in {mza, mzb, mzc}
+  \draw[flujo] ($(\m-in)+(0.25,0.36)$) node[above, cte] {0} -- ($(\m-in)+(0.25,0)$);
+\foreach \g/\m/\t/\p in {gea/mza/L/pa, geb/mzb/L+G/pb, gec/mzc/2L+G/pc} {
+  \draw[red] ($(\g.west)+(-0.3,0)$) node[left, chico, black!80] {fill} -- (\g.west);
+  \redArriba{\g.north}{\t}
+  \draw[flujo] (\g.east) -- (\m-sel);
+  \draw[flujo] (\m-out) -- (\p.north);
+}
+\punto{9.5,5.45}
+\draw[flujo] (9.5,5.45) -- (9.5,5.05) node[below, chico] {full};
 
-% --- el pipeline ---
-\draw[flujo] (fil.west) -- (tom.east);
-\draw[flujo] (dif.north |- tom.south) -- (dif.north);
-\draw[flujo] (dif.east) -- node[sen, above, pos=0.5] {d} (acu.west);
-\draw[flujo] (acu.east) -- node[sen, above, pos=0.5] {s} (sch.west);
-\draw[flujo] (sch.east) -- (fla.west);
-\draw[flujo] (umb.north) -- (sch.south);
+% fill
+\cteArriba{fa}{1}
+\draw[flujo] (fa.east) -- (fs.west);
+\draw[flujo] (fs.east) -- (rf.west);
+\redArriba{$(rf.north)+(-0.3,0)$}{dv}
+\draw[red] ($(rf.north)+(0.3,0.4)$) node[above, chico, black!80, xshift=4pt] {restart} -- ($(rf.north)+(0.3,0)$);
+\draw[flujo] (rf.east) -- (13.75,5.75) -- (13.75,5.15) -- node[below, chico, pos=0.45] {fill} (11.1,5.15) -- (fa.south);
 
-% --- umbrales, por abajo ---
-\draw[ctrl] (umb.south |- 0,-7.0) node[below, sen, black!80] {cfg\_thr\_i, cfg\_hyst\_i} -- (umb.south);
+% --- diferencia: (x - xa) - (xb - xc) ---
+\draw[flujo] (p0.east) -- ++(0.2,0) |- (sa.west);
+\draw[flujo] (pa.east) -- ++(0.2,0) |- (sa.east);
+\draw[flujo] (pb.east) -- ++(0.2,0) |- (sb.west);
+\draw[flujo] (pc.east) -- ++(0.2,0) |- (sb.east);
+\draw[flujo] (sa.south) |- (sd.west);
+\draw[flujo] (sb.south) |- (sd.east);
+\draw[flujo] (sd.south) -- (rd.north);
+\foreach \o in {sa, sb, sd} {
+  \node[rot, above left] at (\o.west) {$+$};
+  \node[rot, above right] at (\o.east) {$-$};
+}
 
-% --- salidas: sólo el nombre ---
-\draw[flujo] (fla.east |- 0,-2.7) -- (\xout,-2.7) node[right, sen] {slope\_p\_o};
-\draw[flujo] (fla.east |- 0,-3.3) -- (\xout,-3.3) node[right, sen] {slope\_n\_o};
+% --- acumulador: s <= s + d ---
+\draw[flujo] (rd.east) -- (ac.west);
+\draw[flujo] (ac.east) -- (rs.west);
+\draw[red] ($(rs.north)+(0,0.4)$) node[above, chico, black!80] {restart} -- (rs.north);
+\punto{8.9,1.9}
+\draw[line width=0.8pt] (rs.east) -- (8.9,1.9) -- (8.9,1.3);
+\punto{8.9,1.3}
+\draw[flujo] (8.9,1.3) -| (ac.south);
+
+% --- las cadenas del válido y de la ventana llena ---
+\redIzq{v1.west}{dv}
+\draw[flujo] (v1.east) -- (v2.west);
+\draw[flujo] (v2.east) -- (v3.west);
+\redIzq{f1.west}{full}
+\draw[flujo] (f1.east) -- (f2.west);
+\draw[flujo] (f2.east) -- (f3.west);
+
+% --- umbrales ---
+\draw[flujo, ancho=TW, ancho en=0.3] (\xin,2.3) node[left, sen] {cfg\_thr\_i} -- (0.75,2.3) node[right, chico] {thr};
+\draw[flujo, ancho=TW, ancho en=0.62] (\xin,1.6) node[left, sen] {cfg\_hyst\_i} -- (0.75,1.6) node[right, chico] {hyst};
+\redIzq{rtp.west}{thr}
+\redIzq{orp.west}{thr}
+\redAbajoIzq{orp.south}{hyst}
+\draw[flujo] ($(otn.west)+(-0.4,0)$) node[left, cte] {0} -- (otn.west);
+\redAbajoIzq{otn.south}{thr}
+\redIzq{orn.west}{hyst}
+\redAbajoIzq{orn.south}{thr}
+\foreach \o in {orp, otn, orn} {
+  \node[rot, above left] at (\o.west) {$+$};
+  \node[rot, below right] at (\o.south) {$-$};
+}
+\foreach \o/\r in {orp/rrp, otn/rtn, orn/rrn} \draw[flujo] (\o.east) -- (\r.west);
+\foreach \r/\t in {rtp/thr\_p, rrp/rearm\_p, rtn/thr\_n, rrn/rearm\_n}
+  \draw[flujo] (\r.east) -- ++(0.3,0) node[right, chico] {\t};
+
+% --- Schmitt: s contra los umbrales ---
+\draw[flujo] (8.9,1.3) -- (8.9,1.0) -- (4.7,1.0) -- (4.7,-3.45);
+\foreach \c in {gep, ltp, len, gtn} {
+  \punto{4.7,0 |- \c.west}
+  \draw[flujo] (4.7,0 |- \c.west) -- (\c.west);
+}
+\node[chico, above] at (6.8,1.0) {s};
+\redArriba{gep.north}{thr\_p}
+\redAbajo{ltp.south}{rearm\_p}
+\redArriba{len.north}{thr\_n}
+\redAbajo{gtn.south}{rearm\_n}
+\draw[flujo] (gep.east) -- (q0p.west |- gep.east);
+\draw[flujo] (ltp.east) -- (q0p.west |- ltp.east);
+\draw[flujo] (len.east) -- (q0n.west |- len.east);
+\draw[flujo] (gtn.east) -- (q0n.west |- gtn.east);
+
+% --- el estado, su copia y el flanco; armado = no disparado ---
+\foreach \t/\y in {p/-0.5, n/-3.1} {
+  \redArriba{$(q0\t.north)+(-0.4,0)$}{p3\_v}
+  \redArriba{$(q0\t.north)+(0.55,0)$}{$\overline{\texttt{p3\_full}}$}
+  \redAbajo{$(q1\t.south)+(0.3,0)$}{$\overline{\texttt{p3\_full}}$}
+  \punto{8.1,\y}
+  \draw[line width=0.8pt] (q0\t.east) -- (8.1,\y);
+  \draw[flujo] (8.1,\y) -- (ae\t.input 1);
+  \draw[flujo] (8.1,\y) |- (q1\t.west);
+  \draw[flujo] (q1\t.east) -- ++(0.2,0) |- (ae\t.input 2);
+  \draw[flujo] (ae\t.output) -- (rsl\t.west);
+  \draw[flujo] (rsl\t.east) -- (\xout,0 |- rsl\t.east) node[right, sen] {slope\_\t\_o};
+  \draw[flujo] (8.1,\y) |- (inv\t.input);
+  \draw[flujo] (inv\t.output) -- (\xout,0 |- inv\t.output) node[right, sen] {armado\_\t\_o};
+}
 
 % ================================================================= leyenda ===
-\leyenda{-1.6,-7.9}{amarillo!40/lógica del filtro y del disparo, grisr/líneas de retardo}{}
+\leyenda{0.2,-5.9}{azul!35/detección, grisr/registros}{}
 
 \end{tikzpicture}
 \end{document}
