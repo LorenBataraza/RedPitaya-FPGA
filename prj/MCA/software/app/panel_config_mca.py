@@ -180,7 +180,27 @@ class PanelConfigMCA(PanelPorEtapas):
         f.addRow('fixed baseline', self._spin(
             'baseline', 0, 0x3FFF, INVALIDA,
             'In counts. Only used with the automatic tracker off.'))
+        # Con la base dinámica («Calibration») el servidor la mueve con la tasa.
+        self.lbl_base_dinamica = self._nota(
+            'The dynamic base is on («Calibration»): the server moves the fixed base '
+            'with the rate. Turn it off there to edit it.', '#c0392b')
+        self.lbl_base_dinamica.hide()
+        f.addRow(self.lbl_base_dinamica)
         return g
+
+    def set_base_dinamica(self, on):
+        """Con la base dinámica prendida el campo de la base fija es de sólo lectura:
+        lo que se escriba ahí cambiaría b0 en el servidor, no la base en uso."""
+        on = bool(on)
+        if on == getattr(self, '_base_dinamica', False):
+            return
+        self._base_dinamica = on
+        self._controles['baseline'][0].setReadOnly(on)
+        self.lbl_base_dinamica.setVisible(on)
+
+    @property
+    def base_dinamica(self):
+        return getattr(self, '_base_dinamica', False)
 
     def _grupo_trapecio(self):
         self.grp_trapecio = g = self._grupo('trapecio', 'Trapezoid (F_TRAP)')

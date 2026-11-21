@@ -95,6 +95,11 @@ OPS = (
     'gen.configurar',       # cfg (la configuración ENTERA) -> el get de vuelta
     'gen.ctrl',             # que: arrancar|parar  -> el get de vuelta
     'gen.lazo',             # on  -> el get de vuelta
+    # --- la calibración del canal y la base dinámica (pestaña «Calibration») ---
+    'canal.medir',          # referencia, que, semilla, promedios -> el canal (+ int16)
+    'mca.ganancia',         # amplitud, tasa_hz, segundos -> ganancia_mca, huella
+    'base.dinamica',        # on, caida, ganancia_mca, kappa, b0 -> el estado de la ley
+    'base.verificar',       # tasa_hz, lineas, segundos, ... -> s_fija, s_dinamica, κ
 )
 
 

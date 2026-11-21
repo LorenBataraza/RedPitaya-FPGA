@@ -55,7 +55,7 @@ cliente distinguir un `MCANotPresent` (hay que cargar el bitstream) de un
 `TimeoutError` (el barrido de borrado no terminó). `hint` siempre está presente;
 vale `null` si no se pasó.
 
-![el flujo TCP placa a PC: arriba los recv(), que cortan en cualquier lado; abajo los cortes de Channel, por el \n y por nbytes, y lo que queda en su buffer](figuras/trama_flujo.svg)
+![el flujo TCP placa a PC: arriba los recv(), que cortan en cualquier lado; abajo los cortes de Channel, por el \n y por nbytes, y lo que queda en su buffer|877](figuras/trama_flujo.svg)
 
 *El socket entrega un flujo de bytes sin límites entre mensajes. Cada `recv()` trae lo
 que haya llegado, y a veces mezcla dos partes: el final de una cabecera y el principio
@@ -113,13 +113,17 @@ La lista viva es el dict `_OPS` de
 | `mtrg.disarm` | — | el `get` de vuelta |
 | `mca.disparo` | `ch`, `armar`, `L`, `G`, `thr`, `hyst`, `fuente`, `mq`, `k`, `m`, `sh`, `thr_cuentas`, `hyst_cuentas` | el estado del disparo del MCA2: `ch`, `pendiente`, `polo_cero`, `fuente`, `or_mask`, `armado`, `we_keep`, `shield` |
 | `call` | `fn`, `a`, `k` | `{"valor": ...}` con el resultado de la función, o un arreglo **binario** (ver abajo) |
-| `ring.iniciar` | `run_dir`, `pre`, `post`, `n_ch`, `slot_shift`, `generador` o `disparo`, `calib`, `formato`, `capacity`, `ram_mb`, `margen_mb`, `meta` | `run_dir`, `fs`, `n_slots`, `pool` |
-| `ring.estado` | — | `corriendo`, `motivo`, `stats`, `hw`, `error` |
-| `ring.parar` | — | `stats`, `hw_final`, `n_slots`, `motivo`, `error` |
+| `ring.iniciar` | `run_dir`, `pre`, `post`, `n_ch`, `slot_shift`, `generador` o `disparo`, `calib`, `formato`, `capacity`, `ram_mb`, `margen_mb`, `meta`, `destino`, `puerto_datos` | `run_dir`, `fs`, `n_slots`, `pool`; con `destino='red'`, `puerto_datos`, la geometría (`carga`, `slot_shift`, `n_slots`) y `calib` |
+| `ring.estado` | — | `corriendo`, `motivo`, `stats`, `hw`, `error`; por red, además `fase`, `puerto_datos` y `cliente` |
+| `ring.parar` | — | `stats`, `hw_final`, `n_slots`, `motivo`, `error`; por red, además `fin_enviado` |
 | `gen.get` | — | `config` releída, `estado`, `lazo`, `lineas`, y lo derivado con libmca: `tasa_hz`, `tau_us`, `mq`, `sigma_ruido`; `base` |
 | `gen.configurar` | `cfg` | la configuración **entera** (lo que falta queda en el reset del RTL); apaga el generador. El `get` de vuelta |
 | `gen.ctrl` | `que` | `arrancar` o `parar`, y el `get` de vuelta |
 | `gen.lazo` | `on` | `digital_loop[0]`: la entrada pasa a ser el generador. El `get` de vuelta |
+| `canal.medir` | `referencia`, `que`, `semilla`, `promedios` | el canal analógico con la BRAM ([`calibracion.md`](calibracion.md)): el dict de `API.canal.medir` con `lento`, `caida_lenta_usar`, `restaurado`, y las capturas en int16 como payload |
+| `mca.ganancia` | `amplitud`, `tasa_hz`, `segundos` | G_F, las cuentas de la feature por ADU, con una línea por el lazo digital; `huella`, la config con la que vale. **Borra el histograma** |
+| `base.dinamica` | `on`, `caida`, `ganancia_mca`, `kappa`, `b0`, `suavizado_s` | prende, ajusta o apaga la base dinámica; el estado de la ley de vuelta |
+| `base.verificar` | `tasa_hz`, `lineas`, `segundos`, `tasa_ref_hz`, `caida`, `ganancia_mca`, `kappa` | el corrimiento de las líneas por OUT1 con la base fija y con la dinámica, y `kappa_optimo`. **Borra el histograma** |
 
 `read.spectrum`, `read.map2d` y `osc.capture` traen payload binario, y `call`
 cuando la función devuelve un arreglo (`mca_read_histogram`, `mca_read_map2d`).
@@ -291,10 +295,48 @@ control ([`generador.md`](../event_ring/generador.md) §6, «La etapa C por la r
   `error`. Devuelve los contadores con el ring parado (`hw_final`; con el generador
   cortado antes de N, `hw_gen_cortado`). Repetida, devuelve lo mismo.
 
+**Por red (`destino='red'`, libmca 0.12.0).** Sin sesión ni archivos en la placa: los
+slots salen por **un segundo socket**, desde un lazo de C (`EmisionRing`,
+[`salida_por_red.md`](../event_ring/salida_por_red.md), «El ring por red»), y la PC
+los recibe con `API.ring_red.RecepcionRing`.
+
+- **`ring.iniciar`:**
+  - no lleva `run_dir`, `formato`, `capacity`, `ram_mb` ni `margen_mb`;
+  - abre `puerto_datos` (0, el default, es uno libre);
+  - devuelve el puerto, la geometría y la calibración: las muestras van crudas y la PC
+    calibra.
+- **El puerto de datos** acepta una sola conexión, y sólo desde la IP del cliente que
+  pidió la emisión. Recién con la PC conectada se arma el ring.
+- **Los datos no siguen esta trama:** son bloques binarios de 40 B de cabecera y su
+  carga, con un bloque FIN al final.
+- **`ring.estado`**:
+  - `stats` es lo enviado: `eventos`, `bytes`, `bloques`, `descartados`, la tasa, y
+    `copia_ns` y `envio_ns`, que dicen si frena la placa o la red;
+  - `hw` es `null` hasta que la PC se conecta;
+  - `motivo` es `sin_conexion` si nadie se conectó en 10 s, o `red` si la conexión se
+    cortó.
+- **`ring.parar`** corta el estímulo, espera que salga lo que quedó, manda el FIN y
+  para el ring.
+
 Igual que la exposición del MCA, **la adquisición sigue si el cliente se va**:
 `identify` trae `ring_corriendo`, y `has_ring` y `has_gen` dicen si el bitstream trae
 el ring y su generador. `fpga.load_bitstream` se rechaza mientras corre una. Las tres
 ops tienen un lock propio, no el del MCA: parar una adquisición puede tardar segundos.
+
+### `canal.*`, `mca.ganancia` y `base.*`: la pestaña «Calibration»
+
+El detalle está en [`calibracion.md`](calibracion.md). Lo que importa del protocolo:
+
+- **Son sincrónicas y largas.** `canal.medir` tarda de 1 a 3 s y `base.verificar`
+  unos 8 s, con el lock del MCA tomado: mientras, el `status` espera.
+- **Piden el MCA parado y sin ring.** Usan el generador, la BRAM y el disparo; con el
+  MCA corriendo el estímulo terminaría en el espectro. Lo que tocan lo restauran al
+  terminar, también si fallan (`restaurado` dice qué).
+- **La base dinámica y la base fija.** Con la dinámica prendida, escribir la base fija
+  (`w32` a 0x01C, que es lo que hace la GUI, o `config.set`) cambia b0, la base a tasa
+  cero, y no la base en uso. Prender el seguidor (`bl_auto`) la apaga.
+- **`canal.medir` trae payload.** Es un int16 `[filas, n_buf]`; `capturas` dice de
+  quién es cada fila, en orden: `[{nombre, filas}]`. `MCARemote.medir_canal` lo separa.
 
 ### `r32` / `w32`
 
@@ -372,6 +414,10 @@ puede contar. Es lo que muestra la pestaña del espectro.
 trae. Viaja en el `status` por el `lazo`: con el lazo prendido el MCA mide el
 generador y no la entrada, y la GUI lo avisa en la esquina de las pestañas desde
 cualquiera sin pedir nada más.
+
+`base_dinamica` es el estado de la base dinámica: `on` y, prendida, `b0`, `delta_b`,
+`base` (la escrita), `lam_hz`, `a_adu`, `kappa` y `error` (el último paso que falló).
+La corre un hilo del servidor cada 250 ms y sigue aunque el cliente se vaya.
 
 `exposure.target_s` es **livetime absoluto acumulado**, no un delta: una segunda
 exposición sin borrar antes continúa donde iba.

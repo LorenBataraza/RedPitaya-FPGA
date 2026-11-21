@@ -168,7 +168,7 @@ def test_la_pestana_2d_aparece_porque_el_bitstream_la_trae():
         titulos = [v.tabs.tabText(i) for i in range(v.tabs.count())]
         assert titulos == ['Messages', 'Spectrum', 'MCA settings',
                            '2D map (PSD)', 'Pulses', 'OSC settings',
-                           'Multitrigger', 'Generator']
+                           'Multitrigger', 'Generator', 'Calibration']
         # La de Integración NO está: el MCA falso no simula el slot 6, y la
         # pestaña se crea sólo si el bitstream lo trae. Las del osciloscopio, el
         # Multitrigger y el generador SÍ: el simulador incluye los bloques, que es

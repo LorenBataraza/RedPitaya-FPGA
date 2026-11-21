@@ -286,6 +286,26 @@ class MCARemote(MCA):
         """
         return self._pedir(op, **args)[0]['result']
 
+    # Las capturas de `canal.medir` que son una pila (una fila por captura) aunque haya
+    # una sola; las demás son una traza.
+    _PILAS_CANAL = ('lento_y', 'externa_y')
+
+    def medir_canal(self, referencia='generador', que='todo', semilla=1, promedios=4):
+        """`canal.medir`: `(resultado, {nombre: int16})`. `lento_y` y `externa_y` son
+        `[capturas, n]`; el resto, una traza de `n`."""
+        obj, payload = self._pedir('canal.medir', referencia=str(referencia),
+                                   que=str(que), semilla=int(semilla),
+                                   promedios=int(promedios))
+        res = obj['result']
+        datos = array_desde(obj, payload)
+        caps, i = {}, 0
+        for c in res.get('capturas', ()):
+            f = int(c['filas'])
+            a = datos[i:i + f]
+            caps[c['nombre']] = a if c['nombre'] in self._PILAS_CANAL else a[0]
+            i += f
+        return res, caps
+
     def capturar_osc(self, pre=0, post=1024):
         """Una ventana del osciloscopio: `(metadata, float32[2, pre+post])`.
 
@@ -334,13 +354,19 @@ class MCARemote(MCA):
         """¿Y su generador de eventos?"""
         return bool(self.info.get('has_gen'))
 
-    def ring_iniciar(self, run_dir, **kw):
+    def ring_iniciar(self, run_dir=None, **kw):
         """Arranca una adquisición del ring en la placa: los argumentos de
         `API.osciloscope_ring.AdquisicionRing` (`pre`, `post`, `generador` o
         `disparo`, `calib`, `formato`, `capacity`, `ram_mb`, `margen_mb`, `meta`).
         `run_dir` es un camino de la placa. Devuelve `run_dir`, `fs`, `n_slots` y
-        `pool`."""
-        return self._pedir('ring.iniciar', run_dir=run_dir, **kw)[0]['result']
+        `pool`.
+
+        Con `destino='red'` no hay `run_dir`: los slots salen por un socket
+        (`EmisionRing`) y la respuesta trae `puerto_datos`, la geometría y la
+        calibración. Lo usa `API.ring_red.RecepcionRing`."""
+        if run_dir is not None:
+            kw['run_dir'] = run_dir
+        return self._pedir('ring.iniciar', **kw)[0]['result']
 
     def ring_estado(self):
         """`corriendo`, `motivo`, `stats` (la sesión), `hw` (los contadores del ring) y
@@ -598,7 +624,12 @@ class FakeMCA(MCA):
         if off == R_STATUS:
             return 1 << 5                          # puede_abrir, nada ocupado
         if off == R_BASELINE_NOW:
-            return 0
+            # Con el seguidor apagado, la base en uso es la fija (mca_baseline.sv); con
+            # él, el falso no sigue nada: 0. 14 bits con signo, extendidos.
+            if self._reg.get(R_BL_CTRL, 0) & 1:
+                return 0
+            v = self._reg.get(R_BASELINE, 0) & 0x3FFF
+            return (v - 0x4000 if v & 0x2000 else v) & 0xFFFFFFFF
         if off == R_PUB_STATE:
             return ((self._cnt['total'] & 0xFFFF) << 16) | (1 << 8)
         if off in _CONTADORES:

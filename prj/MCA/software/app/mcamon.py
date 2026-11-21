@@ -34,6 +34,7 @@ from PyQt5.QtWidgets import (QAction, QApplication, QHBoxLayout, QInputDialog,
 import API.mca as A
 from API.mca_net import PORT_DEFAULT
 from API.mca_remote import MCARemote
+from app.panel_calibracion import PanelCalibracion
 from app.panel_config_mca import PanelConfigMCA
 from app.panel_config_osc import PanelConfigOsc
 from app.panel_espectro import REFRESCO_ESPECTRO_S, PanelEspectro
@@ -97,6 +98,11 @@ class Trabajador(QObject):
     ring_info = pyqtSignal(dict)             # el ring.estado (o el ring.parar)
     ring_fallo = pyqtSignal(str)             # un ring.* rechazado, para la pestaña
     disparo_info = pyqtSignal(dict)          # el estado de la op mca.disparo
+    canal_info = pyqtSignal(dict, object)    # canal.medir: resultado y capturas
+    ganancia_info = pyqtSignal(dict)         # mca.ganancia
+    base_info = pyqtSignal(dict)             # base.dinamica
+    verificacion_info = pyqtSignal(dict)     # base.verificar
+    calib_fallo = pyqtSignal(str)            # una de esas rechazada, para la pestaña
     traza = pyqtSignal(dict, object)          # metadata, float32[n_ch, n]
     aviso = pyqtSignal(str)
     fallo = pyqtSignal(str)
@@ -404,6 +410,65 @@ class Trabajador(QObject):
         self.aviso.emit('digital loopback ON: the input is the generator' if on
                         else 'digital loopback off: the input is the ADC')
 
+    # ---------- la calibración del canal y la base dinámica ----------
+    #
+    # Las mediciones tardan de 1 a 8 s con el lock del servidor tomado: mientras, el
+    # status espera. Corren en este hilo, así que la ventana no se congela.
+
+    def _pedir_calib(self, op, **args):
+        if self.h is None:
+            return None
+        try:
+            return self.h.pedir(op, **args)
+        except OSError as e:
+            self._caido(e)
+        except Exception as e:                                   # noqa: BLE001
+            mensaje = f'{op}: {type(e).__name__}: {e}'
+            self.fallo.emit(mensaje)
+            self.calib_fallo.emit(mensaje)
+        return None
+
+    @pyqtSlot(dict)
+    def medir_canal(self, kw):
+        if self.h is None:
+            return
+        try:
+            res, caps = self.h.medir_canal(**kw)
+        except OSError as e:
+            self._caido(e)
+            return
+        except Exception as e:                                   # noqa: BLE001
+            mensaje = f'canal.medir: {type(e).__name__}: {e}'
+            self.fallo.emit(mensaje)
+            self.calib_fallo.emit(mensaje)
+            return
+        self.canal_info.emit(res, caps)
+        self.aviso.emit(f"channel measured ({res.get('referencia')}): slow drop "
+                        f"{100 * res.get('caida_lenta_usar', 0.0):+.2f} %")
+
+    @pyqtSlot(dict)
+    def medir_ganancia(self, kw):
+        r = self._pedir_calib('mca.ganancia', **kw)
+        if r is not None:
+            self.ganancia_info.emit(r)
+            self.aviso.emit(f"MCA gain: {r['ganancia_mca']:.4f} feature counts per ADU")
+            self._leer_config()
+
+    @pyqtSlot(dict)
+    def base_dinamica(self, kw):
+        r = self._pedir_calib('base.dinamica', **kw)
+        if r is not None:
+            self.base_info.emit(r)
+            self.aviso.emit('dynamic base ' + ('on' if r.get('on') else 'off'))
+            self._leer_config()
+
+    @pyqtSlot(dict)
+    def verificar_base(self, kw):
+        r = self._pedir_calib('base.verificar', **kw)
+        if r is not None:
+            self.verificacion_info.emit(r)
+            self._leer_config()
+
     # ---------- el event_ring ----------
     #
     # Las ops ring.* tienen su propio lock en el servidor: parar una adquisición
@@ -504,6 +569,10 @@ class Mcamon(QMainWindow):
     sig_ring_estado = pyqtSignal()
     sig_ring_iniciar = pyqtSignal(dict)
     sig_ring_parar = pyqtSignal()
+    sig_canal_medir = pyqtSignal(dict)
+    sig_mca_ganancia = pyqtSignal(dict)
+    sig_base = pyqtSignal(dict)
+    sig_base_verificar = pyqtSignal(dict)
 
     def __init__(self, host='10.73.28.27', port=PORT_DEFAULT):
         super().__init__()
@@ -540,6 +609,7 @@ class Mcamon(QMainWindow):
         self.panel_ring = None          # el embebido en panel_config_osc, o None
         self.panel_mtrg = None
         self.panel_gen = None           # según `has_pulsos`
+        self.panel_cal = None           # «Calibration», según `has_osc`
         self.tabs.addTab(self.panel_log, 'Messages')
         self.tabs.addTab(self.panel_espectro, 'Spectrum')
         self.tabs.addTab(self.panel_config, 'MCA settings')
@@ -657,6 +727,15 @@ class Mcamon(QMainWindow):
         self.trabajador.ring_info.connect(self._al_ring)
         self.trabajador.ring_fallo.connect(self._al_ring_fallo)
         self.trabajador.disparo_info.connect(self._al_disparo)
+        self.sig_canal_medir.connect(self.trabajador.medir_canal)
+        self.sig_mca_ganancia.connect(self.trabajador.medir_ganancia)
+        self.sig_base.connect(self.trabajador.base_dinamica)
+        self.sig_base_verificar.connect(self.trabajador.verificar_base)
+        self.trabajador.canal_info.connect(self._al_canal)
+        self.trabajador.ganancia_info.connect(self._al_ganancia)
+        self.trabajador.base_info.connect(self._al_base)
+        self.trabajador.verificacion_info.connect(self._al_verificacion)
+        self.trabajador.calib_fallo.connect(self._al_calib_fallo)
 
         self.trabajador.integracion.connect(self._al_integracion)
         self.trabajador.osc_info.connect(self._al_osc)
@@ -725,6 +804,8 @@ class Mcamon(QMainWindow):
                                        bool(info.get('has_ring')),
                                        bool(info.get('has_gen')))
         self._sincronizar_pestana_generador(bool(info.get('has_pulsos')))
+        self._sincronizar_pestana_calibracion(bool(info.get('has_osc')),
+                                              bool(info.get('has_pulsos')))
         if info.get('ring_corriendo'):
             self.panel_log.info('a ring acquisition is running on the board')
         for nota in info.get('bases_notas') or ():
@@ -736,7 +817,8 @@ class Mcamon(QMainWindow):
         self.panel_espectro.set_conectado(False)
         self.panel_config.set_conectado(False)
         for panel in (self.panel_integracion, self.panel_pulsos,
-                      self.panel_config_osc, self.panel_mtrg, self.panel_gen):
+                      self.panel_config_osc, self.panel_mtrg, self.panel_gen,
+                      self.panel_cal):
             if panel is not None:
                 panel.set_conectado(False)
         self.lbl_lazo.setVisible(False)
@@ -765,6 +847,12 @@ class Mcamon(QMainWindow):
         # Con el lazo, la franja del generador compara la λ̂ del MCA con su tasa.
         if self.panel_gen is not None:
             self.panel_gen.actualizar_mca(est)
+        # La base dinámica viaja en el status: la pestaña la sigue, y «MCA settings»
+        # deja la base fija de sólo lectura mientras está prendida.
+        base = est.get('base_dinamica') or {}
+        self.panel_config.set_base_dinamica(bool(base.get('on')))
+        if self.panel_cal is not None:
+            self.panel_cal.actualizar_status(est)
 
     def _al_config(self, cfg):
         self._ultima_cfg = cfg
@@ -772,6 +860,8 @@ class Mcamon(QMainWindow):
         self.panel_config.actualizar_config(cfg)
         if self.panel_mtrg is not None:
             self.panel_mtrg.actualizar_mca_config(cfg)
+        if self.panel_cal is not None:
+            self.panel_cal.actualizar_config(cfg)
 
     def _al_mapa(self, mapa):
         if self.panel_mapa is not None:
@@ -948,6 +1038,50 @@ class Mcamon(QMainWindow):
         if self.panel_gen is not None:
             self.panel_gen.set_conectado(True)
             self.sig_pedir_gen.emit()
+
+    # ---------- pestaña de calibración del canal ----------
+
+    def _sincronizar_pestana_calibracion(self, hay_osc, hay_gen):
+        """Existe si el bitstream trae el osciloscopio (la BRAM mide el canal); sin
+        el generador sólo queda la referencia externa."""
+        if hay_osc and self.panel_cal is None:
+            self.panel_cal = PanelCalibracion()
+            self.panel_cal.log.connect(self.panel_log.info)
+            self.panel_cal.pedir_medir.connect(self.sig_canal_medir)
+            self.panel_cal.pedir_ganancia.connect(self.sig_mca_ganancia)
+            self.panel_cal.pedir_base.connect(self.sig_base)
+            self.panel_cal.pedir_verificar.connect(self.sig_base_verificar)
+            self.panel_cal.pedir_campo_mca.connect(self.sig_campo)
+            self.tabs.addTab(self.panel_cal, 'Calibration')
+        elif not hay_osc and self.panel_cal is not None:
+            self.tabs.removeTab(self.tabs.indexOf(self.panel_cal))
+            self.panel_cal.deleteLater()
+            self.panel_cal = None
+        if self.panel_cal is not None:
+            self.panel_cal.set_generador(hay_gen)
+            self.panel_cal.set_conectado(True)
+            if self._ultima_cfg is not None:
+                self.panel_cal.actualizar_config(self._ultima_cfg)
+
+    def _al_canal(self, res, caps):
+        if self.panel_cal is not None:
+            self.panel_cal.actualizar_medida(res, caps)
+
+    def _al_ganancia(self, info):
+        if self.panel_cal is not None:
+            self.panel_cal.actualizar_ganancia(info)
+
+    def _al_base(self, info):
+        if self.panel_cal is not None:
+            self.panel_cal.actualizar_base(info)
+
+    def _al_verificacion(self, r):
+        if self.panel_cal is not None:
+            self.panel_cal.actualizar_verificacion(r)
+
+    def _al_calib_fallo(self, mensaje):
+        if self.panel_cal is not None:
+            self.panel_cal.mostrar_fallo(mensaje)
 
     # ---------- el event_ring, dentro de «OSC settings» ----------
 
