@@ -1,0 +1,84 @@
+% Corrimiento de la línea con la tasa. GENERADO por figuras_meritos.py: no editar a mano.
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../estilo_tikz.tex}
+\usetikzlibrary{plotmarks}
+% la paleta de las series: los tonos del proyecto, oscurecidos para líneas y validados
+% (scripts/validate_palette.js de la guía de visualización, sobre blanco, todos los pares)
+\definecolor{cazul}{HTML}{2A6FB5}
+\definecolor{cnaranja}{HTML}{D9702A}
+\definecolor{cverde}{HTML}{2E9E5B}
+\definecolor{cmagenta}{HTML}{C2417C}
+\definecolor{cgris}{HTML}{5A5A5A}
+% rampa ordinal (las ranuras): un solo tono, de claro a oscuro
+\definecolor{r1}{HTML}{6FA8DC}
+\definecolor{r2}{HTML}{2A6FB5}
+\definecolor{r3}{HTML}{123D63}
+\tikzset{
+  eje/.style    = {black!60, line width=0.5pt},
+  guia/.style   = {black!10, line width=0.4pt},
+  tick/.style   = {font=\scriptsize, inner sep=1.5pt, black!75},
+  titeje/.style = {font=\scriptsize, inner sep=1pt},
+  digital/.style   = {line width=0.8pt, line join=round},
+  analogico/.style = {line width=0.8pt, line join=round, dash pattern=on 3pt off 1.6pt},
+  directo/.style = {font=\scriptsize, inner sep=1.5pt},
+  letra/.style  = {font=\scriptsize\bfseries, anchor=south west, inner sep=0pt},
+}
+% una muestra de leyenda de un área: #1 color
+\newcommand{\muestraarea}[1]{\tikz[baseline=-0.6ex]{\fill[#1] (0,-0.9mm) rectangle (3.2mm,1.3mm);}}
+% una muestra de leyenda: #1 color, #2 estilo de línea, #3 marca, #4 relleno de la marca
+\newcommand{\muestra}[4]{\tikz[baseline=-0.6ex]{\draw[#1, #2] (0,0) -- (6mm,0);
+  \draw[#1, line width=0.6pt] plot[only marks, mark=#3, mark size=1.35pt,
+    mark options={fill=#4, solid}] coordinates {(3mm,0)};}}
+\begin{document}
+\begin{tikzpicture}[fondo]
+\draw[guia] (0.000,0.000) -- (9.000,0.000);
+\draw[eje] (0.000,0.000) -- ++(-0.07,0) node[tick, left] {-30};
+\draw[guia] (0.000,0.639) -- (9.000,0.639);
+\draw[eje] (0.000,0.639) -- ++(-0.07,0) node[tick, left] {-25};
+\draw[guia] (0.000,1.278) -- (9.000,1.278);
+\draw[eje] (0.000,1.278) -- ++(-0.07,0) node[tick, left] {-20};
+\draw[guia] (0.000,1.917) -- (9.000,1.917);
+\draw[eje] (0.000,1.917) -- ++(-0.07,0) node[tick, left] {-15};
+\draw[guia] (0.000,2.556) -- (9.000,2.556);
+\draw[eje] (0.000,2.556) -- ++(-0.07,0) node[tick, left] {-10};
+\draw[guia] (0.000,3.194) -- (9.000,3.194);
+\draw[eje] (0.000,3.194) -- ++(-0.07,0) node[tick, left] {-5};
+\draw[guia] (0.000,3.833) -- (9.000,3.833);
+\draw[eje] (0.000,3.833) -- ++(-0.07,0) node[tick, left] {0};
+\draw[guia] (0.000,4.472) -- (9.000,4.472);
+\draw[eje] (0.000,4.472) -- ++(-0.07,0) node[tick, left] {5};
+\draw[guia] (0.323,0.000) -- (0.323,4.600);
+\draw[eje] (0.323,0.000) -- ++(0,-0.07) node[tick, below] {10};
+\draw[guia] (3.658,0.000) -- (3.658,4.600);
+\draw[eje] (3.658,0.000) -- ++(0,-0.07) node[tick, below] {100};
+\draw[guia] (6.992,0.000) -- (6.992,4.600);
+\draw[eje] (6.992,0.000) -- ++(0,-0.07) node[tick, below] {1000};
+\draw[eje] (0.000,0.000) rectangle (9.000,4.600);
+\node[titeje, anchor=north] at (4.500,-0.420) {tasa de entrada [k/s]};
+\node[titeje, rotate=90, anchor=south] at (-0.750,2.300) {corrimiento de la línea [canales]};
+\draw[black!45, solid, line width=0.5pt] (0.000,3.833) -- (9.000,3.833);
+\begin{scope}\clip (0.000,0.000) rectangle (9.000,4.600);
+\draw[cazul, digital] plot coordinates {(0.320,3.836) (1.912,3.843) (3.662,3.860) (4.660,3.871) (5.664,3.884) (6.474,3.896) (6.991,3.905) (7.579,3.915) (7.995,3.923) (8.582,4.003)};
+\end{scope}
+\draw[cazul, line width=0.6pt] plot[only marks, mark=*, mark size=1.35pt, mark options={fill=cazul, solid}] coordinates {(0.320,3.836) (1.912,3.843) (3.662,3.860) (4.660,3.871) (5.664,3.884) (6.474,3.896) (6.991,3.905) (7.579,3.915) (7.995,3.923) (8.582,4.003)};
+\begin{scope}\clip (0.000,0.000) rectangle (9.000,4.600);
+\draw[cnaranja, digital] plot coordinates {(0.320,3.841) (1.912,3.850) (3.662,3.868) (4.660,3.880) (5.664,3.892) (6.474,3.904) (6.991,3.912) (7.579,3.921) (7.995,3.924) (8.582,3.851)};
+\end{scope}
+\draw[cnaranja, line width=0.6pt] plot[only marks, mark=square*, mark size=1.35pt, mark options={fill=cnaranja, solid}] coordinates {(0.320,3.841) (1.912,3.850) (3.662,3.868) (4.660,3.880) (5.664,3.892) (6.474,3.904) (6.991,3.912) (7.579,3.921) (7.995,3.924) (8.582,3.851)};
+\begin{scope}\clip (0.000,0.000) rectangle (9.000,4.600);
+\draw[cazul, analogico] plot coordinates {(0.320,3.717) (1.912,3.701) (3.662,3.539) (4.660,3.200) (5.664,2.585) (6.474,1.980) (6.991,1.594) (7.579,1.377) (7.995,1.263) (8.582,0.958)};
+\end{scope}
+\draw[cazul, line width=0.6pt] plot[only marks, mark=*, mark size=1.35pt, mark options={fill=white, solid}] coordinates {(0.320,3.717) (1.912,3.701) (3.662,3.539) (4.660,3.200) (5.664,2.585) (6.474,1.980) (6.991,1.594) (7.579,1.377) (7.995,1.263) (8.582,0.958)};
+\begin{scope}\clip (0.000,0.000) rectangle (9.000,4.600);
+\draw[cnaranja, analogico] plot coordinates {(0.320,3.692) (1.912,3.703) (3.662,3.608) (4.660,3.316) (5.664,2.709) (6.474,2.032) (6.991,1.537) (7.579,0.971) (7.995,0.607) (8.582,0.109)};
+\end{scope}
+\draw[cnaranja, line width=0.6pt] plot[only marks, mark=square*, mark size=1.35pt, mark options={fill=white, solid}] coordinates {(0.320,3.692) (1.912,3.703) (3.662,3.608) (4.660,3.316) (5.664,2.709) (6.474,2.032) (6.991,1.537) (7.579,0.971) (7.995,0.607) (8.582,0.109)};
+\node[directo, anchor=west, text=black] at (8.702,0.958) {500 ADU};
+\node[directo, anchor=west, text=black] at (8.702,0.109) {1300 ADU};
+\node[anchor=north west, font=\scriptsize, align=left, inner sep=0pt, text width=9.0cm] at (0.000,-1.000) {\muestra{cazul}{digital}{*}{cazul}~línea de 500 ADU\hspace{4mm}\muestra{cnaranja}{digital}{square*}{cnaranja}~línea de 1300 ADU\\[1.5pt]\muestra{black}{digital}{*}{black}~lazo digital\hspace{4mm}\muestra{black}{analogico}{*}{white}~canal analógico (OUT1 $\to$ IN1)};
+\end{tikzpicture}
+\end{document}

@@ -1,0 +1,114 @@
+% INL del trapecio. GENERADO por figuras_meritos.py: no editar a mano.
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../estilo_tikz.tex}
+\usetikzlibrary{plotmarks}
+% la paleta de las series: los tonos del proyecto, oscurecidos para líneas y validados
+% (scripts/validate_palette.js de la guía de visualización, sobre blanco, todos los pares)
+\definecolor{cazul}{HTML}{2A6FB5}
+\definecolor{cnaranja}{HTML}{D9702A}
+\definecolor{cverde}{HTML}{2E9E5B}
+\definecolor{cmagenta}{HTML}{C2417C}
+\definecolor{cgris}{HTML}{5A5A5A}
+% rampa ordinal (las ranuras): un solo tono, de claro a oscuro
+\definecolor{r1}{HTML}{6FA8DC}
+\definecolor{r2}{HTML}{2A6FB5}
+\definecolor{r3}{HTML}{123D63}
+\tikzset{
+  eje/.style    = {black!60, line width=0.5pt},
+  guia/.style   = {black!10, line width=0.4pt},
+  tick/.style   = {font=\scriptsize, inner sep=1.5pt, black!75},
+  titeje/.style = {font=\scriptsize, inner sep=1pt},
+  digital/.style   = {line width=0.8pt, line join=round},
+  analogico/.style = {line width=0.8pt, line join=round, dash pattern=on 3pt off 1.6pt},
+  directo/.style = {font=\scriptsize, inner sep=1.5pt},
+  letra/.style  = {font=\scriptsize\bfseries, anchor=south west, inner sep=0pt},
+}
+% una muestra de leyenda de un área: #1 color
+\newcommand{\muestraarea}[1]{\tikz[baseline=-0.6ex]{\fill[#1] (0,-0.9mm) rectangle (3.2mm,1.3mm);}}
+% una muestra de leyenda: #1 color, #2 estilo de línea, #3 marca, #4 relleno de la marca
+\newcommand{\muestra}[4]{\tikz[baseline=-0.6ex]{\draw[#1, #2] (0,0) -- (6mm,0);
+  \draw[#1, line width=0.6pt] plot[only marks, mark=#3, mark size=1.35pt,
+    mark options={fill=#4, solid}] coordinates {(3mm,0)};}}
+\begin{document}
+\begin{tikzpicture}[fondo]
+\draw[guia] (0.000,0.000) -- (6.000,0.000);
+\draw[eje] (0.000,0.000) -- ++(-0.07,0) node[tick, left] {-0.004};
+\draw[guia] (0.000,1.050) -- (6.000,1.050);
+\draw[eje] (0.000,1.050) -- ++(-0.07,0) node[tick, left] {-0.002};
+\draw[guia] (0.000,2.100) -- (6.000,2.100);
+\draw[eje] (0.000,2.100) -- ++(-0.07,0) node[tick, left] {0};
+\draw[guia] (0.000,3.150) -- (6.000,3.150);
+\draw[eje] (0.000,3.150) -- ++(-0.07,0) node[tick, left] {0.002};
+\draw[guia] (0.000,4.200) -- (6.000,4.200);
+\draw[eje] (0.000,4.200) -- ++(-0.07,0) node[tick, left] {0.004};
+\draw[guia] (0.102,0.000) -- (0.102,4.200);
+\draw[eje] (0.102,0.000) -- ++(0,-0.07) node[tick, below] {20};
+\draw[guia] (1.656,0.000) -- (1.656,4.200);
+\draw[eje] (1.656,0.000) -- ++(0,-0.07) node[tick, below] {100};
+\draw[guia] (3.879,0.000) -- (3.879,4.200);
+\draw[eje] (3.879,0.000) -- ++(0,-0.07) node[tick, below] {1000};
+\draw[guia] (5.433,0.000) -- (5.433,4.200);
+\draw[eje] (5.433,0.000) -- ++(0,-0.07) node[tick, below] {5000};
+\draw[eje] (0.000,0.000) rectangle (6.000,4.200);
+\node[titeje, anchor=north] at (3.000,-0.420) {amplitud del generador [ADU]};
+\node[titeje, rotate=90, anchor=south] at (-1.000,2.100) {residuo del trapecio [\% FS]};
+\node[letra] at (0.000,4.320) {(a) lazo digital};
+\draw[black!45, solid, line width=0.5pt] (0.000,2.100) -- (6.000,2.100);
+\begin{scope}\clip (0.000,0.000) rectangle (6.000,4.200);
+\draw[cazul, digital] plot coordinates {(0.102,2.264) (0.493,2.275) (0.771,2.302) (0.986,2.641) (1.162,2.438) (1.378,2.397) (1.554,2.290) (1.748,2.475) (2.047,2.206) (2.325,2.112) (2.716,1.859) (3.209,2.516) (3.663,2.017) (4.132,2.094) (4.548,1.892) (5.002,2.210) (5.433,1.449) (5.886,1.120)};
+\end{scope}
+\draw[cazul, line width=0.6pt] plot[only marks, mark=*, mark size=1.35pt, mark options={fill=cazul, solid}] coordinates {(0.102,2.264) (0.493,2.275) (0.771,2.302) (0.986,2.641) (1.162,2.438) (1.378,2.397) (1.554,2.290) (1.748,2.475) (2.047,2.206) (2.325,2.112) (2.716,1.859) (3.209,2.516) (3.663,2.017) (4.132,2.094) (4.548,1.892) (5.002,2.210) (5.433,1.449) (5.886,1.120)};
+\begin{scope}\clip (0.000,0.000) rectangle (6.000,4.200);
+\draw[cnaranja, digital] plot coordinates {(1.162,2.454) (1.378,2.348) (1.554,2.224) (1.748,2.475) (2.047,2.206) (2.325,2.112) (2.716,1.859) (3.209,2.516) (3.663,2.017) (4.132,2.094) (4.548,1.892) (5.002,2.210) (5.433,1.449) (5.886,1.120)};
+\end{scope}
+\draw[cnaranja, line width=0.6pt] plot[only marks, mark=square*, mark size=1.35pt, mark options={fill=cnaranja, solid}] coordinates {(1.162,2.454) (1.378,2.348) (1.554,2.224) (1.748,2.475) (2.047,2.206) (2.325,2.112) (2.716,1.859) (3.209,2.516) (3.663,2.017) (4.132,2.094) (4.548,1.892) (5.002,2.210) (5.433,1.449) (5.886,1.120)};
+\begin{scope}\clip (0.000,0.000) rectangle (6.000,4.200);
+\draw[cverde, digital] plot coordinates {(1.554,1.987) (1.748,2.222) (2.047,2.149) (2.325,2.038) (2.716,1.865) (3.209,2.569) (3.663,2.034) (4.132,2.104) (4.548,1.894) (5.002,2.197) (5.433,1.413) (5.886,1.046)};
+\end{scope}
+\draw[cverde, line width=0.6pt] plot[only marks, mark=triangle*, mark size=1.35pt, mark options={fill=cverde, solid}] coordinates {(1.554,1.987) (1.748,2.222) (2.047,2.149) (2.325,2.038) (2.716,1.865) (3.209,2.569) (3.663,2.034) (4.132,2.104) (4.548,1.894) (5.002,2.197) (5.433,1.413) (5.886,1.046)};
+\draw[guia] (8.000,0.000) -- (14.000,0.000);
+\draw[eje] (8.000,0.000) -- ++(-0.07,0) node[tick, left] {-0.1};
+\draw[guia] (8.000,1.050) -- (14.000,1.050);
+\draw[eje] (8.000,1.050) -- ++(-0.07,0) node[tick, left] {-0.05};
+\draw[guia] (8.000,2.100) -- (14.000,2.100);
+\draw[eje] (8.000,2.100) -- ++(-0.07,0) node[tick, left] {0};
+\draw[guia] (8.000,3.150) -- (14.000,3.150);
+\draw[eje] (8.000,3.150) -- ++(-0.07,0) node[tick, left] {0.05};
+\draw[guia] (8.000,4.200) -- (14.000,4.200);
+\draw[eje] (8.000,4.200) -- ++(-0.07,0) node[tick, left] {0.1};
+\draw[guia] (8.102,0.000) -- (8.102,4.200);
+\draw[eje] (8.102,0.000) -- ++(0,-0.07) node[tick, below] {20};
+\draw[guia] (9.656,0.000) -- (9.656,4.200);
+\draw[eje] (9.656,0.000) -- ++(0,-0.07) node[tick, below] {100};
+\draw[guia] (11.879,0.000) -- (11.879,4.200);
+\draw[eje] (11.879,0.000) -- ++(0,-0.07) node[tick, below] {1000};
+\draw[guia] (13.433,0.000) -- (13.433,4.200);
+\draw[eje] (13.433,0.000) -- ++(0,-0.07) node[tick, below] {5000};
+\draw[eje] (8.000,0.000) rectangle (14.000,4.200);
+\node[titeje, anchor=north] at (11.000,-0.420) {amplitud del generador [ADU]};
+\node[titeje, rotate=90, anchor=south] at (7.050,2.100) {residuo del trapecio [\% FS]};
+\node[letra] at (8.000,4.320) {(b) canal analógico};
+\fill[black!7] (13.756,0.000) rectangle (14.000,4.200);
+\draw[black!45, solid, line width=0.5pt] (8.000,2.100) -- (14.000,2.100);
+\begin{scope}\clip (8.000,0.000) rectangle (14.000,4.200);
+\draw[cazul, analogico] plot coordinates {(8.102,1.624) (8.493,1.835) (8.771,1.812) (8.986,1.805) (9.162,1.877) (9.378,1.894) (9.554,1.778) (9.748,1.963) (10.047,1.932) (10.325,2.001) (10.716,2.088) (11.209,2.214) (11.663,2.089) (12.132,2.057) (12.548,2.212) (13.002,2.040) (13.433,0.587) (13.886,15.885)};
+\end{scope}
+\draw[cazul, line width=0.6pt] plot[only marks, mark=*, mark size=1.35pt, mark options={fill=white, solid}] coordinates {(8.102,1.624) (8.493,1.835) (8.771,1.812) (8.986,1.805) (9.162,1.877) (9.378,1.894) (9.554,1.778) (9.748,1.963) (10.047,1.932) (10.325,2.001) (10.716,2.088) (11.209,2.214) (11.663,2.089) (12.132,2.057) (12.548,2.212) (13.002,2.040) (13.433,0.587)};
+\draw[cazul, line width=0.6pt, -{Stealth[length=1.6mm]}] (13.886,3.780) -- (13.886,4.150);
+\node[directo, anchor=east, text=black] at (13.466,3.650) {$+0.66$\,\%};
+\begin{scope}\clip (8.000,0.000) rectangle (14.000,4.200);
+\draw[cnaranja, analogico] plot coordinates {(9.378,1.762) (9.554,1.861) (9.748,1.854) (10.047,1.862) (10.325,1.989) (10.716,2.092) (11.209,2.149) (11.663,2.093) (12.132,2.145) (12.548,2.227) (13.002,2.004)};
+\end{scope}
+\draw[cnaranja, line width=0.6pt] plot[only marks, mark=square*, mark size=1.35pt, mark options={fill=white, solid}] coordinates {(9.378,1.762) (9.554,1.861) (9.748,1.854) (10.047,1.862) (10.325,1.989) (10.716,2.092) (11.209,2.149) (11.663,2.093) (12.132,2.145) (12.548,2.227) (13.002,2.004)};
+\begin{scope}\clip (8.000,0.000) rectangle (14.000,4.200);
+\draw[cverde, analogico] plot coordinates {(9.554,1.793) (9.748,1.995) (10.047,1.939) (10.325,1.960) (10.716,2.103) (11.209,2.200) (11.663,2.101) (12.132,2.061) (12.548,2.276) (13.002,1.998) (13.433,0.485) (13.886,15.787)};
+\end{scope}
+\draw[cverde, line width=0.6pt] plot[only marks, mark=triangle*, mark size=1.35pt, mark options={fill=white, solid}] coordinates {(9.554,1.793) (9.748,1.995) (10.047,1.939) (10.325,1.960) (10.716,2.103) (11.209,2.200) (11.663,2.101) (12.132,2.061) (12.548,2.276) (13.002,1.998) (13.433,0.485)};
+\draw[cverde, line width=0.6pt, -{Stealth[length=1.6mm]}] (13.886,3.780) -- (13.886,4.150);
+\node[anchor=north west, font=\scriptsize, align=left, inner sep=0pt, text width=15.5cm] at (0.000,-1.000) {\muestra{cazul}{digital}{*}{cazul}~ASG\hspace{4mm}\muestra{cnaranja}{digital}{square*}{cnaranja}~polo-cero\hspace{4mm}\muestra{cverde}{digital}{triangle*}{cverde}~pendiente\\[1.5pt]\muestra{black}{digital}{*}{black}~lazo digital\hspace{4mm}\muestra{black}{analogico}{*}{white}~canal analógico (OUT1 $\to$ IN1)\hspace{4mm}\muestraarea{black!7}~el sobrepico pasa el fondo de escala del ADC};
+\end{tikzpicture}
+\end{document}

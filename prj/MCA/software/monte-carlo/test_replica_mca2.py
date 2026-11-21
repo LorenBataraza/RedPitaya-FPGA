@@ -154,3 +154,23 @@ def test_el_estimulo_ejercita_lo_que_importa(pares):
 
 if __name__ == '__main__':
     raise SystemExit(pytest.main([__file__, '-q']))
+
+
+def test_las_features_no_dependen_del_bloque():
+    """`_features` recorre los disparos de a `bloque`: el pico, su instante y las dos
+    cargas de cada ventana tienen que ser los de la ventana, en cualquier bloque (el
+    bucle de las formas pisaba `off` y, desde el segundo, quedaba una sola muestra)."""
+    rng = np.random.default_rng(3)
+    n, g_l = 300, 40
+    t = np.arange(n) * 50 + 20
+    x = np.zeros(t[-1] + 100, np.int64)
+    x[t[:, None] + np.arange(8)] = rng.integers(100, 2000, n)[:, None] * \
+        np.exp(-np.arange(8) / 3.0)[None, :]
+    c = r2.cfg(gate_long=g_l, gate_short=8, pre_dly=0, n_formas=2)
+    a = r2._features(x, t + r2.LAT_MCA, c, bloque=64)
+    b = r2._features(x, t + r2.LAT_MCA, c, bloque=1 << 20)
+    for k in ('pico', 't_pico', 'q_tot', 'q_tail', 'tsum'):
+        assert np.array_equal(a[k], b[k]), k
+    w = np.maximum(x[a['s0'][:, None] + np.arange(g_l)], 0)
+    assert np.array_equal(a['pico'], w.max(axis=1))
+    assert np.array_equal(a['q_tot'], w.sum(axis=1))

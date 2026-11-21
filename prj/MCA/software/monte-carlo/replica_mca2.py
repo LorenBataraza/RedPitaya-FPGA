@@ -254,11 +254,13 @@ def _features(x, c_trig, c, bloque=8192):
         t_pico[ii] = w.argmax(axis=1)            # primera ocurrencia: `>` estricto
         q_tot[ii] = w.sum(axis=1)
         q_tail[ii] = w[:, g_s:].sum(axis=1) if g_s < g_l else 0
-        for f, (_, _, off, lw, _, _, _) in enumerate(formas):
+        # `off_f`, no `off`: `off` es el arange de la ventana, y pisarlo dejaba a
+        # partir del segundo bloque las features de una sola muestra.
+        for f, (_, _, off_f, lw, _, _, _) in enumerate(formas):
             if trap_ok[f]:
                 # j en [off + TLAT, off + TLAT + 2^lw) ve la salida de TLAT
                 # muestras antes: las muestras s0+off .. del trapecio
-                tsum[ii, f] = T[f][s0[ii, None] + off + np.arange(1 << lw)].sum(axis=1)
+                tsum[ii, f] = T[f][s0[ii, None] + off_f + np.arange(1 << lw)].sum(axis=1)
     return dict(s0=s0, completa=completa, pico=pico, t_pico=t_pico,
                 q_tot=q_tot, q_tail=q_tail, tsum=tsum, trap_ok=trap_ok)
 

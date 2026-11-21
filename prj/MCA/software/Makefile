@@ -153,7 +153,9 @@ export PYTHONPATH := $(RAIZ):$(PYTHONPATH)
         campana-lista campana-mca campana-campana campana-resto campana-formas \
         campana-e2e campana-poisson campana-politicas campana-politicas-remoto \
         campana-etapas-ring campana-etapas-ring-remoto campana-etapas-ring-red \
+        campana-etapas-ring-por-red ring-red-recibir ring-red-convertir bench-tcp-placa \
         campana-meritos-pulsos campana-meritos-pulsos-remoto campana-meritos-pulsos-sim \
+        campana-fidelidad-osc campana-fidelidad-osc-remoto campana-fidelidad-osc-sim \
         placa-montar-red placa-desmontar-red \
         campana-deriva campana-adquirir \
         campana-adquirir-remoto campana-deriva-remoto \
@@ -406,25 +408,62 @@ campana-etapas-ring-remoto: placa-sync  ## (P) las etapas del ring EN la Pitaya,
 	rsync -az $(PITAYA):$(REMOTO)/$(OUT)/ $(OUT)/
 	@echo "datos en $(OUT)/"
 
-# Las figuras de mérito del MCA con el generador de pulsos de la FPGA, por el lazo
-# digital, sin el Rigol: la curva m(n) (etapa tasa) y la resolución par-pulso (etapa
-# par), con las fuentes ASG, polo-cero y pendiente. Necesita un bitstream con gen_pulsos
-# (el MCA cce7b66b o el ring 78e26188 en adelante). `-sim` corre lo mismo en la PC sobre
-# el modelo del generador y la réplica del MCA; las dos se comparan con
-# `campanas/run_meritos_pulsos.py --comparar placa.json sim.json`. MERITOS= las etapas;
-# el resto (--fuentes, --tasas, --dts, --n-acc, --seg, --n-pares...) va en ARGS=.
-MERITOS ?= tasa,par
-campana-meritos-pulsos: exige-placa  ## (P) figuras de mérito del MCA con gen_pulsos. OUT= MERITOS= ARGS=
-	$(PY) campanas/run_meritos_pulsos.py $(OUT) --etapas $(MERITOS) $(ARGS)
+# Las figuras de mérito del MCA con el generador de pulsos de la FPGA, sin el Rigol: la
+# curva m(n) (tasa), la resolución par-pulso (par), la histéresis de la campaña del Rigol
+# con el pulser digital (histeresis, ~6 min), el walk con la curva S y la linealidad
+# (walk) y la resolución contra el ruido inyectado (ruido); fuentes ASG, polo-cero y
+# pendiente. Necesita un bitstream con gen_pulsos (el MCA cce7b66b o el ring 78e26188 en
+# adelante). MODO=digital (el lazo) o MODO=analogico (OUT1 → coaxial → IN1, jumper LV:
+# mide el canal con la BRAM antes de las etapas). `-sim` corre lo mismo en la PC sobre el
+# modelo del generador y la réplica del MCA (en analógico, con un canal de juguete); dos
+# corridas se comparan con `campanas/run_meritos_pulsos.py --comparar a.json b.json`.
+# MERITOS= las etapas; el resto (--fuentes, --tasas, --dts, --n-acc, --seg,
+# --ruidos-sh...) va en ARGS=.
+MERITOS ?= tasa,par,histeresis,walk,ruido
+MODO ?= digital
+campana-meritos-pulsos: exige-placa  ## (P) figuras de mérito del MCA con gen_pulsos. OUT= MERITOS= MODO= ARGS=
+	$(PY) campanas/run_meritos_pulsos.py $(OUT) --etapas $(MERITOS) --modo $(MODO) $(ARGS)
 
-campana-meritos-pulsos-remoto: libmca-arm placa-sync  ## (P) las figuras de mérito EN la Pitaya, y trae el JSON. OUT= MERITOS= ARGS=
-	ssh $(PITAYA) 'make -C $(REMOTO) campana-meritos-pulsos OUT=$(OUT) MERITOS=$(MERITOS) ARGS="$(ARGS)"'
+campana-meritos-pulsos-remoto: libmca-arm placa-sync  ## (P) las figuras de mérito EN la Pitaya, y trae el JSON. OUT= MERITOS= MODO= ARGS=
+	ssh $(PITAYA) 'make -C $(REMOTO) campana-meritos-pulsos OUT=$(OUT) MERITOS=$(MERITOS) MODO=$(MODO) ARGS="$(ARGS)"'
 	@mkdir -p $(OUT)
 	rsync -az $(PITAYA):$(REMOTO)/$(OUT)/ $(OUT)/
 	@echo "datos en $(OUT)/"
 
-campana-meritos-pulsos-sim: libmca  ## la misma campaña sobre la réplica del MCA, en la PC. OUT= MERITOS= ARGS=
-	$(PY) campanas/run_meritos_pulsos.py $(OUT) --simulada --etapas $(MERITOS) $(ARGS)
+campana-meritos-pulsos-sim: libmca  ## la misma campaña sobre la réplica del MCA, en la PC. OUT= MERITOS= MODO= ARGS=
+	$(PY) campanas/run_meritos_pulsos.py $(OUT) --simulada --etapas $(MERITOS) --modo $(MODO) $(ARGS)
+
+# La fidelidad de la captura del osciloscopio con gen_pulsos: cada muestra del ring y de
+# la BRAM contra el modelo del generador, bit a bit con MODO=digital (el lazo); con
+# MODO=analogico (OUT1 → IN1), contra el canal medido (el FIR del piso y la respuesta),
+# más la diafonía a IN2. La placa captura (`medir`, necesita el bitstream del ring
+# c1875919 o posterior para la ruta ring; ARGS=--rutas bram con el del MCA) y la PC
+# compara (`analizar`), porque el modelo vive en modulos/ y no se sincroniza. `-sim`
+# recorre el análisis con capturas ideales.
+campana-fidelidad-osc: exige-placa  ## (P) captura con gen_pulsos: ring y BRAM. OUT= MODO= ARGS=
+	$(PY) campanas/run_fidelidad_osc.py medir $(OUT) --modo $(MODO) $(ARGS)
+
+campana-fidelidad-osc-remoto: libmca-arm placa-sync  ## (P) captura EN la Pitaya, la trae y la compara con el modelo. OUT= MODO= ARGS=
+	ssh $(PITAYA) 'make -C $(REMOTO) campana-fidelidad-osc OUT=$(OUT) MODO=$(MODO) ARGS="$(ARGS)"'
+	@mkdir -p $(OUT)
+	rsync -az $(PITAYA):$(REMOTO)/$(OUT)/ $(OUT)/
+	$(PY) campanas/run_fidelidad_osc.py analizar $(OUT)
+
+campana-fidelidad-osc-sim: libmca  ## la fidelidad con capturas ideales desde el modelo, en la PC. OUT= MODO=
+	$(PY) campanas/run_fidelidad_osc.py medir $(OUT) --simulada --modo $(MODO) $(ARGS)
+	$(PY) campanas/run_fidelidad_osc.py analizar $(OUT)
+
+# El techo del camino original del osciloscopio, la BRAM, con gen_pulsos y el disparo del
+# ASG: el lector de C (libmca) y el lazo original de Python con librp, contra el largo de
+# la ventana (techo) y contra la tasa de Poisson (tasa). Docs: resultados_meritos_gen_pulsos.md §3.3.
+campana-techo-bram: exige-placa  ## (P) eventos leídos por segundo de la BRAM. OUT= ARGS=
+	$(PY) campanas/run_techo_bram.py $(OUT) $(ARGS)
+
+campana-techo-bram-remoto: libmca-arm placa-sync  ## (P) el techo de la BRAM EN la Pitaya, y trae el JSON. OUT= ARGS=
+	ssh $(PITAYA) 'make -C $(REMOTO) campana-techo-bram OUT=$(OUT) ARGS="$(ARGS)"'
+	@mkdir -p $(OUT)
+	rsync -az $(PITAYA):$(REMOTO)/$(OUT)/ $(OUT)/
+	@echo "datos en $(OUT)/"
 
 # La etapa C por la red (docs/event_ring/generador.md §6): la sesión corre en el
 # servidor de la placa (las ops ring.*) y escribe en un directorio de la PC montado
@@ -447,6 +486,33 @@ placa-desmontar-red:  ## (P) desmonta MONTAJE de la placa
 
 campana-etapas-ring-red:  ## (P) la etapa C por la red, desde esta PC (servidor + montaje). OUT= ARGS=
 	$(PY) campanas/run_etapas_ring.py $(OUT) --etapas C --red $(IP_PITAYA):$(PUERTO_PLACA) --destino $(MONTAJE)/etapas --destino-pc $(PC_DIR)/etapas $(ARGS)
+
+# El ring por red (docs/event_ring/salida_por_red.md): la placa manda los slots por un
+# socket desde C (EmisionRing, ring.iniciar destino=red), sin sesión ni archivos allá,
+# y esta PC los recibe (API/ring_red.py). No hace falta montar nada: la PC se conecta a
+# un puerto de la placa. Hace falta el bitstream del ring y el servidor con libmca
+# 0.12.0 o posterior: después de `make libmca-arm placa-sync`, reiniciarlo
+# (`make app-servidor-off-remoto app-servidor-remoto`). Para medir el techo, la PC
+# tiene que estar cableada a la misma red que la placa: por WiFi o por un ruteo se
+# mide el enlace, no la placa. Primero `bench-tcp-placa`, que es el techo de TCP solo.
+campana-etapas-ring-por-red:  ## (P) las etapas D0 y D (el ring por red), desde esta PC. OUT= ARGS=
+	$(PY) campanas/run_etapas_ring.py $(OUT) --etapas D0,D --red $(IP_PITAYA):$(PUERTO_PLACA) $(ARGS)
+
+RED_DIR ?= $(HOME)/pitaya_red/ring
+RED_SEG ?= 10
+ring-red-recibir:  ## (P) una corrida del ring por red a RED_DIR, en esta PC. RED_SEG= ARGS= (p. ej. --generador 1e5)
+	$(PY) -m API.ring_red recibir --host $(IP_PITAYA) --puerto $(PUERTO_PLACA) --dir $(RED_DIR) --segundos $(RED_SEG) $(ARGS)
+
+ring-red-convertir:  ## los ring_*.bin de RED_DIR a chunk_*.npz y run_summary.json. ARGS=
+	$(PY) -m API.ring_red convertir $(RED_DIR) $(ARGS)
+
+TCP_PUERTO ?= 5099
+TCP_MB     ?= 1024
+bench-tcp-placa:  ## (P) TCP de la placa a esta PC, sin nada más: el techo del ring por red. TCP_MB=
+	@ssh $(PITAYA) 'python3 - servir --puerto $(TCP_PUERTO) --mb $(TCP_MB)' \
+	   < campanas/bench_tcp_placa.py & \
+	 $(PY) campanas/bench_tcp_placa.py recibir --host $(IP_PITAYA) --puerto $(TCP_PUERTO); \
+	 wait
 
 # La validación en silicio de las fases 1 y 2. `SOLO=invariantes` corre sólo
 # las identidades del teselado, que es lo primero a mirar con un bitstream

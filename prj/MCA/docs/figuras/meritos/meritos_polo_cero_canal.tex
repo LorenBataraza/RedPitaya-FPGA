@@ -1,0 +1,119 @@
+% Polo-cero en el canal analógico. GENERADO por figuras_meritos.py: no editar a mano.
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../estilo_tikz.tex}
+\usetikzlibrary{plotmarks}
+% la paleta de las series: los tonos del proyecto, oscurecidos para líneas y validados
+% (scripts/validate_palette.js de la guía de visualización, sobre blanco, todos los pares)
+\definecolor{cazul}{HTML}{2A6FB5}
+\definecolor{cnaranja}{HTML}{D9702A}
+\definecolor{cverde}{HTML}{2E9E5B}
+\definecolor{cmagenta}{HTML}{C2417C}
+\definecolor{cgris}{HTML}{5A5A5A}
+% rampa ordinal (las ranuras): un solo tono, de claro a oscuro
+\definecolor{r1}{HTML}{6FA8DC}
+\definecolor{r2}{HTML}{2A6FB5}
+\definecolor{r3}{HTML}{123D63}
+\tikzset{
+  eje/.style    = {black!60, line width=0.5pt},
+  guia/.style   = {black!10, line width=0.4pt},
+  tick/.style   = {font=\scriptsize, inner sep=1.5pt, black!75},
+  titeje/.style = {font=\scriptsize, inner sep=1pt},
+  digital/.style   = {line width=0.8pt, line join=round},
+  analogico/.style = {line width=0.8pt, line join=round, dash pattern=on 3pt off 1.6pt},
+  limite/.style    = {line width=1.2pt, line cap=round, line join=round, dash pattern=on 0pt off 2.3pt},
+  directo/.style = {font=\scriptsize, inner sep=1.5pt},
+  letra/.style  = {font=\scriptsize\bfseries, anchor=south west, inner sep=0pt},
+}
+% una muestra de leyenda de un área: #1 color
+\newcommand{\muestraarea}[1]{\tikz[baseline=-0.6ex]{\fill[#1] (0,-0.9mm) rectangle (3.2mm,1.3mm);}}
+% una muestra de leyenda: #1 color, #2 estilo de línea, #3 marca, #4 relleno de la marca
+\newcommand{\muestra}[4]{\tikz[baseline=-0.6ex]{\draw[#1, #2] (0,0) -- (6mm,0);
+  \draw[#1, line width=0.6pt] plot[only marks, mark=#3, mark size=1.35pt,
+    mark options={fill=#4, solid}] coordinates {(3mm,0)};}}
+\begin{document}
+\begin{tikzpicture}[fondo]
+\draw[guia] (0.000,0.463) -- (6.300,0.463);
+\draw[eje] (0.000,0.463) -- ++(-0.07,0) node[tick, left] {-15};
+\draw[guia] (0.000,1.621) -- (6.300,1.621);
+\draw[eje] (0.000,1.621) -- ++(-0.07,0) node[tick, left] {-10};
+\draw[guia] (0.000,2.779) -- (6.300,2.779);
+\draw[eje] (0.000,2.779) -- ++(-0.07,0) node[tick, left] {-5};
+\draw[guia] (0.000,3.937) -- (6.300,3.937);
+\draw[eje] (0.000,3.937) -- ++(-0.07,0) node[tick, left] {0};
+\draw[guia] (1.188,0.000) -- (1.188,4.400);
+\draw[eje] (1.188,0.000) -- ++(0,-0.07) node[tick, below] {100};
+\draw[guia] (2.801,0.000) -- (2.801,4.400);
+\draw[eje] (2.801,0.000) -- ++(0,-0.07) node[tick, below] {200};
+\draw[guia] (4.413,0.000) -- (4.413,4.400);
+\draw[eje] (4.413,0.000) -- ++(0,-0.07) node[tick, below] {400};
+\draw[guia] (6.026,0.000) -- (6.026,4.400);
+\draw[eje] (6.026,0.000) -- ++(0,-0.07) node[tick, below] {800};
+\draw[eje] (0.000,0.000) rectangle (6.300,4.400);
+\node[titeje, anchor=north] at (3.150,-0.420) {$\Delta t$ [ciclos]};
+\node[titeje, rotate=90, anchor=south] at (-0.650,2.200) {$\Delta M$ que anula el error de A2 [\%]};
+\node[letra] at (0.000,4.520) {(a)};
+\draw[black!45, solid, line width=0.5pt] (0.000,3.937) -- (6.300,3.937);
+\begin{scope}\clip (0.000,0.000) rectangle (6.300,4.400);
+\draw[black, digital] plot coordinates {(1.188,3.944) (2.801,3.946) (4.413,3.952)};
+\end{scope}
+\draw[black, line width=0.6pt] plot[only marks, mark=*, mark size=1.35pt, mark options={fill=black, solid}] coordinates {(1.188,3.944) (2.801,3.946) (4.413,3.952)};
+\begin{scope}\clip (0.000,0.000) rectangle (6.300,4.400);
+\draw[black, analogico] plot coordinates {(1.188,3.457) (2.801,3.048) (4.413,1.999)};
+\end{scope}
+\draw[black, line width=0.6pt] plot[only marks, mark=*, mark size=1.35pt, mark options={fill=white, solid}] coordinates {(1.188,3.457) (2.801,3.048) (4.413,1.999)};
+\begin{scope}\clip (0.000,0.000) rectangle (6.300,4.400);
+\draw[cmagenta, digital] plot coordinates {(1.188,3.277) (2.801,3.155) (4.413,2.704) (6.026,0.496)};
+\end{scope}
+\draw[cmagenta, line width=0.6pt] plot[only marks, mark=diamond*, mark size=1.35pt, mark options={fill=cmagenta, solid}] coordinates {(1.188,3.277) (2.801,3.155) (4.413,2.704) (6.026,0.496)};
+\begin{scope}\clip (0.000,0.000) rectangle (6.300,4.400);
+\draw[cgris, digital] plot coordinates {(1.188,4.021) (2.801,3.945) (4.413,3.953)};
+\end{scope}
+\draw[cgris, line width=0.6pt] plot[only marks, mark=triangle*, mark size=1.35pt, mark options={fill=cgris, solid}] coordinates {(1.188,4.021) (2.801,3.945) (4.413,3.953)};
+\draw[guia] (8.050,0.244) -- (14.350,0.244);
+\draw[eje] (8.050,0.244) -- ++(-0.07,0) node[tick, left] {-1.5};
+\draw[guia] (8.050,1.467) -- (14.350,1.467);
+\draw[eje] (8.050,1.467) -- ++(-0.07,0) node[tick, left] {-1};
+\draw[guia] (8.050,2.689) -- (14.350,2.689);
+\draw[eje] (8.050,2.689) -- ++(-0.07,0) node[tick, left] {-0.5};
+\draw[guia] (8.050,3.911) -- (14.350,3.911);
+\draw[eje] (8.050,3.911) -- ++(-0.07,0) node[tick, left] {0};
+\draw[guia] (8.409,0.000) -- (8.409,4.400);
+\draw[eje] (8.409,0.000) -- ++(0,-0.07) node[tick, below] {50};
+\draw[guia] (9.526,0.000) -- (9.526,4.400);
+\draw[eje] (9.526,0.000) -- ++(0,-0.07) node[tick, below] {100};
+\draw[guia] (10.642,0.000) -- (10.642,4.400);
+\draw[eje] (10.642,0.000) -- ++(0,-0.07) node[tick, below] {200};
+\draw[guia] (11.758,0.000) -- (11.758,4.400);
+\draw[eje] (11.758,0.000) -- ++(0,-0.07) node[tick, below] {400};
+\draw[guia] (12.874,0.000) -- (12.874,4.400);
+\draw[eje] (12.874,0.000) -- ++(0,-0.07) node[tick, below] {800};
+\draw[guia] (13.991,0.000) -- (13.991,4.400);
+\draw[eje] (13.991,0.000) -- ++(0,-0.07) node[tick, below] {1600};
+\draw[eje] (8.050,0.000) rectangle (14.350,4.400);
+\node[titeje, anchor=north] at (11.200,-0.420) {$\Delta t$ [ciclos]};
+\node[titeje, rotate=90, anchor=south] at (7.300,2.200) {error de A2 con $\Delta M = 0$ [\%]};
+\node[letra] at (8.050,4.520) {(b)};
+\draw[black!45, solid, line width=0.5pt] (8.050,3.911) -- (14.350,3.911);
+\begin{scope}\clip (8.050,0.000) rectangle (14.350,4.400);
+\draw[black, digital] plot coordinates {(9.526,3.949) (10.642,3.944) (11.758,3.935)};
+\end{scope}
+\draw[black, line width=0.6pt] plot[only marks, mark=*, mark size=1.35pt, mark options={fill=black, solid}] coordinates {(9.526,3.949) (10.642,3.944) (11.758,3.935)};
+\begin{scope}\clip (8.050,0.000) rectangle (14.350,4.400);
+\draw[black, analogico] plot coordinates {(9.526,2.972) (10.642,0.619) (11.758,0.725)};
+\end{scope}
+\draw[black, line width=0.6pt] plot[only marks, mark=*, mark size=1.35pt, mark options={fill=white, solid}] coordinates {(9.526,2.972) (10.642,0.619) (11.758,0.725)};
+\begin{scope}\clip (8.050,0.000) rectangle (14.350,4.400);
+\draw[cmagenta, digital] plot coordinates {(8.409,3.427) (9.526,2.063) (10.642,1.043) (11.758,1.919) (12.874,2.850) (13.991,3.564)};
+\end{scope}
+\draw[cmagenta, line width=0.6pt] plot[only marks, mark=diamond*, mark size=1.35pt, mark options={fill=cmagenta, solid}] coordinates {(8.409,3.427) (9.526,2.063) (10.642,1.043) (11.758,1.919) (12.874,2.850) (13.991,3.564)};
+\begin{scope}\clip (8.050,0.000) rectangle (14.350,4.400);
+\draw[cgris, digital] plot coordinates {(9.526,4.138) (10.642,3.942) (11.758,3.938)};
+\end{scope}
+\draw[cgris, line width=0.6pt] plot[only marks, mark=triangle*, mark size=1.35pt, mark options={fill=cgris, solid}] coordinates {(9.526,4.138) (10.642,3.942) (11.758,3.938)};
+\node[anchor=north west, font=\scriptsize, align=left, inner sep=0pt, text width=15.5cm] at (0.000,-1.000) {\muestra{black}{digital}{*}{black}~lazo digital\hspace{4mm}\muestra{black}{analogico}{*}{white}~canal analógico\\[1.5pt]\muestra{cmagenta}{digital}{diamond*}{cmagenta}~réplica con el canal medido\hspace{4mm}\muestra{cgris}{digital}{triangle*}{cgris}~réplica sin los polos lentos};
+\end{tikzpicture}
+\end{document}
