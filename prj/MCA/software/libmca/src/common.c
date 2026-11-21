@@ -21,6 +21,7 @@ const char *mca_strerror(int rc)
     case MCA_EBACKEND:    return "el backend devolvio error";
     case MCA_EVERIFY:     return "la relectura no coincide con lo escrito";
     case MCA_ENOKEY:      return "indice fuera de la tabla del bloque";
+    case MCA_EIO:         return "la salida fallo (un socket que se corto)";
     default:              return "codigo de error desconocido";
     }
 }

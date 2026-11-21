@@ -1,7 +1,7 @@
 # Figuras: la arquitectura de software de la API
 
-Dieciséis figuras sobre **cómo está construido el software de la API**, repartidas en
-cuatro documentos:
+Diecisiete figuras sobre **cómo está construido el software de la API**, y tres con lo
+que mide el escritor, repartidas en seis documentos:
 
 - [`../arquitectura_software.md`](../arquitectura_software.md): la vista del software
   como software (niveles, concurrencia, filesystem, tipos);
@@ -9,7 +9,11 @@ cuatro documentos:
 - [`../adquisicion_de_eventos.md`](../adquisicion_de_eventos.md): las fuentes, los
   hilos, el pool y la sesión;
 - [`../diseno_de_clases.md`](../diseno_de_clases.md): la red, y el índice de todos los
-  diagramas de clases (§3).
+  diagramas de clases (§3);
+- [`../arquitectura_adquisicion_software.md`](../arquitectura_adquisicion_software.md):
+  los benchmarks del escritor, `.npz` contra LH5;
+- [`../../event_ring/salida_por_red.md`](../../event_ring/salida_por_red.md): la salida
+  del ring por red.
 
 Son TikZ, con el estilo común de los panoramas
 ([`../../figuras/estilo_tikz.tex`](../../figuras/estilo_tikz.tex)), más
@@ -21,7 +25,7 @@ cd prj/MCA/docs/API/figuras
 for f in niveles hilos secuencia_bitstream escritura_corrida esquema_evento \
          clases_bloque clases_libmca clases_lotes clases_binding clases_red \
          clases_fuentes maquinas_estados corrida_mca hilos_captura pool_batches \
-         clases_sesion; do
+         clases_sesion escritura_archivos_por_red; do
   pdflatex $f.tex && pdftocairo -svg $f.pdf $f.svg
 done
 rm -f *.aux *.log
@@ -34,6 +38,16 @@ y [`software/app/`](../../../software/app/). El único número que aparece es lo
 [`../../movimiento_de_datos.md`](../../movimiento_de_datos.md). Si cambia el código,
 hay que volver a pasar las figuras por las coordenadas a mano: no hay extracción
 automática.
+
+**Las tres `bench_*` son la excepción: son datos medidos.** Las genera
+[`figuras_bench_escritura.py`](figuras_bench_escritura.py), que escribe el TikZ y lo
+compila (`python3 figuras_bench_escritura.py`), sin pgfplots, como las figuras de datos
+del MCA. La PC sale del JSON de `make bench-formatos`
+(`software/datos/bench_formatos/pc_20261108.json`); la placa, de las tablas de
+[`../arquitectura_adquisicion_software.md`](../arquitectura_adquisicion_software.md),
+porque esas corridas no dejaron el JSON en el repo. Si se vuelve a medir, se cambian
+los `PLACA_*` del script. El color es el del formato en las tres (`.npz` azul, LH5
+naranja); la compresión va rayada.
 
 ## Las figuras
 
@@ -64,8 +78,24 @@ automática.
 | [`maquinas_estados.svg`](maquinas_estados.svg) ([`.tex`](maquinas_estados.tex)) | **Una corrida del osciloscopio**, en tres partes lado a lado: (a) el lazo del hilo lector, igual con las dos fuentes; lo que hace `read_batch` adentro (b) con el ring, por bloque de slots, y (c) con la BRAM, por evento, con el re-armado | §2 |
 | [`corrida_mca.svg`](corrida_mca.svg) ([`.tex`](corrida_mca.tex)) | **Una corrida del MCA**, lineal: el hardware acumula entre el start y el stop | §2 |
 | [`hilos_captura.svg`](hilos_captura.svg) ([`.tex`](hilos_captura.tex)) | **Los hilos de la captura en el tiempo**: principal, lector y escritor, con lo que corre en Python (con el GIL), en C y en el `write()` (sin él), y los batches por las colas | §3 |
+| [`flujo_sesion.svg`](flujo_sesion.svg) ([`.tex`](flujo_sesion.tex)) | **El flujo de la sesión**, de `start()` a `stop()`, sin el detalle de adentro del lector y del escritor: llena un batch, lo guarda, se lo pasan por las colas. Es la versión para el cuerpo del texto; el detalle es `hilos_captura` | el vault, «Flujo de Sesión de Adquisición» |
 | [`pool_batches.svg`](pool_batches.svg) ([`.tex`](pool_batches.tex)) | **El pool**: los `EventBatch` que circulan entre el lector, `full_q`, el escritor y `free_q`, y lo que pasa sin batch libre | §4 |
 | [`clases_sesion.svg`](clases_sesion.svg) ([`.tex`](clases_sesion.tex)) | **`AcquisitionSession`** y lo que compone: `ReaderThread`, `ChunkWriter`, el pool de `EventBatch` y las dos colas; los `Annotator` y lo que queda en `run_dir/`. La fuente aparece sólo como la interfaz | §5 |
+
+**La salida del ring por red** ([`salida_por_red.md`](../../event_ring/salida_por_red.md)):
+
+| Figura | Qué muestra | Dónde |
+|---|---|---|
+| [`escritura_archivos_por_red.svg`](escritura_archivos_por_red.svg) ([`.tex`](escritura_archivos_por_red.tex)) | **La escritura de archivos por red**, en las máquinas (PL, DDR, placa, PC): `ring-tx` y su lazo de C en la placa, y `ring-rx` y `convertir()` en la PC. Lo nuevo para la salida por red, con borde grueso | «El ring por red» |
+
+**Los benchmarks del escritor** ([`arquitectura_adquisicion_software.md`](../arquitectura_adquisicion_software.md), «El formato del archivo»):
+
+| Figura | Qué muestra | Dónde |
+|---|---|---|
+| [`bench_escribir.svg`](bench_escribir.svg) ([`.tex`](bench_escribir.tex)) | **Cuántos kev/s aguanta el escritor solo**, `.npz` contra LH5, sin y con compresión, con ventanas de 32, 256 y 2048 muestras: (a) en la PC, (b) en la placa | «Lo que cuesta cada uno» |
+| [`bench_leer.svg`](bench_leer.svg) ([`.tex`](bench_leer.tex)) | **Leer una corrida de 20 archivos** de tres maneras (entera, sólo las columnas, 10 eventos por archivo), en la PC y en la placa | «Lo que cuesta cada uno» |
+| [`bench_lector.svg`](bench_lector.svg) ([`.tex`](bench_lector.tex)) | **El escritor con la adquisición corriendo**: (a) un lote solo y con un lector compitiendo por el GIL, (b) la mayor demora del lector, (c) la pérdida contra ρ con el lector en Python y en C | «Con la adquisición corriendo» |
+| [`bench_sd_red.svg`](bench_sd_red.svg) ([`.tex`](bench_sd_red.tex)) | **La SD contra la red**: lo que pasa con el ring saturado, por ventana, con la sesión que guarda en la SD (etapa C, 22 s con `sync`: lo que llega a la tarjeta) y con el ring por red (etapa D), (a) en kev/s con el techo de TCP solo, (b) en MB/s. La genera [`figuras_escritura_sd_red.py`](figuras_escritura_sd_red.py), con los números de la placa adentro | `event_ring/salida_por_red.md`, «La SD contra la red, en la placa» |
 
 **La red** ([`diseno_de_clases.md`](../diseno_de_clases.md)):
 

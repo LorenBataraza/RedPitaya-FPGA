@@ -21,7 +21,9 @@ prueba (`gen_pulsos.h`, `gen_disparos.h` y `osciloscope_ring_gen_*`), desde 0.9.
 están probados contra un modelo de registros y contra los modelos de Python de los
 generadores y en la placa (2026-11-09, con el bitstream del ring). Los modos del
 lector del ring para medir la tasa (`osciloscope_ring_medir`), desde 0.10.0, están
-probados contra el modelo del ring, todavía sin correr en la placa. El diseño y la comparación con las clases de Python están en
+probados contra el modelo del ring y en la placa (2026-11-12). El envío del ring por red
+(`osciloscope_ring_enviar`, y el código `MCA_EIO`), desde 0.12.0, está probado contra el
+modelo del ring, todavía sin correr en la placa. El diseño y la comparación con las clases de Python están en
 [`docs/API/libmca.md`](../../docs/API/libmca.md).
 
 ```c
@@ -62,8 +64,9 @@ empaqueta el `.so` de ARM ya chequeado.
 
 | Fichero | Qué es |
 |---|---|
-| `include/mca_api.h` | códigos de error, versión |
-| `include/mca_bus.h` | el nivel 2: `mca_bus` con sus dos backends (devmem y callbacks) |
+| `include/mca_api.h`, `src/common.c` | códigos de error y `mca_strerror`, versión, `mca_reg_t` y `mca_field_t` |
+| `include/mca_bus.h` | el nivel 2: `mca_bus` con sus backends (devmem, que también abre un fichero común, y callbacks) |
+| `src/bus.h`, `src/bus.c` | la tabla `vt` de cada backend, y las funciones públicas del bus: validan alineación y rango y despachan |
 | `include/mca_regs.h` | mapa de registros y tabla de campos (X-macros) |
 | `include/mca.h` | la API del MCA |
 | `include/integration_regs.h`, `include/integration.h` | el mapa y la API de la región de TOP |
@@ -71,11 +74,11 @@ empaqueta el `.so` de ARM ya chequeado.
 | `include/osciloscope_regs.h`, `include/osciloscope.h` | el mapa, la tabla de campos y la API del osciloscopio |
 | `include/osciloscope_lote.h` | el lazo por evento (`osciloscope_leer_lote`) y la calibración de librp |
 | `include/mca_mem.h` | la región de DDR que escribe la PL: memoria común, se copia de a bloques. Backends devmem, file, ptr y callback |
-| `include/osciloscope_ring_regs.h`, `include/osciloscope_ring.h` | el mapa y la API del event_ring: configurar, correr, parar, contadores, el lector por lote y su generador de eventos (`osciloscope_ring_gen_*`) |
+| `include/osciloscope_ring_regs.h`, `include/osciloscope_ring.h` | el mapa y la API del event_ring: configurar, correr, parar, contadores, el lector por lote, el envío por red (`osciloscope_ring_enviar`) y su generador de eventos (`osciloscope_ring_gen_*`) |
 | `include/gen_disparos.h` | el motor de disparos que comparten los dos generadores: su configuración, el umbral por tasa y la predicción de cada disparo. Sin hardware |
 | `include/gen_pulsos_regs.h`, `include/gen_pulsos.h` | el mapa y la API del generador de pulsos (`0x4021_0000`): configurar, la tabla, arrancar y esperar, el lazo digital de HK, y las cuentas por τ, Mq y espectro |
 | `src/bus_devmem.c` | **el único fichero que toca la PL**: tres funciones, un `ldr`/`str` de 32 b cada una |
-| `src/bus_mmap.c` | abrir, mapear y cerrar `/dev/mem`; el mapeo lo usa también `mem.c` |
+| `src/bus_mmap.c`, `src/devmem.h` | abrir, mapear y cerrar `/dev/mem` (o un fichero común) y el struct `devmem_bus`; el mapeo lo usa también `mem.c` |
 | `src/bus_callback.c` | el backend por punteros a función (FakeMCA, tests) |
 | `src/bloque.h`, `src/bloque.c` | lo común a los handles de cada bloque: el bus y el detalle del error |
 | `src/mca.c` | la lógica del MCA |
@@ -84,7 +87,7 @@ empaqueta el `.so` de ARM ya chequeado.
 | `src/osciloscope.c` | la lógica del osciloscopio: la sonda de geometría y la lectura de la BRAM |
 | `src/osciloscope_lote.c`, `src/osciloscope_priv.h` | el lazo por evento y la calibración; lo privado que comparten con `osciloscope.c` y `osciloscope_ring.c` |
 | `src/mem.c` | la región de DDR. No es la PL: copia con `memcpy` |
-| `src/osciloscope_ring.c` | el event_ring: la geometría, configurar (con el borrado de footers), el lector por lote y el generador de eventos |
+| `src/osciloscope_ring.c` | el event_ring: la geometría, configurar (con el borrado de footers), el lector por lote, el envío por red y el generador de eventos |
 | `src/gen_disparos.c`, `src/gen_priv.h` | el motor de disparos: las cuentas, y los registros comunes a los dos generadores |
 | `src/gen_pulsos.c` | el generador de pulsos |
 | `scripts/check_bus.sh` | lo que corre `make check-bus` |

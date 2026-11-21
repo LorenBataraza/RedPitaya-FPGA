@@ -1,0 +1,7 @@
+La escritura de los eventos del ring a archivos por red, con
+`ring.iniciar(destino='red')`. En la placa no corre la sesión: el hilo `ring-tx` llama a
+`osciloscope_ring_enviar`, que copia los slots y los manda en bloques `RBLK` por un
+socket de datos, y `RingSource` sólo configura el ring y el estímulo. En la PC,
+`ring-rx` guarda el stream tal cual en `ring_*.bin`, y `convertir()` lo pasa a los
+mismos `chunk_*.npz` con el pool y el `ChunkWriter` de la sesión. El control va por el
+socket del servidor (TCP :1001).

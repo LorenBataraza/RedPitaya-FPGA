@@ -1,0 +1,125 @@
+% La escritura de archivos por red (ring.iniciar(destino='red')): la placa no tiene
+% sesión; un hilo del servidor (ring-tx) corre el lazo de C osciloscope_ring_enviar,
+% que manda los slots crudos por un socket. En la PC, ring-rx los guarda tal cual en
+% ring_*.bin y convertir los pasa a los mismos chunk_*.npz con el pool y el
+% ChunkWriter de la sesión.
+% Borde grueso: lo que se agregó para la salida por red. RingSource sigue: configura el ring y el
+% estímulo, pero no lee.
+% Columnas: las máquinas (PL, DDR, PS de la placa, PC), como en niveles.tex; colores
+% de bloque: azul hilo de Python, rojo lazo de C, como en niveles y hilos.
+% Fuentes: software/API/osciloscope_ring.py (EmisionRing, RingSource),
+% software/API/ring_red.py (RecepcionRing, convertir),
+% software/libmca/include/osciloscope_ring.h (osciloscope_ring_enviar),
+% software/app/mca_server.py (ring.iniciar). El texto que acompaña está en
+% docs/event_ring/salida_por_red.md; el epígrafe, en escritura_archivos_por_red.txt.
+% Estilo: docs/figuras/estilo_tikz.tex.
+%
+% Compilar:   pdflatex escritura_archivos_por_red.tex
+%             pdftocairo -svg escritura_archivos_por_red.pdf escritura_archivos_por_red.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+% el nombre de una función de C, en la parte de abajo de un hilo
+\newcommand{\textc}[1]{{\ttfamily\fontsize{5.4}{6.2}\selectfont #1}}
+
+\tikzset{
+  hilo/.style    = {bloque=azul!30, text width=1.9cm, minimum height=0.95cm},
+  % un hilo de Python arriba y el lazo de C que corre adentro, abajo
+  hiloc/.style   = {bloque=none, param={azul!30}{rojo!30}, text width=1.95cm,
+                    minimum height=1.1cm},
+  pl/.style      = {bloque=white, text width=1.45cm, minimum height=0.95cm},
+  recurso/.style = {bloque=white, text width=1.9cm, minimum height=0.8cm},
+  archivo/.style = {draw=black, line width=0.5pt, fill=white, font=\scriptsize\ttfamily,
+                    minimum width=2.35cm, minimum height=0.38cm, inner sep=1pt},
+  nuevo/.style   = {line width=1.5pt},
+  cola/.style    = {draw, line width=0.6pt, fill=amarillo, minimum width=1.3cm,
+                    minimum height=0.34cm, inner sep=0pt,
+                    path picture={\foreach \k in {1,2,3}
+                      \draw[line width=0.4pt]
+                        ([xshift=\k*0.325cm]path picture bounding box.south west) --
+                        ([xshift=\k*0.325cm]path picture bounding box.north west);}},
+  red/.style     = {->, line width=1.0pt, azul!80!black},
+  dominio/.style = {font=\scriptsize\itshape, black!70, inner sep=0pt, anchor=south},
+  parte/.style   = {anchor=north west, font=\small\bfseries, inner sep=0pt},
+  cfg/.style     = {ctrl, dashed},
+}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+
+% columnas: PL, DDR, el PS de la placa, la red y la PC
+\def\xPLa{0}    \def\xPLb{1.8}
+\def\xDDa{2.05} \def\xDDb{3.85}
+\def\xPSa{4.1}  \def\xPSb{10.9}
+\def\xPCa{12.5} \def\xPCb{19.35}
+\def\yT{0.35}   \def\yB{-5.45}
+
+% ============================================================ máquinas ===
+\draw[contenedor, fill=grisr!55] (\xPLa,\yT) rectangle (\xPLb,\yB);
+\draw[contenedor, fill=amarillo!25] (\xDDa,\yT) rectangle (\xDDb,\yB);
+\draw[contenedor, fill=black!3] (\xPSa,\yT) rectangle (\xPSb,\yB);
+\draw[contenedor, fill=black!3] (\xPCa,\yT) rectangle (\xPCb,\yB);
+\node[dominio] at ({(\xPLa+\xPLb)/2},\yT+0.1) {PL};
+\node[dominio] at ({(\xDDa+\xDDb)/2},\yT+0.1) {DDR};
+\node[dominio] at ({(\xPSa+\xPSb)/2},\yT+0.1) {placa · PS, Linux};
+\node[dominio] at ({(\xPCa+\xPCb)/2},\yT+0.1) {PC};
+\node[dominio] at ({(\xPSb+\xPCa)/2},\yT+0.1) {red};
+
+% ============================================ la placa emite, la PC escribe ===
+\def\yC{-0.65}   % control
+\def\yD{-2.1}    % datos
+\def\yE{-3.75}   % configuración del ring, y la conversión en la PC
+\node[pl]  (erb) at ({(\xPLa+\xPLb)/2},\yD) {\blk{event\_ring}{captura}};
+\node[pl]  (ddb) at ({(\xDDa+\xDDb)/2},\yD) {\etq{slots}{el ring}};
+\node[hilo] (srv) at (9.75,\yC) {\blk{mca-cliente}{\texttt{ring.iniciar}}};
+\node[hiloc, nuevo] (tx) at (9.75,\yD)
+  {\blk{ring-tx}{\texttt{EmisionRing}} \nodepart{two} \textc{osciloscope\_ring\_\\enviar}};
+\node[bloque=white, text width=2.3cm, minimum height=0.95cm] (src) at (5.6,\yE)
+  {\blk{RingSource}{configura, no lee}};
+
+\draw[flujo] (erb) -- (ddb);
+\draw[flujo] (ddb) -- (tx);
+\draw[cfg] (srv) -- node[sen, right, black!80] {lanza} (tx);
+\draw[cfg] (tx.south) |- node[sen, left, pos=0.25, black!80] {arm · vaciado · close} (src.east);
+\draw[cfg] (src.west) -| node[sen, above, pos=0.25, black!80] {configura} (erb.south);
+
+% la PC
+\node[hilo, nuevo] (rx) at (13.65,\yD) {\blk{ring-rx}{\texttt{RecepcionRing}}};
+\node[archivo, nuevo] (bin)  at (17.95,\yD+0.27) {ring\_*.bin};
+\node[archivo, nuevo] (meta) at (17.95,\yD-0.27) {ring\_meta.json};
+\node[hiloc, nuevo] (conv) at (17.95,\yE)
+  {\blk{principal}{\texttt{convertir()}} \nodepart{two} \textc{osciloscope\_\\calibrar}};
+\node[cola] (fqb) at (15.85,\yE+0.3) {};
+\node[cola] (rqb) at (15.85,\yE-0.3) {};
+\node[sen, above=1pt of fqb] {full\_q};
+\node[sen, below=1pt of rqb] {free\_q};
+\node[hilo] (wrb) at (13.6,\yE) {\blk{osc-writer}{\texttt{ChunkWriter}}};
+\node[archivo] (chk) at (17.95,-4.95) {chunk\_*.npz};
+
+\draw[red] (tx) -- (rx);
+\node[sen, align=center, above=1pt] at ({(\xPSb+\xPCa)/2},\yD) {bloques\\RBLK};
+\node[sen, below=1pt] at ({(\xPSb+\xPCa)/2},\yD) {TCP};
+\draw[red, dashed, <-] (srv) -- (rx.north |- srv) -- (rx.north);
+\node[sen, align=center, above=1pt] at ({(\xPSb+\xPCa)/2},\yC) {control\\TCP :1001};
+\draw[flujo] (rx.east |- bin) -- (bin.west);
+\draw[flujo] (rx.east |- meta) -- (meta.west);
+\draw[flujo] (meta) -- (conv);
+\draw[flujo] (conv.west |- fqb) -- (fqb.east);
+\draw[flujo] (fqb.west) -- (wrb.east |- fqb);
+\draw[flujo] (wrb.east |- rqb) -- (rqb.west);
+\draw[flujo] (rqb.east) -- (conv.west |- rqb);
+\draw[flujo] (wrb.south) |- (chk.west);
+
+% ============================================================== leyenda ===
+\leyenda{0.45,-6.1}{azul!30/hilo de Python, rojo!30/lazo de C (libmca), amarillo/cola, grisr!55/lógica programable, amarillo!25/DDR}{}
+\node[draw, line width=1.5pt, fill=white, minimum width=4mm, minimum height=3mm,
+      inner sep=0pt, right=5mm of t5.east, anchor=west] (lnuevo) {};
+\node[right=1.5mm of lnuevo, font=\scriptsize] {nuevo para la salida por red};
+
+\end{tikzpicture}
+\end{document}

@@ -285,6 +285,73 @@ MCA_API int osciloscope_ring_medir(osciloscope_ring_h *h, const osciloscope_ring
 /* m en cero, con primer_error_seq = UINT32_MAX y k_ultimo = -1. */
 MCA_API void osciloscope_ring_medida_cero(osciloscope_ring_medida_t *m);
 
+/* ---- mandar por red ------------------------------------------------------- */
+
+/* El ring por red (docs/event_ring/salida_por_red.md): los slots salen por un socket
+ * tal como estan en la DDR, sin calibrar, sin Python por lote y sin archivos en la
+ * placa. Consume como leer_lote (WR_SLOT por sondeo, footers, barrera, credito por
+ * bloque) y cada bloque sale como una cabecera y su carga:
+ *
+ *   osciloscope_ring_bloque_t   40 B, little-endian
+ *   n x carga                   cada slot compactado: la cabecera del slot (32 B) y
+ *                               las muestras de los N_CH canales del RTL, crudas
+ *                               (int16 con el signo extendido, intercaladas), sin el
+ *                               relleno hasta 2^slot_shift ni el footer
+ *
+ * El credito se devuelve apenas se copio el bloque, antes del send(): si la red se
+ * atrasa, el que espera es el send(), el ring se llena y el hardware descarta y cuenta
+ * (DROP_FULL). Nada se pierde sin contarse.
+ *
+ * El ultimo bloque es el FIN (osciloscope_ring_enviar_fin): n = 0, los descartados que
+ * quedaban y, como carga, los contadores del ring (osciloscope_ring_contadores_t). */
+#define OSCILOSCOPE_RING_BLOQUE_MAGIC   0x4B4C4252u   /* "RBLK" */
+#define OSCILOSCOPE_RING_BLOQUE_VERSION 1u
+#define OSCILOSCOPE_RING_BLOQUE_FIN     (1u << 0)
+
+typedef struct {
+    uint32_t magic;             /* OSCILOSCOPE_RING_BLOQUE_MAGIC */
+    uint16_t version;           /* OSCILOSCOPE_RING_BLOQUE_VERSION */
+    uint16_t flags;             /* OSCILOSCOPE_RING_BLOQUE_FIN en el ultimo */
+    uint32_t seq0;              /* el seq del primer slot del bloque */
+    uint32_t n;                 /* slots en el bloque (0 en el FIN) */
+    uint32_t carga;             /* bytes por slot: 32 + las muestras, multiplo de 8 */
+    uint32_t bytes;             /* lo que sigue a esta cabecera: n * carga, o el FIN */
+    uint64_t descartados;       /* DROP_BUSY + DROP_FULL antes de este bloque: el gap
+                                   de su primer evento */
+    int64_t  t_ns;              /* CLOCK_MONOTONIC de la placa al leer el bloque */
+} osciloscope_ring_bloque_t;
+
+/* Lo que se acumula de una llamada a la otra: en cero antes de la primera. */
+typedef struct {
+    uint64_t eventos;           /* slots enviados: su credito se devolvio */
+    uint64_t bytes;             /* de carga, sin las cabeceras de bloque */
+    uint64_t sondeos;           /* lecturas de WR_SLOT */
+    uint64_t bloques;           /* los que trajeron slots */
+    uint64_t descartados;       /* DROP_BUSY + DROP_FULL nuevos, vistos */
+    uint64_t asignados;         /* los que ya salieron en la cabecera de un bloque */
+    int64_t  t0_ns, t1_ns;      /* el primer bloque y el fin del ultimo */
+    int64_t  copia_ns;          /* footers, copia y credito */
+    int64_t  envio_ns;          /* adentro de send(): crece cuando la red frena */
+    uint32_t ocupacion_max;     /* el mayor WR_SLOT - RD_SLOT visto */
+    uint32_t reservado;
+} osciloscope_ring_envio_t;
+
+/* Hasta n_max eventos o hasta plazo_ns, bloque por bloque, a `fd` (un socket
+ * conectado, bloqueante o no). Un bloque que ya se copio sale entero aunque pase el
+ * plazo: su credito ya se devolvio. Si el send() no avanza en 10 s, MCA_ETIMEOUT; si
+ * falla (la PC cerro), MCA_EIO con el errno en last_error. En los dos casos el stream
+ * quedo cortado. Los descartados que se ven al final quedan en st->pendientes: van en
+ * la cabecera del proximo bloque o en el FIN. */
+MCA_API int osciloscope_ring_enviar(osciloscope_ring_h *h, const osciloscope_ring_cfg_t *cfg,
+                                    osciloscope_ring_estado_t *st, int fd, uint32_t n_max,
+                                    int64_t plazo_ns, osciloscope_ring_envio_t *e);
+
+/* El bloque FIN: lee los descartados que falten y los contadores del ring, y los
+ * manda. Se llama una vez, despues del ultimo enviar, con el estimulo cortado y todo
+ * leido: entonces EV_CNT == e->eventos, y e->asignados == e->descartados. */
+MCA_API int osciloscope_ring_enviar_fin(osciloscope_ring_h *h, osciloscope_ring_estado_t *st,
+                                        int fd, osciloscope_ring_envio_t *e);
+
 /* ---- el generador de eventos ---------------------------------------------- */
 
 /* Reemplaza, adentro del ring, los disparos del multitrigger por los del motor

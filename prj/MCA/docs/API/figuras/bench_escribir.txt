@@ -1,0 +1,8 @@
+Cuántos eventos por segundo aguanta el escritor solo, sin un lector compitiendo:
+eventos por lote sobre lo que tarda el `ChunkWriter` real en escribir un lote de dos
+canales, en escala logarítmica. (a) En la PC, con los archivos en el caché
+(`make bench-formatos`, 2026-11-08). (b) En la placa (`make bench-formatos-remoto`, el
+mismo día). `.npz` escribe siempre más rápido, pero en la placa la diferencia se achica
+con la ventana: 3.9 veces a 32 muestras y casi nada a 2048, donde pesan los datos y no
+la estructura de HDF5. Comprimir cuesta uno o dos órdenes de magnitud, y en la placa no
+pasa de 16 kev/s: no es para adquirir, sino para archivar después.

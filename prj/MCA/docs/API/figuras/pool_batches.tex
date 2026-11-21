@@ -23,21 +23,21 @@
 \input{../../figuras/estilo_tikz.tex}
 
 \tikzset{
-  hilo/.style    = {bloque=naranja!45, text width=3.3cm, minimum height=2.5cm},
-  ccaja/.style   = {bloque=rojo!30, text width=3.0cm, minimum height=1.3cm},
+  hilo/.style    = {bloque=naranja!45, text width=2.5cm, minimum height=1.9cm},
+  ccaja/.style   = {bloque=rojo!30, text width=2.9cm, minimum height=1.2cm},
   cola/.style    = {draw=black, line width=0.6pt, fill=amarillo!60, rounded corners=2pt,
-                    minimum width=5.6cm, minimum height=0.95cm},
+                    minimum width=4.6cm, minimum height=0.85cm},
   rotcola/.style = {font=\scriptsize\ttfamily\bfseries, inner sep=1pt},
-  descarte/.style= {bloque=rojo!20, text width=7.4cm, align=left, minimum height=1.0cm},
+  descarte/.style= {bloque=rojo!20, text width=7.0cm, align=left, minimum height=0.9cm},
 }
 
 % \batch{nodo}{posición}{nombre}{fracción llena}: un EventBatch. Blanco = libre;
 % la parte azul son las filas ya escritas.
 \newcommand{\batch}[4]{%
-  \node[draw=black, line width=0.6pt, fill=white, minimum width=0.95cm,
-        minimum height=0.6cm, inner sep=0pt] (#1) at (#2) {};
+  \node[draw=black, line width=0.6pt, fill=white, minimum width=0.9cm,
+        minimum height=0.55cm, inner sep=0pt] (#1) at (#2) {};
   \ifdim #4pt>0pt
-    \fill[azul!40] (#1.south west) rectangle ($(#1.south west)!#4!(#1.south east)+(0,0.6)$);
+    \fill[azul!40] (#1.south west) rectangle ($(#1.south west)!#4!(#1.south east)+(0,0.55)$);
   \fi
   \draw[line width=0.6pt] (#1.south west) rectangle (#1.north east);
   \node[font=\scriptsize\ttfamily\bfseries] at (#1) {#3};}
@@ -49,57 +49,57 @@
 \node[hilo] (rd) at (0,0) {};
 \node[anchor=north, font=\scriptsize, align=center] at (rd.north)
   {\texttt{\bfseries osc-reader}\\ llena uno};
-\batch{b3}{0,-0.25}{B3}{0.42}
+\batch{b3}{0,-0.2}{B3}{0.42}
 \node[font=\tiny, anchor=north] at (b3.south) {\texttt{n} de \texttt{capacity}};
 
-\node[hilo] (wr) at (11.6,0) {};
+\node[hilo] (wr) at (8.8,0) {};
 \node[anchor=north, font=\scriptsize, align=center] at (wr.north)
   {\texttt{\bfseries osc-writer}\\ guarda uno};
-\batch{b6}{11.6,-0.25}{B6}{1.0}
+\batch{b6}{8.8,-0.2}{B6}{1.0}
 \node[font=\tiny, anchor=north] at (b6.south) {\texttt{payload()} y archivo};
 
 % ================================================================ las colas ===
-\node[cola] (fq) at (5.8,2.1) {};
+\node[cola] (fq) at (4.4,1.7) {};
 \node[rotcola, anchor=south west] at (fq.north west) {full\_q};
-\batch{b4}{4.6,2.1}{B4}{1.0}
-\batch{b5}{5.8,2.1}{B5}{1.0}
-\node[font=\scriptsize, black!55] at (7.1,2.1) {lugar libre};
+\batch{b4}{2.85,1.7}{B4}{1.0}
+\batch{b5}{3.9,1.7}{B5}{1.0}
+\node[font=\scriptsize, black!55] at (5.45,1.7) {lugar libre};
 
-\node[cola] (frq) at (5.8,-2.1) {};
+\node[cola] (frq) at (4.4,-1.7) {};
 \node[rotcola, anchor=north west] at (frq.south west) {free\_q};
-\batch{b7}{3.8,-2.1}{B7}{0}
-\batch{b0}{5.1,-2.1}{B0}{0}
-\batch{b1}{6.4,-2.1}{B1}{0}
-\batch{b2}{7.7,-2.1}{B2}{0}
+\batch{b7}{2.825,-1.7}{B7}{0}
+\batch{b0}{3.875,-1.7}{B0}{0}
+\batch{b1}{4.925,-1.7}{B1}{0}
+\batch{b2}{5.975,-1.7}{B2}{0}
 
 % el ciclo
-\draw[flujo] (rd.north) |- node[sen, pos=0.3, left, align=right] {lleno:\\ \texttt{full\_q.put(batch)}} (fq.west);
+\draw[flujo] ([xshift=-0.55cm]rd.north) |- node[sen, pos=0.3, left, align=right] {lleno:\\ \texttt{full\_q.put(batch)}} (fq.west);
 \draw[flujo] (fq.east) -| node[sen, pos=0.7, right] {\texttt{full\_q.get()}} (wr.north);
 \draw[flujo] (wr.south) |- node[sen, pos=0.3, right, align=left] {\texttt{reset()} y\\ \texttt{free\_q.put(batch)}} (frq.east);
-\draw[flujo] (frq.west) -| node[sen, pos=0.7, right] {\texttt{free\_q.get\_nowait()}} (rd.south);
+\draw[flujo] (frq.west) -| node[sen, pos=0.7, right] {\texttt{free\_q.get\_nowait()}} ([xshift=-0.55cm]rd.south);
 
 % =============================================================== afuera ===
-\node[ccaja] (c) at (-4.4,0) {\etq{el lazo de C}{\texttt{read\_batch(batch, …)}\\ sin el GIL}};
-\draw[flujo] (c.east) -- node[sen, above, pos=0.22] {filas} node[sen, below, pos=0.22] {desde \texttt{n}} (b3.west);
+\node[ccaja] (c) at (-4.2,0) {\etq{el lazo de C}{\texttt{read\_batch(batch, …)}\\ sin el GIL}};
+\draw[flujo] (c.east) -- node[sen, above, pos=0.25] {filas} node[sen, below, pos=0.25] {desde \texttt{n}} (b3.west);
 
-\node[bloque=grisr, text width=2.6cm, minimum height=1.3cm] (disco) at (15.8,0)
+\node[bloque=grisr, text width=2.3cm, minimum height=1.2cm] (disco) at (12.2,0)
   {\texttt{\bfseries run\_dir/}\\ \texttt{chunk\_*.npz}\\ o \texttt{evt\_*.lh5}};
 \draw[flujo] (b6.east) -- (disco.west);
 
 % ======================================================== sin batch libre ===
-\node[descarte, anchor=north] (dsc) at (-0.9,-3.75) {%
+\node[descarte, anchor=north west] (dsc) at (-5.75,-2.75) {%
   \textbf{\texttt{free\_q} vacía:} \texttt{read\_batch(None, ahora + 2 ms)}\\[1pt]
   \texttt{BramSource}: C cuenta el evento y re-arma sin leerlo\\
   \texttt{RingSource}: no consume, los eventos esperan en la DDR};
-\draw[ctrl, rojo!70!black, dashed] (rd.south west) ++(0.3,0) -- ([xshift=0.3cm]rd.south west |- dsc.north);
+\draw[ctrl, rojo!70!black, dashed] ([xshift=0.2cm]rd.south west) -- ([xshift=0.2cm]rd.south west |- dsc.north);
 
 % el pool: lo que suman los cuatro lugares
-\node[font=\scriptsize, anchor=north west, align=left] at (6.2,-3.75)
+\node[font=\scriptsize, anchor=north west, align=left] at (5.3,-2.75)
   {\textbf{el pool} = \texttt{n\_batches} \texttt{EventBatch}, creados al armar la sesión:\\
    1 en el lector + 2 en \texttt{full\_q} + 1 en el escritor + 4 en \texttt{free\_q} = 8};
 
 % ============================================================== leyenda ===
-\leyenda{-6.0,-5.75}{white/batch libre, azul!40/filas escritas, naranja!45/hilo, amarillo!60/cola, rojo!30/C (libmca)}{}
+\leyenda{5.35,-3.75}{white/batch libre, azul!40/filas escritas, naranja!45/hilo, amarillo!60/cola, rojo!30/C (libmca)}{}
 
 \end{tikzpicture}
 \end{document}

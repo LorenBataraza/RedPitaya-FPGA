@@ -1,0 +1,112 @@
+% El flujo de una sesión de captura (AcquisitionSession), de start() a stop(), sin el
+% detalle de lo que pasa adentro del lector y del escritor: el lector llena un batch
+% desde la fuente y el escritor lo guarda, y se lo pasan por las colas. Es la versión
+% para el cuerpo del texto; el detalle (las llamadas de C, el GIL en cada tramo, los
+% mensajes a la PL por evento, el .tmp y el os.replace) está en hilos_captura, que
+% puede ir en un apéndice.
+% Los pasos son los de session.py: start() baja el intervalo de cambio del GIL a 1 ms,
+% arranca los anotadores, arma la fuente y lanza el escritor y el lector; wait() mira
+% cada 0.2 s; stop() vacía el ring (con RingSource, hasta 5 s), para el lector (el
+% parcial y el centinela), espera al escritor, para los anotadores, cierra la fuente,
+% restaura el intervalo y escribe run_summary.json.
+% Fuentes: software/API/osciloscope_store/{session.py,reader.py,storage.py}.
+% El epígrafe, en flujo_sesion.txt. Estilo: docs/figuras/estilo_tikz.tex.
+%
+% Compilar:   pdflatex flujo_sesion.tex
+%             pdftocairo -svg flujo_sesion.pdf flujo_sesion.svg
+%
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+
+\tikzset{
+  llama/.style  = {->, black!80, line width=0.7pt},
+  colaf/.style  = {->, amarillo!30!black, line width=1.0pt, densely dashed},
+  archivo/.style= {->, black!80, line width=0.9pt},
+  nota/.style   = {font=\scriptsize, align=left, inner sep=1.5pt, anchor=west},
+}
+
+% \banda{x}{y0}{y1}{color}: lo que corre en un hilo, de y0 a y1 (y0 arriba)
+\newcommand{\banda}[4]{%
+  \filldraw[fill=#4, draw=black!60, line width=0.5pt]
+    ({#1-0.17},#2) rectangle ({#1+0.17},#3);}
+
+\begin{document}
+\begin{tikzpicture}[fondo]
+\def\xP{0} \def\xL{4.4} \def\xR{8.4} \def\xW{12.4} \def\xD{16.0}
+\def\yfin{-14.6}
+
+\node[actor=naranja!45] at (\xP,0) {\textbf{principal}\\ \texttt{AcquisitionSession}};
+\node[actor=verde!45]   at (\xL,0) {\textbf{la fuente}\\ la PL: BRAM o ring};
+\node[actor=naranja!45] at (\xR,0) {\textbf{osc-reader}\\ \texttt{ReaderThread}};
+\node[actor=naranja!45] at (\xW,0) {\textbf{osc-writer}\\ \texttt{ChunkWriter}};
+\node[actor=grisr]      at (\xD,0) {\textbf{run\_dir/}\\ la SD o NFS};
+\foreach \x in {\xP,\xL,\xR,\xW,\xD} \draw[vida] (\x,-0.43) -- (\x,\yfin);
+
+% ================================================================ start() ===
+\banda{\xP}{-0.8}{-3.9}{azul!30}
+\node[nota, anchor=east] at (\xP-0.3,-0.95) {\texttt{start()}};
+\propio[black!80]{\xP}{-1.15}{intervalo del GIL: 1 ms}
+\propio[black!80]{\xP}{-1.75}{\texttt{annotators.start()}}
+\draw[gp] (\xP+0.17,-2.45) -- node[rot, above=1pt] {\texttt{source.arm()}} (\xL-0.17,-2.45);
+\draw[llama] (\xP+0.17,-3.05) -- node[rot, pos=0.8] {\texttt{writer.start()}} (\xW-0.17,-3.05);
+\draw[llama] (\xP+0.17,-3.6) -- node[rot, pos=0.75] {\texttt{reader.start()}} (\xR-0.17,-3.6);
+\node[nota] at (\xW+0.3,-3.35) {espera un batch\\ en \texttt{full\_q}};
+
+% wait(): el principal sólo mira
+\banda{\xP}{-3.9}{-8.7}{azul!12}
+\node[nota, anchor=east, align=right] at (\xP-0.3,-6.3)
+  {\texttt{wait()}: cada 0.2 s\\ mira la duración,\\ los eventos, los hilos\\ y el disco};
+
+% ======================================================== por cada batch ===
+\fill[marcolazo] (2.4,-4.1) rectangle (17.4,-8.45);
+\draw[marcolazo, fill=none] (2.4,-4.1) rectangle (17.4,-8.45);
+\node[rotlazo, anchor=north west] at (2.4,-4.1) {por cada batch};
+\foreach \x in {\xL,\xR,\xW,\xD} \draw[vida] (\x,-4.1) -- (\x,-8.45);
+
+% el lector llena B_k...
+\banda{\xR}{-4.4}{-6.0}{rojo!30}
+\node[nota] at (\xR+0.3,-4.75) {llena $B_k$ (de \texttt{free\_q})};
+\draw[gp, <-] (\xR-0.17,-5.25) -- node[rot] {los eventos} (\xL+0.06,-5.25);
+\draw[colaf] (\xR+0.17,-5.85) -- node[rot, pos=0.5] {lleno: \texttt{full\_q}} (\xW-0.17,-5.85);
+% ...y sigue con el siguiente mientras el escritor guarda B_k
+\banda{\xR}{-6.0}{-8.2}{rojo!30}
+\node[nota] at (\xR+0.3,-6.35) {llena $B_{k+1}$};
+\banda{\xW}{-5.85}{-7.45}{grisr}
+\node[nota] at (\xW+0.3,-6.2) {guarda $B_k$};
+\draw[archivo] (\xW+0.17,-6.75) -- node[rot, pos=0.45] {\texttt{chunk\_k.npz}} (\xD-0.17,-6.75);
+\draw[colaf] (\xW-0.17,-7.3) -- node[rot, pos=0.5] {vacío: \texttt{free\_q}} (\xR+0.17,-7.3);
+
+% ================================================================ stop() ===
+\banda{\xP}{-8.7}{-14.2}{azul!30}
+\node[nota, anchor=east] at (\xP-0.3,-8.85) {\texttt{stop()}};
+\draw[gp] (\xP+0.17,-9.05) -- node[rot, above=1pt] {ring: corta el estímulo} (\xL-0.17,-9.05);
+\node[font=\tiny, align=center] at ($(\xP,-9.4)!0.5!(\xL,-9.4)$)
+  {y espera hasta 5 s que se vacíe};
+\draw[llama] (\xP+0.17,-9.95) -- node[rot, pos=0.75] {\texttt{reader.stop()}} (\xR-0.17,-9.95);
+\banda{\xR}{-8.45}{-10.6}{rojo!30}
+\draw[colaf] (\xR+0.17,-10.45) -- node[rot, pos=0.5] {el parcial, y el centinela} (\xW-0.17,-10.45);
+\banda{\xW}{-10.45}{-11.25}{grisr}
+\draw[archivo] (\xW+0.17,-10.85) -- node[rot, pos=0.45] {el último} (\xD-0.17,-10.85);
+\propio[black!80]{\xP}{-11.45}{espera a los dos hilos}
+\propio[black!80]{\xP}{-12.05}{\texttt{annotators.stop()}}
+\draw[gp] (\xP+0.17,-12.7) -- node[rot] {\texttt{source.close()}: desarma} (\xL-0.17,-12.7);
+\propio[black!80]{\xP}{-13.25}{intervalo del GIL: 5 ms}
+\draw[archivo] (\xP+0.17,-13.95) -- node[rot, pos=0.85] {\texttt{run\_summary.json}} (\xD-0.17,-13.95);
+
+% ================================================================ leyenda ===
+\leyenda{-2.4,-15.2}{azul!30/{el principal}, azul!12/{el principal espera}, rojo!30/{el lector llena}, grisr/{el escritor guarda}}{}
+\draw[gp] (-2.9,-15.85) -- ++(0.7,0);
+\node[font=\scriptsize, anchor=west] at (-2.1,-15.85) {a la fuente o desde ella};
+\draw[colaf] (2.2,-15.85) -- ++(0.7,0);
+\node[font=\scriptsize, anchor=west] at (3.0,-15.85) {un batch por una cola};
+\draw[llama] (6.4,-15.85) -- ++(0.7,0);
+\node[font=\scriptsize, anchor=west] at (7.2,-15.85) {llamada entre hilos};
+\draw[archivo] (10.3,-15.85) -- ++(0.7,0);
+\node[font=\scriptsize, anchor=west] at (11.1,-15.85) {al disco};
+
+\end{tikzpicture}
+\end{document}

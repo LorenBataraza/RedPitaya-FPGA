@@ -2,8 +2,7 @@
 % escritores van primero a un .tmp y después hacen os.replace, así que todo
 % .npz o .json visible está completo. Debajo, el camino físico de un write().
 % Fuentes: software/API/osciloscope_store/storage.py (ChunkWriter._write),
-% session.py (AcquisitionSession, run_summary.json). El 12.4 MB/s es el medido
-% en docs/movimiento_de_datos.md. El texto que acompaña está en
+% session.py (AcquisitionSession, run_summary.json). El texto que acompaña está en
 % docs/API/arquitectura_software.md §3. Estilo: docs/figuras/estilo_tikz.tex.
 %
 % Compilar:   pdflatex escritura_corrida.tex
@@ -57,7 +56,7 @@
 
 % =================================================== el camino físico ===
 \node[fis] (pc)  at (4.65,-3.7) {\etq{page cache}{del kernel}};
-\node[fis] (sd)  at (9.6,-3.7)  {\etq{microSD}{12.4 MB/s}};
+\node[fis] (sd)  at (9.6,-3.7)  {\etq{microSD}{de la placa}};
 \node[mudo, text width=2.3cm, minimum height=0.9cm] (nfs) at (13.6,-3.7)
   {\etq{NFS}{el disco, fuera de la placa}};
 \draw[flujo] (4.65,-2.25) -- node[sen, right] {write()} (pc);

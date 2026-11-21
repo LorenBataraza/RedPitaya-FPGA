@@ -177,3 +177,66 @@ def test_parar_sin_ninguna(srv):
                 h.ring_parar()
         finally:
             h.close()
+
+
+# -----------------------------------------------------------------------------
+# El ring por red: ring.iniciar(destino='red') y la PC con API.ring_red
+# -----------------------------------------------------------------------------
+
+def _hasta_el_fin_red(h, plazo_s=30.0):
+    t_fin, fin_visto = time.monotonic() + plazo_s, False
+    while time.monotonic() < t_fin:
+        time.sleep(0.02)
+        e = h.ring_estado()
+        assert e['corriendo'] and e['motivo'] is None, e
+        if e['hw'] is None:
+            continue                         # todavía esperando la conexión de datos
+        if fin_visto and e['stats']['n_read'] >= e['hw']['hw_ev_cnt']:
+            return e
+        fin_visto = e['hw']['hw_gen_terminado']
+    raise TimeoutError('la emisión no terminó')
+
+
+def test_el_ring_por_red_de_punta_a_punta(h, srv, tmp_path):
+    from API.ring_red import RecepcionRing, convertir
+
+    d = G.disparos(tasa=1e5, n=3000)
+    rec = RecepcionRing(h, tmp_path / 'red', pre=8, post=24, generador=d, calib=CALIB)
+    info = rec.iniciar()
+    assert info['destino'] == 'red' and info['puerto_datos'] > 0
+    assert info['carga'] == OR.carga_slot(8, 24)
+    e = h.ring_estado()
+    assert e['destino'] == 'red' and e['corriendo']
+    _hasta_el_fin_red(h)
+    res = rec.parar()
+    assert res['error'] is None and res['cuentas']['ok'], res
+    assert res['placa']['fin_enviado'] and res['placa']['cliente'].startswith('127.0.0.1')
+    assert res['recibido']['eventos'] == res['fin_hw']['ev_cnt'] == 3000
+    # parada, el estado del servidor es el final
+    assert h.ring_estado()['corriendo'] is False
+    conv = convertir(rec.run_dir, capacity=1000)
+    assert conv['n_written'] == 3000
+    v = R.verificar_archivos(rec.run_dir, d, 8, 24, None)
+    assert v['errores'] == 0 and v['eventos'] == 3000
+    assert any('ring: por red' in l for l in srv.salida)
+
+
+def test_una_por_vez_tambien_por_red(h, tmp_path):
+    info = h.ring_iniciar(destino='red', pre=8, post=24, calib=CALIB,
+                          generador=G.disparos(tasa=1e5, n=300_000))
+    with pytest.raises(RemoteError, match='por red, puerto'):
+        h.ring_iniciar(**_kw(tmp_path / 'b'))
+    fin = h.ring_parar()                     # sin que nadie se haya conectado
+    assert fin['stats']['eventos'] == 0 and not fin['fin_enviado']
+    assert info['puerto_datos'] == fin['puerto_datos']
+
+
+@pytest.mark.parametrize('kw, error', [
+    (dict(destino='disco'), "es 'archivos' o 'red'"),
+    (dict(destino='archivos'), 'necesita run_dir'),
+])
+def test_el_destino_se_valida(h, kw, error):
+    with pytest.raises(RemoteError, match=error):
+        h.ring_iniciar(pre=8, post=24, calib=CALIB, generador=G.disparos(tasa=1e5, n=10),
+                       **kw)
+    assert h.ring_estado()['corriendo'] is False

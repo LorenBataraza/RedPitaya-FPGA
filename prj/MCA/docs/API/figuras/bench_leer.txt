@@ -1,0 +1,7 @@
+Lo que cuesta leer una corrida de 20 archivos sin comprimir, con los archivos en el
+caché, de tres maneras: entera, como `load_chunk`; sólo las columnas `t_ns`, `snap` y
+`gap`, sin la onda; y diez eventos al azar de cada archivo, con su onda. Arriba en la
+PC, abajo en la placa, con el mismo eje logarítmico. Las columnas solas cuestan lo mismo
+con cualquier ventana. Con ventanas largas, LH5 lee unos pocos eventos mucho más rápido,
+porque lee sólo esas filas: 7.8 veces a 2048 muestras en la placa. En la placa, además,
+LH5 lee la corrida entera más rápido que `.npz`, al revés que en la PC.

@@ -20,6 +20,14 @@ Cada punto es una etapa, una ventana, un modo del motor y una tasa:
          `--guardar`). Con `--red HOST` la sesión corre en el servidor de la placa (las
          ops `ring.*`) y este script, en la PC: `--destino` es un directorio de la
          placa dentro de un montaje de red, y `--destino-pc`, el mismo visto desde acá.
+  D0     el ring por red, sin disco (siempre con `--red`): la placa manda los slots por
+         un socket desde C (`EmisionRing`, `ring.iniciar(destino='red')`) y esta
+         máquina los recibe y los descarta (`API.ring_red.RecepcionRing`). Es el techo
+         de la placa y la red juntas.
+  D      lo mismo, guardando: el stream a `ring_*.bin` en `--destino-pc` (o
+         `<outdir>/_etapa_d`), `convertir` a la sesión (npz o LH5) y la verificación
+         de C. Las cuentas del stream (EV_CNT, los descartados en las cabeceras) también
+         tienen que cerrar.
 
 El modo periódico da el techo; el aleatorio, la pérdida contra el modelo.
 
@@ -59,6 +67,10 @@ bitstream del ring y el directorio de la PC montado en la placa, `make placa-mon
     python3 campanas/run_etapas_ring.py <outdir> --etapas C --red <ip-placa>
         --destino /mnt/pc/etapas --destino-pc ~/pitaya_red/etapas
 
+El ring por red (D0 y D), en la PC, con el servidor en la placa y nada montado:
+
+    python3 campanas/run_etapas_ring.py <outdir> --etapas D0,D --red <ip-placa>
+
 Deja `<outdir>/etapas_ring.json` (se reescribe después de cada punto, así una corrida
 cortada conserva lo medido) y la tabla del resumen. `make campana-etapas-ring` desde
 `software/`.
@@ -83,6 +95,7 @@ sys.path.insert(0, _RAIZ)
 
 import API.generadores as G                                          # noqa: E402
 import API.osciloscope_ring as OR                                    # noqa: E402
+import API.ring_red as RR                                            # noqa: E402
 from API import _libmca                                              # noqa: E402
 from API.osciloscope_store import (archivos_de_corrida,             # noqa: E402
                                    bytes_per_event, load_chunk)
@@ -107,7 +120,9 @@ TECHO_SIM = {
 }
 
 # Etapa -> modo de LectorRing.medir (None: la sesión entera).
-ETAPAS = {'A': 'creditos', 'copia': 'copia', 'B': 'verificar', 'C': None}
+ETAPAS = {'A': 'creditos', 'copia': 'copia', 'B': 'verificar', 'C': None, 'D0': None,
+          'D': None}
+POR_RED = ('D0', 'D')            # las etapas del ring por red: sólo con --red
 MODOS = ('periodico', 'aleatorio')
 ERRORES = ('err_cabecera', 'err_marca', 'err_k', 'err_ts', 'err_patron')
 ERRORES_ARCHIVO = ('err_seq', 'err_marca', 'err_k', 'err_ts', 'err_patron')
@@ -350,6 +365,42 @@ def correr_sesion(adq, plazo_s, sondeo_s=0.05):
             info.get('fs'))
 
 
+def correr_red(rec, plazo_s, sondeo_s=0.05):
+    """Etapas D0 y D: la emisión por red con el generador, hasta que el motor termina y
+    salió todo lo que el ring escribió (o `plazo_s`). `rec` es una
+    `RR.RecepcionRing`, que pide la emisión al servidor y recibe el stream. Devuelve
+    lo enviado (de la placa), los contadores finales (con el ring parado), los slots
+    del ring, si venció el plazo, el error y el resumen de la recepción."""
+    vencido, error, fin_visto = False, None, False
+    t_fin = time.monotonic() + plazo_s
+    rec.iniciar()
+    try:
+        while True:
+            time.sleep(sondeo_s)
+            if rec.error is not None:
+                error = f'recepción: {rec.error!r}'
+                break
+            e = rec.remoto.ring_estado()
+            if e['motivo'] is not None:      # sin conexión, o la red se cortó
+                error = e['error'] or f'la emisión terminó sola ({e["motivo"]})'
+                break
+            if not e.get('corriendo', True):  # la paró otro (o el servidor se cerró)
+                error = e.get('error') or 'la emisión se paró antes de terminar'
+                break
+            if e.get('hw') is not None:      # ya conectado y armado
+                if fin_visto and e['stats']['n_read'] >= e['hw']['hw_ev_cnt']:
+                    break
+                fin_visto = e['hw']['hw_gen_terminado']
+            if time.monotonic() > t_fin:
+                vencido = True
+                break
+    finally:
+        r = rec.parar()
+    f = r['placa'] or {}
+    return (f.get('stats') or {}, f.get('hw_final') or {}, f.get('n_slots'), vencido,
+            _juntar(error, f.get('error'), r['error']), r)
+
+
 def ocupar_cpu(n):
     """`n` procesos que ocupan un núcleo cada uno, para medir con el ARM ocupado."""
     return [subprocess.Popen([sys.executable, '-c', 'while True: pass'])
@@ -410,6 +461,58 @@ def medir_punto(ring, etapa, pre, post, slot_shift, modo, tasa, a, destino):
             fila['errores'] = m['errores']
         gen_cnt, terminado = e['gen_cnt'], e['terminado']
         ev, busy, full = k['ev_cnt'], k['drop_busy'], k['drop_full']
+    elif etapa in POR_RED:
+        guarda = etapa == 'D'
+        nombre = f'd_{pre}_{post}_{modo}_{int(tasa)}'
+        run_dir = os.path.join(a.destino_d, nombre)
+        shutil.rmtree(run_dir, ignore_errors=True)
+        if guarda:
+            # El stream crudo y, convertido, los archivos de la sesión: los dos a la vez
+            # hasta que se borran los crudos.
+            escritos = n - busy_pred if busy_pred is not None else n
+            mb = escritos * (OR.carga_slot(pre, post) + bytes_per_event(
+                OR.N_CH_HW, pre + post, OR.RingSource.scalar_fields, np.int16)) / 2 ** 20
+            os.makedirs(a.destino_d, exist_ok=True)
+            libre = free_space_mb(a.destino_d)
+            if mb > libre - a.margen_mb:
+                raise ValueError(f'la etapa D escribiría hasta {mb:.0f} MB y en '
+                                 f'{a.destino_d} hay {libre:.0f} MB libres, con '
+                                 f'{a.margen_mb:.0f} de margen: bajar --n o cambiar '
+                                 '--destino-pc')
+        rec = RR.RecepcionRing(ring, run_dir, host=a.host_red, guardar=guarda, pre=pre,
+                               post=post, n_ch=OR.N_CH_HW, slot_shift=slot_shift,
+                               generador=d, calib=[IDENTIDAD] * OR.N_CH_HW,
+                               meta={'test': 'etapas_ring', 'etapa': etapa})
+        st, fin, n_slots, vencido, error, r = correr_red(rec, plazo)
+        rx = r['recibido']
+        dur = (st['t1_ns'] - st['t0_ns']) * 1e-9 if st.get('eventos') else 0.0
+        bloques_ns = st.get('copia_ns', 0) + st.get('envio_ns', 0)
+        fila.update(consumidos=rx['eventos'], enviados=st.get('eventos', 0),
+                    bytes=st.get('bytes', 0), dur_s=dur,
+                    tasa_consumo=st.get('eventos', 0) / dur if dur else None,
+                    tasa_rx=rx['tasa_ev_s'], MB_s=st.get('MB_s'), MB_s_rx=rx['MB_s'],
+                    trabajo=bloques_ns * 1e-9 / dur if dur else None,
+                    envio_frac=st.get('envio_ns', 0) / bloques_ns if bloques_ns else None,
+                    ocupacion_max=st.get('ocupacion_max'), sondeos=st.get('sondeos'),
+                    bloques=st.get('bloques'), descartados_leidos=rx['descartados'],
+                    cuentas_stream=r['cuentas'], error_sesion=error,
+                    destino=run_dir if guarda else None)
+        if guarda and rx['eventos']:
+            conv = RR.convertir(run_dir, formato=a.formato, capacity=a.chunk,
+                                borrar_crudos=not a.guardar)
+            fila.update(escritos=conv['n_written'], chunks=conv['chunks'],
+                        formato=a.formato)
+            if a.verificar_archivos:
+                v = verificar_archivos(run_dir, d, pre, post, marcas)
+                fila.update({c: v[c] for c in ERRORES_ARCHIVO + (
+                    'muestras_malas', 'k_saltos', 'k_ultimo', 'primer_error_seq')})
+                fila['errores'] = v['errores']
+                fila['eventos_en_archivos'] = v['eventos']
+        if not a.guardar:
+            shutil.rmtree(run_dir, ignore_errors=True)
+        gen_cnt, terminado = fin.get('hw_gen_cnt', 0), fin.get('hw_gen_terminado', False)
+        ev, busy, full = (fin.get('hw_ev_cnt', 0), fin.get('hw_drop_busy', 0),
+                          fin.get('hw_drop_full', 0))
     else:
         # Todo el punto queda en el disco hasta verificarlo: 10⁸ ventanas de 32
         # muestras son unos 15 GB, más de lo que entra en la SD o en tmpfs.
@@ -437,12 +540,27 @@ def medir_punto(ring, etapa, pre, post, slot_shift, modo, tasa, a, destino):
                   capacity=a.chunk, ram_mb=a.ram_mb, margen_mb=a.margen_mb,
                   meta={'test': 'etapas_ring', 'etapa': 'C'})
         adq = AdqRemota(ring, **kw) if a.red else OR.AdquisicionRing(ring, **kw)
+        # La sesión no hace fsync: write() vuelve con los datos en el page cache, y el
+        # kernel los baja a la SD después. Se arranca sin nada pendiente y, al final,
+        # se mide cuánto tarda en bajar lo que quedó: con ese tiempo, la tasa es la de
+        # la tarjeta y no la de la RAM. Por la red no: el sync sería el de la placa.
+        if not a.red:
+            os.sync()
         st, fin, n_slots, vencido, error, fs = correr_sesion(adq, plazo)
+        t_sync = None
+        if not a.red:
+            t1 = time.monotonic()
+            os.sync()
+            t_sync = time.monotonic() - t1
         fin = fin or {}
         dur = st.get('duration_s') or 0.0
+        dur_sd = dur + (t_sync or 0.0)
         fila.update(consumidos=st['n_read'], escritos=st['n_written'],
                     chunks=st['chunks'], dur_s=dur,
                     tasa_consumo=st['n_read'] / dur if dur else None,
+                    t_sync_s=t_sync,
+                    tasa_con_sync=(st['n_read'] / dur_sd
+                                   if t_sync is not None and dur_sd else None),
                     formato=a.formato, destino=destino, fs=fs, error_sesion=error)
         gen_cnt, terminado = fin.get('hw_gen_cnt', 0), fin.get('hw_gen_terminado', False)
         ev, busy, full = (fin.get('hw_ev_cnt', 0), fin.get('hw_drop_busy', 0),
@@ -486,7 +604,10 @@ def anomalias(f):
     if f.get('errores'):
         out.append('errores en los slots')
     if f.get('error_sesion'):
-        out.append('se cayó un hilo de la sesión')
+        out.append('se cayó un hilo de la sesión' if f.get('etapa') not in POR_RED
+                   else 'la emisión o la recepción se cortó')
+    if f.get('cuentas_stream') is not None and not f['cuentas_stream']['ok']:
+        out.append('las cuentas del stream no cierran')
     if (f['busy_predicho'] is not None and f['drop_full'] == 0
             and f['drop_busy'] != f['busy_predicho']):
         out.append('DROP_BUSY distinto del tiempo muerto de la captura')
@@ -518,7 +639,8 @@ def parse_args(argv=None):
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('outdir')
     p.add_argument('--etapas', default='A,B',
-                   help='A, copia, B y C, separadas por coma (A,B)')
+                   help='A, copia, B, C, D0 y D, separadas por coma (A,B); D0 y D, '
+                        'con --red')
     p.add_argument('--modos', default='periodico,aleatorio')
     p.add_argument('--ventanas', default=VENTANAS_SIM,
                    help='pre+post[@slot_shift], separadas por coma (las de la simulación)')
@@ -556,7 +678,8 @@ def parse_args(argv=None):
                         '(un camino absoluto de la placa, dentro de un montaje de red); '
                         'acá se verifica en --destino-pc')
     g.add_argument('--destino-pc', default=None,
-                   help='con --red: el --destino de la placa, visto desde esta máquina')
+                   help='con --red: el --destino de la placa, visto desde esta máquina; '
+                        'en D, donde se guarda el stream (<outdir>/_etapa_d)')
     g.add_argument('--guardar', action='store_true', help='no borrar los archivos')
     g.add_argument('--sin-verificar', dest='verificar_archivos', action='store_false',
                    help='no leer de vuelta los archivos')
@@ -572,20 +695,29 @@ def parse_args(argv=None):
     a.ventanas = parse_ventanas(a.ventanas)
     a.tasas = [float(x) for x in a.tasas.split(',') if x.strip()]
     a.n, a.n_min, a.n_modelo_max = int(a.n), int(a.n_min), int(a.n_modelo_max)
+    a.host_red = a.red.partition(':')[0] if a.red else None
+    a.destino_d = os.path.expanduser(a.destino_pc or os.path.join(a.outdir, '_etapa_d'))
     if a.red:
-        if a.etapas != ['C']:
-            p.error('--red corre sólo la etapa C: --etapas C')
+        en_placa = [e for e in a.etapas if e not in ('C',) + POR_RED]
+        if en_placa:
+            p.error(f'--red corre C, D0 y D: {",".join(en_placa)} corren en la placa')
         if a.carga:
             p.error('--carga ocupa los núcleos de esta máquina, no los de la placa: no '
                     'va con --red')
-        if not a.destino or not a.destino_pc:
-            p.error('--red necesita --destino (en la placa, dentro del montaje) y '
-                    '--destino-pc (el mismo directorio, acá)')
-        if not os.path.isabs(a.destino):
-            p.error(f'--destino {a.destino}: con --red es un camino absoluto de la placa')
-        a.destino_pc = os.path.expanduser(a.destino_pc)
-    elif a.destino_pc:
-        p.error('--destino-pc va con --red')
+        if 'C' in a.etapas:
+            if not a.destino or not a.destino_pc:
+                p.error('C por --red necesita --destino (en la placa, dentro del montaje) '
+                        'y --destino-pc (el mismo directorio, acá)')
+            if not os.path.isabs(a.destino):
+                p.error(f'--destino {a.destino}: con --red es un camino absoluto de la '
+                        'placa')
+        if a.destino_pc:
+            a.destino_pc = os.path.expanduser(a.destino_pc)
+    else:
+        if a.destino_pc:
+            p.error('--destino-pc va con --red')
+        if any(e in POR_RED for e in a.etapas):
+            p.error('D0 y D son el ring por red: van con --red <ip-placa>')
     return a
 
 
@@ -615,6 +747,12 @@ def linea(f):
     txt += f'full={f["drop_full"]:<7d} pérdida={100 * perd / max(f["gen_cnt"], 1):5.1f} %'
     if f.get('tasa_consumo'):
         txt += f'  lee {f["tasa_consumo"] / 1e3:7.1f} k/s'
+    if f.get('tasa_con_sync'):
+        txt += f'  con sync {f["tasa_con_sync"] / 1e3:7.1f} k/s ({f["t_sync_s"]:.1f} s)'
+    if f.get('MB_s'):
+        txt += f' {f["MB_s"]:5.1f} MB/s'
+    if f.get('envio_frac') is not None:
+        txt += f' en send {100 * f["envio_frac"]:3.0f} %'
     if f.get('trabajo') is not None:
         txt += f' trabajo {100 * f["trabajo"]:3.0f} %'
     if f.get('ocupacion_max') is not None:
@@ -653,7 +791,7 @@ def resumen(filas):
     lineas = ['', '  por etapa y ventana: el periódico más alto sin descartes con el lector '
               'al día / el más bajo con DROP_FULL;',
               '  lo que pasa por la etapa saturada (en A, el writer de la PL; en B, el '
-              'lector; en C, el lector de la sesión);',
+              'lector; en C, el lector de la sesión; en D0 y D, la placa y la red);',
               '  los techos de la simulación (captura, writer)']
     claves = sorted({(f['etapa'], f['pre'], f['post']) for f in filas},
                     key=lambda c: (list(ETAPAS).index(c[0]), c[1] + c[2]))
@@ -741,6 +879,8 @@ def main(argv=None, abrir_ring=None):
         ring.close()
         if not a.guardar and 'C' in a.etapas and not a.destino:
             shutil.rmtree(destino, ignore_errors=True)
+        if not a.guardar and 'D' in a.etapas and not a.destino_pc:
+            shutil.rmtree(a.destino_d, ignore_errors=True)
     print(resumen(filas))
     print(f'\n=== {salida} ===')
     return 1 if any(f['anomalias'] for f in filas) else 0

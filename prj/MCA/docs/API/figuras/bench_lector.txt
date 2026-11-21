@@ -1,0 +1,12 @@
+El escritor con la adquisición corriendo, con lotes de 4096 eventos × 2 canales × 32
+muestras (`bench_escritura.py`; `h5py` 3.16 en la PC y 3.6.0 en la placa). (a) Escribir
+un lote solo y con un lector de Python compitiendo por el GIL, en escala logarítmica:
+cada vez que el escritor suelta el GIL, espera hasta un intervalo de cambio para
+recuperarlo, y `h5py` lo suelta muchas más veces que `savez`. (b) La mayor demora del
+lector mientras se escribe, que es tiempo muerto: en la placa `h5py` lo frena 11.2 ms,
+contra 3.1 ms de `.npz`. (c) La pérdida en la placa contra ρ, con la BRAM y el mismo
+tren de pulsos (`run_poisson_loss.py`), junto al modelo de Poisson no paralizable,
+ρ/(1+ρ). Con el lector en Python, LH5 pierde 2 a 2.4 pp más que `.npz` a ρ = 2 (la de
+`.npz` es la media de dos corridas, que difieren hasta 1.1 pp). Con el lector en C, que
+espera el disparo sin el GIL, los dos formatos dan lo mismo, y lo que queda es casi todo
+apilamiento del estímulo.

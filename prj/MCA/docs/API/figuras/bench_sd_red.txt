@@ -1,0 +1,8 @@
+Lo que llega al guardado persistente con el ring saturado, de las dos maneras: la sesión
+de Python en la placa, que guarda `.npz` en la SD (etapa C, puntos de 22 s con el `sync`
+del final contado), y el ring por red, que manda los slots a la PC y los guarda y
+convierte allá (etapa D). Las dos, el 2026-11-17. (a) En eventos por segundo, en escala
+logarítmica; la raya es el techo de TCP solo para ese tamaño de evento. (b) En MB/s. La
+SD es un punto por ventana; en la red, cada barra es la mediana de los puntos con
+`DROP_FULL`, en los dos modos del generador, y el bigote va del mínimo al máximo. A la
+tarjeta llegan 10–15 MB/s, y la red pasa entre 2.2 y 3.5 veces más.

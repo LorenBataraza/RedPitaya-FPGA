@@ -30,7 +30,7 @@ import numpy as np
 _AQUI = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(_AQUI))          # .../software
 
-from API.mca import (CAP_HIST_H_PSD, MCA_PHYS, MCANotPresent,
+from API.mca import (CAP_HIST_H_PSD, MCA_PHYS, MCANotPresent, R_BASELINE, R_BL_CTRL,
                      mca_clear, mca_close, mca_configure, mca_get_config,
                      mca_get_baseline_now, mca_get_metadata, mca_open,
                      mca_read_counters, mca_read_last_event, mca_read_map2d,
@@ -44,7 +44,7 @@ from API.multitrigger import (MTRG_PHYS, multitrigger_armar_mca,
                               multitrigger_configure, multitrigger_desarmar_mca,
                               multitrigger_disparo_mca, multitrigger_get_config,
                               multitrigger_get_status)
-from API.osciloscope_ring import RING_PHYS, AdquisicionRing
+from API.osciloscope_ring import RING_PHYS, AdquisicionRing, EmisionRing
 from API.osciloscope import (ADC_CNT_PER_V, N_BUF, SCOPE_PHYS,
                              FS as FS_OSC,
                              osciloscope_configure, osciloscope_get_config,
@@ -56,32 +56,23 @@ BITSTREAM_MCA = '/root/mca_red_pitaya.bit.bin'
 # con --fake, donde no hay EEPROM que leer.
 CALIB_IDENTIDAD = {'gain': 32768, 'base': 32768, 'offset': 0}
 PERIODO_VIGILANTE_S = 0.1
+PERIODO_BASE_S = 0.25          # un paso de la base dinámica
+
+
+def _s14(v):
+    """Un campo de 14 bits con signo leído crudo (la base fija: `mca_get_baseline`
+    devuelve el campo sin extender, y la pestaña MCA settings lo escribe así)."""
+    v = int(v) & 0x3FFF
+    return v - 0x4000 if v & 0x2000 else v
 
 
 def log(*a):
     print(f'[{time.strftime("%H:%M:%S")}]', *a, flush=True)
 
 
-def arribos_y_tiempo(cnt):
-    """(arribos, segundos) de la tasa de entrada: λ̂ = arribos / segundos.
-
-    Arribos: los disparos que llegaron sin veto, `cross − lost_veto`. Incluye los
-    que se perdieron por no haber ranura (`lost_active`) o por esperar al
-    publicador (lost_busy): llegaron, aunque no se midieran.
-
-    Segundos: `realtime − vetotime − t_rearm`. El veto sale porque sus disparos no
-    se cuentan, y `t_rearm` porque un pulso que llega con el disparo sin re-armar
-    no genera flanco y nunca llega a `cross`: no se puede contar, sólo descontar
-    su tiempo.
-
-    No es `accepted / livetime`: `accepted` deja afuera los rechazados por la
-    ventana de amplitud y la forma, y `livetime` deja afuera el tiempo en que las
-    ranuras estaban ocupadas, durante el cual también llegan pulsos.
-    """
-    arribos = cnt.get('cross', 0) - cnt.get('lost_veto', 0)
-    segundos = (cnt.get('realtime_s', 0.0) - cnt.get('vetotime_s', 0.0)
-                - cnt.get('t_rearm_s', 0.0))
-    return arribos, segundos
+# λ̂ = arribos / segundos: vive en la API porque la usa también la base dinámica, y
+# queda acá con el mismo nombre (lo importan las pruebas).
+from API.base_dinamica import arribos_y_tiempo                       # noqa: E402,F401
 
 
 # =============================================================================
@@ -128,10 +119,18 @@ class ServidorMCA:
         # tasas instantáneas son diferencias entre dos status.
         self._ultimo = None
 
+        # La base dinámica (pestaña «Calibration»): la ley (`BaseDinamica`, o None) y
+        # el último error del paso. La corre el hilo `mca-base` bajo `_lock`; sigue
+        # aunque el cliente se vaya, como el ring.
+        self._base_din = None
+        self._base_error = None
+        self._canal_falso = None        # el canal de juguete de --fake
+
         self._parar = threading.Event()
         self.abrir()
         threading.Thread(target=self._vigilante, daemon=True,
                          name='mca-exposicion').start()
+        threading.Thread(target=self._hilo_base, daemon=True, name='mca-base').start()
 
     # ---------- ciclo de vida del handle ----------
 
@@ -309,6 +308,8 @@ class ServidorMCA:
             from API.mca_remote import FakeGenPulsos
             self._gen_falso = FakeGenPulsos()
             self.gen = self._gen_falso.handle()
+            from API.canal_falso import CanalFalso
+            self._canal_falso = CanalFalso(semilla=0)
             if self.h is not None:
                 self.h.fuente = self._gen_falso.tasa_en_lazo
             self.bases['pulsos'] = PULSOS_PHYS
@@ -474,7 +475,19 @@ class ServidorMCA:
         return {'val': self._handle().r32(int(off))}
 
     def op_w32(self, off, val):
-        self._handle().w32(int(off), int(val))
+        off, val = int(off), int(val)
+        bd = self._base_din
+        if bd is not None:
+            # Los campos del MCA que escribe la GUI llegan acá, registro por registro.
+            # Con la base dinámica, escribir la base fija es cambiar b0, y prender el
+            # seguidor (bit 0 de BL_CTRL) la apaga: lo mismo que en `config.set`.
+            if off == R_BASELINE:
+                bd.b0 = _s14(val)
+                val = bd.base() & 0x3FFF
+            elif off == R_BL_CTRL and val & 1:
+                self._base_din = None
+                log('base dinámica apagada: se prendió el seguidor de base')
+        self._handle().w32(off, val)
         return {}
 
     def op_config_get(self):
@@ -482,7 +495,18 @@ class ServidorMCA:
 
     def op_config_set(self, fields):
         h = self._handle()
-        mca_configure(h, **(fields or {}))
+        fields = dict(fields or {})
+        bd = self._base_din
+        if bd is not None:
+            # Con la base dinámica, escribir la base fija es cambiar b0 (la de tasa
+            # cero); prender el seguidor la apaga, porque las dos no conviven.
+            if 'baseline' in fields:
+                bd.b0 = _s14(fields['baseline'])
+                fields['baseline'] = bd.base()
+            if fields.get('bl_auto'):
+                self._base_din = None
+                log('base dinámica apagada: se prendió el seguidor de base')
+        mca_configure(h, **fields)
         return mca_get_config(h)
 
     def op_ctrl_start(self, seconds=None, clear_first=False):
@@ -548,6 +572,7 @@ class ServidorMCA:
                          'left_s': max(0.0, objetivo - lt) if objetivo else None,
                          'done': self._exp_hecha},
             'gen': self._gen_estado(),
+            'base_dinamica': self._base_info(),
         }
 
     def _gen_estado(self):
@@ -983,6 +1008,331 @@ class ServidorMCA:
                                else 'apagado: la entrada es el ADC'))
         return self.op_gen_get()
 
+    # ---------- el canal analógico y la base dinámica (pestaña «Calibration») ----------
+    #
+    # docs/APP/calibracion.md. Las mediciones usan el generador, la BRAM y el disparo:
+    # con el MCA corriendo el estímulo terminaría en el espectro, y con el ring en curso
+    # le robarían el disparo. Todo lo que tocan lo restauran al terminar.
+
+    def _libre_para_medir(self):
+        if self.h is not None and self.h.running:
+            raise RuntimeError('el MCA está corriendo: pararlo antes de medir (el '
+                               'estímulo terminaría en el espectro)')
+        if self._adq is not None and self._adq.corriendo:
+            raise RuntimeError('hay una adquisición del ring en curso: pararla antes '
+                               'de medir')
+
+    def _captura_bram(self):
+        from API import canal as C
+        osc, mt = self._osc(), self._mt()
+        if self.fake:
+            from API.canal_falso import CapturaFalsa
+            return CapturaFalsa(osc, mt, self.gen, None, canal=self._canal_falso)
+        return C.CapturaBram(osc, mt, self.gen, self.ig)
+
+    def op_canal_medir(self, referencia='generador', que='todo', semilla=1,
+                       promedios=4):
+        """El canal analógico con la BRAM (`API.canal.medir`).
+
+        `referencia='generador'`: OUT1 → IN1, la medición rápida (`que='rapido'`), la
+        lenta diezmada (`'lento'`) o las dos (`'todo'`). `'externa'`: una cuadrada de
+        afuera en IN1, sin el generador (la caída lenta de IN1 sola).
+
+        Devuelve el resultado y, como payload, las capturas en int16 `[filas, n_buf]`;
+        `capturas` dice de quién es cada fila, en orden: [{nombre, filas}].
+        """
+        from API import canal as C
+        self._libre_para_medir()
+        if referencia == 'generador' and self.gen is None:
+            raise RuntimeError('este bitstream no trae el generador de pulsos: sólo se '
+                               'puede medir con la referencia externa')
+        t0 = time.monotonic()
+        cap = self._captura_bram()
+        with cap:
+            res, caps = C.medir(cap, str(referencia), str(que), int(semilla),
+                                int(promedios))
+        res.update(restaurado=cap.restaurado, duracion_s=time.monotonic() - t0,
+                   t_medida=time.time(), n_buf=cap.n_buf)
+        filas, meta = [], []
+        for k in sorted(caps):
+            a = np.atleast_2d(np.asarray(caps[k], np.int16))
+            meta.append({'nombre': k, 'filas': int(a.shape[0])})
+            filas.append(a)
+        res['capturas'] = meta
+        log(f"canal medido ({referencia}, {que}) en {res['duracion_s']:.1f} s: caída "
+            f"lenta {100 * res.get('caida_lenta_usar', 0.0):+.2f} %"
+            + (f", ganancia {res['ganancia']:.3f}" if 'ganancia' in res else '')
+            + (f" — {res['problema']}" if res.get('problema') else ''))
+        return res, np.ascontiguousarray(np.concatenate(filas, axis=0))
+
+    # Lo que fija la ganancia de la feature por ADU: si cambia, la medida vieja no vale.
+    _FUERA_DE_LA_HUELLA = frozenset((
+        'baseline', 'bl_auto', 'bl_k', 'bl_holdoff', 'amp_min', 'amp_max', 'n_acc',
+        'keep_if_full', 'verify', 'sel_2dx', 'sel_2dy', 'discr_en', 'discr_sel',
+        'discr_min', 'discr_max', 'discr_ext', 'zoom_1d_z', 'zoom_1d_k', 'zoom_2dx_z',
+        'zoom_2dx_k', 'zoom_2dy_z', 'zoom_2dy_k'))
+
+    def _huella_mca(self, h):
+        return {k: v for k, v in mca_get_config(h).items()
+                if k not in self._FUERA_DE_LA_HUELLA and isinstance(v, (int, float, bool))}
+
+    def _guardar_gen(self, g):
+        from API import generadores as G
+        if g.estado().get('generando'):
+            raise RuntimeError('el generador está generando: pararlo antes (la medición '
+                               'lo usa)')
+        return dict(cfg=g.leer_config(),
+                    tabla=np.asarray(g.leer_tabla(G.N_TABLA), np.int16), lazo=bool(g.lazo))
+
+    @staticmethod
+    def _restaurar_gen(g, s):
+        g.parar()
+        g.configurar(**s['cfg'])
+        g.cargar_tabla(s['tabla'])
+        g.lazo = s['lazo']
+
+    @staticmethod
+    def _esperar_leyendo(h, segundos, cada_s=0.1):
+        """Espera leyendo los contadores: en la placa no hace falta, pero el MCA falso
+        integra el tiempo cuando se lo lee, con la tasa de ese momento."""
+        fin = time.monotonic() + segundos
+        while time.monotonic() < fin:
+            time.sleep(min(cada_s, max(0.0, fin - time.monotonic())))
+            mca_read_counters(h)
+
+    def _paso_base(self, bd):
+        """Un paso de la ley sobre el MCA abierto; escribe la base si cambió."""
+        from API import base_dinamica as BD
+        from API.mca import (mca_get_trap_mq, mca_get_zoom_1d_k, mca_get_zoom_1d_z,
+                             mca_set_baseline)
+        h = self.h
+        hist = mca_read_histogram(h)
+        v = BD.valores_de_canales(len(hist), h.h_aw, mca_get_zoom_1d_z(h),
+                                  mca_get_zoom_1d_k(h))
+        antes = bd.base()
+        bd.paso(mca_read_counters(h), hist, v, BD.tau_de_mq(mca_get_trap_mq(h)))
+        if bd.base() != antes:
+            mca_set_baseline(h, bd.base())
+
+    def _hilo_base(self):
+        """La base dinámica: un paso cada PERIODO_BASE_S con el MCA corriendo."""
+        while not self._parar.wait(PERIODO_BASE_S):
+            with self._lock:
+                bd = self._base_din
+                if bd is None or self.h is None:
+                    continue
+                try:
+                    if not self.h.running:
+                        continue
+                    self._paso_base(bd)
+                    self._base_error = None
+                except Exception as e:                       # noqa: BLE001
+                    if self._base_error is None:
+                        log(f'base dinámica: {type(e).__name__}: {e}')
+                    self._base_error = f'{type(e).__name__}: {e}'
+
+    def _base_info(self):
+        bd = self._base_din
+        info = {'on': bd is not None, 'error': self._base_error}
+        if bd is not None:
+            info.update(bd.estado())
+        return info
+
+    def op_mca_ganancia(self, amplitud=2000, tasa_hz=10e3, segundos=1.0):
+        """G_F, las cuentas de la feature del eje 1D por ADU de entrada: una línea aislada
+        del generador por el lazo DIGITAL (sin cables: lo que entra es la tabla tal cual),
+        con τ la del polo-cero del trapecio y la base en 0, que es la del generador.
+
+        Corre el MCA (BORRA el histograma) con el disparo que esté armado, y restaura el
+        generador y la base. Devuelve también la `huella`: la config del MCA con la que
+        vale (si cambia el trapecio o la feature, hay que volver a medirla)."""
+        from API import base_dinamica as BD
+        from API import generadores as G
+        from API.mca import (mca_get_baseline, mca_get_bl_auto, mca_get_trap_mq,
+                             mca_get_zoom_1d_k, mca_get_zoom_1d_z, mca_set_baseline,
+                             mca_set_bl_auto)
+        h, g = self._handle(), self._gen()
+        self._libre_para_medir()
+        if self._base_din is not None:
+            raise RuntimeError('la base dinámica está prendida: apagarla antes de medir '
+                               'la ganancia')
+        guardado = self._guardar_gen(g)
+        base, auto = mca_get_baseline(h), mca_get_bl_auto(h)
+        tau = BD.tau_de_mq(mca_get_trap_mq(h))
+        try:
+            g.lazo = True
+            g.configurar(**G.config(tasa=float(tasa_hz), tau=tau, amp_n=1, base=0,
+                                    ruido=False, n=0, salidas=G.SAL_OUT1))
+            g.cargar_tabla(np.array([int(amplitud)], np.int16))
+            mca_set_bl_auto(h, False)
+            mca_set_baseline(h, 0)
+            mca_stop(h)
+            mca_clear(h)
+            self._ultimo = None
+            mca_start(h)
+            g.arrancar()
+            self._esperar_leyendo(h, float(segundos))
+            g.parar()
+            time.sleep(0.01)
+            mca_stop(h)
+            hist = np.asarray(mca_read_histogram(h))
+        finally:
+            self._restaurar_gen(g, guardado)
+            mca_set_baseline(h, base)
+            mca_set_bl_auto(h, auto)
+        lineas = BD.centroides_lineas(hist, 1)
+        n = lineas[0]['n'] if lineas else 0
+        if n < 100:
+            raise RuntimeError(f'llegaron {n} eventos a la línea: ¿está armado el disparo '
+                               'del MCA (Multitrigger → MCA trigger)?')
+        v = BD.valores_de_canales(2, h.h_aw, mca_get_zoom_1d_z(h), mca_get_zoom_1d_k(h))
+        feature = float(v[0] + (v[1] - v[0]) * lineas[0]['centroide'])
+        out = dict(ganancia_mca=feature / float(amplitud), amplitud=int(amplitud),
+                   centroide=lineas[0]['centroide'], n=int(n), feature=feature, tau=tau,
+                   huella=self._huella_mca(h), t_medida=time.time())
+        log(f"ganancia del MCA: {out['ganancia_mca']:.4f} cuentas de la feature por ADU "
+            f"(línea de {amplitud} ADU en el canal {out['centroide']:.1f})")
+        return out
+
+    def op_base_dinamica(self, on, caida=None, ganancia_mca=None, kappa=1.0, b0=None,
+                         suavizado_s=None):
+        """Prende, ajusta o apaga la base dinámica (`API/base_dinamica.py`).
+
+        Prenderla pide la `caida` (Σd/Σc de una medición del canal) y `ganancia_mca`
+        (`mca.ganancia`). `b0` es la base a tasa cero (por defecto, la base fija que
+        está escrita). Volver a llamarla prendida cambia los parámetros sin perder el
+        promedio de λ̂ y ⟨A⟩. Apagarla devuelve la base a b0. Con el seguidor de base
+        (bl_auto) no se puede: la dinámica corre la base FIJA."""
+        from API import base_dinamica as BD
+        from API.mca import mca_get_baseline, mca_get_bl_auto, mca_set_baseline
+        h = self._handle()
+        actual = self._base_din
+        if not on:
+            if actual is not None:
+                self._base_din = None
+                mca_set_baseline(h, actual.b0)
+                log(f'base dinámica apagada: la base vuelve a {actual.b0}')
+            return self._base_info()
+        if mca_get_bl_auto(h):
+            raise RuntimeError('el seguidor de base está prendido (bl_auto): la base '
+                               'dinámica corre la base fija, así que hay que apagarlo')
+        if caida is None or ganancia_mca is None:
+            raise ValueError('hacen falta caida (una medición del canal) y ganancia_mca '
+                             '(mca.ganancia)')
+        b0 = (actual.b0 if actual is not None else _s14(mca_get_baseline(h))) \
+            if b0 is None else _s14(b0)
+        kw = {} if suavizado_s is None else {'suavizado_s': float(suavizado_s)}
+        bd = BD.BaseDinamica(float(caida), float(ganancia_mca), int(b0), float(kappa), **kw)
+        if actual is not None:           # sólo cambian los parámetros
+            bd.lam, bd.a, bd._prev, bd.pasos = actual.lam, actual.a, actual._prev, actual.pasos
+        self._base_din = bd
+        self._base_error = None
+        mca_set_baseline(h, bd.base())
+        log(f'base dinámica {"ajustada" if actual else "prendida"}: caída '
+            f'{100 * bd.caida:+.2f} %, G_F {bd.ganancia_mca:.4f}, κ {bd.kappa:g}, b0 {bd.b0}')
+        return self._base_info()
+
+    def op_base_verificar(self, tasa_hz=400e3, lineas=(500, 1300), segundos=2.0,
+                          tasa_ref_hz=10e3, caida=None, ganancia_mca=None, kappa=None):
+        """El corrimiento de dos líneas del generador por OUT1 (el lazo APAGADO: tiene que
+        estar el cable OUT1 → IN1 de la calibración) a `tasa_hz`, con la base fija y con
+        la dinámica, contra su posición a `tasa_ref_hz`.
+
+        Como el corrimiento es lineal en κ, las dos corridas dan el κ que lo anula
+        (`kappa_optimo`). La caída, G_F y κ son los de la base dinámica prendida, o los
+        que se pasen. BORRA el histograma; restaura el generador, la base y la dinámica.
+        """
+        from API import base_dinamica as BD
+        from API import generadores as G
+        from API.mca import (mca_get_baseline, mca_get_bl_auto, mca_get_trap_mq,
+                             mca_set_baseline)
+        h, g = self._handle(), self._gen()
+        self._libre_para_medir()
+        actual = self._base_din
+        caida = caida if caida is not None else (actual.caida if actual else None)
+        gf = ganancia_mca if ganancia_mca is not None else (
+            actual.ganancia_mca if actual else None)
+        kappa = float(kappa if kappa is not None else (actual.kappa if actual else 1.0))
+        if caida is None or gf is None:
+            raise ValueError('hacen falta la caída del canal y la ganancia del MCA')
+        if mca_get_bl_auto(h):
+            raise RuntimeError('el seguidor de base está prendido (bl_auto): apagarlo')
+        guardado = self._guardar_gen(g)
+        b0 = actual.b0 if actual is not None else _s14(mca_get_baseline(h))
+        tau = BD.tau_de_mq(mca_get_trap_mq(h))
+        lineas = [int(a) for a in lineas]
+        self._base_din = None            # el hilo no la toca mientras tanto
+
+        def correr(tasa, ley):
+            g.lazo = False
+            g.configurar(**G.config(aleatorio=True, tasa=float(tasa), dt_min=2,
+                                    amp_aleat=True, tau=tau, subida=0, base=0,
+                                    ruido=False, n=0, salidas=G.SAL_OUT1))
+            g.cargar_tabla(G.tabla_cdf(lineas, [1.0] * len(lineas)))
+            mca_set_baseline(h, b0)
+            mca_stop(h)
+            mca_clear(h)
+            g.arrancar()
+            fases = ((1.0, False), (float(segundos), True)) if ley else (
+                (float(segundos), True),)
+            for dur, _medida in fases:
+                mca_stop(h)
+                mca_clear(h)
+                mca_start(h)
+                fin = time.monotonic() + dur
+                while time.monotonic() < fin:
+                    time.sleep(PERIODO_BASE_S)
+                    if ley is not None:
+                        self._paso_base(ley)
+                    else:
+                        mca_read_counters(h)     # ver _esperar_leyendo
+            g.parar()
+            mca_stop(h)
+            cnt = mca_read_counters(h)
+            arr, seg = BD.arribos_y_tiempo(cnt)
+            return (np.asarray(mca_read_histogram(h)), arr / seg if seg > 0 else 0.0,
+                    ley.estado() if ley else None)
+
+        try:
+            h_ref, lam_ref, _ = correr(tasa_ref_hz, None)
+            ref = BD.centroides_lineas(h_ref, len(lineas))
+            if len(ref) < len(lineas) or min(r['n'] for r in ref) < 50:
+                raise RuntimeError('no aparecieron las líneas a tasa baja: ¿está el cable '
+                                   'OUT1 → IN1 y armado el disparo del MCA?')
+            h_fija, lam_fija, _ = correr(tasa_hz, None)
+            h_din, lam_din, est = correr(tasa_hz, BD.BaseDinamica(caida, gf, b0, kappa,
+                                                                  suavizado_s=0.5))
+        finally:
+            self._restaurar_gen(g, guardado)
+            mca_set_baseline(h, b0)
+            self._base_din = actual
+            if actual is not None:
+                actual.reiniciar()       # el histograma y los contadores son otros
+                mca_set_baseline(h, actual.base())
+
+        def corr(hist):
+            cs = [BD.centroide_en(hist, r['centroide']) for r in ref]
+            return [None if c is None else c - r['centroide'] for c, r in zip(cs, ref)]
+        d_fija, d_din = corr(h_fija), corr(h_din)
+
+        def media(v):
+            v = [x for x in v if x is not None]
+            return float(np.mean(v)) if v else None
+        s_fija, s_din = media(d_fija), media(d_din)
+        out = dict(tasa_hz=float(tasa_hz), tasa_ref_hz=float(tasa_ref_hz), lineas=lineas,
+                   lam_hz=dict(ref=lam_ref, fija=lam_fija, dinamica=lam_din),
+                   referencia=[r['centroide'] for r in ref],
+                   corrimiento_fija=d_fija, corrimiento_dinamica=d_din,
+                   s_fija=s_fija, s_dinamica=s_din, kappa=kappa,
+                   kappa_optimo=BD.kappa_optimo(s_fija, s_din, kappa),
+                   delta_b=None if est is None else est['delta_b'], t_medida=time.time())
+        log(f"base verificada a {tasa_hz / 1e3:.0f} k/s: fija "
+            + ('—' if s_fija is None else f'{s_fija:+.2f}')
+            + ', dinámica ' + ('—' if s_din is None else f'{s_din:+.2f}')
+            + ' canales' + (f", κ óptimo {out['kappa_optimo']:.3f}"
+                            if out['kappa_optimo'] is not None else ''))
+        return out
+
     # ---------- event_ring (slot 2) ----------
 
     def _ring(self):
@@ -992,20 +1342,31 @@ class ServidorMCA:
                 '(event_ring_red_pitaya_Z10_2CH.bit.bin)')
         return self.ring
 
-    def op_ring_iniciar(self, run_dir, pre=8, post=24, n_ch=2, slot_shift=None,
+    def op_ring_iniciar(self, run_dir=None, pre=8, post=24, n_ch=2, slot_shift=None,
                         generador=None, disparo=None, calib=None, formato='npz',
-                        capacity=4096, ram_mb=64.0, margen_mb=None, meta=None):
-        """Una adquisición del ring con su sesión (`AdquisicionRing`), que escribe en
-        `run_dir`, un camino de ESTA máquina: la SD, /dev/shm o un montaje de red. Una
-        por vez; sigue aunque el cliente se vaya.
+                        capacity=4096, ram_mb=64.0, margen_mb=None, meta=None,
+                        destino='archivos', puerto_datos=0):
+        """Una adquisición del ring. Una por vez; sigue aunque el cliente se vaya.
+
+        - `destino='archivos'`: con su sesión (`AdquisicionRing`), que escribe en
+          `run_dir`, un camino de ESTA máquina: la SD, /dev/shm o un montaje de red.
+        - `destino='red'`: los slots salen por un socket (`EmisionRing`), sin sesión ni
+          archivos acá. Abre `puerto_datos` (0: uno libre), que va en la respuesta con
+          la geometría y la calibración, y acepta sólo la conexión que venga de la IP
+          de este cliente. La PC recibe con `API.ring_red`.
 
         `generador` es el dict de `API.generadores.disparos`, o el mismo con `tasa` en
         lugar de `umbral`/`periodo`: la cuenta la hace libmca acá, porque el cliente no
         la tiene. Con `--fake` y sin `calib`, la identidad: no hay EEPROM."""
+        if destino not in ('archivos', 'red'):
+            raise ValueError(f"destino={destino!r}: es 'archivos' o 'red'")
+        if destino == 'archivos' and run_dir is None:
+            raise ValueError("destino='archivos' necesita run_dir")
         ring = self._ring()
         if self._adq is not None and self._adq.corriendo:
+            donde = self._adq.run_dir or f'por red, puerto {self._adq.puerto}'
             raise RuntimeError(f'ya hay una adquisición del ring corriendo '
-                               f'({self._adq.run_dir}): ring.parar primero')
+                               f'({donde}): ring.parar primero')
         if generador is not None and not self._ring_gen:
             raise RuntimeError('el ring de este bitstream no tiene el generador de '
                                'eventos ("GEN1")')
@@ -1014,6 +1375,17 @@ class ServidorMCA:
             generador = disparos(**generador)
         if calib is None and self.fake:
             calib = [dict(CALIB_IDENTIDAD) for _ in range(2)]
+        if destino == 'red':
+            with self._lock_cliente:
+                desde = self._cliente[0] if self._cliente is not None else None
+            adq = EmisionRing(ring, pre, post, n_ch, slot_shift, generador=generador,
+                              disparo=disparo, osc=self.osc, mt=self.mt, calib=calib,
+                              puerto=puerto_datos, desde=desde, meta=meta)
+            info = adq.iniciar()
+            self._adq = adq
+            log(f"ring: por red, puerto {info['puerto_datos']} (desde {desde}), "
+                f"{'generador' if generador is not None else 'disparo'}, {pre}+{post}")
+            return info
         adq = AdquisicionRing(ring, run_dir, pre, post, n_ch, slot_shift,
                               generador=generador, disparo=disparo, osc=self.osc,
                               mt=self.mt, calib=calib, formato=formato,
@@ -1039,7 +1411,8 @@ class ServidorMCA:
             raise RuntimeError('no hubo ninguna adquisición del ring')
         fin = self._adq.parar()
         log(f"ring: parada, {fin['stats'].get('n_read', 0)} leídos, "
-            f"{fin['stats'].get('n_written', 0)} escritos"
+            + (f"{fin['stats'].get('eventos', 0)} enviados" if fin.get('destino') == 'red'
+               else f"{fin['stats'].get('n_written', 0)} escritos")
             + (f", {fin['error']}" if fin['error'] else ''))
         return fin
 
@@ -1083,13 +1456,22 @@ class ServidorMCA:
         'ring.iniciar':     ('op_ring_iniciar', ('run_dir', 'pre', 'post', 'n_ch',
                                                  'slot_shift', 'generador', 'disparo',
                                                  'calib', 'formato', 'capacity',
-                                                 'ram_mb', 'margen_mb', 'meta')),
+                                                 'ram_mb', 'margen_mb', 'meta',
+                                                 'destino', 'puerto_datos')),
         'ring.estado':      ('op_ring_estado', ()),
         'ring.parar':       ('op_ring_parar', ()),
         'gen.get':          ('op_gen_get', ()),
         'gen.configurar':   ('op_gen_configurar', ('cfg',)),
         'gen.ctrl':         ('op_gen_ctrl', ('que',)),
         'gen.lazo':         ('op_gen_lazo', ('on',)),
+        'canal.medir':      ('op_canal_medir', ('referencia', 'que', 'semilla',
+                                                'promedios')),
+        'mca.ganancia':     ('op_mca_ganancia', ('amplitud', 'tasa_hz', 'segundos')),
+        'base.dinamica':    ('op_base_dinamica', ('on', 'caida', 'ganancia_mca', 'kappa',
+                                                  'b0', 'suavizado_s')),
+        'base.verificar':   ('op_base_verificar', ('tasa_hz', 'lineas', 'segundos',
+                                                   'tasa_ref_hz', 'caida',
+                                                   'ganancia_mca', 'kappa')),
     }
 
     def despachar(self, op, args):
@@ -1144,10 +1526,19 @@ class ServidorMCA:
                         self._cliente = (addr[0], testigo)
                 if ocupado is not None:
                     log(f'rechazado {addr[0]}: ya hay un cliente')
-                    canal.send({'ok': False, 'error': 'Ocupado',
-                                'msg': f'ya hay un cliente ({ocupado[0]})',
-                                'hint': 'un solo proceso puede tocar /dev/mem'})
-                    canal.close()
+                    # Si el rechazado ya cortó, el aviso falla: no puede tirar el
+                    # servidor (y con él la adquisición del cliente que sí está).
+                    try:
+                        canal.send({'ok': False, 'error': 'Ocupado',
+                                    'msg': f'ya hay un cliente ({ocupado[0]})',
+                                    'hint': 'un solo proceso puede tocar /dev/mem'})
+                    except OSError as e:
+                        log(f'no se le pudo avisar a {addr[0]}: {type(e).__name__}')
+                    finally:
+                        try:
+                            canal.close()
+                        except OSError:
+                            pass
                     continue
                 threading.Thread(target=self._atender,
                                  args=(canal, addr, testigo),

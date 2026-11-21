@@ -1,0 +1,138 @@
+% El escritor con la adquisición corriendo. GENERADO por figuras_bench_escritura.py: no editar a mano.
+\documentclass[border=0pt,tikz]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[none]{hyphenat}
+\input{../../figuras/estilo_tikz.tex}
+% el color del formato, el mismo en las tres figuras (validado: ΔE 22.8 con
+% protanopía, contraste >= 3:1 sobre blanco)
+\definecolor{fnpz}{HTML}{3F8FD2}
+\definecolor{flh5}{HTML}{D9702A}
+% lo que no es un formato, en la leyenda: rayado, claro, lleno
+\colorlet{neutro}{black!60}
+\tikzset{
+  eje/.style    = {black!60, line width=0.5pt},
+  guia/.style   = {black!12, line width=0.4pt},
+  tick/.style   = {font=\scriptsize, inner sep=1.5pt, black!75},
+  titeje/.style = {font=\scriptsize, inner sep=1pt},
+  parte/.style  = {anchor=south west, font=\small\bfseries, inner sep=0pt},
+  barra/.style  = {fill=#1, draw=none},
+  clara/.style  = {fill=#1!28, draw=#1, line width=0.4pt},
+  valor/.style  = {font=\tiny, inner sep=1pt, black!80},
+  ref/.style    = {black!55, line width=0.5pt, dash pattern=on 2pt off 1.5pt},
+  serie/.style  = {#1, line width=0.9pt, line join=round},
+}
+\begin{document}
+\begin{tikzpicture}[fondo]
+\draw[guia] (0.000,0.000) -- (4.200,0.000);
+\draw[eje] (0.000,0.000) -- ++(-0.07,0) node[tick, left] {0.1};
+\draw[guia] (0.000,1.050) -- (4.200,1.050);
+\draw[eje] (0.000,1.050) -- ++(-0.07,0) node[tick, left] {1};
+\draw[guia] (0.000,2.100) -- (4.200,2.100);
+\draw[eje] (0.000,2.100) -- ++(-0.07,0) node[tick, left] {10};
+\draw[guia] (0.000,3.150) -- (4.200,3.150);
+\draw[eje] (0.000,3.150) -- ++(-0.07,0) node[tick, left] {100};
+\draw[guia] (0.000,4.200) -- (4.200,4.200);
+\draw[eje] (0.000,4.200) -- ++(-0.07,0) node[tick, left] {1\,000};
+\draw[eje] (0.000,0) -- (0.000,4.200);
+\draw[eje] (0.000,0) -- (4.200,0);
+\node[parte] at (0,4.450) {(a)\enspace un lote};
+\node[titeje, rotate=90, anchor=south] at (-0.75,2.100) {tiempo de escribir un lote [ms]};
+\path[clara=fnpz] (0.255,0.000) rectangle (0.615,0.887);
+\path[barra=fnpz] (0.665,0.000) rectangle (1.025,2.697);
+\path[clara=flh5] (1.075,0.000) rectangle (1.435,1.449);
+\path[barra=flh5] (1.485,0.000) rectangle (1.845,3.313);
+\node[tick, anchor=north] at (1.050,-0.06) {PC};
+\path[clara=fnpz] (2.355,0.000) rectangle (2.715,2.796);
+\path[barra=fnpz] (2.765,0.000) rectangle (3.125,3.136);
+\path[clara=flh5] (3.175,0.000) rectangle (3.535,3.181);
+\path[barra=flh5] (3.585,0.000) rectangle (3.945,3.577);
+\node[tick, anchor=north] at (3.150,-0.06) {placa};
+\draw[guia] (5.450,0.000) -- (8.150,0.000);
+\draw[eje] (5.450,0.000) -- ++(-0.07,0) node[tick, left] {0};
+\draw[guia] (5.450,1.050) -- (8.150,1.050);
+\draw[eje] (5.450,1.050) -- ++(-0.07,0) node[tick, left] {3};
+\draw[guia] (5.450,2.100) -- (8.150,2.100);
+\draw[eje] (5.450,2.100) -- ++(-0.07,0) node[tick, left] {6};
+\draw[guia] (5.450,3.150) -- (8.150,3.150);
+\draw[eje] (5.450,3.150) -- ++(-0.07,0) node[tick, left] {9};
+\draw[guia] (5.450,4.200) -- (8.150,4.200);
+\draw[eje] (5.450,4.200) -- ++(-0.07,0) node[tick, left] {12};
+\draw[eje] (5.450,0) -- (5.450,4.200);
+\draw[eje] (5.450,0) -- (8.150,0);
+\node[parte] at (5.450,4.450) {(b)\enspace el lector};
+\node[titeje, rotate=90, anchor=south] at (4.900,2.100) {mayor demora del lector [ms]};
+\path[barra=fnpz] (5.740,0.000) rectangle (6.100,0.560);
+\node[valor, anchor=south] at (5.920,0.560) {1.6};
+\path[barra=flh5] (6.150,0.000) rectangle (6.510,0.630);
+\node[valor, anchor=south] at (6.330,0.630) {1.8};
+\node[tick, anchor=north] at (6.125,-0.06) {PC};
+\path[barra=fnpz] (7.090,0.000) rectangle (7.450,1.085);
+\node[valor, anchor=south] at (7.270,1.085) {3.1};
+\path[barra=flh5] (7.500,0.000) rectangle (7.860,3.920);
+\node[valor, anchor=south] at (7.680,3.920) {11.2};
+\node[tick, anchor=north] at (7.475,-0.06) {placa};
+\draw[ref] (5.450,0.350) -- (8.150,0.350);
+\draw[guia] (9.600,0.000) -- (14.600,0.000);
+\draw[eje] (9.600,0.000) -- ++(-0.07,0) node[tick, left] {0};
+\draw[guia] (9.600,1.050) -- (14.600,1.050);
+\draw[eje] (9.600,1.050) -- ++(-0.07,0) node[tick, left] {20};
+\draw[guia] (9.600,2.100) -- (14.600,2.100);
+\draw[eje] (9.600,2.100) -- ++(-0.07,0) node[tick, left] {40};
+\draw[guia] (9.600,3.150) -- (14.600,3.150);
+\draw[eje] (9.600,3.150) -- ++(-0.07,0) node[tick, left] {60};
+\draw[guia] (9.600,4.200) -- (14.600,4.200);
+\draw[eje] (9.600,4.200) -- ++(-0.07,0) node[tick, left] {80};
+\draw[eje] (9.600,0) -- ++(0,-0.07) node[tick, below] {0};
+\draw[eje] (10.850,0) -- ++(0,-0.07) node[tick, below] {0.5};
+\draw[eje] (12.100,0) -- ++(0,-0.07) node[tick, below] {1};
+\draw[eje] (13.350,0) -- ++(0,-0.07) node[tick, below] {1.5};
+\draw[eje] (14.600,0) -- ++(0,-0.07) node[tick, below] {2};
+\draw[eje] (9.600,0) -- (9.600,4.200);
+\draw[eje] (9.600,0) -- (14.600,0);
+\node[parte] at (9.600,4.450) {(c)\enspace la pérdida};
+\node[titeje, rotate=90, anchor=south] at (9.000,2.100) {eventos perdidos [\%]};
+\node[titeje, anchor=north] at (12.100,-0.42) {$\rho$ = tasa $\cdot\,\tau$, con $\tau$ = 252.7 $\mu$s};
+\draw[black!45, line width=0.8pt] plot coordinates {(9.600,0.000) (9.662,0.128) (9.725,0.250) (9.787,0.366) (9.850,0.477) (9.912,0.583) (9.975,0.685) (10.037,0.782) (10.100,0.875) (10.162,0.964) (10.225,1.050) (10.287,1.132) (10.350,1.212) (10.412,1.288) (10.475,1.361) (10.537,1.432) (10.600,1.500) (10.662,1.566) (10.725,1.629) (10.787,1.691) (10.850,1.750) (10.912,1.807) (10.975,1.863) (11.037,1.917) (11.100,1.969) (11.162,2.019) (11.225,2.068) (11.287,2.116) (11.350,2.162) (11.412,2.207) (11.475,2.250) (11.537,2.292) (11.600,2.333) (11.662,2.373) (11.725,2.412) (11.787,2.450) (11.850,2.487) (11.912,2.523) (11.975,2.558) (12.037,2.592) (12.100,2.625) (12.162,2.657) (12.225,2.689) (12.287,2.720) (12.350,2.750) (12.412,2.779) (12.475,2.808) (12.537,2.836) (12.600,2.864) (12.662,2.890) (12.725,2.917) (12.787,2.942) (12.850,2.967) (12.912,2.992) (12.975,3.016) (13.037,3.039) (13.100,3.063) (13.162,3.085) (13.225,3.107) (13.287,3.129) (13.350,3.150) (13.412,3.171) (13.475,3.191) (13.537,3.211) (13.600,3.231) (13.662,3.250) (13.725,3.269) (13.787,3.287) (13.850,3.306) (13.912,3.323) (13.975,3.341) (14.037,3.358) (14.100,3.375) (14.162,3.392) (14.225,3.408) (14.287,3.424) (14.350,3.440) (14.412,3.455) (14.475,3.470) (14.537,3.485) (14.600,3.500)};
+\node[font=\scriptsize, black!65, anchor=east, inner sep=1pt] at (10.275,1.312) {Poisson};
+\draw[serie=fnpz, dash pattern=on 2.5pt off 1.5pt] (9.850,0.000) -- (10.850,1.580) -- (12.100,2.470) -- (14.600,3.533);
+\draw[serie=flh5, dash pattern=on 2.5pt off 1.5pt] (9.850,0.005) -- (10.850,1.622) -- (12.100,2.541) -- (14.600,3.649);
+\draw[serie=fnpz, solid] (9.850,0.089) -- (10.850,0.389) -- (12.100,0.483) -- (14.600,0.819);
+\draw[serie=flh5, solid] (9.850,0.084) -- (10.850,0.378) -- (12.100,0.494) -- (14.600,0.819);
+\node[circle, minimum size=2.0mm, inner sep=0pt, draw=fnpz, fill=white, line width=0.7pt, preaction={draw=white, line width=2.1pt}] at (9.850,0.000) {};
+\node[circle, minimum size=2.0mm, inner sep=0pt, draw=fnpz, fill=white, line width=0.7pt, preaction={draw=white, line width=2.1pt}] at (10.850,1.580) {};
+\node[circle, minimum size=2.0mm, inner sep=0pt, draw=fnpz, fill=white, line width=0.7pt, preaction={draw=white, line width=2.1pt}] at (12.100,2.470) {};
+\node[circle, minimum size=2.0mm, inner sep=0pt, draw=fnpz, fill=white, line width=0.7pt, preaction={draw=white, line width=2.1pt}] at (14.600,3.533) {};
+\node[rectangle, minimum size=1.8mm, inner sep=0pt, draw=flh5, fill=white, line width=0.7pt, preaction={draw=white, line width=2.1pt}] at (9.850,0.005) {};
+\node[rectangle, minimum size=1.8mm, inner sep=0pt, draw=flh5, fill=white, line width=0.7pt, preaction={draw=white, line width=2.1pt}] at (10.850,1.622) {};
+\node[rectangle, minimum size=1.8mm, inner sep=0pt, draw=flh5, fill=white, line width=0.7pt, preaction={draw=white, line width=2.1pt}] at (12.100,2.541) {};
+\node[rectangle, minimum size=1.8mm, inner sep=0pt, draw=flh5, fill=white, line width=0.7pt, preaction={draw=white, line width=2.1pt}] at (14.600,3.649) {};
+\node[circle, minimum size=2.0mm, inner sep=0pt, draw=fnpz, fill=fnpz, line width=0.7pt, preaction={draw=white, line width=2.1pt}] at (9.850,0.089) {};
+\node[circle, minimum size=2.0mm, inner sep=0pt, draw=fnpz, fill=fnpz, line width=0.7pt, preaction={draw=white, line width=2.1pt}] at (10.850,0.389) {};
+\node[circle, minimum size=2.0mm, inner sep=0pt, draw=fnpz, fill=fnpz, line width=0.7pt, preaction={draw=white, line width=2.1pt}] at (12.100,0.483) {};
+\node[circle, minimum size=2.0mm, inner sep=0pt, draw=fnpz, fill=fnpz, line width=0.7pt, preaction={draw=white, line width=2.1pt}] at (14.600,0.819) {};
+\node[rectangle, minimum size=1.8mm, inner sep=0pt, draw=flh5, fill=flh5, line width=0.7pt, preaction={draw=white, line width=2.1pt}] at (9.850,0.084) {};
+\node[rectangle, minimum size=1.8mm, inner sep=0pt, draw=flh5, fill=flh5, line width=0.7pt, preaction={draw=white, line width=2.1pt}] at (10.850,0.378) {};
+\node[rectangle, minimum size=1.8mm, inner sep=0pt, draw=flh5, fill=flh5, line width=0.7pt, preaction={draw=white, line width=2.1pt}] at (12.100,0.494) {};
+\node[rectangle, minimum size=1.8mm, inner sep=0pt, draw=flh5, fill=flh5, line width=0.7pt, preaction={draw=white, line width=2.1pt}] at (14.600,0.819) {};
+\node[font=\scriptsize, anchor=west] at (14.750,3.586) {lector en Python};
+\node[font=\scriptsize, anchor=west] at (14.750,0.819) {lector en C};
+\path[barra=fnpz] (-0.400,-1.370) rectangle ++(0.4,0.26);
+\node[anchor=west, font=\scriptsize] at (0.050,-1.250) {\texttt{.npz}};
+\path[barra=flh5] (1.200,-1.370) rectangle ++(0.4,0.26);
+\node[anchor=west, font=\scriptsize] at (1.650,-1.250) {LH5};
+\path[clara=neutro] (2.800,-1.370) rectangle ++(0.4,0.26);
+\node[anchor=west, font=\scriptsize] at (3.250,-1.250) {solo};
+\path[barra=neutro] (4.050,-1.370) rectangle ++(0.4,0.26);
+\node[anchor=west, font=\scriptsize] at (4.500,-1.250) {con un lector compitiendo por el GIL};
+\node[circle, minimum size=2.0mm, inner sep=0pt, draw=fnpz, fill=white, line width=0.7pt, preaction={draw=white, line width=2.1pt}] at (9.700,-1.250) {};
+\node[rectangle, minimum size=1.8mm, inner sep=0pt, draw=flh5, fill=white, line width=0.7pt, preaction={draw=white, line width=2.1pt}] at (10.000,-1.250) {};
+\node[anchor=west, font=\scriptsize] at (10.200,-1.250) {Python};
+\node[circle, minimum size=2.0mm, inner sep=0pt, draw=fnpz, fill=fnpz, line width=0.7pt, preaction={draw=white, line width=2.1pt}] at (11.650,-1.250) {};
+\node[rectangle, minimum size=1.8mm, inner sep=0pt, draw=flh5, fill=flh5, line width=0.7pt, preaction={draw=white, line width=2.1pt}] at (11.950,-1.250) {};
+\node[anchor=west, font=\scriptsize] at (12.150,-1.250) {C};
+\draw[ref] (-0.4,-1.750) -- ++(0.4,0);
+\node[anchor=west, font=\scriptsize] at (0.05,-1.750) {intervalo de cambio del GIL de la sesión (1 ms)};
+\end{tikzpicture}
+\end{document}

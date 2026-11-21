@@ -19,10 +19,13 @@
 
 #include <errno.h>
 #include <inttypes.h>
+#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/socket.h>
+#include <sys/types.h>
 
 #include "bloque.h"
 #include "gen_priv.h"
@@ -35,6 +38,8 @@ struct osciloscope_ring_h {
     int ddr_propio;
     uint8_t *slot;              /* un slot, copiado de la DDR: cabecera y muestras */
     uint32_t slot_len;
+    uint8_t *tx;                /* el bloque que sale por red: cabecera y slots */
+    uint32_t tx_len;
 };
 
 #define fallar(h, ...) bloque_fallar((mca_bloque *)(h), __VA_ARGS__)
@@ -62,6 +67,8 @@ size_t osciloscope_ring_sizeof(const char *tipo)
         { "osciloscope_ring_lote_t",       sizeof(osciloscope_ring_lote_t) },
         { "osciloscope_ring_contadores_t", sizeof(osciloscope_ring_contadores_t) },
         { "osciloscope_ring_medida_t",     sizeof(osciloscope_ring_medida_t) },
+        { "osciloscope_ring_bloque_t",     sizeof(osciloscope_ring_bloque_t) },
+        { "osciloscope_ring_envio_t",      sizeof(osciloscope_ring_envio_t) },
     };
     for (size_t i = 0; tipo != NULL && i < sizeof(t) / sizeof(t[0]); i++)
         if (strcmp(t[i].n, tipo) == 0)
@@ -137,6 +144,7 @@ void osciloscope_ring_close(osciloscope_ring_h *h)
     if (h->ddr_propio)
         mca_mem_close(h->ddr);
     free(h->slot);
+    free(h->tx);
     free(h);
 }
 
@@ -434,6 +442,26 @@ static uint32_t minimo(uint32_t a, uint32_t b)
     return a < b ? a : b;
 }
 
+/* Cuantos de los `hay` slots desde st->next ya tienen su footer, hasta `tope` y sin
+ * dar la vuelta al ring (el resto viene en el bloque siguiente). El primero que no lo
+ * tiene corta: WR_SLOT avanza al aceptarse el footer, no al llegar a la DDR. */
+static int listos(osciloscope_ring_h *h, const osciloscope_ring_estado_t *st,
+                  uint32_t hay, uint32_t tope, uint32_t *k)
+{
+    const uint32_t idx = st->next % st->n_slots;
+    const uint32_t pedir = minimo(minimo(hay, tope), st->n_slots - idx);
+    uint32_t j = 0;
+    for (; j < pedir; j++) {
+        uint64_t f;
+        TRY(mca_mem_read(h->ddr, ((idx + j + 1u) << st->slot_shift)
+                         - OSCILOSCOPE_RING_FOOTER, OSCILOSCOPE_RING_FOOTER, &f));
+        if (!footer_listo(f, st->next + j))
+            break;              /* todavia en vuelo: se vuelve a pedir */
+    }
+    *k = j;
+    return MCA_OK;
+}
+
 /* Un slot ya validado por su footer, a la fila i del lote. */
 static int leer_slot(osciloscope_ring_h *h, const osciloscope_ring_cfg_t *c,
                      const osciloscope_ring_estado_t *st, const osc_cal_t *cal,
@@ -523,20 +551,8 @@ int osciloscope_ring_leer_lote(osciloscope_ring_h *h, const osciloscope_ring_cfg
             return fallar(h, MCA_EVERIFY, "WR_SLOT=%" PRIu32 " con %" PRIu32 " entregados: "
                           "%" PRIu32 " slots llenos en un ring de %" PRIu32, wr, st->next,
                           hay, st->n_slots);
-        uint32_t k = 0;
-        if (hay != 0) {
-            const uint32_t idx = st->next % st->n_slots;
-            /* El bloque no da la vuelta al ring: el resto viene en el siguiente. */
-            const uint32_t pedir = minimo(minimo(hay, g.lote_slots),
-                                          minimo(st->n_slots - idx, n_max - res->n));
-            for (; k < pedir; k++) {
-                uint64_t f;
-                TRY(mca_mem_read(h->ddr, ((idx + k + 1u) << st->slot_shift)
-                                 - OSCILOSCOPE_RING_FOOTER, OSCILOSCOPE_RING_FOOTER, &f));
-                if (!footer_listo(f, st->next + k))
-                    break;      /* todavia en vuelo: se vuelve a pedir */
-            }
-        }
+        uint32_t k;
+        TRY(listos(h, st, hay, minimo(g.lote_slots, n_max - res->n), &k));
         if (k == 0) {
             TRY(publicar(h, st));
             if (osciloscope_ahora_ns() > plazo_ns)
@@ -749,15 +765,7 @@ int osciloscope_ring_medir(osciloscope_ring_h *h, const osciloscope_ring_cfg_t *
             st->next += k;
         } else {
             const uint32_t idx = st->next % st->n_slots;
-            const uint32_t pedir = minimo(minimo(hay, g.lote_slots),
-                                          minimo(st->n_slots - idx, n_max - n));
-            for (; k < pedir; k++) {
-                uint64_t f;
-                TRY(mca_mem_read(h->ddr, ((idx + k + 1u) << st->slot_shift)
-                                 - OSCILOSCOPE_RING_FOOTER, OSCILOSCOPE_RING_FOOTER, &f));
-                if (!footer_listo(f, st->next + k))
-                    break;      /* todavia en vuelo: se vuelve a pedir */
-            }
+            TRY(listos(h, st, hay, minimo(g.lote_slots, n_max - n), &k));
             if (k == 0) {
                 TRY(publicar(h, st));
                 if (t > plazo_ns)
@@ -794,6 +802,183 @@ int osciloscope_ring_medir(osciloscope_ring_h *h, const osciloscope_ring_cfg_t *
     st->drop_prev = d;
     st->pendientes += nuevos;
     m->descartados += nuevos;
+    return MCA_OK;
+}
+
+/* =========================================================================
+ * Mandar por red
+ * ========================================================================= */
+
+_Static_assert(sizeof(osciloscope_ring_bloque_t) == 40, "la cabecera del bloque es de 40 B");
+
+/* Si un send() no avanza en este tiempo, el que recibe dejo de leer. */
+#define ENVIAR_ESTANCADO_NS 10000000000LL
+
+/* len bytes enteros a fd. Cada send() es no bloqueante (MSG_DONTWAIT) y la espera va
+ * en poll(): asi el estancamiento se ve igual con un socket bloqueante o con uno con
+ * timeout de Python, que por debajo es no bloqueante. */
+static int enviar_todo(osciloscope_ring_h *h, int fd, const uint8_t *p, size_t len)
+{
+    int64_t avanzo = osciloscope_ahora_ns();
+    while (len > 0) {
+        const ssize_t r = send(fd, p, len, MSG_NOSIGNAL | MSG_DONTWAIT);
+        if (r > 0) {
+            p += r;
+            len -= (size_t)r;
+            avanzo = osciloscope_ahora_ns();
+            continue;
+        }
+        if (r < 0 && errno == EINTR)
+            continue;
+        if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            const int64_t falta = avanzo + ENVIAR_ESTANCADO_NS - osciloscope_ahora_ns();
+            if (falta <= 0)
+                return fallar(h, MCA_ETIMEOUT, "send: la red no avanz\xc3\xb3 en %lld s "
+                              "(el que recibe no lee)",
+                              (long long)(ENVIAR_ESTANCADO_NS / 1000000000LL));
+            struct pollfd q = { .fd = fd, .events = POLLOUT };
+            if (poll(&q, 1, (int)(falta / 1000000LL) + 1) < 0 && errno != EINTR)
+                return fallar(h, MCA_EIO, "poll: %s", strerror(errno));
+            continue;
+        }
+        return fallar(h, MCA_EIO, "send: %s", r == 0 ? "no mand\xc3\xb3 nada"
+                                                     : strerror(errno));
+    }
+    return MCA_OK;
+}
+
+static void cabecera(uint8_t *dst, uint16_t flags, uint32_t seq0, uint32_t n,
+                     uint32_t carga, uint32_t bytes, uint64_t descartados, int64_t t)
+{
+    const osciloscope_ring_bloque_t b = {
+        .magic = OSCILOSCOPE_RING_BLOQUE_MAGIC, .version = OSCILOSCOPE_RING_BLOQUE_VERSION,
+        .flags = flags, .seq0 = seq0, .n = n, .carga = carga, .bytes = bytes,
+        .descartados = descartados, .t_ns = t,
+    };
+    memcpy(dst, &b, sizeof(b));         /* little-endian, como la PC */
+}
+
+int osciloscope_ring_enviar(osciloscope_ring_h *h, const osciloscope_ring_cfg_t *cfg,
+                            osciloscope_ring_estado_t *st, int fd, uint32_t n_max,
+                            int64_t plazo_ns, osciloscope_ring_envio_t *e)
+{
+    INICIO(h);
+    if (cfg == NULL || st == NULL || e == NULL)
+        return MCA_EINVAL;
+    if (fd < 0)
+        return fallar(h, MCA_EINVAL, "fd=%d: hace falta un socket conectado", fd);
+    if (st->n_slots == 0)
+        return fallar(h, MCA_EINVAL, "el ring no est\xc3\xa1 configurado: falta "
+                      "osciloscope_ring_configurar");
+    osciloscope_ring_geometria_t g;
+    TRY(validar(h, cfg, &g, NULL));
+    if (g.slot_shift != st->slot_shift || g.n_slots != st->n_slots)
+        return fallar(h, MCA_EINVAL, "la configuraci\xc3\xb3n no es la que se arm\xc3\xb3 "
+                      "(slots de 2^%" PRIu32 " B x %" PRIu32 ", y configurado 2^%" PRIu32
+                      " x %" PRIu32 ")", g.slot_shift, g.n_slots, st->slot_shift,
+                      st->n_slots);
+
+    /* Lo que sale de cada slot: la cabecera y las muestras de los N_CH del RTL. */
+    const uint32_t carga = OSCILOSCOPE_RING_HDR
+        + (((cfg->pre + cfg->post) * OSCILOSCOPE_RING_N_CH * 2u + 7u) & ~7u);
+    const size_t hdr = sizeof(osciloscope_ring_bloque_t);
+    const size_t cabe = hdr + (size_t)g.lote_slots * carga;
+    if (h->tx_len < cabe) {
+        uint8_t *tx = realloc(h->tx, cabe);
+        if (tx == NULL)
+            return MCA_ENOMEM;
+        h->tx = tx;
+        h->tx_len = (uint32_t)cabe;
+    }
+
+    osciloscope_lote_resultado_t res;
+    uint32_t n = 0;
+    while (n < n_max) {
+        uint32_t wr;
+        TRY(mca_bus_r32(h->b.bus, OSCILOSCOPE_RING_R_WR_SLOT, &wr));
+        e->sondeos++;
+        const uint32_t hay = wr - st->next;
+        if (hay > st->n_slots)
+            return fallar(h, MCA_EVERIFY, "WR_SLOT=%" PRIu32 " con %" PRIu32 " entregados: "
+                          "%" PRIu32 " slots llenos en un ring de %" PRIu32, wr, st->next,
+                          hay, st->n_slots);
+        if (hay > e->ocupacion_max)
+            e->ocupacion_max = hay;
+        uint32_t k;
+        TRY(listos(h, st, hay, minimo(g.lote_slots, n_max - n), &k));
+        if (k == 0) {
+            TRY(publicar(h, st));
+            if (osciloscope_ahora_ns() > plazo_ns)
+                break;
+            continue;
+        }
+
+        __sync_synchronize();   /* los footers antes que los datos */
+        const int64_t t = osciloscope_ahora_ns();
+        memset(&res, 0, sizeof(res));
+        TRY(descartes(h, st, &res));
+        e->descartados += res.descartados;
+        const uint32_t idx = st->next % st->n_slots;
+        uint8_t *q = h->tx + hdr;
+        for (uint32_t j = 0; j < k; j++, q += carga)
+            TRY(mca_mem_read(h->ddr, (idx + j) << st->slot_shift, carga, q));
+        const uint32_t seq0 = st->next;
+        st->next += k;
+        TRY(publicar(h, st));   /* ya esta copiado: el writer puede pisarlo */
+        const uint64_t asignados = st->pendientes;
+        st->pendientes = 0;
+        cabecera(h->tx, 0, seq0, k, carga, k * carga, asignados, t);
+
+        const int64_t t_copia = osciloscope_ahora_ns();
+        e->copia_ns += t_copia - t;
+        const int rc = enviar_todo(h, fd, h->tx, hdr + (size_t)k * carga);
+        const int64_t t_fin = osciloscope_ahora_ns();
+        e->envio_ns += t_fin - t_copia;
+        if (rc != MCA_OK)
+            return rc;
+        if (e->bloques == 0)
+            e->t0_ns = t;
+        e->eventos += k;
+        e->bytes += (uint64_t)k * carga;
+        e->bloques++;
+        e->asignados += asignados;
+        e->t1_ns = t_fin;
+        n += k;
+        if (t_fin > plazo_ns)
+            break;
+    }
+    TRY(publicar(h, st));
+    /* Los de despues del ultimo bloque quedan pendientes: van en el proximo, o en el
+     * FIN. */
+    memset(&res, 0, sizeof(res));
+    TRY(descartes(h, st, &res));
+    e->descartados += res.descartados;
+    return MCA_OK;
+}
+
+int osciloscope_ring_enviar_fin(osciloscope_ring_h *h, osciloscope_ring_estado_t *st,
+                                int fd, osciloscope_ring_envio_t *e)
+{
+    INICIO(h);
+    if (st == NULL || e == NULL)
+        return MCA_EINVAL;
+    if (fd < 0)
+        return fallar(h, MCA_EINVAL, "fd=%d: hace falta un socket conectado", fd);
+    osciloscope_lote_resultado_t res;
+    memset(&res, 0, sizeof(res));
+    TRY(descartes(h, st, &res));
+    e->descartados += res.descartados;
+    osciloscope_ring_contadores_t c;
+    TRY(osciloscope_ring_contadores(h, &c));
+
+    uint8_t buf[sizeof(osciloscope_ring_bloque_t) + sizeof(osciloscope_ring_contadores_t)];
+    const uint64_t asignados = st->pendientes;
+    cabecera(buf, OSCILOSCOPE_RING_BLOQUE_FIN, st->next, 0, 0, (uint32_t)sizeof(c),
+             asignados, osciloscope_ahora_ns());
+    memcpy(buf + sizeof(osciloscope_ring_bloque_t), &c, sizeof(c));
+    TRY(enviar_todo(h, fd, buf, sizeof(buf)));
+    st->pendientes = 0;
+    e->asignados += asignados;
     return MCA_OK;
 }
 

@@ -21,7 +21,7 @@ extern "C" {
  * tabla de simbolos del .so, que es exactamente lo que ctypes puede llamar. */
 #define MCA_API __attribute__((visibility("default")))
 
-#define MCA_LIB_VERSION "0.11.0"
+#define MCA_LIB_VERSION "0.12.0"
 
 /* Cero es exito; todo error es negativo, como en rp-api. El binding de Python
  * traduce cada uno a la excepcion que la API de Python ya lanzaba. */
@@ -38,7 +38,8 @@ typedef enum {
     MCA_EBACKEND    =  -9,  /* un backend por callbacks devolvio error        */
     MCA_EVERIFY     = -10,  /* la relectura no coincide con lo escrito        */
     MCA_ENOKEY      = -11,  /* un indice que no esta en la tabla del bloque   */
-    MCA_E_ULTIMO    = -11,  /* el codigo mas negativo: los de abajo no existen */
+    MCA_EIO         = -12,  /* la salida (un socket) fallo: ver last_error   */
+    MCA_E_ULTIMO    = -12,  /* el codigo mas negativo: los de abajo no existen */
 } mca_err_t;
 
 MCA_API const char *mca_strerror(int rc);

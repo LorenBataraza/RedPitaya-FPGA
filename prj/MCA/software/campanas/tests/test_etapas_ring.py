@@ -495,7 +495,7 @@ def test_etapa_c_por_la_red(tmp_path):
 
 
 @pytest.mark.parametrize('extra, error', [
-    (['--etapas', 'A,C'], 'sólo la etapa C'),
+    (['--etapas', 'A,C'], 'A corren en la placa'),
     (['--etapas', 'C', '--carga', '1'], 'no va con --red'),
     (['--etapas', 'C', '--destino', '/mnt/pc/e'], '--destino-pc'),
     (['--etapas', 'C', '--destino', 'rel/e', '--destino-pc', '/x'], 'absoluto'),
@@ -545,3 +545,78 @@ def test_correr_sesion_junta_los_errores(estado, parar, esperado):
     st, fin, n_slots, vencido, error, fs = R.correr_sesion(
         _AdqFalsa(estado, parar), plazo_s=5, sondeo_s=0.001)
     assert (error, fs, n_slots, vencido) == (esperado, 'nfs', 16, False)
+
+
+# -----------------------------------------------------------------------------
+# D0 y D: el ring por red, con la emisión en este proceso
+# -----------------------------------------------------------------------------
+
+class RemotoLocal:
+    """Las ops `ring.*` del servidor, sin servidor: la `EmisionRing` sobre el ring
+    falso, en este proceso. Es lo que `RecepcionRing` le pide a `MCARemote`."""
+
+    def __init__(self, rf):
+        self.rf, self.em = rf, None
+
+    def ring_iniciar(self, destino='red', **kw):
+        assert destino == 'red'
+        self.em = OR.EmisionRing(self.rf.handle(), host='127.0.0.1', **kw)
+        return self.em.iniciar()
+
+    def ring_estado(self):
+        return self.em.estado()
+
+    def ring_parar(self):
+        return self.em.parar()
+
+
+def punto_red(rf, etapa, modo, tasa, tmp_path, *extra, pre=8, post=24):
+    a = args(tmp_path, '--etapas', etapa, '--red', '127.0.0.1:1', *extra)
+    sh = OR.geometria(pre, post)['slot_shift']
+    return R.medir_punto(RemotoLocal(rf), etapa, pre, post, sh, modo, tasa, a, None)
+
+
+@pytest.mark.parametrize('etapa', ['D0', 'D'])
+@pytest.mark.parametrize('modo, tasa', [('periodico', 1e6), ('aleatorio', 3e6)])
+def test_etapas_por_red(tmp_path, etapa, modo, tasa):
+    f = punto_red(RingGen(), etapa, modo, tasa, tmp_path, '--chunk', '1024')
+    assert f['anomalias'] == [] and f['pasa'], f
+    assert f['gen_cnt'] == f['n'] == 3000
+    assert f['consumidos'] == f['enviados'] == f['ev_cnt'] == 3000 - f['drop_busy']
+    assert f['drop_busy'] == f['busy_predicho']
+    assert (f['drop_busy'] > 0) == (modo == 'aleatorio')
+    assert f['cuentas_stream']['ok'] and f['descartados_leidos'] == f['drop_busy']
+    assert f['bytes'] == f['ev_cnt'] * OR.carga_slot(8, 24)
+    assert 0 <= f['envio_frac'] <= 1
+    if etapa == 'D':
+        assert f['escritos'] == f['eventos_en_archivos'] == f['ev_cnt']
+        assert f['errores'] == 0 and f['chunks'] >= 2
+    else:
+        assert 'escritos' not in f and 'errores' not in f
+    assert not os.path.exists(tmp_path / '_etapa_d' / f'd_8_24_{modo}_{int(tasa)}')
+
+
+def test_d_cuenta_un_slot_corrupto(tmp_path):
+    f = punto_red(RingGen(corromper={5}), 'D', 'periodico', 1e6, tmp_path)
+    assert (f['err_patron'], f['errores']) == (1, 1)
+    assert f['anomalias'] == ['errores en los slots'] and not f['pasa']
+
+
+def test_d_con_guardar_deja_los_archivos(tmp_path):
+    f = punto_red(RingGen(), 'D', 'periodico', 1e6, tmp_path, '--guardar')
+    assert f['pasa'] and os.path.isdir(f['destino'])
+    nombres = os.listdir(f['destino'])
+    assert 'run_summary.json' in nombres and 'recepcion.json' in nombres
+    assert any(n.startswith('chunk_') for n in nombres)
+    assert any(n.startswith('ring_') for n in nombres)      # con --guardar, los crudos
+
+
+@pytest.mark.parametrize('argv, error', [
+    (['--etapas', 'D'], 'van con --red'),
+    (['--etapas', 'A,D', '--red', '1.2.3.4'], 'corren en la placa'),
+    (['--etapas', 'C,D', '--red', '1.2.3.4'], 'C por --red necesita'),
+])
+def test_los_argumentos_de_red(tmp_path, capsys, argv, error):
+    with pytest.raises(SystemExit):
+        R.parse_args([str(tmp_path), *argv])
+    assert error in capsys.readouterr().err

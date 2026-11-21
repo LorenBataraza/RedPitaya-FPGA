@@ -1,0 +1,7 @@
+El flujo de una sesión de captura, de `start()` a `stop()`, sin escala. El principal
+arranca los anotadores, arma la fuente y lanza los dos hilos; después sólo espera. Por
+cada batch, el lector lo llena con los eventos de la fuente y lo pasa por `full_q`, y el
+escritor lo guarda en un archivo y lo devuelve por `free_q` mientras el lector ya llena
+el siguiente. Al parar, el lector entrega el batch a medias y el centinela, y el
+principal cierra la fuente y escribe `run_summary.json`. Lo que pasa adentro de cada
+hilo está en `hilos_captura`.

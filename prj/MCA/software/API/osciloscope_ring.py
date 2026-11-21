@@ -35,6 +35,10 @@ Lo que cambió con la Parte 7 del plan de libmca, respecto del `RingSource` de P
 - el footer se valida ANTES de leer los datos, y los footers de la corrida anterior se
   borran al configurar (ver la cabecera de `libmca/src/osciloscope_ring.c`).
 
+**Por red** (libmca 0.12.0): `EmisionRing` manda los slots por un socket desde C
+(`osciloscope_ring_enviar`), sin sesión ni archivos en la placa, y la PC los recibe con
+`API.ring_red`. Ver docs/event_ring/salida_por_red.md, «El ring por red».
+
 **En la placa** (bitstreams del ring del 2026-11-09): `make verificar-placa-ring`, con
 disparos por software (`test_ring_source_placa.py` usa esta API; `hw_ring_swtrig.py`
 no, a propósito). El generador de eventos (`gen_*`, desde libmca 0.9.0) se prueba con
@@ -44,7 +48,9 @@ no, a propósito). El generador de eventos (`gen_*`, desde libmca 0.9.0) se prue
 import ctypes
 import operator
 import os
+import socket
 import struct
+import threading
 import time
 
 import numpy as np
@@ -98,6 +104,27 @@ FOOTER_BYTES = 8
 
 # 64 KB fue el óptimo medido en placa, desde Python (ver el docstring del módulo).
 MAX_BATCH_BYTES = 64 * 1024
+
+# El ring por red (`osciloscope_ring_enviar`, docs/event_ring/salida_por_red.md): cada
+# bloque es esta cabecera de 40 B y `bytes` de carga, n slots compactados de `carga`
+# bytes (la cabecera del slot y las muestras crudas de los N_CH_HW canales). El FIN
+# trae n = 0 y, como carga, los contadores del ring (CONTADORES, en el orden de
+# osciloscope_ring_contadores_t).
+BLOQUE = struct.Struct('<IHHIIIIQq')
+BLOQUE_CAMPOS = ('magic', 'version', 'flags', 'seq0', 'n', 'carga', 'bytes',
+                 'descartados', 't_ns')
+BLOQUE_MAGIC = 0x4B4C4252   # "RBLK"
+BLOQUE_VERSION = 1
+BLOQUE_FIN = 1 << 0
+CONTADORES = struct.Struct('<10IQ')
+CONTADORES_CAMPOS = ('status', 'ev_cnt', 'drop_busy', 'drop_full', 'wr_slot', 'rd_slot',
+                     'seq', 'n_slots', 'lvl', 'axi_addr', 'ts')
+
+
+def carga_slot(pre, post):
+    """Los bytes de un slot en el cable: la cabecera y las muestras de los N_CH_HW
+    canales, redondeadas a 8 (sin el relleno hasta 2^slot_shift ni el footer)."""
+    return HDR_BYTES + (((pre + post) * N_CH_HW * 2 + 7) & ~7)
 
 # Lo que construye event_ring_red_pitaya_top. El RTL escribe siempre N_CH_HW canales.
 N_CH_HW = 2
@@ -197,6 +224,13 @@ class _Medida(ctypes.Structure):
                 + [('k_ultimo', _I64), ('ts_ultimo', _I64)])
 
 
+class _Envio(ctypes.Structure):
+    _fields_ = ([(k, ctypes.c_uint64) for k in ('eventos', 'bytes', 'sondeos', 'bloques',
+                                                'descartados', 'asignados')]
+                + [(k, _I64) for k in ('t0_ns', 't1_ns', 'copia_ns', 'envio_ns')]
+                + [('ocupacion_max', _U), ('reservado', _U)])
+
+
 class _Reg(ctypes.Structure):
     _fields_ = [('nombre', ctypes.c_char_p), ('offset', _U)]
 
@@ -252,16 +286,25 @@ def _cargar():
     f('osciloscope_ring_medir', c, _P, pcfg, pst, _U, ctypes.POINTER(_gen._Disparos), _U,
       _I64, ctypes.POINTER(_Medida))
     f('osciloscope_ring_medida_cero', None, ctypes.POINTER(_Medida))
+    if not hasattr(lib, 'osciloscope_ring_enviar'):
+        raise OSError('libmca no tiene osciloscope_ring_enviar: el .so es de antes de '
+                      '0.12.0. Recompilarla: `make -C libmca`.')
+    f('osciloscope_ring_enviar', c, _P, pcfg, pst, c, _U, _I64, ctypes.POINTER(_Envio))
+    f('osciloscope_ring_enviar_fin', c, _P, pst, c, ctypes.POINTER(_Envio))
     for tipo, py in (('osciloscope_ring_cfg_t', _Cfg),
                      ('osciloscope_ring_geometria_t', _Geo),
                      ('osciloscope_ring_estado_t', _Estado),
                      ('osciloscope_ring_lote_t', _Lote),
                      ('osciloscope_ring_contadores_t', _Cont),
-                     ('osciloscope_ring_medida_t', _Medida)):
-        if lib.osciloscope_ring_sizeof(tipo.encode()) != ctypes.sizeof(py):
+                     ('osciloscope_ring_medida_t', _Medida),
+                     ('osciloscope_ring_envio_t', _Envio),
+                     ('osciloscope_ring_bloque_t', BLOQUE.size),
+                     ('osciloscope_ring_contadores_t', CONTADORES.size)):
+        tam = py if isinstance(py, int) else ctypes.sizeof(py)
+        if lib.osciloscope_ring_sizeof(tipo.encode()) != tam:
             raise OSError(f'libmca y API/osciloscope_ring.py no coinciden en {tipo}: '
                           f'{lib.osciloscope_ring_sizeof(tipo.encode())} contra '
-                          f'{ctypes.sizeof(py)} bytes. Recompilar libmca o '
+                          f'{tam} bytes. Recompilar libmca o '
                           'actualizar el struct del binding.')
     _lib = lib
     return lib
@@ -494,7 +537,7 @@ class LectorRing:
         self.samples = operator.index(pre) + operator.index(post)
         self._cfg = _cfg(pre, post, n_ch, cal, slot_shift, ring_bytes, lote_bytes)
         self._st, self._lote, self._res = _Estado(), _Lote(), _LoteRes()
-        self._med = _Medida()
+        self._med, self._env = _Medida(), _Envio()
         _cargar().osciloscope_ring_medida_cero(ctypes.byref(self._med))
 
     def configurar(self):
@@ -503,6 +546,7 @@ class LectorRing:
         self.ring._ok(_cargar().osciloscope_ring_configurar(
             self.ring.c, ctypes.byref(self._cfg), ctypes.byref(self._st)), 'configurar')
         _cargar().osciloscope_ring_medida_cero(ctypes.byref(self._med))
+        self._env = _Envio()
 
     @property
     def pendientes(self):
@@ -571,6 +615,34 @@ class LectorRing:
         if rc:
             self.ring._ok(rc, 'medir')
         return self.medida
+
+    def enviar(self, fd, plazo_ns, n_max=2 ** 32 - 1):
+        """Manda por `fd` (un socket conectado) lo que haya, bloque por bloque, hasta
+        `plazo_ns` o `n_max` eventos: `osciloscope_ring_enviar`. Sin el GIL. Devuelve lo
+        acumulado desde `configurar` (`envio`). Si la red se corta, ConnectionError; si
+        no avanza en 10 s, TimeoutError: en los dos casos el stream quedó cortado."""
+        rc = _cargar().osciloscope_ring_enviar(
+            self.ring.c, ctypes.byref(self._cfg), ctypes.byref(self._st), int(fd),
+            _u32(n_max), _I64(plazo_ns), ctypes.byref(self._env))
+        if rc:
+            self.ring._ok(rc, 'enviar')
+        return self.envio
+
+    def enviar_fin(self, fd):
+        """El bloque FIN: los descartados que falten y los contadores del ring. Una vez,
+        después del último `enviar`."""
+        rc = _cargar().osciloscope_ring_enviar_fin(
+            self.ring.c, ctypes.byref(self._st), int(fd), ctypes.byref(self._env))
+        if rc:
+            self.ring._ok(rc, 'enviar_fin')
+        return self.envio
+
+    @property
+    def envio(self):
+        """Lo acumulado por `enviar` desde `configurar`: los campos de
+        osciloscope_ring_envio_t (sin `reservado`)."""
+        return {k: int(getattr(self._env, k)) for k, _ in _Envio._fields_
+                if k != 'reservado'}
 
     @property
     def medida(self):
@@ -858,6 +930,29 @@ class _Disparo:
         return multitrigger_disarm(self.osc, self.mt)
 
 
+def _validar_estimulo(generador, disparo, osc, mt):
+    """El estímulo es uno: `generador` (el motor del ring) o `disparo` (el real, con el
+    osciloscopio y el multitrigger). Lo comparten `AdquisicionRing` y `EmisionRing`."""
+    if (generador is None) == (disparo is None):
+        raise ValueError('el estímulo es uno: generador= o disparo=')
+    if disparo is not None and (osc is None or mt is None):
+        raise ValueError('el disparo real necesita el osciloscopio y el multitrigger')
+    if disparo is not None:
+        sobra = set(disparo) - {'thr', 'hyst', 'mask'}
+        if sobra:
+            raise ValueError(f'disparo: no se conoce {sorted(sobra)} '
+                             '(son thr, hyst y mask)')
+
+
+def _fuente(ring, pre, post, n_ch, slot_shift, generador, disparo, osc, mt, calib):
+    """La `RingSource` de una adquisición o de una emisión, sin armar."""
+    d = disparo or {}
+    return RingSource(None if disparo is None else _Disparo(osc, mt), ring, pre, post,
+                      n_ch, thr=d.get('thr', 0.5), hyst=d.get('hyst', 0.02),
+                      mask=d.get('mask'), slot_shift=slot_shift, calib=calib,
+                      generador=generador)
+
+
 class AdquisicionRing:
     """Una adquisición del ring con su sesión: `RingSource` + `AcquisitionSession`,
     con argumentos que viajan en JSON. Es lo que corre el servidor con las ops
@@ -886,15 +981,7 @@ class AdquisicionRing:
         if not os.path.isdir(padre):
             raise FileNotFoundError(f'{padre} no existe: el directorio de la corrida se '
                                     'crea, el punto de montaje no')
-        if (generador is None) == (disparo is None):
-            raise ValueError('el estímulo es uno: generador= o disparo=')
-        if disparo is not None and (osc is None or mt is None):
-            raise ValueError('el disparo real necesita el osciloscopio y el multitrigger')
-        if disparo is not None:
-            sobra = set(disparo) - {'thr', 'hyst', 'mask'}
-            if sobra:
-                raise ValueError(f'disparo: no se conoce {sorted(sobra)} '
-                                 '(son thr, hyst y mask)')
+        _validar_estimulo(generador, disparo, osc, mt)
         self.ring = ring
         self.run_dir = os.path.normpath(run_dir)
         self.pre, self.post, self.n_ch, self.slot_shift = pre, post, n_ch, slot_shift
@@ -918,12 +1005,8 @@ class AdquisicionRing:
 
         if self._ses is not None:
             raise RuntimeError('esta adquisición ya se inició')
-        d = self.disparo or {}
-        src = RingSource(None if self.disparo is None else _Disparo(self.osc, self.mt),
-                         self.ring, self.pre, self.post, self.n_ch,
-                         thr=d.get('thr', 0.5), hyst=d.get('hyst', 0.02),
-                         mask=d.get('mask'), slot_shift=self.slot_shift,
-                         calib=self.calib, generador=self.generador)
+        src = _fuente(self.ring, self.pre, self.post, self.n_ch, self.slot_shift,
+                      self.generador, self.disparo, self.osc, self.mt, self.calib)
         self.fs = sistema_de_archivos(os.path.dirname(self.run_dir))
         ses = AcquisitionSession(src, self.run_dir, capacity=self.capacity,
                                  ram_budget_mb=self.ram_mb, verbose=False,
@@ -986,4 +1069,234 @@ class AdquisicionRing:
         self._fin = dict(corriendo=False, motivo=motivo, stats=dict(ses.stats),
                          hw_final=src.meta()['hw_final'], n_slots=src.n_slots,
                          error=error, run_dir=self.run_dir, fs=self.fs)
+        return self._fin
+
+
+# =============================================================================
+# El ring por red: los slots a un socket, sin sesión en la placa
+# =============================================================================
+
+class EmisionRing:
+    """El ring por red: los slots salen por un socket hacia la PC, sin sesión ni
+    archivos en la placa (docs/event_ring/salida_por_red.md). Es lo que corre el
+    servidor con `ring.iniciar(destino='red')`; la PC recibe con `API.ring_red`.
+
+    Tiene la interfaz de `AdquisicionRing` (`iniciar`, `estado`, `parar`,
+    `corriendo`) y reusa `RingSource` para todo lo que no es leer: la geometría, el
+    estímulo, `detener`, `vaciado` y `close`.
+
+    1. `iniciar()` abre el puerto de datos y devuelve lo que la PC necesita para leer
+       el stream: la geometría, `carga` y la calibración (las muestras van crudas).
+    2. Un hilo (`ring-tx`) acepta UNA conexión y recién entonces arma el ring, así no
+       se pierde el principio. Después llama a `osciloscope_ring_enviar` en lazo, de a
+       `PLAZO_NS`, sin el GIL.
+    3. `parar()` corta el estímulo, espera que salga lo que quedó, manda el FIN y
+       cierra.
+
+    Con `desde` (una IP) sólo se acepta la conexión que venga de ahí: el servidor pasa
+    la del cliente que pidió la emisión. Si la conexión no llega en `aceptar_s`, o la
+    red se corta, la emisión termina sola, con el motivo (`'sin_conexion'`, `'red'`) y
+    el error; `parar()` igual para el ring.
+    """
+
+    PLAZO_NS = 50_000_000
+    run_dir = None                  # no escribe nada en la placa
+
+    def __init__(self, ring, pre=8, post=24, n_ch=N_CH_HW, slot_shift=None,
+                 generador=None, disparo=None, osc=None, mt=None, calib=None,
+                 host='0.0.0.0', puerto=0, desde=None, aceptar_s=10.0, meta=None):
+        _validar_estimulo(generador, disparo, osc, mt)
+        geometria(pre, post, n_ch, slot_shift)          # lo que el RTL no acepta, ya
+        self.ring = ring
+        self.pre, self.post, self.n_ch, self.slot_shift = pre, post, n_ch, slot_shift
+        self.generador = None if generador is None else dict(generador)
+        self.disparo = None if disparo is None else dict(disparo)
+        self.osc, self.mt = osc, mt
+        self.calib = calib
+        self.host, self.puerto_pedido, self.desde = host, puerto, desde
+        self.aceptar_s = aceptar_s
+        self.meta = dict(meta or {})
+        self.puerto = None
+        self.cliente = None
+        self.error = None
+        self._motivo = None
+        self._fase = 'nueva'            # esperando -> enviando -> terminada
+        self._src = self._lsock = self._conn = self._hilo = self._fin = None
+        self._armado = False
+        self._fin_enviado = False
+        self._cortar = threading.Event()
+        self._vaciado = None
+
+    @property
+    def corriendo(self):
+        return self._src is not None and self._fin is None
+
+    def iniciar(self):
+        if self._src is not None:
+            raise RuntimeError('esta emisión ya se inició')
+        src = _fuente(self.ring, self.pre, self.post, self.n_ch, self.slot_shift,
+                      self.generador, self.disparo, self.osc, self.mt, self.calib)
+        if src.calib is None:
+            # La PC calibra: la necesita antes de que llegue el primer bloque.
+            src.calib = calibracion_adc(range(self.n_ch))
+        g = geometria(self.pre, self.post, N_CH_HW, src.slot_shift,
+                      ddr_size=self.ring.ddr[1])
+        ls = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            ls.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            ls.bind((self.host, self.puerto_pedido))
+            ls.listen(1)
+            ls.settimeout(0.1)              # para poder cortar la espera
+        except BaseException:
+            ls.close()
+            raise
+        self._src, self._lsock = src, ls
+        self.puerto = ls.getsockname()[1]
+        self._fase = 'esperando'
+        self._hilo = threading.Thread(target=self._correr, name='ring-tx', daemon=True)
+        self._hilo.start()
+        return dict(destino='red', puerto_datos=self.puerto, pre=self.pre,
+                    post=self.post, n_ch=self.n_ch, n_ch_hw=N_CH_HW,
+                    carga=carga_slot(self.pre, self.post),
+                    slot_shift=g['slot_shift'], slot_bytes=g['slot_bytes'],
+                    n_slots=g['n_slots'],
+                    calib=[dict(c) for c in src.calib[:self.n_ch]],
+                    adc_cnt_per_V=ADC_CNT_PER_V, dt_ns=DT_NS,
+                    generador=self.generador, disparo=self.disparo,
+                    bloque_magic=BLOQUE_MAGIC, bloque_version=BLOQUE_VERSION,
+                    meta=self.meta)
+
+    # -- el hilo que manda --------------------------------------------------
+
+    def _aceptar(self):
+        """La conexión de la PC, o None si no llegó a tiempo o se canceló."""
+        t_fin = time.monotonic() + self.aceptar_s
+        while not self._cortar.is_set():
+            if time.monotonic() > t_fin:
+                self._motivo = 'sin_conexion'
+                self.error = TimeoutError(f'nadie se conectó al puerto {self.puerto} en '
+                                          f'{self.aceptar_s:g} s')
+                return None
+            try:
+                c, addr = self._lsock.accept()
+            except socket.timeout:
+                continue
+            if self.desde is not None and addr[0] != self.desde:
+                c.close()               # no es el cliente que la pidió
+                continue
+            c.settimeout(None)
+            self.cliente = f'{addr[0]}:{addr[1]}'
+            return c
+        return None
+
+    def _correr(self):
+        try:
+            conn = self._aceptar()
+            self._lsock.close()
+            if conn is None:
+                return
+            self._conn = conn
+            self._src.arm()                 # configura, el estímulo, y corre
+            self._armado = True
+            self._fase = 'enviando'
+            lector, fd = self._src._lector, conn.fileno()
+            while not self._cortar.is_set():
+                lector.enviar(fd, time.perf_counter_ns() + self.PLAZO_NS)
+            # lo que llegó entre el último plazo y el corte, y el FIN
+            lector.enviar(fd, time.perf_counter_ns() + self.PLAZO_NS)
+            lector.enviar_fin(fd)
+            self._fin_enviado = True
+        except BaseException as exc:            # que no se muera en silencio
+            self.error = exc
+            self._motivo = 'red' if isinstance(exc, OSError) else 'error'
+        finally:
+            self._fase = 'terminada'
+            if self._conn is not None:
+                try:
+                    self._conn.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                self._conn.close()
+
+    def _vaciar(self):
+        """Lo de `AcquisitionSession._vaciar`: corta el estímulo con el ring andando y
+        espera que el hilo mande lo que quedó (dos veces seguidas vacío)."""
+        from API.osciloscope_store.session import VACIAR_S, VACIAR_SONDEO_S
+
+        self._src.detener()
+        plazo = time.perf_counter() + VACIAR_S
+        seguidas = 0
+        while seguidas < 2:
+            time.sleep(VACIAR_SONDEO_S)
+            if not self._hilo.is_alive() or time.perf_counter() > plazo:
+                self._vaciado = False
+                return
+            seguidas = seguidas + 1 if self._src.vaciado() else 0
+        self._vaciado = True
+
+    # -- estado -------------------------------------------------------------
+
+    def motivo(self):
+        """None mientras manda; `'sin_conexion'` si la PC no se conectó a tiempo,
+        `'red'` si la conexión se cortó, `'error'` por otra cosa."""
+        return self._motivo
+
+    def _stats(self):
+        lector = None if self._src is None else self._src._lector
+        e = lector.envio if lector is not None else {
+            k: 0 for k, _ in _Envio._fields_ if k != 'reservado'}
+        e['n_read'] = e['eventos']              # el nombre de la sesión, para los sondeos
+        dur = (e['t1_ns'] - e['t0_ns']) / 1e9
+        e['tasa_ev_s'] = e['eventos'] / dur if e['eventos'] and dur > 0 else 0.0
+        e['MB_s'] = e['bytes'] / dur / 1e6 if e['eventos'] and dur > 0 else 0.0
+        if self._vaciado is not None:
+            e['vaciado'] = self._vaciado
+        return e
+
+    def _error_txt(self):
+        return None if self.error is None else repr(self.error)
+
+    def estado(self):
+        """Sin bloquear: `corriendo`, `fase`, `motivo`, `stats` (lo enviado), `hw` (los
+        contadores del ring, ya armado) y `error`. Parada, lo de `parar()`."""
+        if self._src is None:
+            return dict(corriendo=False, motivo=None, stats=None, hw=None, error=None)
+        if self._fin is not None:
+            return dict(self._fin, corriendo=False)
+        return dict(corriendo=True, fase=self._fase, motivo=self._motivo,
+                    stats=self._stats(),
+                    hw=self._src.hw_counters() if self._armado else None,
+                    error=self._error_txt(), puerto_datos=self.puerto,
+                    cliente=self.cliente, destino='red')
+
+    def parar(self):
+        """Corta el estímulo, espera que salga lo que quedó, manda el FIN, para el ring
+        y devuelve lo final: `stats`, `hw_final`, `n_slots`, `motivo`, `error` y
+        `fin_enviado`. La segunda vez devuelve lo mismo."""
+        if self._fin is not None:
+            return self._fin
+        if self._src is None:
+            raise RuntimeError('esta emisión no se inició')
+        if self._armado and self._hilo.is_alive():
+            self._vaciar()
+        self._cortar.set()
+        self._hilo.join(timeout=30)
+        notas = []
+        if self._hilo.is_alive():
+            notas.append('el hilo que manda no terminó')
+        src = self._src
+        try:
+            src.close()
+        finally:
+            if self._vaciado is False:
+                sin_leer = (src.meta()['hw_final'] or {}).get('hw_no_leidos')
+                notas.append(f'al parar quedaron {sin_leer} eventos sin mandar en el ring')
+            if src.destrabe is not None:
+                notas.append(f'parar no terminó: el ring estaba lleno ({src.destrabe})')
+            error = '; '.join(([self._error_txt()] if self.error else []) + notas) or None
+            self._fin = dict(corriendo=False, motivo=self._motivo, stats=self._stats(),
+                             hw_final=src.meta()['hw_final'], n_slots=src.n_slots,
+                             error=error, fin_enviado=self._fin_enviado,
+                             puerto_datos=self.puerto, cliente=self.cliente,
+                             destino='red')
         return self._fin

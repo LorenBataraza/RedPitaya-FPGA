@@ -30,8 +30,8 @@ ver docs/arquitectura_adquisicion_software.md Parte 5) solo cambie esta capa:
 `read_batch` llena las filas desde `batch.n`, sin tocar `batch.n`, hasta llenar el
 batch o vencer el plazo. Con `batch=None` no hay donde guardar: cuenta los eventos
 como descartados y re-arma. Escribe `wave` y las columnas de BASE_FIELDS, y
-`dead_ns` si el batch la tiene. `BramSource` es por lote, con el lazo en C;
-`FakeSource` y `RingSource`, por evento.
+`dead_ns` si el batch la tiene. `BramSource` y `RingSource` (en
+`API/osciloscope_ring.py`) son por lote, con el lazo en C; `FakeSource`, por evento.
 
 `read_into` escribe en el destino provisto en vez de devolver arrays: evita la
 basura de GC y hace que la version DDR sea un memcpy sin capa intermedia.

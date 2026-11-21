@@ -16,7 +16,8 @@ la describe entera, de abajo hacia arriba:
 4. los dos lazos por lote, que son donde libmca se encuentra con la adquisición de
    eventos (§4);
 5. el binding de Python, con el despacho a C, a la referencia o a la red (§5);
-6. lo que cuesta (§6).
+6. lo que cuesta (§6);
+7. y, como referencia, todas las estructuras (§7).
 
 Cómo se usan los lazos desde la sesión de adquisición (las fuentes, los hilos, el
 pool de batches) está en [`adquisicion_de_eventos.md`](adquisicion_de_eventos.md).
@@ -84,6 +85,32 @@ Cada bloque de la PL tiene su handle (`mca_h`, `osciloscope_h`, …) y sus fiche
   `-fvisibility=hidden`, así que la tabla de símbolos del `.so` es exactamente lo que
   `ctypes` puede llamar.
 
+**Los ficheros.** `include/` es la API pública, lo que ve quien llama; `src/` es lo
+privado. De abajo hacia arriba, con el nivel de
+[`arquitectura_software.md`](arquitectura_software.md#1-los-niveles):
+
+| Nivel | Ficheros | Qué tienen |
+|---|---|---|
+| — | [`mca_api.h`](../../software/libmca/include/mca_api.h), [`common.c`](../../software/libmca/src/common.c) | lo común a todos: los códigos `MCA_E*` y `mca_strerror`, la versión, `mca_reg_t` y `mca_field_t` (una fila de la tabla de registros o de campos) y la marca `MCA_API` |
+| — | [`bloque.h`](../../software/libmca/src/bloque.h), [`bloque.c`](../../software/libmca/src/bloque.c) | `mca_bloque`, la base de todos los handles: el bus, si el handle es su dueño y el detalle del último error |
+| 1 | [`bus_mmap.c`](../../software/libmca/src/bus_mmap.c), [`devmem.h`](../../software/libmca/src/devmem.h) | abrir, mapear y cerrar `/dev/mem` (o un fichero común), y el struct `devmem_bus`. El mapeo lo usa también `mem.c` |
+| 2 | [`mca_bus.h`](../../software/libmca/include/mca_bus.h), [`bus.h`](../../software/libmca/src/bus.h), [`bus.c`](../../software/libmca/src/bus.c) | `mca_bus`: la API del bus, la tabla `vt` que implementa cada backend y la validación de alineación y rango, que corre antes de despachar |
+| 2 | [`bus_devmem.c`](../../software/libmca/src/bus_devmem.c) | **el único fichero que toca la PL**: `dm_r32`, `dm_w32` y `dm_read_words`, un `ldr`/`str` de 32 b cada una. Está aparte de `bus_mmap.c` para que `check-bus` pueda revisar el objeto entero, sin excepciones |
+| 2 | [`bus_callback.c`](../../software/libmca/src/bus_callback.c) | el backend por punteros a función (§2) |
+| 2 | [`mca_mem.h`](../../software/libmca/include/mca_mem.h), [`mem.c`](../../software/libmca/src/mem.c) | `mca_mem`, la región de DDR del ring, con sus cuatro backends (§2) |
+| 3 y 4 | [`mca_regs.h`](../../software/libmca/include/mca_regs.h), [`mca.h`](../../software/libmca/include/mca.h), [`mca.c`](../../software/libmca/src/mca.c) | el MCA2 (§3.1): el mapa y los campos, la configuración entera, los contadores, el espectro, el mapa 2D y la adquisición |
+| 3 y 4 | [`integration_regs.h`](../../software/libmca/include/integration_regs.h), [`integration.h`](../../software/libmca/include/integration.h), [`integration.c`](../../software/libmca/src/integration.c) | la región de TOP (§3.2): la identificación, los slots y el ruteo |
+| 3 y 4 | [`multitrigger_regs.h`](../../software/libmca/include/multitrigger_regs.h), [`multitrigger.h`](../../software/libmca/include/multitrigger.h), [`multitrigger.c`](../../software/libmca/src/multitrigger.c) | el multitrigger (§3.3): las máscaras, el shield, el snapshot, la pendiente y el polo-cero |
+| 3 y 4 | [`osciloscope_regs.h`](../../software/libmca/include/osciloscope_regs.h), [`osciloscope.h`](../../software/libmca/include/osciloscope.h), [`osciloscope.c`](../../software/libmca/src/osciloscope.c) | el osciloscopio (§3.4): la sonda de geometría, los campos y la lectura de la BRAM |
+| 4 | [`osciloscope_lote.h`](../../software/libmca/include/osciloscope_lote.h), [`osciloscope_lote.c`](../../software/libmca/src/osciloscope_lote.c), [`osciloscope_priv.h`](../../software/libmca/src/osciloscope_priv.h) | el lazo por lote de la BRAM (§4) y la calibración de librp. `osciloscope_priv.h` es lo que comparten con `osciloscope.c` y `osciloscope_ring.c`: el struct del handle, la lectura de la BRAM y la cuenta de la calibración |
+| 3 y 4 | [`osciloscope_ring_regs.h`](../../software/libmca/include/osciloscope_ring_regs.h), [`osciloscope_ring.h`](../../software/libmca/include/osciloscope_ring.h), [`osciloscope_ring.c`](../../software/libmca/src/osciloscope_ring.c) | el event_ring (§3.5): la geometría, configurar, correr y parar, los contadores, su lazo por lote (§4), `medir`, el envío por red y su generador de eventos |
+| 4 | [`gen_disparos.h`](../../software/libmca/include/gen_disparos.h), [`gen_disparos.c`](../../software/libmca/src/gen_disparos.c), [`gen_priv.h`](../../software/libmca/src/gen_priv.h) | el motor de disparos de los dos generadores (§3.6): sin handle, las cuentas y, en `gen_priv.h`, la escritura de sus registros, que usan `gen_pulsos.c` y `osciloscope_ring.c` |
+| 3 y 4 | [`gen_pulsos_regs.h`](../../software/libmca/include/gen_pulsos_regs.h), [`gen_pulsos.h`](../../software/libmca/include/gen_pulsos.h), [`gen_pulsos.c`](../../software/libmca/src/gen_pulsos.c) | el generador de pulsos (§3.6): configurar, la tabla de amplitudes, arrancar y esperar, el lazo digital de HK, y las cuentas de τ, `Mq` y la tabla desde una CDF |
+| herramientas | [`check_bus.sh`](../../software/libmca/scripts/check_bus.sh), [`test_bus.c`](../../software/libmca/tests/test_bus.c), [`bench_libmca.c`](../../software/libmca/tests/bench_libmca.c) | la regla del bus sobre el binario (§2), los tests de C del bus y de `mca_mem`, y la columna `c_puro` de los bench (§6.2) |
+
+Los niveles 3 y 4 van juntos porque en C el handle y sus funciones viven en el mismo
+par de ficheros: `<bloque>.h` declara el struct opaco y todo lo que lo recibe.
+
 ---
 
 ## 2. El bus y la DDR: la única puerta a la PL
@@ -92,6 +119,11 @@ Ningún handle toca la PL. Llaman a `mca_bus_r32`, `mca_bus_w32` y
 `mca_bus_read_words`, que validan alineación y rango y despachan por la tabla `vt` del
 backend. `mca_bus_sondear` lee el mismo registro n veces seguidas: no lo usa ningún
 bloque, es para medir el bus (`make verificar-placa-bus`).
+
+**Un backend es lo que hay detrás de la interfaz.** El handle siempre llama a
+`mca_bus_r32(bus, off, &v)`; el backend con que se abrió ese bus decide a dónde va la
+lectura. Toda la lógica de un bloque (validar, el orden de las escrituras, las
+esperas) corre igual sobre cualquiera, y por eso se puede probar sin placa.
 
 **La herencia, otra vez a la manera de C**
 ([`src/bus.h`](../../software/libmca/src/bus.h)). Cada backend lleva `struct mca_bus`
@@ -105,18 +137,31 @@ palabra clave.
   ráfaga, un acceso de 64 b o uno de 1–2 bytes (los de §7.2–7.4 del doc del bus), si
   la palabra `volatile` aparece en otro fichero, y si el `.so` pide una glibc más nueva
   que la de la placa. En una prueba ya atrapó a `log2()`, que pide `GLIBC_2.29`.
-- **Los otros dos backends** son para probar sin placa: `bus_callback` recibe las
-  funciones de acceso como punteros, y el de fichero mapea un archivo común en vez de
-  `/dev/mem`. No se dibujan; están en
-  [`diseno_de_clases.md`](diseno_de_clases.md) §5.1.
+- **Los otros backends son para probar sin placa.** No se dibujan; las pruebas están en
+  [`diseno_de_clases.md`](diseno_de_clases.md) §5.
+
+| Backend del bus | Se abre con | A dónde va cada acceso | Quién lo usa |
+|---|---|---|---|
+| `devmem` | `mca_bus_open_devmem` | `/dev/mem` con `O_SYNC`: los registros de la PL | todos los handles, en la placa |
+| fichero | `mca_bus_open_file` | un fichero común, mapeado igual. Es el mismo `devmem_bus`, con el mismo código de acceso, sobre otro fichero | los bench sin bus (`bench_impl.py --shm`, sobre `/dev/shm`) y los tests del ring por ficheros |
+| `callback` | `mca_bus_open_callback` | tres funciones de quien llama (`r32`, `w32`, `read_words`), por punteros | `FakeMCA`, el ring y el generador simulados (`--fake`), y los tests que graban cada escritura para compararla con la referencia |
 
 **La DDR del ring no es el bus.** El event_ring escribe un slot por evento en una
 región reservada de DDR, por el puerto HP: es memoria común, no cacheable, y del lado
 del PS no hay ningún esclavo AXI. Por eso tiene su propio tipo,
 [`mca_mem`](../../software/libmca/include/mca_mem.h), que se copia de a bloques con
-`memcpy`, con los backends `devmem`, `file`, `ptr` (memoria del proceso) y `callback`.
-`check-bus` no lo mira, y es a propósito. Cómo copiar (hoy `memcpy`, como el slice de
-Python que se midió) se decide midiendo en la placa.
+`memcpy`. `check-bus` no lo mira, y es a propósito. Cómo copiar (hoy `memcpy`, como el
+slice de Python que se midió) se decide midiendo en la placa.
+
+`mca_mem` no tiene tabla `vt`: tres backends dejan un puntero a la región (`dir`) y la
+copia es un `memcpy` desde ahí, y el cuarto llama a una función.
+
+| Backend de la DDR | Se abre con | De dónde copia | Quién lo usa |
+|---|---|---|---|
+| `devmem` | `mca_mem_open_devmem` | la región reservada (`0x0A00_0000`, 32 MB), por `/dev/mem` con `O_SYNC` | `RingSource`, en la placa |
+| `file` | `mca_mem_open_file` | un fichero común, mapeado igual | el test del ring por ficheros, junto con el bus de fichero |
+| `ptr` | `mca_mem_open_ptr` | memoria del proceso: un arreglo de numpy que C lee y escribe en el lugar | el ring simulado (`RingFalso`) y los tests contra el modelo del RTL |
+| `callback` | `mca_mem_open_callback` | una función de quien llama, que hace la copia | hoy, sólo `tests/test_bus.c`; está para enchufar un modelo o un simulador |
 
 ---
 
@@ -131,14 +176,14 @@ event_ring (con su segunda región, la DDR) y el generador de pulsos (con un seg
 bus, el de HK, para el lazo digital). `gen_disparos` no tiene handle: son las cuentas
 del motor que comparten los dos generadores.*
 
-| Handle | Slot | Base | Fichero | Lo propio |
-|---|---|---|---|---|
-| `mca_h` | 7 | `0x4070_0000` | [`mca.h`](../../software/libmca/include/mca.h) | la geometría (`caps`, `h_aw`, `h2_aw`, `psd_aw`) |
-| `integration_h` | 6 | `0x4060_0000` | [`integration.h`](../../software/libmca/include/integration.h) | nada: sólo `mca_bloque` |
-| `multitrigger_h` | 3 | `0x4030_0000` | [`multitrigger.h`](../../software/libmca/include/multitrigger.h) | nada: sólo `mca_bloque` |
-| `osciloscope_h` | 1 | `0x4010_0000` | [`osciloscope.h`](../../software/libmca/include/osciloscope.h) | la geometría que lee la sonda (`RSZ`, `DW`, `N_CH`) |
-| `osciloscope_ring_h` | 2 | `0x4020_0000` | [`osciloscope_ring.h`](../../software/libmca/include/osciloscope_ring.h) | la región de DDR (`mca_mem`) |
-| `gen_pulsos_h` | 2 | `0x4021_0000` | [`gen_pulsos.h`](../../software/libmca/include/gen_pulsos.h) | el bus de HK (`0x4000_0000`), para el lazo digital |
+| Handle               | Slot | Base          | Fichero                                                                  | Lo propio                                           |
+| -------------------- | ---- | ------------- | ------------------------------------------------------------------------ | --------------------------------------------------- |
+| `mca_h`              | 7    | `0x4070_0000` | [`mca.h`](../../software/libmca/include/mca.h)                           | la geometría (`caps`, `h_aw`, `h2_aw`, `psd_aw`)    |
+| `integration_h`      | 6    | `0x4060_0000` | [`integration.h`](../../software/libmca/include/integration.h)           | nada: sólo `mca_bloque`                             |
+| `multitrigger_h`     | 3    | `0x4030_0000` | [`multitrigger.h`](../../software/libmca/include/multitrigger.h)         | nada: sólo `mca_bloque`                             |
+| `osciloscope_h`      | 1    | `0x4010_0000` | [`osciloscope.h`](../../software/libmca/include/osciloscope.h)           | la geometría que lee la sonda (`RSZ`, `DW`, `N_CH`) |
+| `osciloscope_ring_h` | 2    | `0x4020_0000` | [`osciloscope_ring.h`](../../software/libmca/include/osciloscope_ring.h) | la región de DDR (`mca_mem`)                        |
+| `gen_pulsos_h`       | 2    | `0x4021_0000` | [`gen_pulsos.h`](../../software/libmca/include/gen_pulsos.h)             | el bus de HK (`0x4000_0000`), para el lazo digital  |
 
 ### 3.1 El MCA: el mapa MCA2
 
@@ -272,6 +317,21 @@ ring escribe un slot por evento, por `mca_mem` (§2).
   (sólo créditos, con copia, con verificación del patrón del generador): sirve para
   saber qué etapa limita la tasa
   ([`../event_ring/generador.md`](../event_ring/generador.md) §6).
+- **`osciloscope_ring_enviar`** (0.12.0) consume como el lazo y manda cada bloque de
+  slots a un socket, crudos y compactados, sin Python por lote ni archivos en la placa:
+  es **el ring por red** ([`../event_ring/salida_por_red.md`](../event_ring/salida_por_red.md)).
+  - Devuelve el crédito apenas copió, antes del `send()`: si la red se atrasa, el ring
+    se llena y el hardware descarta y cuenta (`DROP_FULL`).
+  - `osciloscope_ring_enviar_fin` cierra el stream con los contadores.
+  - Un socket cortado es `MCA_EIO`, el único código que no viene del hardware.
+- **No es un hijo del osciloscopio.** Es otro bloque de la PL, con otro slot, otro
+  *magic* (`EVNT` contra `OSC1`) y otro ciclo de vida: se configura parado, corre y
+  drena, y nadie lo re-arma desde el PS. Puede estar sin el otro en el bitstream. Lo
+  que comparten es la calibración y el resultado de un lote, y eso va en
+  `osciloscope_priv.h` y `osciloscope_lote.h` como funciones y structs que usan los dos,
+  no como una base. Donde sí son intercambiables es un nivel más arriba, como fuentes de
+  eventos: ahí está la interfaz común, `EventSource`
+  ([`adquisicion_de_eventos.md`](adquisicion_de_eventos.md) §1).
 
 El lazo que lee los slots es el de §4.
 
@@ -527,23 +587,33 @@ Los bench **miden, no aprueban**: no tienen asserts. Son tres:
 - `testbench_mca.py --impl {c,py}` guarda en cada `.npz` la implementación y los
   tiempos de lectura.
 
-**Sobre el MCA1, después de los cambios de §6.1**
-(`datos/bench_impl_20261030_112657/`). Mediana en µs; la columna «`c` antes» es la
-primera corrida, del mismo día:
+**Sobre el MCA1** (`datos/bench_impl_20261030_104954/`). Mediana en µs, en la placa,
+de la misma operación por tres caminos:
 
-| Operación | `py` | `c` antes | `c` ahora | `c_puro` | py / c |
-|---|---:|---:|---:|---:|---:|
-| `r32` | 10.6 | 56.8 | 28.7 | 1.5 | 0.37 |
-| `get_thr` | 15.8 | 63.7 | 29.9 | 1.4 | 0.53 |
-| `set_thr` | 27.6 | 52.1 | 24.1 | 1.7 | 1.14 |
-| `identify` | 75.6 | 77.4 | 52.2 | 3.2 | 1.45 |
-| `counters` | 271 | 215 | 113 | 10.6 | 2.4 |
-| `get_config` | 343 | 193 | 101 | 10.6 | 3.4 |
-| `configure` | 253 | 280 | 84 | 9.4 | 3.0 |
-| `spectrum` (8192 canales) | 34 429 | 1 880 | 1 848 | 1 700 | 18.6 |
+- **Python**: la referencia, con `struct.unpack_from` sobre el mmap, sin C.
+- **binding**: Python → ctypes → libmca, con el binding como estaba antes de §6.1.
+- **C**: la misma función de libmca llamada desde un programa en C (`bench_libmca`),
+  sin intérprete.
 
-En la primera corrida, `map2d` (128 × 64) dio ×18.1 (34 278 contra 1 897 µs) y
-`acquire(0)` ×16.7 (68 936 contra 4 122 µs).
+Lo que separa el binding de C es Python del binding y el cruce de ctypes; lo que queda
+en C es el bus y la lógica.
+
+| Operación                 | Python | binding |     C |
+| ------------------------- | -----: | ------: | ----: |
+| `r32`                     |   10.5 |    56.8 |   1.5 |
+| `get_thr`                 |   15.4 |    63.7 |   1.4 |
+| `set_thr`                 |   27.7 |    52.1 |   1.6 |
+| `identify`                |   74.6 |    77.4 |   3.2 |
+| `counters`                |    269 |     215 |  10.7 |
+| `get_config`              |    334 |     193 |  10.6 |
+| `configure`               |    252 |     280 |   9.4 |
+| `spectrum` (8192 canales) | 34 264 |   1 880 | 1 700 |
+
+En la misma corrida, `map2d` (128 × 64) dio ×18.1 (34 278 contra 1 897 µs) y
+`acquire(0)` ×16.7 (68 936 contra 4 122 µs). Con los cambios de §6.1
+(`datos/bench_impl_20261030_112657/`), el binding bajó a la mitad en las operaciones
+cortas (`r32` de 56.8 a 28.7 µs, `configure` de 280 a 84 µs) y casi no cambió en las
+largas (`spectrum` de 1 880 a 1 848 µs).
 
 **Sobre el MCA2** (`datos/bench_impl_20261102_165500/`): se repiten los factores. El
 espectro da ×18, `configure` ×3.3 y `counters` ×2.9. `clear` tardaba 176 µs en C por
@@ -569,6 +639,77 @@ está en [`adquisicion_de_eventos.md`](adquisicion_de_eventos.md) §3 y en
 [`arquitectura_adquisicion_software.md`](arquitectura_adquisicion_software.md).
 
 Por red, los tiempos están en [`diseno_de_clases.md`](diseno_de_clases.md) §4.3.
+
+---
+
+## 7. Las estructuras
+
+Las 50 estructuras de libmca, una por fila. Hay de dos clases:
+
+- **Opacas**: quien llama sólo tiene un puntero, y el contenido se define en `src/`. Son
+  los handles, el bus y la región de DDR. Así el layout puede cambiar sin tocar el
+  binding.
+- **Públicas**: se definen en `include/`, y quien llama las llena o las lee. Son lo que
+  cruza la interfaz. El binding declara cada una con `ctypes.Structure`; las que se
+  leen seguido (`mca_counters_t`, `mca_config_t`) también con un `struct.Struct`,
+  cuyo layout comprueba contra ctypes al importar (§6.1).
+
+| Bloque | Estructura | Funcionalidad |
+|---|---|---|
+| común | `mca_bloque` | base de todo handle: el bus y el último error |
+| común | `mca_reg_t` | una fila del mapa de registros |
+| común | `mca_field_t` | una fila de la tabla de campos |
+| bus | `mca_bus` | base de los backends |
+| bus | `mca_bus_vt` | las funciones de un backend |
+| bus | `devmem_bus` | backend de `/dev/mem` o de un fichero |
+| bus | `cb_bus` | backend por callbacks |
+| bus | `mca_bus_ops` | las funciones que da quien abre por callbacks |
+| DDR | `mca_mem` | la región de DDR del ring |
+| MCA | `mca_h` | handle; guarda la geometría leída al abrir |
+| MCA | `mca_info_t` | qué trae el bitstream |
+| MCA | `mca_config_t` | toda la configuración |
+| MCA | `mca_forma_t` | una forma del banco de trapecios |
+| MCA | `mca_counters_t` | contadores y tiempos |
+| MCA | `mca_last_event_t` | el último evento medido |
+| TOP | `integration_h` | handle, sin estado propio |
+| TOP | `integration_info_t` | versión y hash del bitstream |
+| TOP | `integration_modules_t` | qué módulos trae |
+| TOP | `integration_slots_t` | el slot de cada módulo |
+| TOP | `integration_caps_t` | la geometría publicada |
+| TOP | `integration_route_t` | de dónde toma la señal un consumidor |
+| TOP | `integration_status_t` | el PLL y el reset del ADC |
+| multitrigger | `multitrigger_h` | handle, sin estado propio |
+| multitrigger | `multitrigger_shield_t` | el `trigger_shield` |
+| multitrigger | `multitrigger_slope_t` | el disparo por pendiente |
+| multitrigger | `multitrigger_pz_t` | el disparo con polo-cero |
+| multitrigger | `multitrigger_status_t` | el estado en vivo |
+| osciloscopio | `osciloscope_h` | handle; guarda la geometría |
+| osciloscopio | `osciloscope_geometria_t` | `RSZ`, `N_CH`, `DW` y las aperturas |
+| osciloscopio | `osciloscope_calib_t` | la calibración en la PL |
+| osciloscopio | `osciloscope_status_t` | las FSM y los punteros |
+| osciloscopio | `osciloscope_adc_cal_t` | la calibración de librp, de la EEPROM |
+| osciloscopio | `osc_cal_t` | esa calibración, lista para aplicar |
+| lazo de la BRAM | `osciloscope_lote_cfg_t` | la configuración de la corrida |
+| lazo de la BRAM | `osciloscope_lote_estado_t` | lo que sigue entre llamadas |
+| lazo de la BRAM | `osciloscope_lote_t` | las columnas del lote donde escribe C |
+| lazo de la BRAM | `osciloscope_lote_resultado_t` | guardados y descartados; también la usa el ring |
+| event_ring | `osciloscope_ring_h` | handle; guarda la DDR y un slot |
+| event_ring | `osciloscope_ring_cfg_t` | la configuración de la corrida |
+| event_ring | `osciloscope_ring_geometria_t` | el slot y el anillo, sin tocar el hardware |
+| event_ring | `osciloscope_ring_estado_t` | lo que sigue entre llamadas |
+| event_ring | `osciloscope_ring_lote_t` | las columnas del lote, más `ts_hw` y `seq` |
+| event_ring | `osciloscope_ring_contadores_t` | los contadores del hardware |
+| event_ring | `osciloscope_ring_medida_t` | lo que acumula `medir` |
+| event_ring | `osciloscope_ring_bloque_t` | la cabecera de cada bloque que sale por red |
+| event_ring | `osciloscope_ring_envio_t` | lo que acumula `enviar` |
+| generadores | `gen_disparos_cfg_t` | los registros del motor de disparos |
+| generadores | `gen_estado_t` | la cuenta y el estado de un generador |
+| generadores | `gen_pulsos_h` | handle; guarda el bus de HK |
+| generadores | `gen_pulsos_cfg_t` | toda la configuración de pulsos |
+
+Además hay cinco `enum`: `mca_err_t` (los códigos de error), `mca_feature_t` (las
+features del MCA) y, en la región de TOP, `integration_consumidor_t`,
+`integration_slot_t` e `integration_tap_t`.
 
 ---
 

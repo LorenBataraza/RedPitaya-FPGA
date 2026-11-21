@@ -41,6 +41,7 @@ MCA_ENOMEM      = -8
 MCA_EBACKEND    = -9
 MCA_EVERIFY     = -10
 MCA_ENOKEY      = -11
+MCA_EIO         = -12
 
 
 class LibMCAError(RuntimeError):
@@ -62,6 +63,7 @@ _EXCEPCIONES = {
     MCA_ETIMEOUT: TimeoutError,
     MCA_ENOMEM:   MemoryError,
     MCA_ENOKEY:   KeyError,
+    MCA_EIO:      ConnectionError,
 }
 
 

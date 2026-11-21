@@ -163,11 +163,11 @@ El esquema **no está hardcodeado**: se construye en runtime desde
 `source.scalar_fields + [a.scalar_fields for a in annotators]`. Un mecanismo cubre los
 tres casos futuros:
 
-| Caso | Cómo entra |
-|---|---|
+| Caso                   | Cómo entra                                                    |
+| ---------------------- | ------------------------------------------------------------- |
 | Features del MCA en HW | `BramSource` declara `altura/area/...` y las lee de registros |
-| Posición del sistema | un `Annotator` que declara `x/y/z` |
-| GPS | un `Annotator` que declara `lat/lon/t_gps_ns/fix_age_ns` |
+| Posición del sistema   | un `Annotator` que declara `x/y/z`                            |
+| GPS                    | un `Annotator` que declara `lat/lon/t_gps_ns/fix_age_ns`      |
 
 `meta['schema_version']` y `meta['fields']` registran qué había en cada corrida, así que
 los archivos viejos se siguen leyendo.
@@ -215,8 +215,31 @@ lote y salen del mismo hilo escritor: cambia sólo cómo se escribe el archivo.
 `make bench-formatos` (`API/bench/bench_formatos.py`) escribe una corrida de 20 archivos
 con el `ChunkWriter` real y la lee de cuatro maneras, con los archivos en el caché: mide
 el formato, no el disco. La onda es el ruido de la placa (σ = 4.6 cuentas) más un pulso
-por evento, en int16; cuánto se comprime una señal real depende de la señal. En la PC
-(2026-11-08, `h5py` 3.16, HDF5 2.0, `lh5` 0.3.1), con dos canales y sin comprimir:
+por evento, en int16; cuánto se comprime una señal real depende de la señal.
+
+![eventos por segundo que aguanta el escritor solo, en la PC y en la placa, para .npz y LH5, sin y con compresión, con ventanas de 32, 256 y 2048 muestras|935](figuras/bench_escribir.svg)
+
+*Cuántos eventos por segundo aguanta el escritor solo, sin un lector compitiendo:
+eventos por lote sobre lo que tarda el `ChunkWriter` real en escribir un lote de dos
+canales, en escala logarítmica. (a) En la PC, con los archivos en el caché
+(`make bench-formatos`, 2026-11-08). (b) En la placa (`make bench-formatos-remoto`, el
+mismo día). `.npz` escribe siempre más rápido, pero en la placa la diferencia se achica
+con la ventana: 3.9 veces a 32 muestras y casi nada a 2048, donde pesan los datos y no
+la estructura de HDF5. Comprimir cuesta uno o dos órdenes de magnitud, y en la placa no
+pasa de 16 kev/s: no es para adquirir, sino para archivar después.*
+
+![lo que cuesta leer una corrida de 20 archivos, entera, sólo las columnas y diez eventos por archivo, en la PC y en la placa, para .npz y LH5|922](figuras/bench_leer.svg)
+
+*Lo que cuesta leer una corrida de 20 archivos sin comprimir, con los archivos en el
+caché, de tres maneras: entera, como `load_chunk`; sólo las columnas `t_ns`, `snap` y
+`gap`, sin la onda; y diez eventos al azar de cada archivo, con su onda. Arriba en la
+PC, abajo en la placa, con el mismo eje logarítmico. Las columnas solas cuestan lo mismo
+con cualquier ventana. Con ventanas largas, LH5 lee unos pocos eventos mucho más rápido,
+porque lee sólo esas filas: 7.8 veces a 2048 muestras en la placa. En la placa, además,
+LH5 lee la corrida entera más rápido que `.npz`, al revés que en la PC.*
+
+Los números de las dos figuras están en las tablas que siguen. En la PC (2026-11-08,
+`h5py` 3.16, HDF5 2.0, `lh5` 0.3.1), con dos canales y sin comprimir:
 
 | ventana (eventos por lote) | | B/ev | escribir un lote | leer todo | sólo `t_ns`, `snap`, `gap` | 10 eventos por archivo | `lh5.read` |
 |---|---|---|---|---|---|---|---|
@@ -355,20 +378,35 @@ Desde 25 kev/s el que no da abasto es el escritor: a 100 kHz descartó por falta
 41.7 k eventos en 20 s con `.npz` y 57.5 k con LH5, con la pérdida total a 1 pp. Con
 esto quedaron los dos, y `.npz` de default (arriba).
 
+![el escritor con la adquisición corriendo: un lote solo y con un lector compitiendo por el GIL, la mayor demora del lector, y la pérdida contra rho con el lector en Python y en C, para .npz y LH5|1233](figuras/bench_lector.svg)
+
+*El escritor con la adquisición corriendo, con lotes de 4096 eventos × 2 canales × 32
+muestras (`bench_escritura.py`; `h5py` 3.16 en la PC y 3.6.0 en la placa). (a) Escribir
+un lote solo y con un lector de Python compitiendo por el GIL, en escala logarítmica:
+cada vez que el escritor suelta el GIL, espera hasta un intervalo de cambio para
+recuperarlo, y `h5py` lo suelta muchas más veces que `savez`. (b) La mayor demora del
+lector mientras se escribe, que es tiempo muerto: en la placa `h5py` lo frena 11.2 ms,
+contra 3.1 ms de `.npz`. (c) La pérdida en la placa contra ρ, con la BRAM y el mismo
+tren de pulsos (`run_poisson_loss.py`), junto al modelo de Poisson no paralizable,
+ρ/(1+ρ). Con el lector en Python, LH5 pierde 2 a 2.4 pp más que `.npz` a ρ = 2 (la de
+`.npz` es la media de dos corridas, que difieren hasta 1.1 pp). Con el lector en C, que
+espera el disparo sin el GIL, los dos formatos dan lo mismo, y lo que queda es casi todo
+apilamiento del estímulo.*
+
 **Con el event_ring (2026-11-09) el lector sale del camino del disparo.** Las mismas
 corridas con `--fuente ring`, en `.npz`, con el bitstream del ring que arregla el bus
 (`out/v3_event_ring/LEEME.md`):
 
-| tasa | BRAM + C | ring | apilamiento del estímulo |
-|---|---|---|---|
-| 396 Hz | 1.7 % | 1.6 % | 0 % |
-| 1979 Hz | 7.4 % | 6.6 % | 7.2 % |
-| 3957 Hz | 9.2 % | 6.4 % | 6.2 % |
-| 7915 Hz | 15.6 % | 7.4 % | 7.6 % |
-| 5 kHz | 9.8 % | 1.2 % | 0 % |
-| 25 kHz | 30.8 % | 6.7 % | 8.0 % |
-| 50 kHz | 50.9 % | 16.2 % | 21.9 % |
-| 100 kHz | 69.6 % | 31.0 % | 31.1 % |
+| tasa    | BRAM + C | ring   | apilamiento del estímulo |
+| ------- | -------- | ------ | ------------------------ |
+| 396 Hz  | 1.7 %    | 1.6 %  | 0 %                      |
+| 1979 Hz | 7.4 %    | 6.6 %  | 7.2 %                    |
+| 3957 Hz | 9.2 %    | 6.4 %  | 6.2 %                    |
+| 7915 Hz | 15.6 %   | 7.4 %  | 7.6 %                    |
+| 5 kHz   | 9.8 %    | 1.2 %  | 0 %                      |
+| 25 kHz  | 30.8 %   | 6.7 %  | 8.0 %                    |
+| 50 kHz  | 50.9 %   | 16.2 % | 21.9 %                   |
+| 100 kHz | 69.6 %   | 31.0 % | 31.1 %                   |
 
 Con el ring, la pérdida no crece con la tasa por sí misma: es la del estímulo, pulsos
 del Rigol tan juntos que dan un solo cruce de umbral (la columna de apilamiento cuenta
