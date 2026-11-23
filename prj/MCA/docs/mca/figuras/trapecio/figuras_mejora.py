@@ -203,9 +203,6 @@ def figura():
                      {"pico": (25, 30, "north east"), "integral": (200, 75, "south"),
                       "trap": (120, 0.12, "south west")},
                      [(OFF + W, "trapecio limpio"), (G, "fin de la compuerta")])
-    L.append(f"\\node[nodo, anchor=north west, text width=5.9cm, align=left] at (8.05,0.5) "
-             f"{{En A, «integral $-$ cola» es igual a la integral: resta la cola del pulso "
-             f"\\emph{{anterior}}, y lo que ensucia a A es la cabeza del \\emph{{siguiente}}.}};")
 
     # --- la tasa ------------------------------------------------------------
     eT = Ejes(0.0, -5.0, 6.2, 3.6, (5, 2000), (0, 100), xlog=True, ylog=False)
@@ -238,10 +235,7 @@ def figura():
     L.append(f"\\node[anchor=north west, font=\\scriptsize, draw=black!40, rounded corners=2pt, inner sep=4pt] "
              f"at (8.0,{-5.0 + 3.6 + 0.3:.3f}) {{\\begin{{tabular}}{{@{{}}l@{{\\hspace{{6pt}}}}r@{{\\hspace{{6pt}}}}r"
              f"@{{\\hspace{{6pt}}}}r@{{}}}}{''.join(cuerpo)}\\end{{tabular}}}};")
-    L.append(f"\\node[nodo, anchor=north west, text width=6.0cm, align=left] at (8.0,{-5.0 + 3.6 - 1.75:.3f}) "
-             f"{{Cuántas muestras tiene que estar libre cada lado del pulso para que mida con error "
-             f"$<$ {CRITERIO:g}\\,\\% (vecinos de la misma amplitud, sin ruido). Con arribos Poisson "
-             f"a tasa $\\rho$, la fracción limpia es $e^{{-\\rho\\,(\\text{{anterior}} + \\text{{siguiente}})}}$.}};")
+    # Lo que explica la tabla va en el epígrafe (trap_mejora.txt), no en la figura.
     return L, filas
 
 

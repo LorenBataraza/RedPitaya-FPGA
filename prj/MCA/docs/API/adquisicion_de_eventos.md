@@ -234,7 +234,8 @@ son `n_batches` objetos `EventBatch`, creados una vez al armar la sesión, que c
 siempre los mismos. El lector llena uno (C escribe las filas desde `batch.n`), lo pone
 en `full_q`, el escritor lo guarda, lo resetea y lo devuelve a `free_q`. Si `free_q`
 está vacía, el lector llama a `read_batch(None, …)` y la fuente decide qué pasa con
-los eventos.*
+los eventos. El pool son `n_batches` = 8 `EventBatch`: 1 en el lector, 2 en
+`full_q`, 1 en el escritor y 4 en `free_q`.*
 
 **Sí es un pool.** Un `EventBatch` es un bloque de `capacity` eventos (4096 por
 defecto) con todos sus arreglos ya reservados: la onda `[capacity, n_ch, samples]` y una
@@ -289,7 +290,8 @@ los eventos depende de la fuente:
 *`AcquisitionSession` recibe la fuente —cualquiera que cumpla la interfaz de §1— y los
 annotators, deriva el esquema y el pool, y compone los dos hilos. Al medio, el lector y
 el escritor pasándose los `EventBatch` por las dos colas. Abajo, los annotators y lo
-que queda en disco. Naranja quiere decir que la clase es un hilo.*
+que queda en disco. Naranja quiere decir que la clase es un hilo. Rombo: compone.
+Triángulo hueco: hereda. Flecha punteada: usa.*
 
 **`AcquisitionSession` es dueña del ciclo de vida de una corrida.** Recibe la fuente y
 los annotators, arma el esquema (`merge_fields()`), dimensiona el pool (§4) y crea las

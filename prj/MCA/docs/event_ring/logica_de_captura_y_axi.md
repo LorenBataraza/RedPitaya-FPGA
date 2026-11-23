@@ -805,6 +805,10 @@ ser explícito.
 
 ![Los créditos: wr_slot y rd_slot sobre el ring](figuras/ring_creditos.svg)
 
+*`wr`: el próximo slot a escribir. `rd`: el próximo a leer. Vacío y lleno tienen los
+dos punteros en el mismo lugar; la resta módulo 2³² los distingue sin sacrificar un
+slot, y sigue valiendo cuando los contadores dan la vuelta.*
+
 ### 5.1 Qué es un crédito acá
 
 Un crédito es **un slot libre en el ring de DDR**. El productor (el PL) sólo

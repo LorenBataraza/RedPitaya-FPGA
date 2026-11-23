@@ -508,7 +508,11 @@ def main():
             ("escritura", "cdc", "bus_escritura_cdc", "escritura_cdc")):
         wj, info = diagram(vcd, kind, step, args.hscale,
                            args.min_run, args.contexto, vista)
-        avisado = O.emitir(out_dir, slug, wj, args.render, avisado,
+        # El título (head) y el pie (foot) van al visor HTML y a epigrafes.txt,
+        # no al dibujo: la figura del informe no lleva texto arriba ni abajo.
+        dibujo = {k: v for k, v in wj.items() if k != "foot"}
+        dibujo["head"] = {"tick": 0}
+        avisado = O.emitir(out_dir, slug, dibujo, args.render, avisado,
                            info=f"{info['senales']} senales, "
                                 f"{info['columnas']}/{info['enteras']} columnas "
                                 f"({info['huecos']} salto/s), ventana "

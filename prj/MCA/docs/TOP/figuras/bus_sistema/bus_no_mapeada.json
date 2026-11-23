@@ -90,11 +90,7 @@
     "h~>b vuelta 21 ns"
   ],
   "head": {
-    "text": "LECTURA DE UNA DIRECCION NO MAPEADA  -  0x4070_0F00 -> 0x00000000",
     "tick": 0
-  },
-  "foot": {
-    "text": "tb_sys_bus_proto - vuelta completa 96 ns = 12 ciclos de clk_fpga_0, de un presupuesto de 32"
   },
   "config": {
     "hscale": 2

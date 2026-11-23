@@ -1,0 +1,6 @@
+**Notación.** `arm`, `rst`: pulsos de comando (escritura en `0x00`); `trig`:
+`adc_trig_i`; `dv`: muestra válida del diezmador; `keep`: `adc_we_keep_i` (modo
+continuo). Borde punteado: camino anómalo. **Prioridad.** `arm` gana sobre `rst` en
+`adc_we`; `trig` gana sobre `arm` y `rst` en `adc_dly_do` (p. ej. `arm` ∧ `trig` en
+un mismo ciclo lleva a S2). **Validez.** Diagrama para `set_dly` ≥ 2: con `set_dly`
+= 1, S1 → S0 pasa un ciclo por S3; con `set_dly` = 0 el buffer nunca se congela.

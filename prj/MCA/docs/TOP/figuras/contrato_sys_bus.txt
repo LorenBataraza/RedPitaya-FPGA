@@ -1,0 +1,2 @@
+Vista desde el puerto del esclavo, en `adc_clk`. `en_sr` desplaza `sys_wen |
+sys_ren`; `event_ring_top` usa su propio `ack_sr[2]`.

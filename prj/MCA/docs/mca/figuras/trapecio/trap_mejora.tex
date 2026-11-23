@@ -104,7 +104,6 @@
 \node[nodo, anchor=north east, text=rojo!75!black, fill=white, inner sep=1pt] at (9.072,4.088) {pico};
 \node[nodo, anchor=south, text=black, fill=white, inner sep=1pt] at (11.506,4.531) {integral};
 \node[nodo, anchor=south west, text=azul!85!black, fill=white, inner sep=1pt] at (10.908,1.423) {trapecio};
-\node[nodo, anchor=north west, text width=5.9cm, align=left] at (8.05,0.5) {En A, «integral $-$ cola» es igual a la integral: resta la cola del pulso \emph{anterior}, y lo que ensucia a A es la cabeza del \emph{siguiente}.};
 \node[anchor=south west, font=\scriptsize\bfseries, inner sep=0pt] at (0,-1.220) {Qué fracción de los eventos mide bien (error $<$ 1\,\%) con arribos Poisson};
 \draw[black!50, line width=0.4pt] (0.000,-5.000) rectangle (6.200,-1.400);
 \draw[black!10] (0.000,-5.000) -- (6.200,-5.000);
@@ -146,6 +145,5 @@
 \node[nodo, anchor=west, text=verde!55!black, fill=white, inner sep=1pt] at (3.150,-2.384) {integral $-$ cola: 73\,\%};
 \node[nodo, anchor=west, text=azul!85!black, fill=white, inner sep=1pt] at (3.150,-1.890) {trapecio: 86\,\%};
 \node[anchor=north west, font=\scriptsize, draw=black!40, rounded corners=2pt, inner sep=4pt] at (8.0,-1.100) {\begin{tabular}{@{}l@{\hspace{6pt}}r@{\hspace{6pt}}r@{\hspace{6pt}}r@{}}& \textbf{anterior} & \textbf{siguiente} & \textbf{suma}\\[1pt]pico & 1165 & 384 & 1549\\integral & 1151 & 383 & 1534\\integral $-$ cola & 16 & 383 & 399\\trapecio & 91 & 92 & 183\\\end{tabular}};
-\node[nodo, anchor=north west, text width=6.0cm, align=left] at (8.0,-3.150) {Cuántas muestras tiene que estar libre cada lado del pulso para que mida con error $<$ 1\,\% (vecinos de la misma amplitud, sin ruido). Con arribos Poisson a tasa $\rho$, la fracción limpia es $e^{-\rho\,(\text{anterior} + \text{siguiente})}$.};
 \end{tikzpicture}
 \end{document}

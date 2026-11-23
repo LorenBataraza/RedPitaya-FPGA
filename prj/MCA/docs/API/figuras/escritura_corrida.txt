@@ -1,0 +1,2 @@
+Punteado: archivo a medio escribir, o camino opcional. Borde grueso: lo último que
+se escribió.

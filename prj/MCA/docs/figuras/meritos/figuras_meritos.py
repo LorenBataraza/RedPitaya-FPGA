@@ -1455,10 +1455,10 @@ def fig_deriva(d):
 # (las formas por el event_ring)
 # =============================================================================
 # el destino de cada etapa del ring, en el orden de la leyenda
-ETAPAS_RING = (('A', 'black', '*', 'OSC $\\to$ DDR (A)'),
-               ('B', 'cmagenta', 'diamond*', 'OSC $\\to$ lector de C del ring (B)'),
-               ('D', 'cazul', 'square*', 'OSC $\\to$ PC por la red (D)'),
-               ('C', 'cnaranja', 'triangle*', 'OSC $\\to$ SD de la placa (C)'))
+ETAPAS_RING = (('A', 'black', '*', 'OSC $\\to$ DDR'),
+               ('B', 'cmagenta', 'diamond*', 'OSC $\\to$ lector de C del ring'),
+               ('D', 'cazul', 'square*', 'OSC $\\to$ PC por la red'),
+               ('C', 'cnaranja', 'triangle*', 'OSC $\\to$ SD de la placa'))
 TCP_MB_S = 50.38        # make bench-tcp-placa, 2026-11-17 (1 GiB en 21.3 s)
 # 16 + 998 no va en (b): cae a 10 muestras de 32 + 992 pero su slot es de 4 KB y no de
 # 8 KB, así que el writer pasa más (59 contra 49 k/s) y la curva haría un escalón

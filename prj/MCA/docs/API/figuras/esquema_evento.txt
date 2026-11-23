@@ -1,0 +1,1 @@
+La franja oscura es un evento: la misma fila `i` en todos los arrays.

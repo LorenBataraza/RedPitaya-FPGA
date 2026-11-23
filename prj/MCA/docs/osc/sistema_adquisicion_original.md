@@ -299,6 +299,13 @@ fallar un intento previo de detectar triggers contando muestras.
 
 ![Máquina de estados implícita de rp_bram_sm](figuras/fsm_rp_bram_sm.svg)
 
+***Notación.** `arm`, `rst`: pulsos de comando (escritura en `0x00`); `trig`:
+`adc_trig_i`; `dv`: muestra válida del diezmador; `keep`: `adc_we_keep_i` (modo
+continuo). Borde punteado: camino anómalo. **Prioridad.** `arm` gana sobre `rst` en
+`adc_we`; `trig` gana sobre `arm` y `rst` en `adc_dly_do` (p. ej. `arm` ∧ `trig` en
+un mismo ciclo lleva a S2). **Validez.** Diagrama para `set_dly` ≥ 2: con `set_dly`
+= 1, S1 → S0 pasa un ciclo por S3; con `set_dly` = 0 el buffer nunca se congela.*
+
 El par `(adc_we, adc_dly_do)` tiene cuatro combinaciones, y las cuatro se
 alcanzan. La cuarta, **S3 = (0,1)**, no aparece en ninguna descripción del
 osciloscopio porque no es un estado de trabajo: `adc_dly_do` se prende con
@@ -437,6 +444,12 @@ ventana más larga. Sirve para capturar 2 MB de una vez, no para capturar mil
 eventos seguidos.
 
 ![Deep memory: muchos lugares para las muestras, uno para la marca](figuras/deep_memory_una_marca.svg)
+
+*Las muestras ya no cruzan el bus, así que τ es más corto que leyendo la BRAM. Pero
+la máquina es la misma: después del post-trigger la escritura se detiene, y un
+trigger nuevo no tiene dónde anotarse hasta que el PS lee la marca y re-arma. Con el
+mismo tren y el mismo τ, se pierde lo mismo que con la BRAM: el tiempo muerto ya no
+lo ponen las muestras, lo pone la marca.*
 
 ([fuente](figuras/deep_memory_una_marca.tex))
 

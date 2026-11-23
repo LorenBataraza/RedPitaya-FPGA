@@ -249,6 +249,8 @@ o el servidor antes de recargar). Si alguna de las tres preguntas da que no,
 
 ![la recarga de la PL, paso por paso, con la ruta del filesystem que toca cada uno](figuras/secuencia_bitstream.svg)
 
+*A la derecha de cada paso, la ruta del filesystem que toca.*
+
 | Ruta                                                  | Para qué                                                                 |
 | ----------------------------------------------------- | ------------------------------------------------------------------------ |
 | `/dev/mem`                                            | `O_RDWR \| O_SYNC`, un `mmap` por slot — el único camino a los registros |
@@ -274,6 +276,9 @@ no son rutas, son procedimientos:
 ### Lo que escribe
 
 ![el directorio de una corrida: los dos escritores, los .tmp y el camino físico de un write()](figuras/escritura_corrida.svg)
+
+*Punteado: archivo a medio escribir, o camino opcional. Borde grueso: lo último que
+se escribió.*
 
 | Formato            | Qué lleva                                                                                           | Quién lo escribe           |
 | ------------------ | --------------------------------------------------------------------------------------------------- | -------------------------- |
@@ -338,6 +343,8 @@ Lo que ordena esta parte es una ausencia: **no hay un solo `dataclass`, `Enum`,
 constantes de módulo, diccionarios y arrays de numpy.
 
 ![el esquema del evento: quién declara cada columna, merge_fields() y el EventBatch que resulta|841](figuras/esquema_evento.svg)
+
+*La franja oscura es un evento: la misma fila `i` en todos los arrays.*
 
 La fuente declara sus columnas —hoy, en todas las fuentes, `BASE_FIELDS`—, cada
 annotator suma las suyas y `merge_fields()` las junta. El resultado es un

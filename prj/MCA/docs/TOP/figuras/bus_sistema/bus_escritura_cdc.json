@@ -118,11 +118,7 @@
     "g~>j"
   ],
   "head": {
-    "text": "ESCRITURA  -  AMP_MAX (0x4070_0034) <- 0x00001234  -  CON EL CDC POR DENTRO",
     "tick": 0
-  },
-  "foot": {
-    "text": "tb_sys_bus_proto - vuelta completa 96 ns = 12 ciclos de clk_fpga_0, de un presupuesto de 32"
   },
   "config": {
     "hscale": 2

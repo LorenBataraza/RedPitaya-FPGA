@@ -4,3 +4,5 @@ siempre los mismos. El lector llena uno (C escribe las filas desde `batch.n`), l
 en `full_q`, el escritor lo guarda, lo resetea y lo devuelve a `free_q`. Si `free_q`
 está vacía, el lector llama a `read_batch(None, …)` y la fuente decide qué pasa con
 los eventos.
+El pool son `n_batches` = 8 `EventBatch`: 1 en el lector, 2 en `full_q`, 1 en el
+escritor y 4 en `free_q`.

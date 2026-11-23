@@ -1,0 +1,5 @@
+En A, «integral − cola» es igual a la integral: resta la cola del pulso anterior, y
+lo que ensucia a A es la cabeza del siguiente. La tabla dice cuántas muestras tiene
+que estar libre cada lado del pulso para que mida con error < 1 % (vecinos de la
+misma amplitud, sin ruido). Con arribos Poisson a tasa ρ, la fracción limpia es
+e^(−ρ·(anterior + siguiente)).

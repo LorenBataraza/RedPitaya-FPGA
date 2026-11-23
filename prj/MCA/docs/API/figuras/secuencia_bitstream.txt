@@ -1,0 +1,1 @@
+A la derecha de cada paso, la ruta del filesystem que toca.

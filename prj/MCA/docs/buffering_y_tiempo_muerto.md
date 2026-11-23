@@ -8,6 +8,12 @@ tiempo muerto, cuánto, y qué no arregla. La teoría completa de colas está en
 
 ![Generador, buffer y consumidor: un lugar y K lugares](figuras/buffering_generador_consumidor.svg)
 
+*El mismo tren de nueve eventos y el mismo τ en las dos. Con un lugar se pierden
+cinco: todo el tiempo que el consumidor está ocupado es tiempo muerto. Con tres
+lugares no se pierde ninguno: los que llegan en ráfaga esperan y el consumidor los
+atiende pegados. El consumidor no es más rápido; lo que cambia es que estar ocupado
+ya no implica perder.*
+
 ([fuente](figuras/buffering_generador_consumidor.tex))
 
 Las dos mitades de la figura tienen el mismo tren de eventos y el mismo tiempo
@@ -53,6 +59,12 @@ El osciloscopio de Red Pitaya tiene un segundo camino, `rp_axi_sm`, que escribe
 las muestras en DDR por el puerto HP. Parece un buffer grande, y no lo es:
 
 ![Deep memory: muchos lugares para las muestras, uno para la marca](osc/figuras/deep_memory_una_marca.svg)
+
+*Las muestras ya no cruzan el bus, así que τ es más corto que leyendo la BRAM. Pero
+la máquina es la misma: después del post-trigger la escritura se detiene, y un
+trigger nuevo no tiene dónde anotarse hasta que el PS lee la marca y re-arma. Con el
+mismo tren y el mismo τ, se pierde lo mismo que con la BRAM: el tiempo muerto ya no
+lo ponen las muestras, lo pone la marca.*
 
 ([fuente](osc/figuras/deep_memory_una_marca.tex))
 

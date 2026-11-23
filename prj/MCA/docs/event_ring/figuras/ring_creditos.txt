@@ -1,0 +1,3 @@
+`wr`: el próximo slot a escribir. `rd`: el próximo a leer. Vacío y lleno tienen los
+dos punteros en el mismo lugar; la resta módulo 2³² los distingue sin sacrificar un
+slot, y sigue valiendo cuando los contadores dan la vuelta.

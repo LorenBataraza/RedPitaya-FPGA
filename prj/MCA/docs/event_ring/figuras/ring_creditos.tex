@@ -58,9 +58,6 @@
 \anillo{15}{15}{27}
 \pie{15}{lleno}{27}{15}{12}{\texttt{credit\_ok = 0}: el writer espera}
 
-\node[font=\scriptsize, black!75, anchor=north west, inner sep=0pt, text width=19.6cm, align=left] at (-2.3,-3.72)
-  {\texttt{wr}: el próximo slot a escribir. \texttt{rd}: el próximo a leer. Vacío y lleno tienen los dos punteros en el mismo lugar;
-   la resta módulo $2^{32}$ los distingue sin sacrificar un slot, y sigue valiendo cuando los contadores dan la vuelta.};
 
 \end{tikzpicture}
 \end{document}

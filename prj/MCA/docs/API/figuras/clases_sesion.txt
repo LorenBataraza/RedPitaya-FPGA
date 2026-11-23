@@ -2,3 +2,4 @@
 annotators, deriva el esquema y el pool, y compone los dos hilos. Al medio, el lector y
 el escritor pasándose los `EventBatch` por las dos colas. Abajo, los annotators y lo
 que queda en disco. Naranja quiere decir que la clase es un hilo.
+Rombo: compone. Triángulo hueco: hereda. Flecha punteada: usa.

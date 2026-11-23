@@ -1,0 +1,3 @@
+Cada nivel amplía la fila de borde grueso del anterior; el ejemplo es `HYST` del
+canal 1, en `0x4010_1144`. El stride es el tamaño del bloque: el canal n empieza
+en `0x1100 + 0x40·n`. En `mca_red_pitaya_top` el slot 2 es un `sys_bus_stub`.

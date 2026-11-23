@@ -391,6 +391,12 @@ muestra lo mismo con las señales que el RTL tiene de verdad.
 
 ![Cuánto mejora según la separación|1093](figuras/trapecio/trap_mejora.svg)
 
+*En A, «integral − cola» es igual a la integral: resta la cola del pulso anterior, y
+lo que ensucia a A es la cabeza del siguiente. La tabla dice cuántas muestras tiene
+que estar libre cada lado del pulso para que mida con error < 1 % (vecinos de la
+misma amplitud, sin ruido). Con arribos Poisson a tasa ρ, la fracción limpia es
+e^(−ρ·(anterior + siguiente)).*
+
 *Fuente: [`figuras_mejora.py`](figuras/trapecio/figuras_mejora.py). Monte Carlo
 con la misma recursión entera que el RTL, 300 realizaciones por punto.*
 

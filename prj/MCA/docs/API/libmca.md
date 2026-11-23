@@ -47,7 +47,8 @@ un struct opaco que lleva `mca_bloque` como primer miembro: el bus, si el handle
 dueño y el detalle del último error. Todo acceso pasa por `mca_bus`, y el único backend
 que toca la PL es `devmem_bus`. `mca_mem` es la región de DDR que escribe la PL; sólo
 la usa el event_ring. Las figuras de los bloques y de los lazos no repiten nada de
-esto.*
+esto. Triángulo hueco: hereda (el struct base va como primer miembro). Flecha
+punteada: usa.*
 
 Cada bloque de la PL tiene su handle (`mca_h`, `osciloscope_h`, …) y sus ficheros:
 `include/<bloque>_regs.h` con el mapa, `include/<bloque>.h` con la API y
@@ -174,7 +175,8 @@ crudo y la tabla de registros son los de la figura anterior, y los dos lazos van
 siguiente. Arriba, los bloques que son sólo registros; abajo, el osciloscopio, el
 event_ring (con su segunda región, la DDR) y el generador de pulsos (con un segundo
 bus, el de HK, para el lazo digital). `gen_disparos` no tiene handle: son las cuentas
-del motor que comparten los dos generadores.*
+del motor que comparten los dos generadores. Flecha punteada: usa. `_x` abrevia
+`<bloque>_x`.*
 
 | Handle               | Slot | Base          | Fichero                                                                  | Lo propio                                           |
 | -------------------- | ---- | ------------- | ------------------------------------------------------------------------ | --------------------------------------------------- |

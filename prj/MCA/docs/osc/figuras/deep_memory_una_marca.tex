@@ -114,12 +114,6 @@
 \node[font=\scriptsize, anchor=west] at (0.7,-0.45) {DDR, por HP};
 \draw[gp] (2.6,-0.45) -- ++(0.6,0);
 \node[font=\scriptsize, anchor=west] at (3.3,-0.45) {bus del sistema (GP0)};
-\node[font=\scriptsize, black!70, anchor=north west, text width=13.4cm, align=left, inner sep=0pt] at (-0.05,-0.8)
-  {Las muestras ya no cruzan el bus, así que $\tau$ es más corto que leyendo la BRAM. Pero la
-   máquina es la misma: después del post-trigger la escritura se detiene, y un trigger nuevo no
-   tiene dónde anotarse hasta que el PS lee la marca y re-arma. Con el mismo tren y el mismo
-   $\tau$, se pierde lo mismo que con la BRAM: el tiempo muerto ya no lo ponen las muestras,
-   lo pone la marca.};
 \end{scope}
 
 \end{tikzpicture}

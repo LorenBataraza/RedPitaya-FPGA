@@ -211,11 +211,9 @@ def fig_familias(formas, med, out, vpp):
     for ax in axes[:, 0]:
         ax.set_ylabel('tensión [V]')
 
-    fig.suptitle(f'Familias de forma de pulso — mismo FWHM y misma altura de '
-                 f'pico ({vpp/2:.2f} V).  Punteado rojo: umbral del MCA '
-                 f'({1e3*thr_V:.1f} mV).',
-                 x=0.008, ha='left', fontsize=10, color=TINTA2)
-    fig.tight_layout(rect=(0, 0, 1, 0.965))
+    # Sin título de figura: lo que decía (mismo FWHM y altura, el umbral
+    # punteado) va en el epígrafe del doc.
+    fig.tight_layout()
     p = os.path.join(out, 'familias.png')
     fig.savefig(p, dpi=120, bbox_inches='tight')
     plt.close(fig)

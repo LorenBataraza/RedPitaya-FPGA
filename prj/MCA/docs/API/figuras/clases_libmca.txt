@@ -4,3 +4,4 @@ siguiente. Arriba, los bloques que son sólo registros; abajo, el osciloscopio, 
 event_ring (con su segunda región, la DDR) y el generador de pulsos (con un segundo
 bus, el de HK, para el lazo digital). `gen_disparos` no tiene handle: son las cuentas
 del motor que comparten los dos generadores.
+Flecha punteada: usa. `_x` abrevia `<bloque>_x`.

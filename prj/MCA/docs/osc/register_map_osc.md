@@ -62,6 +62,10 @@ sistema hasta el bloque
 
 ![Ejemplo de mapa de registros: el mapa canónico de osc_cfg](figuras/mapa_registros_osc.svg)
 
+*Cada nivel amplía la fila de borde grueso del anterior; el ejemplo es `HYST` del
+canal 1, en `0x4010_1144`. El stride es el tamaño del bloque: el canal n empieza
+en `0x1100 + 0x40·n`. En `mca_red_pitaya_top` el slot 2 es un `sys_bus_stub`.*
+
 La dirección física de un registro es la suma de cuatro términos, y cada uno lo
 fija un nivel distinto. Para `HYST` del canal 1
 ([fuente](figuras/calculo_direccion_osc.tex)):

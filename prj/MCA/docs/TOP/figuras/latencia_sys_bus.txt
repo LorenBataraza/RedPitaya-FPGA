@@ -1,0 +1,2 @@
+Cada marca es una etapa de la tabla, con sus ciclos de `clk_fpga_0` (8 ns). La línea
+punteada es el cruce de reloj.

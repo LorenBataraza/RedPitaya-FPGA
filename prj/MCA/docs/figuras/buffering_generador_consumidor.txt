@@ -1,0 +1,5 @@
+El mismo tren de nueve eventos y el mismo τ en las dos. Con un lugar se pierden
+cinco: todo el tiempo que el consumidor está ocupado es tiempo muerto. Con tres
+lugares no se pierde ninguno: los que llegan en ráfaga esperan y el consumidor los
+atiende pegados. El consumidor no es más rápido; lo que cambia es que estar ocupado
+ya no implica perder.

@@ -1,0 +1,3 @@
+Rieles gruesos: señales que llegan a los ocho slots. Un punto es una toma del riel.
+`wen`/`ren` sólo pasan por la compuerta del slot elegido; a la vuelta, el
+multiplexor se queda con el `rdata`, `ack` y `err` de ese mismo slot.

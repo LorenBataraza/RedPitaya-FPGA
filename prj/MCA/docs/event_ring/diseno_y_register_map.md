@@ -157,6 +157,8 @@ pérdida es exacta. Lo verifica `tb_event_ring_top` test [4].
 
 ![El ring, visto desde el PS](figuras/secuencia/ring_secuencia.svg)
 
+*El tiempo corre hacia abajo y no está a escala: lo que fija la figura es el orden.*
+
 ([fuente](figuras/secuencia/ring_secuencia.tex))
 
 Sólo la PL y el PS: la DDR va del lado del PS. La misma secuencia con los

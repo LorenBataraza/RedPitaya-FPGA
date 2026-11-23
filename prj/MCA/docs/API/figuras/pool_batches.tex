@@ -93,11 +93,6 @@
   \texttt{RingSource}: no consume, los eventos esperan en la DDR};
 \draw[ctrl, rojo!70!black, dashed] ([xshift=0.2cm]rd.south west) -- ([xshift=0.2cm]rd.south west |- dsc.north);
 
-% el pool: lo que suman los cuatro lugares
-\node[font=\scriptsize, anchor=north west, align=left] at (5.3,-2.75)
-  {\textbf{el pool} = \texttt{n\_batches} \texttt{EventBatch}, creados al armar la sesión:\\
-   1 en el lector + 2 en \texttt{full\_q} + 1 en el escritor + 4 en \texttt{free\_q} = 8};
-
 % ============================================================== leyenda ===
 \leyenda{5.35,-3.75}{white/batch libre, azul!40/filas escritas, naranja!45/hilo, amarillo!60/cola, rojo!30/C (libmca)}{}
 

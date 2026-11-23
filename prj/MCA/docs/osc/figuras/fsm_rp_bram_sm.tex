@@ -114,18 +114,6 @@
 \draw[trans, dashed, black!70] (S3.north) -- ++(0,1.0) coordinate (t3) -| (S1.north)
   node[guarda, pos=0.25, above=1pt, fill=none] {\s{arm}};
 
-% ================================================================= leyenda ===
-\node[font=\scriptsize, align=left, anchor=north west, text width=16.5cm]
-  at ($(S3.west |- S2.south)+(0,-0.6)$) {%
-  \textbf{Notación.} \s{arm}, \s{rst}: pulsos de comando (escritura en \s{0x00});
-  \s{trig}: \s{adc\_trig\_i}; \s{dv}: muestra válida del diezmador;
-  \s{keep}: \s{adc\_we\_keep\_i} (modo continuo). Borde punteado: camino anómalo.\\[2pt]
-  \textbf{Prioridad.} \s{arm} gana sobre \s{rst} en \s{adc\_we};
-  \s{trig} gana sobre \s{arm} y \s{rst} en \s{adc\_dly\_do}
-  (p.\,ej.\ \s{arm}${}\wedge{}$\s{trig} en un mismo ciclo lleva a S2).\\[2pt]
-  \textbf{Validez.} Diagrama para \s{set\_dly}${}\ge 2$: con \s{set\_dly}${}=1$,
-  S1$\to$S0 pasa un ciclo por S3; con \s{set\_dly}${}=0$ el buffer nunca se congela.%
-};
 
 \end{tikzpicture}
 \end{document}

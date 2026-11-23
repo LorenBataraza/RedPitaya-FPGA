@@ -140,6 +140,10 @@ vuelven por un riel que un **multiplexor** reduce a uno:
 
 ![Estructura del bus de sistema: difusión, selección y multiplexado|1222](figuras/estructura_sys_bus.svg)
 
+*Rieles gruesos: señales que llegan a los ocho slots. Un punto es una toma del riel.
+`wen`/`ren` sólo pasan por la compuerta del slot elegido; a la vuelta, el
+multiplexor se queda con el `rdata`, `ack` y `err` de ese mismo slot.*
+
 La fuente es [`figuras/estructura_sys_bus.tex`](figuras/estructura_sys_bus.tex).
 
 ---
@@ -688,6 +692,9 @@ de `axi4_slave` libera al ARM, no al slot (§7.1):
 
 ![El contrato del bus de sistema como máquina de estados](figuras/contrato_sys_bus.svg)
 
+*Vista desde el puerto del esclavo, en `adc_clk`. `en_sr` desplaza `sys_wen |
+sys_ren`; `event_ring_top` usa su propio `ack_sr[2]`.*
+
 La fuente es [`figuras/contrato_sys_bus.tex`](figuras/contrato_sys_bus.tex).
 
 Reglas:
@@ -749,6 +756,9 @@ combinacional; todo lo que cuesta está en los registros de `axi4_slave`, en los
 sincronizadores del CDC y en el `ack` del esclavo.
 
 ![La latencia de un acceso a registro, etapa por etapa](figuras/latencia_sys_bus.svg)
+
+*Cada marca es una etapa de la tabla, con sus ciclos de `clk_fpga_0` (8 ns). La
+línea punteada es el cruce de reloj.*
 
 La fuente es [`figuras/latencia_sys_bus.tex`](figuras/latencia_sys_bus.tex).
 
