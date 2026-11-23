@@ -93,8 +93,18 @@ BIT_ENLACE ?= /root/mca_red_pitaya.bit.bin
 # de los otros tops en sus subdirectorios (out/v3_event_ring/). El patrón
 # `*_Z*_*CH.bit.bin` ES el contrato: un bitstream sin variante en el nombre no
 # entra al paquete, porque el instalador no sabría para qué placa es.
-BITS_TODOS := $(sort $(wildcard $(RAIZ)/../out/*_Z*_*CH.bit.bin \
-                                $(RAIZ)/../out/*/*_Z*_*CH.bit.bin))
+#
+# Pero out/ también guarda bitstreams viejos archivados en subdirectorios
+# (out/mca_6156e5a3/, out/pre_fase12/...) con el MISMO nombre que el vigente.
+# Todos van al mismo out/ del paquete, así que el `cp` los pisaba y quedaba el
+# último en orden alfabético: el más viejo. Por eso un nombre que ya está en
+# out/ gana sobre los de los subdirectorios, y si dos subdirectorios repiten un
+# nombre `release` se planta (BITS_REPETIDOS) en vez de elegir uno a ciegas.
+BITS_RAIZ  := $(sort $(wildcard $(RAIZ)/../out/*_Z*_*CH.bit.bin))
+BITS_SUB   := $(filter-out $(addprefix %/,$(notdir $(BITS_RAIZ))), \
+                $(sort $(wildcard $(RAIZ)/../out/*/*_Z*_*CH.bit.bin)))
+BITS_TODOS := $(BITS_RAIZ) $(BITS_SUB)
+BITS_REPETIDOS := $(shell printf '%s\n' $(notdir $(BITS_SUB)) | sort | uniq -d)
 
 # release-*: el paquete instalable, para quien sólo quiere USAR el sistema y no
 # los 300 MB del repo. La versión sale de un fichero y NO de `git describe` a
@@ -941,6 +951,12 @@ release: libmca-arm  ## arma el paquete instalable en dist/. Versión en ../VERS
 	  echo "       un paquete sin bitstream no sirve para nada: es justo lo que"; \
 	  echo "       no se puede reconstruir del otro lado. Corré la síntesis."; \
 	  exit 1; }
+	@if [ -n "$(BITS_REPETIDOS)" ]; then \
+	   echo "ERROR: más de un subdirectorio de out/ trae $(BITS_REPETIDOS)."; \
+	   echo "       el paquete los copia todos al mismo out/ y uno pisaría al otro."; \
+	   echo "       dejá el vigente en out/ (gana sobre los subdirectorios) o"; \
+	   echo "       renombrá los archivados."; \
+	   exit 1; fi
 	@# Van TODOS los bitstreams generados, no sólo el de la variante del banco:
 	@# el paquete es uno por versión y el instalador elige el de su placa. Pero
 	@# "todos los que hay en out/" incluye los que quedaron de una síntesis
@@ -976,6 +992,13 @@ release: libmca-arm  ## arma el paquete instalable en dist/. Versión en ../VERS
 	  --exclude '*.ipynb' --exclude '.ipynb_checkpoints/' --exclude '*.npz' \
 	  $(RAIZ)/ $(STAGING)/$(PAQUETE)/software/
 	@cp $(BITS_TODOS) $(STAGING)/$(PAQUETE)/out/
+	@# El golden model de gen_pulsos vive en modulos/, fuera de software/, y lo
+	@# importan los modos --simulada de run_meritos_pulsos y run_fidelidad_osc
+	@# (por _RAIZ/../modulos/...). Va en la misma ruta relativa del repo.
+	@mkdir -p $(STAGING)/$(PAQUETE)/modulos/gen_eventos/modelos
+	@rsync -a --exclude '__pycache__/' \
+	  $(RAIZ)/../modulos/gen_eventos/modelos/python_model \
+	  $(STAGING)/$(PAQUETE)/modulos/gen_eventos/modelos/
 	@cp $(RAIZ)/release/LEEME.md $(STAGING)/$(PAQUETE)/
 	@install -m 755 $(RAIZ)/release/instalar.sh $(STAGING)/$(PAQUETE)/
 	@# VERSION viaja DENTRO del paquete: cuando dentro de seis meses una placa

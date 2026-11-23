@@ -163,6 +163,8 @@ def test_registros_coinciden_con_libmca():
 @sin_modelo
 def test_el_mapa_es_el_del_rtl():
     """Los offsets del comentario de registros de gen_pulsos.sv."""
+    if not os.path.exists(_RTL):
+        pytest.skip(f'no está {_RTL}: en un paquete de release no va el RTL')
     rtl = open(_RTL).read()
     del_rtl = {m.group(2): int(m.group(1), 16)
                for m in re.finditer(r'^//\s+0x([0-9A-Fa-f]{4}) R[W ]? +([A-Z_]+)', rtl, re.M)}
